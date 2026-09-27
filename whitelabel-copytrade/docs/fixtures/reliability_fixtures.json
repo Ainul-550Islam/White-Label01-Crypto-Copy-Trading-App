@@ -1,0 +1,1550 @@
+{
+  "attributeHygiene": [
+    {
+      "kept": true,
+      "key": "approved",
+      "renderedKey": "approved",
+      "renderedValue": true,
+      "value": true
+    },
+    {
+      "kept": true,
+      "key": "event_count",
+      "renderedKey": "event_count",
+      "renderedValue": 7,
+      "value": 7
+    },
+    {
+      "kept": true,
+      "key": "note",
+      "renderedKey": "note",
+      "renderedValue": "plain text",
+      "value": "plain text"
+    },
+    {
+      "kept": true,
+      "key": "ratio",
+      "renderedKey": "ratio",
+      "renderedValue": "1.25",
+      "value": 1.25
+    },
+    {
+      "kept": false,
+      "key": "api_key",
+      "renderedKey": null,
+      "renderedValue": null,
+      "value": "AAAABBBB"
+    },
+    {
+      "kept": false,
+      "key": "authorization",
+      "renderedKey": null,
+      "renderedValue": null,
+      "value": "Bearer xyz"
+    },
+    {
+      "kept": false,
+      "key": "password",
+      "renderedKey": null,
+      "renderedValue": null,
+      "value": "hunter2"
+    },
+    {
+      "kept": false,
+      "key": "UPPERKEY",
+      "renderedKey": null,
+      "renderedValue": null,
+      "value": "x"
+    },
+    {
+      "kept": false,
+      "key": "key with spaces",
+      "renderedKey": null,
+      "renderedValue": null,
+      "value": "x"
+    },
+    {
+      "kept": true,
+      "key": "detail",
+      "renderedKey": "detail",
+      "renderedValue": "[REDACTED]@db:5432/x",
+      "value": "postgres://user:secret@db:5432/x"
+    },
+    {
+      "kept": true,
+      "key": "long",
+      "renderedKey": "long",
+      "renderedValue": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "value": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    },
+    {
+      "kept": false,
+      "key": "nested",
+      "renderedKey": null,
+      "renderedValue": null,
+      "value": null
+    },
+    {
+      "kept": false,
+      "key": "none_value",
+      "renderedKey": null,
+      "renderedValue": null,
+      "value": null
+    }
+  ],
+  "budgetRows": [
+    {
+      "bad": 5,
+      "budget": {
+        "allowedPpm": 5000,
+        "badEvents": 5,
+        "budgetConsumedEvents": 5,
+        "budgetRemainingEvents": 0,
+        "budgetTotalEvents": 5,
+        "budgetZero": true,
+        "burnPpm": 1000000,
+        "compliancePpm": 995000,
+        "failurePpm": 5000,
+        "goodEvents": 995,
+        "objectivePpm": 995000,
+        "remainingRatioPpm": 0,
+        "totalEvents": 1000
+      },
+      "good": 995,
+      "objective": "99.5"
+    },
+    {
+      "bad": 1,
+      "budget": {
+        "allowedPpm": 5000,
+        "badEvents": 1,
+        "budgetConsumedEvents": 1,
+        "budgetRemainingEvents": 4,
+        "budgetTotalEvents": 5,
+        "budgetZero": false,
+        "burnPpm": 200000,
+        "compliancePpm": 999000,
+        "failurePpm": 1000,
+        "goodEvents": 999,
+        "objectivePpm": 995000,
+        "remainingRatioPpm": 800000,
+        "totalEvents": 1000
+      },
+      "good": 999,
+      "objective": "99.5"
+    },
+    {
+      "bad": 0,
+      "budget": {
+        "allowedPpm": 5000,
+        "badEvents": 0,
+        "budgetConsumedEvents": 0,
+        "budgetRemainingEvents": 0,
+        "budgetTotalEvents": 0,
+        "budgetZero": false,
+        "burnPpm": null,
+        "compliancePpm": null,
+        "failurePpm": null,
+        "goodEvents": 0,
+        "objectivePpm": 995000,
+        "remainingRatioPpm": null,
+        "totalEvents": 0
+      },
+      "good": 0,
+      "objective": "99.5"
+    },
+    {
+      "bad": 2,
+      "budget": {
+        "allowedPpm": 1,
+        "badEvents": 2,
+        "budgetConsumedEvents": 2,
+        "budgetRemainingEvents": 1,
+        "budgetTotalEvents": 3,
+        "budgetZero": false,
+        "burnPpm": 0,
+        "compliancePpm": 1000000,
+        "failurePpm": 0,
+        "goodEvents": 2999998,
+        "objectivePpm": 999999,
+        "remainingRatioPpm": 333333,
+        "totalEvents": 3000000
+      },
+      "good": 2999998,
+      "objective": "99.9999"
+    },
+    {
+      "bad": 1,
+      "budget": {
+        "allowedPpm": 500,
+        "badEvents": 1,
+        "budgetConsumedEvents": 0,
+        "budgetRemainingEvents": 0,
+        "budgetTotalEvents": 0,
+        "budgetZero": false,
+        "burnPpm": 2000000,
+        "compliancePpm": 999000,
+        "failurePpm": 1000,
+        "goodEvents": 999,
+        "objectivePpm": 999500,
+        "remainingRatioPpm": 0,
+        "totalEvents": 1000
+      },
+      "good": 999,
+      "objective": "99.95"
+    },
+    {
+      "bad": 1,
+      "budget": {
+        "allowedPpm": 10000,
+        "badEvents": 1,
+        "budgetConsumedEvents": 1,
+        "budgetRemainingEvents": 0,
+        "budgetTotalEvents": 1,
+        "budgetZero": true,
+        "burnPpm": 990000,
+        "compliancePpm": 990100,
+        "failurePpm": 9900,
+        "goodEvents": 100,
+        "objectivePpm": 990000,
+        "remainingRatioPpm": 0,
+        "totalEvents": 101
+      },
+      "good": 100,
+      "objective": "99.0"
+    },
+    {
+      "bad": 10,
+      "budget": {
+        "allowedPpm": 50000,
+        "badEvents": 10,
+        "budgetConsumedEvents": 10,
+        "budgetRemainingEvents": 499990,
+        "budgetTotalEvents": 500000,
+        "budgetZero": false,
+        "burnPpm": 20,
+        "compliancePpm": 999999,
+        "failurePpm": 1,
+        "goodEvents": 9999990,
+        "objectivePpm": 950000,
+        "remainingRatioPpm": 999980,
+        "totalEvents": 10000000
+      },
+      "good": 9999990,
+      "objective": "95"
+    },
+    {
+      "bad": 1,
+      "budget": {
+        "allowedPpm": 5000,
+        "badEvents": 1,
+        "budgetConsumedEvents": 0,
+        "budgetRemainingEvents": 0,
+        "budgetTotalEvents": 0,
+        "budgetZero": false,
+        "burnPpm": 66666600,
+        "compliancePpm": 666667,
+        "failurePpm": 333333,
+        "goodEvents": 2,
+        "objectivePpm": 995000,
+        "remainingRatioPpm": 0,
+        "totalEvents": 3
+      },
+      "good": 2,
+      "objective": "99.5"
+    }
+  ],
+  "burnRows": [
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": null,
+        "shortBurnPpm": null,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": null,
+      "shortBurnPpm": null,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 1000000,
+        "shortBurnPpm": null,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 1000000,
+      "shortBurnPpm": null,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 6000000,
+        "shortBurnPpm": null,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 6000000,
+      "shortBurnPpm": null,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 14400000,
+        "shortBurnPpm": null,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 14400000,
+      "shortBurnPpm": null,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": null,
+        "shortBurnPpm": 5999999,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": null,
+      "shortBurnPpm": 5999999,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 1000000,
+        "shortBurnPpm": 5999999,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 1000000,
+      "shortBurnPpm": 5999999,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 6000000,
+        "shortBurnPpm": 5999999,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 6000000,
+      "shortBurnPpm": 5999999,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 14400000,
+        "shortBurnPpm": 5999999,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 14400000,
+      "shortBurnPpm": 5999999,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": null,
+        "shortBurnPpm": 6000000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": null,
+      "shortBurnPpm": 6000000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 1000000,
+        "shortBurnPpm": 6000000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 1000000,
+      "shortBurnPpm": 6000000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "slow",
+        "longBurnPpm": 6000000,
+        "shortBurnPpm": 6000000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 6000000,
+      "shortBurnPpm": 6000000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "slow",
+        "longBurnPpm": 14400000,
+        "shortBurnPpm": 6000000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 14400000,
+      "shortBurnPpm": 6000000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": null,
+        "shortBurnPpm": 14399999,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": null,
+      "shortBurnPpm": 14399999,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 1000000,
+        "shortBurnPpm": 14399999,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 1000000,
+      "shortBurnPpm": 14399999,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "slow",
+        "longBurnPpm": 6000000,
+        "shortBurnPpm": 14399999,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 6000000,
+      "shortBurnPpm": 14399999,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "slow",
+        "longBurnPpm": 14400000,
+        "shortBurnPpm": 14399999,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 14400000,
+      "shortBurnPpm": 14399999,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": null,
+        "shortBurnPpm": 14400000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": null,
+      "shortBurnPpm": 14400000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 1000000,
+        "shortBurnPpm": 14400000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 1000000,
+      "shortBurnPpm": 14400000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "slow",
+        "longBurnPpm": 6000000,
+        "shortBurnPpm": 14400000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 6000000,
+      "shortBurnPpm": 14400000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "both",
+        "longBurnPpm": 14400000,
+        "shortBurnPpm": 14400000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 14400000,
+      "shortBurnPpm": 14400000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": null,
+        "shortBurnPpm": 20000000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": null,
+      "shortBurnPpm": 20000000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "none",
+        "longBurnPpm": 1000000,
+        "shortBurnPpm": 20000000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 1000000,
+      "shortBurnPpm": 20000000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "slow",
+        "longBurnPpm": 6000000,
+        "shortBurnPpm": 20000000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 6000000,
+      "shortBurnPpm": 20000000,
+      "slowThresholdPpm": 6000000
+    },
+    {
+      "expected": {
+        "fastThresholdPpm": 14400000,
+        "kind": "both",
+        "longBurnPpm": 14400000,
+        "shortBurnPpm": 20000000,
+        "slowThresholdPpm": 6000000
+      },
+      "fastThresholdPpm": 14400000,
+      "longBurnPpm": 14400000,
+      "shortBurnPpm": 20000000,
+      "slowThresholdPpm": 6000000
+    }
+  ],
+  "enums": {
+    "alertRules": [
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "MARKET_DATA_STALE",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "ORDERBOOK_RESYNC_STORM",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "RISK_SNAPSHOT_STALE",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "RISK_ENGINE_UNAVAILABLE",
+        "severity": "EMERGENCY"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "EXECUTION_UNAVAILABLE",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "EXCHANGE_DISCONNECTED",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "RECONCILIATION_DISCREPANCY",
+        "severity": "EMERGENCY"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "REPEATED_ORDER_REJECTION",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "AMBIGUOUS_EXECUTION",
+        "severity": "EMERGENCY"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "RATE_LIMIT_EXHAUSTION",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "QUEUE_BACKLOG",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "EXECUTION_QUEUE_BACKLOG",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "WORKER_FAILURE",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "POSTGRES_UNAVAILABLE",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "REDIS_UNAVAILABLE",
+        "severity": "EMERGENCY"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "DATASET_VALIDATION_FAILURES",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "STRATEGY_ERROR_SPIKE",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "KILL_SWITCH_ENGAGED",
+        "severity": "EMERGENCY"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "PROTECTION_TRIGGERED",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "SLO_BURN_FAST",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "SLO_BURN_SLOW",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "SLO_BUDGET_EXHAUSTED",
+        "severity": "CRITICAL"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "TELEMETRY_EXPORT_FAILING",
+        "severity": "WARNING"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "SLO_TELEMETRY_GAP",
+        "severity": "WARNING"
+      }
+    ],
+    "allowedLabelNames": [
+      "alert_state",
+      "alert_type",
+      "channel",
+      "component",
+      "dataset_kind",
+      "event_kind",
+      "exchange",
+      "feed_state",
+      "job_name",
+      "market_type",
+      "method",
+      "pool_state",
+      "queue",
+      "result",
+      "risk_code",
+      "route",
+      "rule_id",
+      "scope",
+      "service",
+      "severity",
+      "simulation",
+      "slo",
+      "stage",
+      "status_class",
+      "strategy_id",
+      "symbol",
+      "trigger_type",
+      "window_kind"
+    ],
+    "faultPoints": [
+      "alert_persistence_failure",
+      "market_data_stale_simulated",
+      "metrics_export_unavailable",
+      "postgres_health_probe_unavailable",
+      "queue_observed_delay",
+      "queue_observed_failure",
+      "reconciliation_delay_simulated",
+      "redis_health_probe_unavailable",
+      "risk_snapshot_stale_simulated",
+      "trace_export_unavailable"
+    ],
+    "samplingModes": [
+      "disabled",
+      "off",
+      "all",
+      "parent_based",
+      "ratio"
+    ],
+    "sloIndicators": [
+      "availability",
+      "request_success_ratio",
+      "queue_processing_success",
+      "queue_freshness",
+      "market_data_freshness",
+      "risk_state_freshness",
+      "reconciliation_freshness",
+      "latency_threshold_compliance",
+      "error_rate_compliance"
+    ],
+    "sloStates": [
+      "HEALTHY",
+      "WARNING",
+      "CRITICAL",
+      "EXHAUSTED",
+      "UNKNOWN"
+    ],
+    "sloWindowKinds": [
+      "short",
+      "long"
+    ],
+    "tracedOperations": [
+      "backtest.run",
+      "dataset.replay",
+      "dataset.select",
+      "dataset.verify_checksum",
+      "execution.reconcile",
+      "execution.submit",
+      "execution.transmit",
+      "execution.validate",
+      "http.client",
+      "http.server",
+      "queue.process",
+      "queue.publish",
+      "risk.evaluate",
+      "risk.reservation_admit",
+      "risk.reservation_release",
+      "signal.created",
+      "signal.validated",
+      "slo.evaluate",
+      "strategy.dispatch",
+      "tracing.export"
+    ]
+  },
+  "generator": "libs/trading-core/scripts/gen_part10_fixtures.py",
+  "note": "Committed cross-language vectors for Part 10. The TS services must reproduce every value below from their own implementation. Nothing here authorises a trade; measurement only.",
+  "otlpJson": {
+    "empty": "{\"resourceSpans\":[]}",
+    "int64Edge": "{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"deployment.environment\",\"value\":{\"stringValue\":\"test\"}},{\"key\":\"service.name\",\"value\":{\"stringValue\":\"trading-engine\"}}]},\"scopeSpans\":[{\"scope\":{\"name\":\"wlct.observability\",\"version\":\"1\"},\"spans\":[{\"traceId\":\"cccccccccccccccccccccccccccccccc\",\"spanId\":\"ffffffffffffffff\",\"name\":\"risk.evaluate\",\"kind\":1,\"startTimeUnixNano\":\"9223372036854775807\",\"endTimeUnixNano\":\"9223372036854775808\",\"attributes\":[{\"key\":\"big.count\",\"value\":{\"intValue\":\"9007199254740993\"}},{\"key\":\"neg\",\"value\":{\"intValue\":\"-7\"}},{\"key\":\"zero\",\"value\":{\"intValue\":\"0\"}}],\"status\":{\"code\":0},\"flags\":1}]}]}]}",
+    "single": "{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"deployment.environment\",\"value\":{\"stringValue\":\"test\"}},{\"key\":\"service.name\",\"value\":{\"stringValue\":\"trading-engine\"}}]},\"scopeSpans\":[{\"scope\":{\"name\":\"wlct.observability\",\"version\":\"1\"},\"spans\":[{\"traceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"spanId\":\"1234567890abcdef\",\"name\":\"risk.evaluate\",\"kind\":1,\"startTimeUnixNano\":\"1700000000000000000\",\"endTimeUnixNano\":\"1700000000000001500\",\"attributes\":[{\"key\":\"approved\",\"value\":{\"boolValue\":true}},{\"key\":\"risk.event_count\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"risk.simulated\",\"value\":{\"stringValue\":\"false\"}},{\"key\":\"trade.symbol\",\"value\":{\"stringValue\":\"BTCUSDT\"}}],\"events\":[{\"timeUnixNano\":\"1700000000000500000\",\"name\":\"milestone\",\"attributes\":[{\"key\":\"detail\",\"value\":{\"stringValue\":\"reservation admitted\"}}]}],\"status\":{\"code\":1},\"flags\":1}]}]}]}",
+    "twoResources": "{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"deployment.environment\",\"value\":{\"stringValue\":\"test\"}},{\"key\":\"service.name\",\"value\":{\"stringValue\":\"trading-engine\"}}]},\"scopeSpans\":[{\"scope\":{\"name\":\"wlct.observability\",\"version\":\"1\"},\"spans\":[{\"traceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"spanId\":\"1234567890abcdef\",\"name\":\"risk.evaluate\",\"kind\":1,\"startTimeUnixNano\":\"1700000000000000000\",\"endTimeUnixNano\":\"1700000000000001500\",\"attributes\":[{\"key\":\"approved\",\"value\":{\"boolValue\":true}},{\"key\":\"risk.event_count\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"risk.simulated\",\"value\":{\"stringValue\":\"false\"}},{\"key\":\"trade.symbol\",\"value\":{\"stringValue\":\"BTCUSDT\"}}],\"events\":[{\"timeUnixNano\":\"1700000000000500000\",\"name\":\"milestone\",\"attributes\":[{\"key\":\"detail\",\"value\":{\"stringValue\":\"reservation admitted\"}}]}],\"status\":{\"code\":1},\"flags\":1},{\"traceId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"spanId\":\"fedcba0987654321\",\"name\":\"execution.transmit\",\"kind\":3,\"startTimeUnixNano\":\"1700000000000000000\",\"endTimeUnixNano\":\"1700000000000001500\",\"parentSpanId\":\"1234567890abcdef\",\"attributes\":[{\"key\":\"approved\",\"value\":{\"boolValue\":true}},{\"key\":\"risk.event_count\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"risk.simulated\",\"value\":{\"stringValue\":\"false\"}},{\"key\":\"trade.symbol\",\"value\":{\"stringValue\":\"BTCUSDT\"}}],\"droppedAttributesCount\":3,\"events\":[{\"timeUnixNano\":\"1700000000000999999\",\"name\":\"exception\",\"attributes\":[{\"key\":\"exception.message\",\"value\":{\"stringValue\":\"[REDACTED]@db:5432 down\"}},{\"key\":\"exception.type\",\"value\":{\"stringValue\":\"ConnectionError\"}}]}],\"droppedEventsCount\":1,\"status\":{\"code\":2,\"message\":\"connect postgres://u:p@db failed \\\"quoted\\\" \\\\n\"},\"tracestate\":\"vendor=v=1,solo\",\"flags\":1}]}]},{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"api\"}}]},\"scopeSpans\":[{\"scope\":{\"name\":\"wlct.observability\",\"version\":\"1\"},\"spans\":[{\"traceId\":\"dddddddddddddddddddddddddddddddd\",\"spanId\":\"abcdabcdabcdabcd\",\"name\":\"risk.evaluate\",\"kind\":1,\"startTimeUnixNano\":\"1700000000000000000\",\"endTimeUnixNano\":\"1700000000000001500\",\"attributes\":[{\"key\":\"approved\",\"value\":{\"boolValue\":true}},{\"key\":\"risk.event_count\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"risk.simulated\",\"value\":{\"stringValue\":\"false\"}},{\"key\":\"trade.symbol\",\"value\":{\"stringValue\":\"BTCUSDT\"}}],\"events\":[{\"timeUnixNano\":\"1700000000000500000\",\"name\":\"milestone\",\"attributes\":[{\"key\":\"detail\",\"value\":{\"stringValue\":\"reservation admitted\"}}]}],\"status\":{\"code\":1},\"flags\":1}]}]}]}",
+    "twoSpansOneResource": "{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"deployment.environment\",\"value\":{\"stringValue\":\"test\"}},{\"key\":\"service.name\",\"value\":{\"stringValue\":\"trading-engine\"}}]},\"scopeSpans\":[{\"scope\":{\"name\":\"wlct.observability\",\"version\":\"1\"},\"spans\":[{\"traceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"spanId\":\"1234567890abcdef\",\"name\":\"risk.evaluate\",\"kind\":1,\"startTimeUnixNano\":\"1700000000000000000\",\"endTimeUnixNano\":\"1700000000000001500\",\"attributes\":[{\"key\":\"approved\",\"value\":{\"boolValue\":true}},{\"key\":\"risk.event_count\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"risk.simulated\",\"value\":{\"stringValue\":\"false\"}},{\"key\":\"trade.symbol\",\"value\":{\"stringValue\":\"BTCUSDT\"}}],\"events\":[{\"timeUnixNano\":\"1700000000000500000\",\"name\":\"milestone\",\"attributes\":[{\"key\":\"detail\",\"value\":{\"stringValue\":\"reservation admitted\"}}]}],\"status\":{\"code\":1},\"flags\":1},{\"traceId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"spanId\":\"fedcba0987654321\",\"name\":\"execution.transmit\",\"kind\":3,\"startTimeUnixNano\":\"1700000000000000000\",\"endTimeUnixNano\":\"1700000000000001500\",\"parentSpanId\":\"1234567890abcdef\",\"attributes\":[{\"key\":\"approved\",\"value\":{\"boolValue\":true}},{\"key\":\"risk.event_count\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"risk.simulated\",\"value\":{\"stringValue\":\"false\"}},{\"key\":\"trade.symbol\",\"value\":{\"stringValue\":\"BTCUSDT\"}}],\"droppedAttributesCount\":3,\"events\":[{\"timeUnixNano\":\"1700000000000999999\",\"name\":\"exception\",\"attributes\":[{\"key\":\"exception.message\",\"value\":{\"stringValue\":\"[REDACTED]@db:5432 down\"}},{\"key\":\"exception.type\",\"value\":{\"stringValue\":\"ConnectionError\"}}]}],\"droppedEventsCount\":1,\"status\":{\"code\":2,\"message\":\"connect postgres://u:p@db failed \\\"quoted\\\" \\\\n\"},\"tracestate\":\"vendor=v=1,solo\",\"flags\":1}]}]}]}"
+  },
+  "part": "10",
+  "sampling": {
+    "rows": [
+      {
+        "bucket": 790211418057950173,
+        "enabled": false,
+        "expected": false,
+        "mode": "disabled",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0.0,
+        "ratioPpm": 0,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 790211418057950173,
+        "enabled": true,
+        "expected": false,
+        "mode": "off",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0.0,
+        "ratioPpm": 0,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 790211418057950173,
+        "enabled": true,
+        "expected": true,
+        "mode": "all",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0.0,
+        "ratioPpm": 0,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 9223372036854775807,
+        "enabled": true,
+        "expected": true,
+        "mode": "ratio",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0.5,
+        "ratioPpm": 500000,
+        "traceId": "7fffffffffffffff8448eb211c80319c"
+      },
+      {
+        "bucket": 9223372036854775808,
+        "enabled": true,
+        "expected": false,
+        "mode": "ratio",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0.5,
+        "ratioPpm": 500000,
+        "traceId": "80000000000000008448eb211c80319c"
+      },
+      {
+        "bucket": 18446744073708,
+        "enabled": true,
+        "expected": true,
+        "mode": "ratio",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 1e-06,
+        "ratioPpm": 1,
+        "traceId": "000010c6f7a0b5ec0000000000000000"
+      },
+      {
+        "bucket": 18446744073709,
+        "enabled": true,
+        "expected": false,
+        "mode": "ratio",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 1e-06,
+        "ratioPpm": 1,
+        "traceId": "000010c6f7a0b5ed0000000000000000"
+      },
+      {
+        "bucket": 790211418057950173,
+        "enabled": true,
+        "expected": true,
+        "mode": "ratio",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0.05,
+        "ratioPpm": 50000,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 18446744073709551615,
+        "enabled": true,
+        "expected": true,
+        "mode": "ratio",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 1.0,
+        "ratioPpm": 1000000,
+        "traceId": "ffffffffffffffffffffffffffffffff"
+      },
+      {
+        "bucket": 790211418057950173,
+        "enabled": true,
+        "expected": true,
+        "mode": "ratio",
+        "operation": "execution.transmit",
+        "parentSampled": true,
+        "priorityOperations": [
+          "execution.transmit"
+        ],
+        "ratio": 0.0,
+        "ratioPpm": 0,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 790211418057950173,
+        "enabled": true,
+        "expected": false,
+        "mode": "ratio",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0.0,
+        "ratioPpm": 0,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 790211418057950173,
+        "enabled": true,
+        "expected": true,
+        "mode": "parent_based",
+        "operation": "risk.evaluate",
+        "parentSampled": true,
+        "priorityOperations": [],
+        "ratio": 0.1,
+        "ratioPpm": 100000,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 790211418057950173,
+        "enabled": true,
+        "expected": false,
+        "mode": "parent_based",
+        "operation": "risk.evaluate",
+        "parentSampled": false,
+        "priorityOperations": [],
+        "ratio": 0.1,
+        "ratioPpm": 100000,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 790211418057950173,
+        "enabled": true,
+        "expected": true,
+        "mode": "parent_based",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0.1,
+        "ratioPpm": 100000,
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "bucket": 0,
+        "enabled": true,
+        "expected": true,
+        "mode": "constant",
+        "note": "row with a fabricated all-zero trace id fed straight into should_sample: bucket 0 is under every positive threshold; note that Tracer.start_span rejects all-zero ids BEFORE sampling via the W3C validity rule, so this row tests the pure function, not the tracer path",
+        "operation": "risk.evaluate",
+        "parentSampled": null,
+        "priorityOperations": [],
+        "ratio": 0,
+        "ratioPpm": 65536,
+        "traceId": "00000000000000000000000000000000"
+      }
+    ]
+  },
+  "slo": {
+    "catalog": [
+      {
+        "allowedPpm": 5000,
+        "checksum": "7630d3acd7b4fd69f53e3ad42d560a11438e0674ad516ecb9f7d72b82e91f3b2",
+        "criticalBurnPpm": 2000000,
+        "indicator": "availability",
+        "latencyThresholdMicros": null,
+        "maxAgeMicros": null,
+        "objective": "99.5",
+        "objectivePpm": 995000,
+        "owner": "platform-sre",
+        "service": "api",
+        "shortWindowMinutes": 60,
+        "sloId": "api.availability",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      },
+      {
+        "allowedPpm": 5000,
+        "checksum": "378b802169794767287438f04014c599c79db5cbb77ff6e2304d40c9e7ee1ab9",
+        "criticalBurnPpm": 2000000,
+        "indicator": "request_success_ratio",
+        "latencyThresholdMicros": null,
+        "maxAgeMicros": null,
+        "objective": "99.5",
+        "objectivePpm": 995000,
+        "owner": "platform-sre",
+        "service": "api",
+        "shortWindowMinutes": 60,
+        "sloId": "api.request-success",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      },
+      {
+        "allowedPpm": 10000,
+        "checksum": "244880228319af1b69e0979b5ac8cf2744162a4a1871b5608099251e3f8e2556",
+        "criticalBurnPpm": 2000000,
+        "indicator": "queue_processing_success",
+        "latencyThresholdMicros": null,
+        "maxAgeMicros": null,
+        "objective": "99",
+        "objectivePpm": 990000,
+        "owner": "platform-sre",
+        "service": "queues",
+        "shortWindowMinutes": 60,
+        "sloId": "queues.processing-success",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      },
+      {
+        "allowedPpm": 10000,
+        "checksum": "680bac29ece459a9e962c8be727ebe40c9b2108cf337a449bfe6e2e661a98929",
+        "criticalBurnPpm": 2000000,
+        "indicator": "queue_freshness",
+        "latencyThresholdMicros": null,
+        "maxAgeMicros": "240000000",
+        "objective": "99",
+        "objectivePpm": 990000,
+        "owner": "platform-sre",
+        "service": "queues",
+        "shortWindowMinutes": 60,
+        "sloId": "queues.freshness",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      },
+      {
+        "allowedPpm": 5000,
+        "checksum": "7e3493538716977f51433a2131fb73fdaa9a196e1950df08005a3ffd754eb7fd",
+        "criticalBurnPpm": 2000000,
+        "indicator": "market_data_freshness",
+        "latencyThresholdMicros": null,
+        "maxAgeMicros": "30000000",
+        "objective": "99.5",
+        "objectivePpm": 995000,
+        "owner": "trading-platform",
+        "service": "market-data",
+        "shortWindowMinutes": 60,
+        "sloId": "market-data.freshness",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      },
+      {
+        "allowedPpm": 1000,
+        "checksum": "cd4cb1aa7ce46b339784372c81e35268e69bffa207664a3f7e98473d1d905aac",
+        "criticalBurnPpm": 2000000,
+        "indicator": "risk_state_freshness",
+        "latencyThresholdMicros": null,
+        "maxAgeMicros": "4000000",
+        "objective": "99.9",
+        "objectivePpm": 999000,
+        "owner": "trading-platform",
+        "service": "trading-engine",
+        "shortWindowMinutes": 60,
+        "sloId": "risk-state.freshness",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      },
+      {
+        "allowedPpm": 10000,
+        "checksum": "c74ff98d516279ed964ac20269420e5876cd213088e273910d6d6f78e414ef73",
+        "criticalBurnPpm": 2000000,
+        "indicator": "reconciliation_freshness",
+        "latencyThresholdMicros": null,
+        "maxAgeMicros": "900000000",
+        "objective": "99",
+        "objectivePpm": 990000,
+        "owner": "trading-platform",
+        "service": "trading-engine",
+        "shortWindowMinutes": 60,
+        "sloId": "execution.reconciliation-freshness",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      },
+      {
+        "allowedPpm": 10000,
+        "checksum": "efb45956e15a48b820c88fce68269e41a7321c22d5d3f6ff0dcf0f3a8cb1531d",
+        "criticalBurnPpm": 2000000,
+        "indicator": "latency_threshold_compliance",
+        "latencyThresholdMicros": "500000",
+        "maxAgeMicros": null,
+        "objective": "99",
+        "objectivePpm": 990000,
+        "owner": "platform-sre",
+        "service": "api",
+        "shortWindowMinutes": 60,
+        "sloId": "api.latency-compliance",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      },
+      {
+        "allowedPpm": 1000,
+        "checksum": "6915d741d64cdb80a3ce1c337c7eb47dad904fac427adcf9a9fca0ec4daa95c5",
+        "criticalBurnPpm": 2000000,
+        "indicator": "error_rate_compliance",
+        "latencyThresholdMicros": null,
+        "maxAgeMicros": null,
+        "objective": "99.9",
+        "objectivePpm": 999000,
+        "owner": "trading-platform",
+        "service": "trading-engine",
+        "shortWindowMinutes": 60,
+        "sloId": "trading-engine.error-rate",
+        "warningBurnPpm": 1000000,
+        "windowMinutes": 1440
+      }
+    ],
+    "checksumVectors": [
+      {
+        "canonicalJson": "{\"badEvent\":\"5xx\",\"criticalBurnPpm\":2000000,\"description\":\"Canonical spelling A.\",\"goodEvent\":\"no 5xx\",\"indicator\":\"availability\",\"latencyThresholdMicros\":null,\"maxAgeMicros\":null,\"objective\":\"99.5\",\"owner\":\"sre\",\"service\":\"test\",\"shortWindowMinutes\":60,\"sloId\":\"test.availability\",\"warningBurnPpm\":1000000,\"windowMinutes\":1440}",
+        "engineChecksum": "6025a4b2ee607ad5c5aa81d855108c5cdc946e58d6f0c5df2b6c52830ee0fca7",
+        "sha256": "6025a4b2ee607ad5c5aa81d855108c5cdc946e58d6f0c5df2b6c52830ee0fca7"
+      },
+      {
+        "canonicalJson": "{\"badEvent\":\"5xx\",\"criticalBurnPpm\":2000000,\"description\":\"Prose moves the digest.\",\"goodEvent\":\"2xx\",\"indicator\":\"availability\",\"latencyThresholdMicros\":null,\"maxAgeMicros\":null,\"objective\":\"99.5\",\"owner\":\"sre\",\"service\":\"test\",\"shortWindowMinutes\":60,\"sloId\":\"test.prose\",\"warningBurnPpm\":1000000,\"windowMinutes\":1440}",
+        "engineChecksum": "0fc44defbc223aa9fe3026625f626014363308e0e2e2faca2e15814da5f35e63",
+        "sha256": "0fc44defbc223aa9fe3026625f626014363308e0e2e2faca2e15814da5f35e63"
+      },
+      {
+        "canonicalJson": "{\"badEvent\":\"over budget\",\"criticalBurnPpm\":2000000,\"description\":\"Freshness with threshold.\",\"goodEvent\":\"within budget\",\"indicator\":\"market_data_freshness\",\"latencyThresholdMicros\":null,\"maxAgeMicros\":30000000,\"objective\":\"99\",\"owner\":\"sre\",\"service\":\"test\",\"shortWindowMinutes\":30,\"sloId\":\"test.freshness\",\"warningBurnPpm\":1000000,\"windowMinutes\":10080}",
+        "engineChecksum": "2437ae7a9d37ee63ec83eb075d201535004c08995e14f9187f4ac077a18e3643",
+        "sha256": "2437ae7a9d37ee63ec83eb075d201535004c08995e14f9187f4ac077a18e3643"
+      }
+    ],
+    "evaluations": [
+      {
+        "definition": {
+          "badevent": "5xx",
+          "description": "Parity scenario.",
+          "goodevent": "no 5xx",
+          "indicator": "availability",
+          "objective": "99.5",
+          "owner": "sre",
+          "service": "test",
+          "shortwindowminutes": 60,
+          "sloid": "test.availability",
+          "windowminutes": 1440
+        },
+        "expected": {
+          "actualPpm": 999991,
+          "alertKind": "none",
+          "budgetConsumedEvents": 1,
+          "budgetRemainingEvents": 499,
+          "budgetTotalEvents": 500,
+          "checksum": "ac9752293e5b419211fc8c9e8d619437e70354be5f1e61d84133f2766fdf36c5",
+          "dataComplete": true,
+          "evaluatedAtMicros": "1700000000000000",
+          "indicator": "availability",
+          "longBurnPpm": 1800,
+          "remainingRatioPpm": 998000,
+          "samplesBad": 1,
+          "samplesGood": 100000,
+          "service": "test",
+          "shortBurnPpm": 0,
+          "shortWindowMinutes": 60,
+          "sloId": "test.availability",
+          "state": "HEALTHY",
+          "targetPpm": 995000,
+          "version": 1,
+          "windowMinutes": 1440
+        },
+        "fastMultiplierPpm": 14400000,
+        "longWindow": {
+          "bad": 1,
+          "dataComplete": true,
+          "good": 100000,
+          "note": null
+        },
+        "name": "healthy",
+        "shortWindow": {
+          "bad": 0,
+          "dataComplete": true,
+          "good": 1000,
+          "note": null
+        },
+        "slowMultiplierPpm": 6000000
+      },
+      {
+        "definition": {
+          "badevent": "5xx",
+          "description": "Parity scenario.",
+          "goodevent": "no 5xx",
+          "indicator": "availability",
+          "objective": "99.5",
+          "owner": "sre",
+          "service": "test",
+          "shortwindowminutes": 60,
+          "sloid": "test.availability",
+          "windowminutes": 1440
+        },
+        "expected": {
+          "actualPpm": null,
+          "alertKind": "none",
+          "budgetConsumedEvents": 0,
+          "budgetRemainingEvents": 0,
+          "budgetTotalEvents": 0,
+          "checksum": "ac9752293e5b419211fc8c9e8d619437e70354be5f1e61d84133f2766fdf36c5",
+          "dataComplete": false,
+          "evaluatedAtMicros": "1700000000000000",
+          "indicator": "availability",
+          "longBurnPpm": null,
+          "remainingRatioPpm": null,
+          "samplesBad": 0,
+          "samplesGood": 1000000,
+          "service": "test",
+          "shortBurnPpm": null,
+          "shortWindowMinutes": 60,
+          "sloId": "test.availability",
+          "state": "UNKNOWN",
+          "targetPpm": 995000,
+          "version": 1,
+          "windowMinutes": 1440
+        },
+        "fastMultiplierPpm": 14400000,
+        "longWindow": {
+          "bad": 0,
+          "dataComplete": false,
+          "good": 1000000,
+          "note": null
+        },
+        "name": "unknown-incomplete",
+        "shortWindow": {
+          "bad": 0,
+          "dataComplete": true,
+          "good": 10000,
+          "note": null
+        },
+        "slowMultiplierPpm": 6000000
+      },
+      {
+        "definition": {
+          "badevent": "5xx",
+          "description": "Parity scenario.",
+          "goodevent": "no 5xx",
+          "indicator": "availability",
+          "objective": "99.5",
+          "owner": "sre",
+          "service": "test",
+          "shortwindowminutes": 60,
+          "sloid": "test.availability",
+          "windowminutes": 1440
+        },
+        "expected": {
+          "actualPpm": null,
+          "alertKind": "none",
+          "budgetConsumedEvents": 0,
+          "budgetRemainingEvents": 0,
+          "budgetTotalEvents": 0,
+          "checksum": "ac9752293e5b419211fc8c9e8d619437e70354be5f1e61d84133f2766fdf36c5",
+          "dataComplete": true,
+          "evaluatedAtMicros": "1700000000000000",
+          "indicator": "availability",
+          "longBurnPpm": null,
+          "remainingRatioPpm": null,
+          "samplesBad": 0,
+          "samplesGood": 0,
+          "service": "test",
+          "shortBurnPpm": null,
+          "shortWindowMinutes": 60,
+          "sloId": "test.availability",
+          "state": "UNKNOWN",
+          "targetPpm": 995000,
+          "version": 1,
+          "windowMinutes": 1440
+        },
+        "fastMultiplierPpm": 14400000,
+        "longWindow": {
+          "bad": 0,
+          "dataComplete": true,
+          "good": 0,
+          "note": null
+        },
+        "name": "no-samples",
+        "shortWindow": {
+          "bad": 0,
+          "dataComplete": true,
+          "good": 0,
+          "note": null
+        },
+        "slowMultiplierPpm": 6000000
+      },
+      {
+        "definition": {
+          "badevent": "5xx",
+          "criticalburnppm": 2000000,
+          "description": "Parity scenario two.",
+          "goodevent": "2xx/3xx/4xx",
+          "indicator": "request_success_ratio",
+          "objective": "99.9",
+          "owner": "platform-sre",
+          "service": "api",
+          "shortwindowminutes": 120,
+          "sloid": "test.api",
+          "warningburnppm": 1000000,
+          "windowminutes": 2880
+        },
+        "expected": {
+          "actualPpm": 997000,
+          "alertKind": "none",
+          "budgetConsumedEvents": 1000,
+          "budgetRemainingEvents": 0,
+          "budgetTotalEvents": 1000,
+          "checksum": "8c40a42643d46d1b471babb7432eea67bc24cf24359e5d67e7ed0453da4af81b",
+          "dataComplete": true,
+          "evaluatedAtMicros": "1700000000000000",
+          "indicator": "request_success_ratio",
+          "longBurnPpm": 3000000,
+          "remainingRatioPpm": 0,
+          "samplesBad": 3000,
+          "samplesGood": 997000,
+          "service": "api",
+          "shortBurnPpm": 14778000,
+          "shortWindowMinutes": 120,
+          "sloId": "test.api",
+          "state": "EXHAUSTED",
+          "targetPpm": 999000,
+          "version": 1,
+          "windowMinutes": 2880
+        },
+        "fastMultiplierPpm": 14400000,
+        "longWindow": {
+          "bad": 3000,
+          "dataComplete": true,
+          "good": 997000,
+          "note": null
+        },
+        "name": "exhausted-long-window",
+        "shortWindow": {
+          "bad": 600,
+          "dataComplete": true,
+          "good": 40000,
+          "note": null
+        },
+        "slowMultiplierPpm": 6000000
+      },
+      {
+        "definition": {
+          "badevent": "fault",
+          "criticalburnppm": 2000000,
+          "description": "Parity scenario three.",
+          "goodevent": "no fault",
+          "indicator": "error_rate_compliance",
+          "objective": "99.95",
+          "owner": "sre",
+          "service": "test",
+          "shortwindowminutes": 60,
+          "sloid": "test.tiny-budget",
+          "warningburnppm": 1000000,
+          "windowminutes": 1440
+        },
+        "expected": {
+          "actualPpm": 999000,
+          "alertKind": "none",
+          "budgetConsumedEvents": 0,
+          "budgetRemainingEvents": 0,
+          "budgetTotalEvents": 0,
+          "checksum": "860442aab8f657e6040964299232807c0fbb7ff62a238a7a3fd953b2132ef1f3",
+          "dataComplete": true,
+          "evaluatedAtMicros": "1700000000000000",
+          "indicator": "error_rate_compliance",
+          "longBurnPpm": 2000000,
+          "remainingRatioPpm": 0,
+          "samplesBad": 1,
+          "samplesGood": 999,
+          "service": "test",
+          "shortBurnPpm": 2000000,
+          "shortWindowMinutes": 60,
+          "sloId": "test.tiny-budget",
+          "state": "CRITICAL",
+          "targetPpm": 999500,
+          "version": 1,
+          "windowMinutes": 1440
+        },
+        "fastMultiplierPpm": 14400000,
+        "longWindow": {
+          "bad": 1,
+          "dataComplete": true,
+          "good": 999,
+          "note": null
+        },
+        "name": "critical-band",
+        "shortWindow": {
+          "bad": 1,
+          "dataComplete": true,
+          "good": 999,
+          "note": null
+        },
+        "slowMultiplierPpm": 6000000
+      }
+    ]
+  },
+  "traceparent": {
+    "invalid": [
+      "",
+      "x",
+      "00-nothex-nothex-01",
+      "00-0AF7651916CD43DD8448EB211C80319C-b7ad6b7169203331-01",
+      "00-00000000000000000000000000000000-b7ad6b7169203331-01",
+      "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01",
+      "01-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+      "ff-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff",
+      "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331",
+      "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-0",
+      "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-zz",
+      "0-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+    ],
+    "tracestate": [
+      {
+        "header": "foo=bar,baz",
+        "members": [
+          [
+            "foo",
+            "bar"
+          ],
+          [
+            "baz",
+            ""
+          ]
+        ],
+        "reformat": "foo=bar,baz"
+      },
+      {
+        "header": "FOO=bar,ok=1",
+        "members": [
+          [
+            "ok",
+            "1"
+          ]
+        ],
+        "reformat": "ok=1"
+      },
+      {
+        "header": "a=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz,b=ok",
+        "members": [
+          [
+            "b",
+            "ok"
+          ]
+        ],
+        "reformat": "b=ok"
+      },
+      {
+        "header": "key-with-no-value",
+        "members": [
+          [
+            "key-with-no-value",
+            ""
+          ]
+        ],
+        "reformat": "key-with-no-value"
+      },
+      {
+        "header": "a=b=c",
+        "members": [],
+        "reformat": ""
+      }
+    ],
+    "valid": [
+      {
+        "flags": 1,
+        "header": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        "reformat": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        "sampled": true,
+        "spanId": "b7ad6b7169203331",
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "flags": 0,
+        "header": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00",
+        "reformat": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00",
+        "sampled": false,
+        "spanId": "b7ad6b7169203331",
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "flags": 9,
+        "header": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-09",
+        "reformat": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-09",
+        "sampled": true,
+        "spanId": "b7ad6b7169203331",
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "flags": 10,
+        "header": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-0a",
+        "reformat": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-0a",
+        "sampled": false,
+        "spanId": "b7ad6b7169203331",
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      },
+      {
+        "flags": 1,
+        "header": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-extra-field",
+        "note": "trailing fields for future versions are dropped",
+        "reformat": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        "sampled": true,
+        "spanId": "b7ad6b7169203331",
+        "traceId": "0af7651916cd43dd8448eb211c80319c"
+      }
+    ]
+  }
+}

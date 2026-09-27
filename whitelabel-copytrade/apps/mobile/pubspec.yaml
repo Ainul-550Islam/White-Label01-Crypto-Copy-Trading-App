@@ -1,0 +1,46 @@
+name: wlct_mobile
+description: White-label copy trading mobile client. Part 1 foundation.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management and dependency injection.
+  flutter_riverpod: ^2.5.1
+
+  # Networking.
+  dio: ^5.7.0
+
+  # Routing.
+  go_router: ^14.2.7
+
+  # Storage. Tokens go to the Keychain / EncryptedSharedPreferences only.
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.2
+
+  # Platform metadata used for device binding and diagnostics.
+  device_info_plus: ^10.1.2
+  package_info_plus: ^8.0.2
+
+  # Value equality for immutable models and states.
+  equatable: ^2.0.5
+  intl: ^0.19.0
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  mocktail: ^1.0.4
+
+flutter:
+  uses-material-design: true
+  generate: true

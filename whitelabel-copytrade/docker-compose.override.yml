@@ -1,0 +1,86 @@
+# =============================================================================
+# Development overlay.
+#
+# Applied automatically by `docker compose up` alongside docker-compose.yml.
+# It trades the hardened production posture for fast feedback: source is bind
+# mounted, processes reload on change, and the internal services publish their
+# ports so they can be probed directly from the host.
+#
+# This file must never be used in a deployed environment. Run production-like
+# stacks with:
+#   docker compose -f docker-compose.yml up -d
+# =============================================================================
+
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  api:
+    build:
+      target: build
+    environment:
+      NODE_ENV: development
+      LOG_FORMAT: pretty
+      SWAGGER_ENABLED: "true"
+    command: sh -c "npm run start:dev --workspace @wlct/api"
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./apps/api/prisma:/app/apps/api/prisma
+      - ./packages:/app/packages
+    ports:
+      - "${API_PORT:-4000}:4000"
+      # Node inspector, loopback only.
+      - "127.0.0.1:9229:9229"
+
+  notification-service:
+    build:
+      target: build
+    environment:
+      NODE_ENV: development
+      LOG_FORMAT: pretty
+    command: sh -c "npm run start:dev --workspace @wlct/notification-service"
+    volumes:
+      - ./services/notification-service/src:/app/services/notification-service/src
+      - ./packages:/app/packages
+    ports:
+      - "127.0.0.1:8003:8003"
+
+  trading-engine:
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload --log-config /dev/null"
+    volumes:
+      - ./services/trading-engine/app:/app/app
+    ports:
+      - "127.0.0.1:8001:8001"
+
+  market-data:
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload --log-config /dev/null"
+    volumes:
+      - ./services/market-data/app:/app/app
+    ports:
+      - "127.0.0.1:8002:8002"
+
+  admin-web:
+    build:
+      target: deps
+    environment:
+      NODE_ENV: development
+      API_BASE_URL: http://api:4000/api
+    command: sh -c "npm run dev --workspace @wlct/admin-web"
+    volumes:
+      - ./apps/admin-web/src:/app/apps/admin-web/src
+      - ./apps/admin-web/public:/app/apps/admin-web/public
+      - ./apps/admin-web/next.config.mjs:/app/apps/admin-web/next.config.mjs
+      - ./packages:/app/packages

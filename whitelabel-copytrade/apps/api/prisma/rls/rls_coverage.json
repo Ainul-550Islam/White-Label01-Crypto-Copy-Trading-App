@@ -1,0 +1,718 @@
+{
+  "schema": "part11-rls-coverage-v1",
+  "stamp": "20260923090000",
+  "policyName": "tenant_isolation",
+  "functionName": "wlct_current_tenant_id",
+  "covered": [
+    {
+      "table": "account_balance_snapshots",
+      "model": "AccountBalanceSnapshot"
+    },
+    {
+      "table": "account_ownerships",
+      "model": "AccountOwnership"
+    },
+    {
+      "table": "account_relationships",
+      "model": "AccountRelationship"
+    },
+    {
+      "table": "account_restrictions",
+      "model": "AccountRestriction"
+    },
+    {
+      "table": "backtest_metrics",
+      "model": "BacktestMetric"
+    },
+    {
+      "table": "backtest_runs",
+      "model": "BacktestRun"
+    },
+    {
+      "table": "backtest_trades",
+      "model": "BacktestTrade"
+    },
+    {
+      "table": "billing_notification_audit_logs",
+      "model": "BillingNotificationAuditLog"
+    },
+    {
+      "table": "billing_notification_jobs",
+      "model": "BillingNotificationJob"
+    },
+    {
+      "table": "billing_notification_preferences",
+      "model": "BillingNotificationPreference"
+    },
+    {
+      "table": "client_lifecycle_audits",
+      "model": "ClientLifecycleAudit"
+    },
+    {
+      "table": "client_onboarding_steps",
+      "model": "ClientOnboardingStep"
+    },
+    {
+      "table": "client_onboardings",
+      "model": "ClientOnboarding"
+    },
+    {
+      "table": "client_profiles",
+      "model": "ClientProfile"
+    },
+    {
+      "table": "client_reviews",
+      "model": "ClientReview"
+    },
+    {
+      "table": "compliance_audit_logs",
+      "model": "ComplianceAuditLog"
+    },
+    {
+      "table": "compliance_cases",
+      "model": "ComplianceCase"
+    },
+    {
+      "table": "compliance_evidences",
+      "model": "ComplianceEvidence"
+    },
+    {
+      "table": "compliance_reviews",
+      "model": "ComplianceReview"
+    },
+    {
+      "table": "compliance_screening_requests",
+      "model": "ComplianceScreeningRequest"
+    },
+    {
+      "table": "copy_executions",
+      "model": "CopyExecution"
+    },
+    {
+      "table": "copy_reconciliation_records",
+      "model": "CopyReconciliationRecord"
+    },
+    {
+      "table": "copy_subscriptions",
+      "model": "CopySubscription"
+    },
+    {
+      "table": "copy_trading_audit_logs",
+      "model": "CopyTradingAuditLog"
+    },
+    {
+      "table": "custody_audits",
+      "model": "CustodyAudit"
+    },
+    {
+      "table": "custody_deposits",
+      "model": "CustodyDeposit"
+    },
+    {
+      "table": "custody_internal_transfers",
+      "model": "CustodyInternalTransfer"
+    },
+    {
+      "table": "custody_reconciliations",
+      "model": "CustodyReconciliation"
+    },
+    {
+      "table": "custody_reserves",
+      "model": "CustodyReserve"
+    },
+    {
+      "table": "custody_sweeps",
+      "model": "CustodySweep"
+    },
+    {
+      "table": "custody_transaction_confirmations",
+      "model": "CustodyTransactionConfirmation"
+    },
+    {
+      "table": "custody_transactions",
+      "model": "CustodyTransaction"
+    },
+    {
+      "table": "custody_wallet_addresses",
+      "model": "CustodyWalletAddress"
+    },
+    {
+      "table": "custody_wallets",
+      "model": "CustodyWallet"
+    },
+    {
+      "table": "custody_withdrawals",
+      "model": "CustodyWithdrawal"
+    },
+    {
+      "table": "device_trusts",
+      "model": "DeviceTrust"
+    },
+    {
+      "table": "dunning_cases",
+      "model": "DunningCase"
+    },
+    {
+      "table": "engine_incidents",
+      "model": "ExecutionEngineIncident"
+    },
+    {
+      "table": "engine_order_events",
+      "model": "ExecutionOrderEvent"
+    },
+    {
+      "table": "engine_order_fills",
+      "model": "ExecutionOrderFill"
+    },
+    {
+      "table": "engine_orders",
+      "model": "ExecutionOrder"
+    },
+    {
+      "table": "engine_retention_runs",
+      "model": "ExecutionRetentionRun"
+    },
+    {
+      "table": "enterprise_api_keys",
+      "model": "EnterpriseApiKey"
+    },
+    {
+      "table": "exchange_stream_sessions",
+      "model": "ExchangeStreamSession"
+    },
+    {
+      "table": "execution_incidents",
+      "model": "ExecutionIncident"
+    },
+    {
+      "table": "fee_accruals",
+      "model": "FeeAccrual"
+    },
+    {
+      "table": "fee_settlements",
+      "model": "FeeSettlement"
+    },
+    {
+      "table": "funding_approvals",
+      "model": "FundingApproval"
+    },
+    {
+      "table": "funding_reconciliations",
+      "model": "FundingReconciliation"
+    },
+    {
+      "table": "funding_requests",
+      "model": "FundingRequest"
+    },
+    {
+      "table": "institutional_accounts",
+      "model": "InstitutionalAccount"
+    },
+    {
+      "table": "invoices",
+      "model": "Invoice"
+    },
+    {
+      "table": "kyc_profiles",
+      "model": "KycProfile"
+    },
+    {
+      "table": "login_attempts",
+      "model": "LoginAttempt"
+    },
+    {
+      "table": "mobile_applications",
+      "model": "MobileApplication"
+    },
+    {
+      "table": "mobile_artifacts",
+      "model": "MobileArtifact"
+    },
+    {
+      "table": "mobile_builds",
+      "model": "MobileBuild"
+    },
+    {
+      "table": "mobile_crash_events",
+      "model": "MobileCrashEvent"
+    },
+    {
+      "table": "mobile_release_approvals",
+      "model": "MobileReleaseApproval"
+    },
+    {
+      "table": "mobile_release_rollouts",
+      "model": "MobileReleaseRollout"
+    },
+    {
+      "table": "mobile_releases",
+      "model": "MobileRelease"
+    },
+    {
+      "table": "mobile_security_scans",
+      "model": "MobileSecurityScan"
+    },
+    {
+      "table": "mobile_store_submissions",
+      "model": "MobileStoreSubmission"
+    },
+    {
+      "table": "notifications",
+      "model": "Notification"
+    },
+    {
+      "table": "oms_allocations",
+      "model": "OmsAllocation"
+    },
+    {
+      "table": "oms_audits",
+      "model": "OmsAudit"
+    },
+    {
+      "table": "oms_execution_acks",
+      "model": "OmsExecutionAck"
+    },
+    {
+      "table": "oms_execution_latency",
+      "model": "OmsExecutionLatency"
+    },
+    {
+      "table": "oms_execution_quality",
+      "model": "OmsExecutionQuality"
+    },
+    {
+      "table": "oms_fills",
+      "model": "OmsFill"
+    },
+    {
+      "table": "oms_operational",
+      "model": "OmsOperational"
+    },
+    {
+      "table": "oms_order_intents",
+      "model": "OmsOrderIntent"
+    },
+    {
+      "table": "oms_post_trades",
+      "model": "OmsPostTrade"
+    },
+    {
+      "table": "oms_reconciliations",
+      "model": "OmsReconciliation"
+    },
+    {
+      "table": "oms_rejections",
+      "model": "OmsRejection"
+    },
+    {
+      "table": "oms_trades",
+      "model": "OmsTrade"
+    },
+    {
+      "table": "oms_venue_scores",
+      "model": "OmsVenueScore"
+    },
+    {
+      "table": "orders",
+      "model": "Order"
+    },
+    {
+      "table": "overage_records",
+      "model": "OverageRecord"
+    },
+    {
+      "table": "paper_portfolio_snapshots",
+      "model": "PaperPortfolioSnapshot"
+    },
+    {
+      "table": "paper_trading_sessions",
+      "model": "PaperTradingSession"
+    },
+    {
+      "table": "payments",
+      "model": "Payment"
+    },
+    {
+      "table": "payouts",
+      "model": "Payout"
+    },
+    {
+      "table": "portfolio_accounting_adjustments",
+      "model": "PortfolioAccountingAdjustment"
+    },
+    {
+      "table": "portfolio_accounting_closes",
+      "model": "PortfolioAccountingClose"
+    },
+    {
+      "table": "portfolio_accounting_events",
+      "model": "PortfolioAccountingEvent"
+    },
+    {
+      "table": "portfolio_accounting_periods",
+      "model": "PortfolioAccountingPeriod"
+    },
+    {
+      "table": "portfolio_accounting_profiles",
+      "model": "PortfolioAccountingProfile"
+    },
+    {
+      "table": "portfolio_accounting_reconciliations",
+      "model": "PortfolioAccountingReconciliation"
+    },
+    {
+      "table": "portfolio_attribution_records",
+      "model": "PortfolioAttributionRecord"
+    },
+    {
+      "table": "portfolio_cash_ledger_entries",
+      "model": "PortfolioCashLedgerEntry"
+    },
+    {
+      "table": "portfolio_performance_records",
+      "model": "PortfolioPerformanceRecord"
+    },
+    {
+      "table": "portfolio_position_lots",
+      "model": "PortfolioPositionLot"
+    },
+    {
+      "table": "portfolio_snapshots",
+      "model": "PortfolioSnapshot"
+    },
+    {
+      "table": "portfolio_statements",
+      "model": "PortfolioStatement"
+    },
+    {
+      "table": "portfolio_valuations",
+      "model": "PortfolioValuation"
+    },
+    {
+      "table": "positions",
+      "model": "Position"
+    },
+    {
+      "table": "reconciliation_discrepancies",
+      "model": "ReconciliationDiscrepancy"
+    },
+    {
+      "table": "reconciliation_runs",
+      "model": "ReconciliationRun"
+    },
+    {
+      "table": "refresh_tokens",
+      "model": "RefreshToken"
+    },
+    {
+      "table": "refunds",
+      "model": "Refund"
+    },
+    {
+      "table": "research_audit_logs",
+      "model": "ResearchAuditLog"
+    },
+    {
+      "table": "research_backtest_runs",
+      "model": "ResearchBacktestRun"
+    },
+    {
+      "table": "research_backtest_snapshots",
+      "model": "ResearchBacktestSnapshot"
+    },
+    {
+      "table": "research_backtest_trades",
+      "model": "ResearchBacktestTrade"
+    },
+    {
+      "table": "research_datasets",
+      "model": "ResearchDataset"
+    },
+    {
+      "table": "research_paper_fills",
+      "model": "ResearchPaperFill"
+    },
+    {
+      "table": "research_paper_orders",
+      "model": "ResearchPaperOrder"
+    },
+    {
+      "table": "research_paper_sessions",
+      "model": "ResearchPaperSession"
+    },
+    {
+      "table": "research_paper_snapshots",
+      "model": "ResearchPaperSnapshot"
+    },
+    {
+      "table": "research_promotion_requests",
+      "model": "ResearchPromotionRequest"
+    },
+    {
+      "table": "research_signals",
+      "model": "ResearchSignal"
+    },
+    {
+      "table": "research_strategy_versions",
+      "model": "ResearchStrategyVersion"
+    },
+    {
+      "table": "risk_configuration_versions",
+      "model": "RiskConfigurationVersion"
+    },
+    {
+      "table": "risk_configurations",
+      "model": "RiskConfiguration"
+    },
+    {
+      "table": "risk_decision_records",
+      "model": "RiskDecisionRecord"
+    },
+    {
+      "table": "risk_events",
+      "model": "RiskEvent"
+    },
+    {
+      "table": "risk_management_snapshots",
+      "model": "RiskManagementSnapshot"
+    },
+    {
+      "table": "risk_protection_actions",
+      "model": "RiskProtectionTrip"
+    },
+    {
+      "table": "risk_reconciliation_records",
+      "model": "RiskReconciliationRecord"
+    },
+    {
+      "table": "risk_score_records",
+      "model": "RiskScoreRecord"
+    },
+    {
+      "table": "risk_snapshot_metadata",
+      "model": "RiskSnapshotMetadata"
+    },
+    {
+      "table": "security_audit_logs",
+      "model": "SecurityAuditLog"
+    },
+    {
+      "table": "security_threat_signals",
+      "model": "SecurityThreatSignal"
+    },
+    {
+      "table": "sso_configurations",
+      "model": "SsoConfiguration"
+    },
+    {
+      "table": "sso_login_attempts",
+      "model": "SsoLoginAttempt"
+    },
+    {
+      "table": "strategies",
+      "model": "Strategy"
+    },
+    {
+      "table": "strategy_checkpoints",
+      "model": "StrategyCheckpoint"
+    },
+    {
+      "table": "strategy_incidents",
+      "model": "StrategyIncident"
+    },
+    {
+      "table": "strategy_runs",
+      "model": "StrategyRun"
+    },
+    {
+      "table": "tenant_api_keys",
+      "model": "TenantApiKey"
+    },
+    {
+      "table": "tenant_branding",
+      "model": "TenantBranding"
+    },
+    {
+      "table": "tenant_domains",
+      "model": "TenantDomain"
+    },
+    {
+      "table": "tenant_feature_flags",
+      "model": "TenantFeatureFlag"
+    },
+    {
+      "table": "tenant_settings",
+      "model": "TenantSetting"
+    },
+    {
+      "table": "tenant_subscriptions",
+      "model": "TenantSubscription"
+    },
+    {
+      "table": "trader_profiles",
+      "model": "TraderProfile"
+    },
+    {
+      "table": "trader_strategies",
+      "model": "TraderStrategy"
+    },
+    {
+      "table": "trading_accounts",
+      "model": "TradingAccount"
+    },
+    {
+      "table": "trading_sessions",
+      "model": "TradingSession"
+    },
+    {
+      "table": "trading_symbols",
+      "model": "TradingSymbol"
+    },
+    {
+      "table": "transaction_monitoring_signals",
+      "model": "TransactionMonitoringSignal"
+    },
+    {
+      "table": "usage_alert_configs",
+      "model": "UsageAlertConfig"
+    },
+    {
+      "table": "usage_alert_events",
+      "model": "UsageAlertEvent"
+    },
+    {
+      "table": "usage_events",
+      "model": "UsageEvent"
+    },
+    {
+      "table": "usage_meters",
+      "model": "UsageMeter"
+    },
+    {
+      "table": "user_roles",
+      "model": "UserRole"
+    },
+    {
+      "table": "user_sessions",
+      "model": "UserSession"
+    },
+    {
+      "table": "users",
+      "model": "User"
+    },
+    {
+      "table": "verification_tokens",
+      "model": "VerificationToken"
+    },
+    {
+      "table": "webhook_delivery_attempts",
+      "model": "WebhookDeliveryAttempt"
+    },
+    {
+      "table": "webhook_subscriptions",
+      "model": "WebhookSubscription"
+    },
+    {
+      "table": "withdrawal_requests",
+      "model": "WithdrawalRequest"
+    }
+  ],
+  "excluded": [
+    {
+      "table": "audit_logs",
+      "model": "AuditLog"
+    },
+    {
+      "table": "circuit_breaker_records",
+      "model": "CircuitBreakerRecord"
+    },
+    {
+      "table": "compliance_policy_records",
+      "model": "CompliancePolicyRecord"
+    },
+    {
+      "table": "institutional_risk_policies",
+      "model": "InstitutionalRiskPolicy"
+    },
+    {
+      "table": "kill_switches",
+      "model": "KillSwitch"
+    },
+    {
+      "table": "mobile_reconciliation_findings",
+      "model": "MobileReconciliationFinding"
+    },
+    {
+      "table": "mobile_release_audits",
+      "model": "MobileReleaseAudit"
+    },
+    {
+      "table": "operational_actions",
+      "model": "OperationalAction"
+    },
+    {
+      "table": "operational_audit_logs",
+      "model": "OperationalAuditLog"
+    },
+    {
+      "table": "operational_dependency_checks",
+      "model": "OperationalDependencyCheck"
+    },
+    {
+      "table": "operational_incident_events",
+      "model": "OperationalIncidentEvent"
+    },
+    {
+      "table": "operational_incidents",
+      "model": "OperationalIncident"
+    },
+    {
+      "table": "operational_maintenance_windows",
+      "model": "OperationalMaintenanceWindow"
+    },
+    {
+      "table": "operational_readiness_checks",
+      "model": "OperationalReadinessCheck"
+    },
+    {
+      "table": "operational_reconciliation_runs",
+      "model": "OperationalReconciliationRun"
+    },
+    {
+      "table": "operational_recovery_runs",
+      "model": "OperationalRecoveryRun"
+    },
+    {
+      "table": "operational_service_degradations",
+      "model": "OperationalServiceDegradation"
+    },
+    {
+      "table": "ops_alerts",
+      "model": "OpsAlert"
+    },
+    {
+      "table": "ops_incidents",
+      "model": "OpsIncident"
+    },
+    {
+      "table": "plans",
+      "model": "Plan"
+    },
+    {
+      "table": "roles",
+      "model": "Role"
+    },
+    {
+      "table": "security_events",
+      "model": "SecurityEvent"
+    },
+    {
+      "table": "security_policies",
+      "model": "SecurityPolicy"
+    },
+    {
+      "table": "subscription_plans",
+      "model": "SubscriptionPlan"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+fastapi==0.115.0
+uvicorn[standard]==0.31.0
+pydantic==2.9.2
+pydantic-settings==2.5.2
+redis==5.1.1
+# httpx is the service's single async HTTP client: it backs both the reference
+# price providers in app/services/providers.py and the production HttpGetter in
+# wlct_trading.net. Adding a second stack (aiohttp) would mean two connection
+# pools and two sets of timeout semantics in one process.
+httpx==0.27.2
+# Websocket client behind wlct_trading.net.websocket_client. Pinned to the same
+# major line the library's `live` extra allows.
+websockets==13.1
+python-json-logger==2.0.7
+ccxt==4.4.10
+tenacity==9.0.0

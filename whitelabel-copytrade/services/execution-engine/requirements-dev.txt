@@ -1,0 +1,23 @@
+-r requirements.txt
+pytest==8.3.3
+pytest-asyncio==0.24.0
+# httpx is NOT listed here any more: Part 19 made it a runtime dependency (see
+# requirements.txt), and a pin repeated in two files is two pins - one of which will be
+# upgraded while the other is not. fastapi.testclient's own requirement is satisfied by
+# the same file either way.
+# SQL parsing for the drift-parity and store suites (Parts 13-15 parse the engine
+# migrations and every SQL constant with it, so a typo in a statement is a test
+# failure rather than a startup error). Declared here because it was NOT declared
+# anywhere: parts 13 and 14 reached for it through pytest.importorskip and a hard
+# import in the same suite, so a clean environment following this file's own
+# instructions could not even COLLECT the service tests - four collection errors,
+# and the two importorskip sites were quietly skipping the assurance instead.
+# Pinned like everything else here: a parser upgrade that changes how it reads a
+# CREATE INDEX would show up as a failing expectation, not as a mystery.
+sqlglot==30.18.0
+ruff==0.6.9
+mypy==1.11.2
+
+# The execution core is a repo package, not a PyPI one; tests and local runs
+# resolve it from source exactly like the trading engine does.
+-e ../../libs/trading-core

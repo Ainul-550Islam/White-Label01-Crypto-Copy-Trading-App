@@ -1,0 +1,25 @@
+# Runtime dependencies, pinned exactly like the sibling services so one
+# upgrade sweep touches all Python services together.
+fastapi==0.115.0
+uvicorn[standard]==0.31.0
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-json-logger==2.0.7
+# Live credential fetching (Part 19). app/secret_fetcher.py is the one module in this
+# service that talks HTTP to a secret store, and it is a RUNTIME dependency, not a
+# test one: previously httpx appeared only in requirements-dev.txt (pulled in for
+# fastapi.testclient), so a production image built from this file had no HTTP client at
+# all and the fetcher would have failed on its first import in the deployed container -
+# the kind of defect that is invisible to a green test suite and visible only at 3am in
+# a datacenter. Same pin as the trading engine and market data, same sweep rule.
+httpx==0.27.2
+# Durable order store (Part 13). Pinned exactly like the trading engine's
+# asyncpg, same reason as every other pin here: one upgrade sweep moves all
+# Python services together, and this driver speaks to the same Postgres.
+asyncpg==0.29.0
+# Distributed locks (Part 21). app/distributed_locks.py is the one module that
+# turns EXECUTION_REDIS_URL into a lock client, and it is a RUNTIME dependency
+# for the same reason httpx became one in Part 19: a staging image built from
+# this file must be able to build the real lock manager, not discover the
+# missing driver at the first contended order. Same pin as the sibling services.
+redis==5.1.1

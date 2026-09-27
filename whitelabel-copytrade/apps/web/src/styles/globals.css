@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-primary: #4f46e5;
+  --brand-secondary: #0f172a;
+  --brand-accent: #06b6d4;
+  --brand-background: #ffffff;
+  --brand-text: #0f172a;
+  --brand-font: 'Inter', system-ui, sans-serif;
+}
+
+* {
+  border-color: hsl(214.3 31.8% 91.4%);
+}
+
+body {
+  background-color: var(--brand-background);
+  color: var(--brand-text);
+  font-family: var(--brand-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.bg-background {
+  background-color: hsl(0 0% 100%);
+}
+
+.bg-card {
+  background-color: hsl(0 0% 100%);
+}
+
+.bg-primary {
+  background-color: var(--brand-primary);
+}
+
+.bg-accent {
+  background-color: hsl(210 40% 96.1%);
+}
+
+.text-muted {
+  color: hsl(215.4 16.3% 46.9%);
+}
+
+.border {
+  border: 1px solid hsl(214.3 31.8% 91.4%);
+}
+
+/* Focus visible */
+*:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* Skip link */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--brand-primary);
+  color: white;
+  padding: 8px;
+  z-index: 100;
+}
+
+.skip-link:focus {
+  top: 0;
+}

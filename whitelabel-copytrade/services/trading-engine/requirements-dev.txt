@@ -1,0 +1,10 @@
+-r requirements.txt
+pytest==8.3.3
+pytest-asyncio==0.24.0
+ruff==0.6.9
+mypy==1.11.2
+
+# Part 9: the services publish observability through the shared library; dev
+# test runs need it importable. The production image installs the same wheel
+# from the repo (see infrastructure/docker/*.Dockerfile).
+-e ../../libs/trading-core

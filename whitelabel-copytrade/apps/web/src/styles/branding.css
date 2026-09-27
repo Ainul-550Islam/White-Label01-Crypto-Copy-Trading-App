@@ -1,0 +1,27 @@
+/* Runtime tenant-branding variables generated only from backend-sanitized values */
+:root {
+  --brand-primary: #4f46e5;
+  --brand-secondary: #0f172a;
+  --brand-accent: #06b6d4;
+  --brand-background: #ffffff;
+  --brand-text: #0f172a;
+  --brand-font: 'Inter', system-ui, sans-serif;
+}
+
+.branded-primary {
+  background-color: var(--brand-primary);
+  color: white;
+}
+
+.branded-secondary {
+  background-color: var(--brand-secondary);
+  color: white;
+}
+
+.branded-accent {
+  color: var(--brand-accent);
+}
+
+.branded-font {
+  font-family: var(--brand-font);
+}

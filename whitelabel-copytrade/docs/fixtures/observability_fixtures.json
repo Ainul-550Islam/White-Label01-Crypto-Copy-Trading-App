@@ -1,0 +1,6185 @@
+{
+  "alertFolds": {
+    "acked": {
+      "acknowledgedAtMicros": 1700000000000006,
+      "acknowledgedBy": "ops@example",
+      "alertId": "alert_5736e55d85d6dde54a86",
+      "component": "market-data",
+      "condition": "A subscribed stream has not delivered for longer than its staleness budget.",
+      "firstSeenAtMicros": 1700000000000000,
+      "lastSeenAtMicros": 1700000000000005,
+      "links": {
+        "correlation_id": "corr-fx"
+      },
+      "message": null,
+      "observedValue": "9000000",
+      "occurrences": 2,
+      "resolution": null,
+      "resolvedAtMicros": null,
+      "ruleId": "MARKET_DATA_STALE",
+      "scope": "binance/BTCUSDT",
+      "severity": "CRITICAL",
+      "state": "ACKNOWLEDGED",
+      "thresholdValue": null,
+      "title": "Market data stale"
+    },
+    "comment": "The four state shapes persistence must round-trip. The TS alerts mapper parses exactly these keys and must map state transitions identically (fold keeps alertId, increments occurrences, preserves firstSeenAtMicros).",
+    "folded": {
+      "acknowledgedAtMicros": null,
+      "acknowledgedBy": null,
+      "alertId": "alert_5736e55d85d6dde54a86",
+      "component": "market-data",
+      "condition": "A subscribed stream has not delivered for longer than its staleness budget.",
+      "firstSeenAtMicros": 1700000000000000,
+      "lastSeenAtMicros": 1700000000000005,
+      "links": {
+        "correlation_id": "corr-fx"
+      },
+      "message": null,
+      "observedValue": "9000000",
+      "occurrences": 2,
+      "resolution": null,
+      "resolvedAtMicros": null,
+      "ruleId": "MARKET_DATA_STALE",
+      "scope": "binance/BTCUSDT",
+      "severity": "CRITICAL",
+      "state": "OPEN",
+      "thresholdValue": null,
+      "title": "Market data stale"
+    },
+    "opened": {
+      "acknowledgedAtMicros": null,
+      "acknowledgedBy": null,
+      "alertId": "alert_5736e55d85d6dde54a86",
+      "component": "market-data",
+      "condition": "A subscribed stream has not delivered for longer than its staleness budget.",
+      "firstSeenAtMicros": 1700000000000000,
+      "lastSeenAtMicros": 1700000000000000,
+      "links": {
+        "correlation_id": "corr-fx"
+      },
+      "message": null,
+      "observedValue": "4100000",
+      "occurrences": 1,
+      "resolution": null,
+      "resolvedAtMicros": null,
+      "ruleId": "MARKET_DATA_STALE",
+      "scope": "binance/BTCUSDT",
+      "severity": "CRITICAL",
+      "state": "OPEN",
+      "thresholdValue": null,
+      "title": "Market data stale"
+    },
+    "recovered": {
+      "acknowledgedAtMicros": 1700000000000006,
+      "acknowledgedBy": "ops@example",
+      "alertId": "alert_5736e55d85d6dde54a86",
+      "component": "market-data",
+      "condition": "A subscribed stream has not delivered for longer than its staleness budget.",
+      "firstSeenAtMicros": 1700000000000000,
+      "lastSeenAtMicros": 1700000000000007,
+      "links": {
+        "correlation_id": "corr-fx"
+      },
+      "message": null,
+      "observedValue": "9000000",
+      "occurrences": 2,
+      "resolution": "recovered",
+      "resolvedAtMicros": 1700000000000007,
+      "ruleId": "MARKET_DATA_STALE",
+      "scope": "binance/BTCUSDT",
+      "severity": "CRITICAL",
+      "state": "RESOLVED",
+      "thresholdValue": null,
+      "title": "Market data stale"
+    }
+  },
+  "catalogs": {
+    "alert_payload_shape": [
+      "acknowledgedAtMicros",
+      "acknowledgedBy",
+      "alertId",
+      "component",
+      "condition",
+      "firstSeenAtMicros",
+      "lastSeenAtMicros",
+      "links",
+      "message",
+      "observedValue",
+      "occurrences",
+      "resolution",
+      "resolvedAtMicros",
+      "ruleId",
+      "scope",
+      "severity",
+      "state",
+      "thresholdValue",
+      "title"
+    ],
+    "alert_rules": [
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "MARKET_DATA_STALE",
+        "severity": "CRITICAL",
+        "title": "Market data stale"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "ORDERBOOK_RESYNC_STORM",
+        "severity": "WARNING",
+        "title": "Order-book resync storm"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "RISK_SNAPSHOT_STALE",
+        "severity": "CRITICAL",
+        "title": "Risk snapshots stale"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "RISK_ENGINE_UNAVAILABLE",
+        "severity": "EMERGENCY",
+        "title": "Risk engine unavailable"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "EXECUTION_UNAVAILABLE",
+        "severity": "CRITICAL",
+        "title": "Execution unavailable"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "EXCHANGE_DISCONNECTED",
+        "severity": "WARNING",
+        "title": "Exchange connectivity lost"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "RECONCILIATION_DISCREPANCY",
+        "severity": "EMERGENCY",
+        "title": "Reconciliation discrepancy"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "REPEATED_ORDER_REJECTION",
+        "severity": "WARNING",
+        "title": "Repeated order rejections"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "AMBIGUOUS_EXECUTION",
+        "severity": "EMERGENCY",
+        "title": "Ambiguous execution outcome"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "RATE_LIMIT_EXHAUSTION",
+        "severity": "WARNING",
+        "title": "Rate-limit budget exhausted"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "QUEUE_BACKLOG",
+        "severity": "WARNING",
+        "title": "Queue backlog"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "EXECUTION_QUEUE_BACKLOG",
+        "severity": "CRITICAL",
+        "title": "Execution queue backlog"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "WORKER_FAILURE",
+        "severity": "CRITICAL",
+        "title": "Worker failure"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "POSTGRES_UNAVAILABLE",
+        "severity": "CRITICAL",
+        "title": "PostgreSQL unavailable"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "REDIS_UNAVAILABLE",
+        "severity": "EMERGENCY",
+        "title": "Redis unavailable"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "DATASET_VALIDATION_FAILURES",
+        "severity": "WARNING",
+        "title": "Dataset validation failures"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "STRATEGY_ERROR_SPIKE",
+        "severity": "WARNING",
+        "title": "Strategy error spike"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "KILL_SWITCH_ENGAGED",
+        "severity": "EMERGENCY",
+        "title": "Kill switch engaged"
+      },
+      {
+        "blocksTrading": true,
+        "requiresRecovery": true,
+        "ruleId": "PROTECTION_TRIGGERED",
+        "severity": "CRITICAL",
+        "title": "Account protection triggered"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "SLO_BURN_FAST",
+        "severity": "CRITICAL",
+        "title": "Error budget burning fast"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "SLO_BURN_SLOW",
+        "severity": "WARNING",
+        "title": "Error budget burning steadily"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "SLO_BUDGET_EXHAUSTED",
+        "severity": "CRITICAL",
+        "title": "Error budget exhausted"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "TELEMETRY_EXPORT_FAILING",
+        "severity": "WARNING",
+        "title": "Telemetry export failing"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "SLO_TELEMETRY_GAP",
+        "severity": "WARNING",
+        "title": "SLO measurement gap"
+      }
+    ],
+    "alert_severities": [
+      "INFO",
+      "WARNING",
+      "CRITICAL",
+      "EMERGENCY"
+    ],
+    "alert_states": [
+      "OPEN",
+      "ACKNOWLEDGED",
+      "RESOLVED"
+    ],
+    "allowed_labels": [
+      "alert_state",
+      "alert_type",
+      "channel",
+      "component",
+      "dataset_kind",
+      "event_kind",
+      "exchange",
+      "feed_state",
+      "job_name",
+      "market_type",
+      "method",
+      "pool_state",
+      "queue",
+      "result",
+      "risk_code",
+      "route",
+      "rule_id",
+      "scope",
+      "service",
+      "severity",
+      "simulation",
+      "slo",
+      "stage",
+      "status_class",
+      "strategy_id",
+      "symbol",
+      "trigger_type",
+      "window_kind"
+    ],
+    "comment": "The declarative tables the TS module mirrors verbatim. The TS safety spec asserts set-equality against these; drift fails CI.",
+    "forbidden_labels": [
+      "account_id",
+      "actor_id",
+      "api_key",
+      "api_secret",
+      "apikey",
+      "authorization",
+      "client_order_id",
+      "connection_string",
+      "correlation_id",
+      "database_url",
+      "description",
+      "dsn",
+      "email",
+      "idempotency_key",
+      "ip",
+      "jwt",
+      "message",
+      "operation_id",
+      "order_id",
+      "orderids",
+      "passphrase",
+      "password",
+      "path",
+      "payload",
+      "phone",
+      "private_key",
+      "query",
+      "reason",
+      "request_id",
+      "risk_decision_id",
+      "secret",
+      "session_id",
+      "span_id",
+      "tenant_id",
+      "token",
+      "trace_id",
+      "url",
+      "user_id"
+    ],
+    "health_statuses": [
+      "HEALTHY",
+      "DEGRADED",
+      "UNHEALTHY",
+      "STOPPED",
+      "UNKNOWN"
+    ],
+    "trading_gates": [
+      "market_data",
+      "risk_engine",
+      "risk_state_fresh",
+      "exchange_connectivity",
+      "execution_adapter",
+      "reconciliation",
+      "queues",
+      "kill_switches",
+      "configuration"
+    ]
+  },
+  "comment": "Part 9 cross-language oracle. Regenerate, never hand-edit. The Python tests and the API jest suite both consume this file.",
+  "generatedBy": "libs/trading-core/scripts/gen_observability_fixtures.py",
+  "prometheus": {
+    "comment": "Exact Prometheus 0.0.4 exposition outputs. The TS registry must render byte-identical text for identical family/record shapes (minus the wlct_registry_series_overflow_total preamble, which each side renders from its own counter).",
+    "vectors": [
+      {
+        "families": [
+          {
+            "help": "Risk decisions evaluated, by verdict.",
+            "labels": [
+              "result"
+            ],
+            "name": "wlct_risk_decisions_total",
+            "record": [
+              {
+                "labels": {
+                  "result": "approved"
+                },
+                "op": "inc"
+              },
+              {
+                "amount": 2,
+                "labels": {
+                  "result": "approved"
+                },
+                "op": "inc"
+              },
+              {
+                "labels": {
+                  "result": "rejected"
+                },
+                "op": "inc"
+              }
+            ],
+            "type": "counter"
+          }
+        ],
+        "name": "counter-single-label",
+        "service": "engine",
+        "text": "# HELP wlct_registry_series_overflow_total New label sets refused by the per-family series cap.\n# TYPE wlct_registry_series_overflow_total counter\nwlct_registry_series_overflow_total{service=\"engine\"} 0\n# HELP wlct_risk_decisions_total Risk decisions evaluated, by verdict.\n# TYPE wlct_risk_decisions_total counter\nwlct_risk_decisions_total{result=\"approved\",service=\"engine\"} 3\nwlct_risk_decisions_total{result=\"rejected\",service=\"engine\"} 1\n"
+      },
+      {
+        "families": [
+          {
+            "buckets": [
+              100,
+              1000
+            ],
+            "help": "Pipeline transition durations in microseconds.",
+            "labels": [
+              "stage",
+              "simulation"
+            ],
+            "name": "wlct_pipeline_transition_micros",
+            "record": [
+              {
+                "labels": {
+                  "simulation": "live",
+                  "stage": "risk_started__risk_finished"
+                },
+                "micros": 50,
+                "op": "observe"
+              },
+              {
+                "labels": {
+                  "simulation": "live",
+                  "stage": "risk_started__risk_finished"
+                },
+                "micros": 100,
+                "op": "observe"
+              },
+              {
+                "labels": {
+                  "simulation": "live",
+                  "stage": "risk_started__risk_finished"
+                },
+                "micros": 999,
+                "op": "observe"
+              },
+              {
+                "labels": {
+                  "simulation": "live",
+                  "stage": "risk_started__risk_finished"
+                },
+                "micros": 1000,
+                "op": "observe"
+              },
+              {
+                "labels": {
+                  "simulation": "live",
+                  "stage": "risk_started__risk_finished"
+                },
+                "micros": 5000,
+                "op": "observe"
+              },
+              {
+                "labels": {
+                  "simulation": "simulated",
+                  "stage": "risk_started__risk_finished"
+                },
+                "micros": -25,
+                "op": "observe"
+              }
+            ],
+            "type": "histogram"
+          }
+        ],
+        "name": "histogram-cumulative-and-negative",
+        "service": "engine",
+        "text": "# HELP wlct_registry_series_overflow_total New label sets refused by the per-family series cap.\n# TYPE wlct_registry_series_overflow_total counter\nwlct_registry_series_overflow_total{service=\"engine\"} 0\n# HELP wlct_pipeline_transition_micros Pipeline transition durations in microseconds.\n# TYPE wlct_pipeline_transition_micros histogram\nwlct_pipeline_transition_micros_bucket{le=\"100\",service=\"engine\",simulation=\"live\",stage=\"risk_started__risk_finished\"} 2\nwlct_pipeline_transition_micros_bucket{le=\"1000\",service=\"engine\",simulation=\"live\",stage=\"risk_started__risk_finished\"} 4\nwlct_pipeline_transition_micros_bucket{le=\"+Inf\",service=\"engine\",simulation=\"live\",stage=\"risk_started__risk_finished\"} 5\nwlct_pipeline_transition_micros_sum{service=\"engine\",simulation=\"live\",stage=\"risk_started__risk_finished\"} 7149\nwlct_pipeline_transition_micros_count{service=\"engine\",simulation=\"live\",stage=\"risk_started__risk_finished\"} 5\nwlct_pipeline_transition_micros_bucket{le=\"100\",service=\"engine\",simulation=\"simulated\",stage=\"risk_started__risk_finished\"} 1\nwlct_pipeline_transition_micros_bucket{le=\"1000\",service=\"engine\",simulation=\"simulated\",stage=\"risk_started__risk_finished\"} 1\nwlct_pipeline_transition_micros_bucket{le=\"+Inf\",service=\"engine\",simulation=\"simulated\",stage=\"risk_started__risk_finished\"} 1\nwlct_pipeline_transition_micros_sum{service=\"engine\",simulation=\"simulated\",stage=\"risk_started__risk_finished\"} -25\nwlct_pipeline_transition_micros_count{service=\"engine\",simulation=\"simulated\",stage=\"risk_started__risk_finished\"} 1\n"
+      },
+      {
+        "families": [
+          {
+            "help": "Open orders per venue.",
+            "labels": [
+              "exchange"
+            ],
+            "name": "wlct_orders_open",
+            "record": [
+              {
+                "labels": {
+                  "exchange": "binance"
+                },
+                "op": "set",
+                "value": 12
+              }
+            ],
+            "type": "gauge"
+          }
+        ],
+        "name": "gauge-floats",
+        "service": "engine",
+        "text": "# HELP wlct_registry_series_overflow_total New label sets refused by the per-family series cap.\n# TYPE wlct_registry_series_overflow_total counter\nwlct_registry_series_overflow_total{service=\"engine\"} 0\n# HELP wlct_orders_open Open orders per venue.\n# TYPE wlct_orders_open gauge\nwlct_orders_open{exchange=\"binance\",service=\"engine\"} 12\n"
+      }
+    ]
+  },
+  "readiness": {
+    "comment": "Gate order: market_data,risk_engine,risk_state_fresh,exchange_connectivity,execution_adapter,reconciliation,queues,kill_switches,configuration. Row semantics are the TS evaluator's contract: missing evidence blocks, stale blocks, and only all-satisfied yields ready=true.",
+    "gates": [
+      "market_data",
+      "risk_engine",
+      "risk_state_fresh",
+      "exchange_connectivity",
+      "execution_adapter",
+      "reconciliation",
+      "queues",
+      "kill_switches",
+      "configuration"
+    ],
+    "rows": [
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000000000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000000001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000000010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "000000011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000000100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000000101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000000110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "000000111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000001000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000001001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000001010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "000001011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000001100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000001101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000001110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "000001111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000010000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000010001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000010010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "000010011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000010100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000010101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000010110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "000010111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000011000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000011001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000011010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "000011011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000011100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000011101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000011110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "satisfied": "000011111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000100000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000100001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000100010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "000100011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000100100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000100101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000100110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "000100111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000101000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000101001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000101010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "000101011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000101100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000101101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000101110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "000101111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000110000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000110001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000110010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "000110011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000110100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000110101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000110110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "000110111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000111000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000111001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000111010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "000111011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000111100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "000111101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "000111110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "risk_state_fresh"
+        ],
+        "ready": false,
+        "satisfied": "000111111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001000000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001000001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001000010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "001000011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001000100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001000101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001000110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "001000111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001001000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001001001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001001010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "001001011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001001100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001001101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001001110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "001001111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001010000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001010001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001010010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "001010011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001010100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001010101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001010110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "001010111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001011000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001011001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001011010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "001011011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001011100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001011101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001011110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "satisfied": "001011111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001100000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001100001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001100010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "001100011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001100100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001100101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001100110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "001100111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001101000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001101001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001101010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "001101011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001101100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001101101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001101110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "001101111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001110000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001110001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001110010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "001110011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001110100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001110101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001110110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "001110111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001111000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001111001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001111010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "001111011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001111100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "001111101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "001111110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_engine"
+        ],
+        "ready": false,
+        "satisfied": "001111111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010000000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010000001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010000010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "010000011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010000100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010000101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010000110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "010000111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010001000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010001001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010001010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "010001011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010001100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010001101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010001110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "010001111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010010000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010010001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010010010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "010010011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010010100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010010101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010010110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "010010111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010011000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010011001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010011010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "010011011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010011100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010011101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010011110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "satisfied": "010011111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010100000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010100001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010100010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "010100011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010100100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010100101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010100110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "010100111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010101000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010101001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010101010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "010101011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010101100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010101101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010101110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "010101111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010110000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010110001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010110010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "010110011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010110100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010110101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010110110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "010110111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010111000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010111001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010111010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "010111011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010111100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "010111101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "010111110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "risk_state_fresh"
+        ],
+        "ready": false,
+        "satisfied": "010111111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011000000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011000001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011000010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "011000011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011000100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011000101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011000110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "011000111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011001000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011001001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011001010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "011001011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011001100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011001101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011001110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "011001111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011010000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011010001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011010010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "011010011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011010100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011010101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011010110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "011010111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011011000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011011001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011011010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "011011011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011011100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011011101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011011110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "satisfied": "011011111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011100000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011100001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011100010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "011100011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011100100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011100101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011100110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "011100111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011101000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011101001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011101010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "011101011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011101100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011101101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011101110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "011101111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011110000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011110001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011110010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "011110011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011110100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011110101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011110110"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "011110111"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011111000"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011111001"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011111010"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "011111011"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011111100"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "011111101"
+      },
+      {
+        "blocking": [
+          "market_data",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "011111110"
+      },
+      {
+        "blocking": [
+          "market_data"
+        ],
+        "ready": false,
+        "satisfied": "011111111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100000000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100000001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100000010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "100000011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100000100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100000101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100000110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "100000111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100001000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100001001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100001010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "100001011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100001100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100001101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100001110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "100001111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100010000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100010001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100010010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "100010011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100010100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100010101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100010110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "100010111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100011000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100011001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100011010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "100011011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100011100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100011101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100011110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "satisfied": "100011111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100100000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100100001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100100010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "100100011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100100100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100100101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100100110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "100100111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100101000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100101001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100101010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "100101011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100101100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100101101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100101110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "100101111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100110000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100110001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100110010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "100110011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100110100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100110101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100110110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "100110111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100111000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100111001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100111010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "100111011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100111100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "100111101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "100111110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "risk_state_fresh"
+        ],
+        "ready": false,
+        "satisfied": "100111111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101000000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101000001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101000010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "101000011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101000100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101000101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101000110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "101000111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101001000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101001001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101001010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "101001011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101001100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101001101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101001110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "101001111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101010000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101010001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101010010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "101010011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101010100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101010101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101010110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "101010111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101011000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101011001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101011010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "101011011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101011100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101011101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101011110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "satisfied": "101011111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101100000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101100001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101100010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "101100011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101100100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101100101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101100110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "101100111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101101000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101101001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101101010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "101101011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101101100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101101101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101101110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "101101111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101110000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101110001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101110010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "101110011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101110100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101110101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101110110"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "101110111"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101111000"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101111001"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101111010"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "101111011"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101111100"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "101111101"
+      },
+      {
+        "blocking": [
+          "risk_engine",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "101111110"
+      },
+      {
+        "blocking": [
+          "risk_engine"
+        ],
+        "ready": false,
+        "satisfied": "101111111"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110000000"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110000001"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110000010"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "110000011"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110000100"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110000101"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110000110"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "110000111"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110001000"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110001001"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110001010"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "110001011"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110001100"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110001101"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110001110"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "110001111"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110010000"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110010001"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110010010"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "110010011"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110010100"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110010101"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110010110"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "110010111"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110011000"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110011001"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110011010"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "110011011"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110011100"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110011101"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110011110"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "satisfied": "110011111"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110100000"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110100001"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110100010"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "110100011"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110100100"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110100101"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110100110"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "110100111"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110101000"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110101001"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110101010"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "110101011"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110101100"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110101101"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110101110"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "110101111"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110110000"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110110001"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110110010"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "110110011"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110110100"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110110101"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110110110"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "110110111"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110111000"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110111001"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110111010"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "110111011"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110111100"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "110111101"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "110111110"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh"
+        ],
+        "ready": false,
+        "satisfied": "110111111"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111000000"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111000001"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111000010"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "111000011"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111000100"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111000101"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111000110"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "111000111"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111001000"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111001001"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111001010"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "111001011"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111001100"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111001101"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111001110"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "111001111"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111010000"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111010001"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111010010"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "111010011"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111010100"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111010101"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111010110"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "111010111"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111011000"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111011001"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111011010"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "111011011"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111011100"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111011101"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111011110"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "satisfied": "111011111"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111100000"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111100001"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111100010"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "111100011"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111100100"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111100101"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111100110"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "111100111"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111101000"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111101001"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111101010"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "111101011"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111101100"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111101101"
+      },
+      {
+        "blocking": [
+          "execution_adapter",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111101110"
+      },
+      {
+        "blocking": [
+          "execution_adapter"
+        ],
+        "ready": false,
+        "satisfied": "111101111"
+      },
+      {
+        "blocking": [
+          "reconciliation",
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111110000"
+      },
+      {
+        "blocking": [
+          "reconciliation",
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111110001"
+      },
+      {
+        "blocking": [
+          "reconciliation",
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111110010"
+      },
+      {
+        "blocking": [
+          "reconciliation",
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "111110011"
+      },
+      {
+        "blocking": [
+          "reconciliation",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111110100"
+      },
+      {
+        "blocking": [
+          "reconciliation",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111110101"
+      },
+      {
+        "blocking": [
+          "reconciliation",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111110110"
+      },
+      {
+        "blocking": [
+          "reconciliation"
+        ],
+        "ready": false,
+        "satisfied": "111110111"
+      },
+      {
+        "blocking": [
+          "queues",
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111111000"
+      },
+      {
+        "blocking": [
+          "queues",
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111111001"
+      },
+      {
+        "blocking": [
+          "queues",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111111010"
+      },
+      {
+        "blocking": [
+          "queues"
+        ],
+        "ready": false,
+        "satisfied": "111111011"
+      },
+      {
+        "blocking": [
+          "kill_switches",
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111111100"
+      },
+      {
+        "blocking": [
+          "kill_switches"
+        ],
+        "ready": false,
+        "satisfied": "111111101"
+      },
+      {
+        "blocking": [
+          "configuration"
+        ],
+        "ready": false,
+        "satisfied": "111111110"
+      },
+      {
+        "blocking": [],
+        "ready": true,
+        "satisfied": "111111111"
+      }
+    ],
+    "staleRows": [
+      {
+        "blocking": [
+          "market_data"
+        ],
+        "ready": false,
+        "stale": "market_data"
+      },
+      {
+        "blocking": [
+          "risk_engine"
+        ],
+        "ready": false,
+        "stale": "risk_engine"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh"
+        ],
+        "ready": false,
+        "stale": "risk_state_fresh"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "stale": "exchange_connectivity"
+      },
+      {
+        "blocking": [
+          "execution_adapter"
+        ],
+        "ready": false,
+        "stale": "execution_adapter"
+      },
+      {
+        "blocking": [
+          "reconciliation"
+        ],
+        "ready": false,
+        "stale": "reconciliation"
+      },
+      {
+        "blocking": [
+          "queues"
+        ],
+        "ready": false,
+        "stale": "queues"
+      },
+      {
+        "blocking": [
+          "kill_switches"
+        ],
+        "ready": false,
+        "stale": "kill_switches"
+      },
+      {
+        "blocking": [
+          "configuration"
+        ],
+        "ready": false,
+        "stale": "configuration"
+      }
+    ],
+    "unknownRows": [
+      {
+        "blocking": [
+          "market_data"
+        ],
+        "ready": false,
+        "unknown": "market_data"
+      },
+      {
+        "blocking": [
+          "risk_engine"
+        ],
+        "ready": false,
+        "unknown": "risk_engine"
+      },
+      {
+        "blocking": [
+          "risk_state_fresh"
+        ],
+        "ready": false,
+        "unknown": "risk_state_fresh"
+      },
+      {
+        "blocking": [
+          "exchange_connectivity"
+        ],
+        "ready": false,
+        "unknown": "exchange_connectivity"
+      },
+      {
+        "blocking": [
+          "execution_adapter"
+        ],
+        "ready": false,
+        "unknown": "execution_adapter"
+      },
+      {
+        "blocking": [
+          "reconciliation"
+        ],
+        "ready": false,
+        "unknown": "reconciliation"
+      },
+      {
+        "blocking": [
+          "queues"
+        ],
+        "ready": false,
+        "unknown": "queues"
+      },
+      {
+        "blocking": [
+          "kill_switches"
+        ],
+        "ready": false,
+        "unknown": "kill_switches"
+      },
+      {
+        "blocking": [
+          "configuration"
+        ],
+        "ready": false,
+        "unknown": "configuration"
+      }
+    ]
+  },
+  "redaction": {
+    "cases": [
+      {
+        "expected": true,
+        "key": "api_key"
+      },
+      {
+        "expected": true,
+        "key": "API-KEY"
+      },
+      {
+        "expected": true,
+        "key": "accessToken"
+      },
+      {
+        "expected": true,
+        "key": "jwt"
+      },
+      {
+        "expected": true,
+        "key": "x-signature"
+      },
+      {
+        "expected": true,
+        "key": "dsn"
+      },
+      {
+        "expected": true,
+        "key": "database_url"
+      },
+      {
+        "expected": false,
+        "key": "symbol"
+      },
+      {
+        "expected": false,
+        "key": "quantity"
+      },
+      {
+        "declared": {
+          "api_key": "[REDACTED]",
+          "symbol": "BTCUSDT"
+        },
+        "expected": {
+          "api_key": "[REDACTED]",
+          "symbol": "BTCUSDT"
+        },
+        "forbidden": [
+          "abc"
+        ],
+        "input": {
+          "api_key": "abc",
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "expected": [
+          1,
+          {
+            "token": "[REDACTED]"
+          },
+          "plain"
+        ],
+        "forbidden": [
+          "t0k3n"
+        ],
+        "input": [
+          1,
+          {
+            "token": "t0k3n"
+          },
+          "plain"
+        ]
+      },
+      {
+        "expected": {
+          "note": "auth [REDACTED]"
+        },
+        "forbidden": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "input": {
+          "note": "auth Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.xxxxxxxxxxxx"
+        }
+      },
+      {
+        "expected": {
+          "url": "https://api.example.com[REDACTED]&x=1"
+        },
+        "forbidden": [
+          "AKIAIOSFODNN7EXAMPLE"
+        ],
+        "input": {
+          "url": "https://api.example.com?Signature=AKIAIOSFODNN7EXAMPLE&x=1"
+        }
+      },
+      {
+        "expected": {
+          "msg": "paid with [REDACTED]"
+        },
+        "forbidden": [
+          "sk_live_0123456789abcdefghij"
+        ],
+        "input": {
+          "msg": "paid with sk_live_0123456789abcdefghij"
+        }
+      },
+      {
+        "expected": {
+          "jwtish": "[REDACTED]"
+        },
+        "forbidden": [
+          "header.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.9fKq-_2example_sig_x"
+        ],
+        "input": {
+          "jwtish": "header.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.9fKq-_2example_sig_x"
+        }
+      },
+      {
+        "expected": {
+          "connection": "[REDACTED]@db.internal:5432/app"
+        },
+        "forbidden": [
+          "hunter2"
+        ],
+        "input": {
+          "connection": "postgresql://user:hunter2@db.internal:5432/app"
+        }
+      },
+      {
+        "expected": "no secrets here",
+        "forbidden": [],
+        "input": "no secrets here"
+      }
+    ],
+    "comment": "redact_value / is_sensitive_key answers. 'expected' is computed by the reference implementation; 'declared' appears only where the generator also had a human-written expectation, and the TS suite asserts BOTH 'expected' and every 'forbidden' substring being absent from its own output."
+  }
+}

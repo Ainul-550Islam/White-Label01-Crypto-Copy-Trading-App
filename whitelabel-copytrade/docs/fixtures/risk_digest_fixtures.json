@@ -1,0 +1,881 @@
+{
+  "version": 1,
+  "generatedBy": "libs/trading-core/scripts/gen_risk_digest_fixtures.py",
+  "ruleOrder": [
+    "MAX_STALE_DATA_AGE",
+    "MAX_ORDER_QUANTITY",
+    "MAX_ORDER_NOTIONAL",
+    "MAX_POSITION_QUANTITY",
+    "MAX_POSITION_NOTIONAL",
+    "MAX_SYMBOL_EXPOSURE",
+    "MAX_STRATEGY_EXPOSURE",
+    "MAX_CORRELATION_GROUP_EXPOSURE",
+    "MAX_EXCHANGE_EXPOSURE",
+    "MAX_ACCOUNT_EXPOSURE",
+    "MAX_OPEN_ORDERS",
+    "MAX_ORDER_RATE",
+    "MAX_CANCEL_RATE",
+    "MAX_DAILY_LOSS",
+    "MAX_STRATEGY_DAILY_LOSS",
+    "MAX_DRAWDOWN",
+    "MAX_CONSECUTIVE_LOSSES",
+    "MAX_ACTIVE_STRATEGIES",
+    "MAX_TOTAL_VOLUME",
+    "MAX_FEE_BUDGET",
+    "MAX_PRICE_DEVIATION",
+    "MAX_LEVERAGE"
+  ],
+  "ruleUnits": {
+    "MAX_ORDER_QUANTITY": [
+      "BASE_QUANTITY"
+    ],
+    "MAX_ORDER_NOTIONAL": [
+      "QUOTE_NOTIONAL"
+    ],
+    "MAX_POSITION_QUANTITY": [
+      "BASE_QUANTITY"
+    ],
+    "MAX_POSITION_NOTIONAL": [
+      "QUOTE_NOTIONAL"
+    ],
+    "MAX_ACCOUNT_EXPOSURE": [
+      "QUOTE_NOTIONAL"
+    ],
+    "MAX_SYMBOL_EXPOSURE": [
+      "QUOTE_NOTIONAL"
+    ],
+    "MAX_STRATEGY_EXPOSURE": [
+      "QUOTE_NOTIONAL"
+    ],
+    "MAX_OPEN_ORDERS": [
+      "COUNT"
+    ],
+    "MAX_DAILY_LOSS": [
+      "LOSS"
+    ],
+    "MAX_STRATEGY_DAILY_LOSS": [
+      "LOSS"
+    ],
+    "MAX_DRAWDOWN": [
+      "PERCENT"
+    ],
+    "MAX_LEVERAGE": [
+      "LEVERAGE_X"
+    ],
+    "MAX_ORDER_RATE": [
+      "COUNT"
+    ],
+    "MAX_CANCEL_RATE": [
+      "COUNT"
+    ],
+    "MAX_PRICE_DEVIATION": [
+      "BPS"
+    ],
+    "MAX_STALE_DATA_AGE": [
+      "AGE_MICROS"
+    ],
+    "MAX_CONSECUTIVE_LOSSES": [
+      "COUNT"
+    ],
+    "MAX_ACTIVE_STRATEGIES": [
+      "COUNT"
+    ],
+    "MAX_TOTAL_VOLUME": [
+      "QUOTE_NOTIONAL"
+    ],
+    "MAX_FEE_BUDGET": [
+      "QUOTE_NOTIONAL"
+    ],
+    "MAX_CORRELATION_GROUP_EXPOSURE": [
+      "QUOTE_NOTIONAL"
+    ],
+    "MAX_EXCHANGE_EXPOSURE": [
+      "QUOTE_NOTIONAL"
+    ]
+  },
+  "switchTransitions": {
+    "INACTIVE": [
+      "ACTIVE",
+      "TRIGGERED"
+    ],
+    "ACTIVE": [
+      "INACTIVE"
+    ],
+    "TRIGGERED": [
+      "ACKNOWLEDGED",
+      "CLEARED"
+    ],
+    "ACKNOWLEDGED": [
+      "CLEARED"
+    ],
+    "CLEARED": [
+      "INACTIVE"
+    ]
+  },
+  "decimalNormalizations": [
+    {
+      "input": "0",
+      "normalized": "0",
+      "pythonStoredRaw": "0"
+    },
+    {
+      "input": "0.000",
+      "normalized": "0",
+      "pythonStoredRaw": "0.000"
+    },
+    {
+      "input": "5",
+      "normalized": "5",
+      "pythonStoredRaw": "5"
+    },
+    {
+      "input": "5000",
+      "normalized": "5E+3",
+      "pythonStoredRaw": "5000"
+    },
+    {
+      "input": "0.2500",
+      "normalized": "0.25",
+      "pythonStoredRaw": "0.2500"
+    },
+    {
+      "input": "100.00",
+      "normalized": "1E+2",
+      "pythonStoredRaw": "100.00"
+    },
+    {
+      "input": "1000000",
+      "normalized": "1E+6",
+      "pythonStoredRaw": "1000000"
+    },
+    {
+      "input": "1000000.000000",
+      "normalized": "1E+6",
+      "pythonStoredRaw": "1000000.000000"
+    },
+    {
+      "input": "0.000001",
+      "normalized": "0.000001",
+      "pythonStoredRaw": "0.000001"
+    },
+    {
+      "input": "0.0000004",
+      "normalized": "4E-7",
+      "pythonStoredRaw": "4E-7"
+    },
+    {
+      "input": "-3000.500",
+      "normalized": "-3000.5",
+      "pythonStoredRaw": "-3000.500"
+    },
+    {
+      "input": "12345.67890000",
+      "normalized": "12345.6789",
+      "pythonStoredRaw": "12345.67890000"
+    },
+    {
+      "input": "1000000000000000.000000000001",
+      "normalized": "1000000000000000.000000000001",
+      "pythonStoredRaw": "1000000000000000.000000000001"
+    },
+    {
+      "input": "7.5",
+      "normalized": "7.5",
+      "pythonStoredRaw": "7.5"
+    },
+    {
+      "input": "250.000",
+      "normalized": "2.5E+2",
+      "pythonStoredRaw": "250.000"
+    },
+    {
+      "input": "100000000000000",
+      "normalized": "1E+14",
+      "pythonStoredRaw": "100000000000000"
+    },
+    {
+      "input": "0.00000000025",
+      "normalized": "2.5E-10",
+      "pythonStoredRaw": "2.5E-10"
+    },
+    {
+      "input": "1000.10",
+      "normalized": "1000.1",
+      "pythonStoredRaw": "1000.10"
+    },
+    {
+      "input": "0.50",
+      "normalized": "0.5",
+      "pythonStoredRaw": "0.50"
+    }
+  ],
+  "decimalComparisons": [
+    {
+      "left": "5000",
+      "right": "5E+3",
+      "sign": 0
+    },
+    {
+      "left": "0.2500",
+      "right": "0.25",
+      "sign": 0
+    },
+    {
+      "left": "100",
+      "right": "100.0",
+      "sign": 0
+    },
+    {
+      "left": "0.000001",
+      "right": "0.0000009999",
+      "sign": 1
+    },
+    {
+      "left": "-3000.5",
+      "right": "-3000.50",
+      "sign": 0
+    },
+    {
+      "left": "12345.6789",
+      "right": "12345.67890000",
+      "sign": 0
+    },
+    {
+      "left": "1000000",
+      "right": "999999.999999",
+      "sign": 1
+    },
+    {
+      "left": "0",
+      "right": "0.000",
+      "sign": 0
+    },
+    {
+      "left": "250",
+      "right": "2.5E+2",
+      "sign": 0
+    }
+  ],
+  "cases": [
+    {
+      "name": "minimal-global",
+      "rawEntries": [
+        {
+          "ruleId": "MAX_ORDER_NOTIONAL",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "1000",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_DAILY_LOSS",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "500",
+          "unit": "LOSS",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        }
+      ],
+      "canonicalPayload": {
+        "entries": [
+          {
+            "ruleId": "MAX_ORDER_NOTIONAL",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "1000",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_DAILY_LOSS",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "500",
+            "unit": "LOSS",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          }
+        ],
+        "correlationGroups": [],
+        "protectionPolicy": {
+          "dailyLossAction": "BLOCK_NEW_RISK",
+          "strategyDailyLossAction": "BLOCK_STRATEGY",
+          "drawdownAction": "BLOCK_ACCOUNT",
+          "consecutiveLossesAction": "BLOCK_STRATEGY",
+          "orderRateAction": "BLOCK_STRATEGY",
+          "cancelRateAction": "BLOCK_STRATEGY",
+          "staleRiskStateAction": "BLOCK_NEW_RISK",
+          "allowRiskReducingOrders": true
+        },
+        "dailyLossIncludesUnrealized": false,
+        "dailyLossIncludesFees": true,
+        "priceDeviationReference": "SIDE_TOUCH",
+        "feeRateBps": null
+      },
+      "canonicalJson": "{\"correlationGroups\":[],\"dailyLossIncludesFees\":true,\"dailyLossIncludesUnrealized\":false,\"entries\":[{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_ORDER_NOTIONAL\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"1000\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_DAILY_LOSS\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"LOSS\",\"value\":\"500\",\"windowMicros\":null}],\"feeRateBps\":null,\"priceDeviationReference\":\"SIDE_TOUCH\",\"protectionPolicy\":{\"allowRiskReducingOrders\":true,\"cancelRateAction\":\"BLOCK_STRATEGY\",\"consecutiveLossesAction\":\"BLOCK_STRATEGY\",\"dailyLossAction\":\"BLOCK_NEW_RISK\",\"drawdownAction\":\"BLOCK_ACCOUNT\",\"orderRateAction\":\"BLOCK_STRATEGY\",\"staleRiskStateAction\":\"BLOCK_NEW_RISK\",\"strategyDailyLossAction\":\"BLOCK_STRATEGY\"}}",
+      "digest": "86826743a8d49bfac5a660983afd5d0c47d5a57dc9bf9d478314d01a96cf7e53"
+    },
+    {
+      "name": "hierarchy-with-windows",
+      "rawEntries": [
+        {
+          "ruleId": "MAX_ORDER_NOTIONAL",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "1000",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_ORDER_NOTIONAL",
+          "scope": "EXCHANGE",
+          "target": "binance",
+          "enabled": true,
+          "value": "800.000",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 10,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_ORDER_NOTIONAL",
+          "scope": "STRATEGY",
+          "target": "strat-alpha",
+          "enabled": true,
+          "value": "0.2500",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 1700000000000000,
+          "effectiveUntilMicros": 1800000000000000,
+          "entryVersion": 3,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_POSITION_NOTIONAL",
+          "scope": "ACCOUNT",
+          "target": "acct-1",
+          "enabled": true,
+          "value": "5000",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_SYMBOL_EXPOSURE",
+          "scope": "SYMBOL",
+          "target": "BTCUSDT",
+          "enabled": false,
+          "value": "1000000",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_ORDER_RATE",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "2",
+          "unit": "COUNT",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": 1000000
+        },
+        {
+          "ruleId": "MAX_ORDER_RATE",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "30",
+          "unit": "COUNT",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": 60000000
+        },
+        {
+          "ruleId": "MAX_STALE_DATA_AGE",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "2000000",
+          "unit": "AGE_MICROS",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        }
+      ],
+      "canonicalPayload": {
+        "entries": [
+          {
+            "ruleId": "MAX_STALE_DATA_AGE",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "2000000",
+            "unit": "AGE_MICROS",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_ORDER_NOTIONAL",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "1000",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_ORDER_NOTIONAL",
+            "scope": "EXCHANGE",
+            "target": "binance",
+            "enabled": true,
+            "value": "800.000",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 10,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_ORDER_NOTIONAL",
+            "scope": "STRATEGY",
+            "target": "strat-alpha",
+            "enabled": true,
+            "value": "0.2500",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 1700000000000000,
+            "effectiveUntilMicros": 1800000000000000,
+            "entryVersion": 3,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_POSITION_NOTIONAL",
+            "scope": "ACCOUNT",
+            "target": "acct-1",
+            "enabled": true,
+            "value": "5000",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_SYMBOL_EXPOSURE",
+            "scope": "SYMBOL",
+            "target": "BTCUSDT",
+            "enabled": false,
+            "value": "1000000",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_ORDER_RATE",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "2",
+            "unit": "COUNT",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": 1000000
+          },
+          {
+            "ruleId": "MAX_ORDER_RATE",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "30",
+            "unit": "COUNT",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": 60000000
+          }
+        ],
+        "correlationGroups": [],
+        "protectionPolicy": {
+          "dailyLossAction": "BLOCK_NEW_RISK",
+          "strategyDailyLossAction": "BLOCK_STRATEGY",
+          "drawdownAction": "BLOCK_ACCOUNT",
+          "consecutiveLossesAction": "BLOCK_STRATEGY",
+          "orderRateAction": "BLOCK_STRATEGY",
+          "cancelRateAction": "BLOCK_STRATEGY",
+          "staleRiskStateAction": "BLOCK_NEW_RISK",
+          "allowRiskReducingOrders": true
+        },
+        "dailyLossIncludesUnrealized": false,
+        "dailyLossIncludesFees": true,
+        "priceDeviationReference": "SIDE_TOUCH",
+        "feeRateBps": null
+      },
+      "canonicalJson": "{\"correlationGroups\":[],\"dailyLossIncludesFees\":true,\"dailyLossIncludesUnrealized\":false,\"entries\":[{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_STALE_DATA_AGE\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"AGE_MICROS\",\"value\":\"2000000\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_ORDER_NOTIONAL\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"1000\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":10,\"ruleId\":\"MAX_ORDER_NOTIONAL\",\"scope\":\"EXCHANGE\",\"target\":\"binance\",\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"800.000\",\"windowMicros\":null},{\"effectiveFromMicros\":1700000000000000,\"effectiveUntilMicros\":1800000000000000,\"enabled\":true,\"entryVersion\":3,\"priority\":0,\"ruleId\":\"MAX_ORDER_NOTIONAL\",\"scope\":\"STRATEGY\",\"target\":\"strat-alpha\",\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"0.2500\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_POSITION_NOTIONAL\",\"scope\":\"ACCOUNT\",\"target\":\"acct-1\",\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"5000\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":false,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_SYMBOL_EXPOSURE\",\"scope\":\"SYMBOL\",\"target\":\"BTCUSDT\",\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"1000000\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_ORDER_RATE\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"COUNT\",\"value\":\"2\",\"windowMicros\":1000000},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_ORDER_RATE\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"COUNT\",\"value\":\"30\",\"windowMicros\":60000000}],\"feeRateBps\":null,\"priceDeviationReference\":\"SIDE_TOUCH\",\"protectionPolicy\":{\"allowRiskReducingOrders\":true,\"cancelRateAction\":\"BLOCK_STRATEGY\",\"consecutiveLossesAction\":\"BLOCK_STRATEGY\",\"dailyLossAction\":\"BLOCK_NEW_RISK\",\"drawdownAction\":\"BLOCK_ACCOUNT\",\"orderRateAction\":\"BLOCK_STRATEGY\",\"staleRiskStateAction\":\"BLOCK_NEW_RISK\",\"strategyDailyLossAction\":\"BLOCK_STRATEGY\"}}",
+      "digest": "edcad712afa00b2dc0f14d5faadbaa93cd2d0eb7b5c22d73a02289d7c20f0730"
+    },
+    {
+      "name": "correlation-and-fees-and-unrealized",
+      "rawEntries": [
+        {
+          "ruleId": "MAX_SYMBOL_EXPOSURE",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "5000",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_CORRELATION_GROUP_EXPOSURE",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "0.000001",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_LEVERAGE",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "3",
+          "unit": "LEVERAGE_X",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_CONSECUTIVE_LOSSES",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "5",
+          "unit": "COUNT",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        }
+      ],
+      "canonicalPayload": {
+        "entries": [
+          {
+            "ruleId": "MAX_SYMBOL_EXPOSURE",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "5000",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_CORRELATION_GROUP_EXPOSURE",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "0.000001",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_CONSECUTIVE_LOSSES",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "5",
+            "unit": "COUNT",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_LEVERAGE",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "3",
+            "unit": "LEVERAGE_X",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          }
+        ],
+        "correlationGroups": [
+          {
+            "name": "eth-proxies",
+            "exchange": "binance",
+            "members": [
+              "ETHBTC",
+              "ETHUSDT",
+              "WETHUSDT"
+            ],
+            "maxNotional": "10000.00",
+            "rationale": "same underlying; move together intraday"
+          },
+          {
+            "name": "solana-beta",
+            "exchange": "binance",
+            "members": [
+              "JUPUSDT",
+              "SOLUSDT"
+            ],
+            "maxNotional": null,
+            "rationale": "ecosystem correlation, ceiling documented elsewhere"
+          }
+        ],
+        "protectionPolicy": {
+          "dailyLossAction": "BLOCK_ACCOUNT",
+          "strategyDailyLossAction": "BLOCK_STRATEGY",
+          "drawdownAction": "BLOCK_ACCOUNT",
+          "consecutiveLossesAction": "BLOCK_ACCOUNT",
+          "orderRateAction": "BLOCK_STRATEGY",
+          "cancelRateAction": "BLOCK_STRATEGY",
+          "staleRiskStateAction": "BLOCK_NEW_RISK",
+          "allowRiskReducingOrders": false
+        },
+        "dailyLossIncludesUnrealized": true,
+        "dailyLossIncludesFees": true,
+        "priceDeviationReference": "MID",
+        "feeRateBps": "7.5"
+      },
+      "canonicalJson": "{\"correlationGroups\":[{\"exchange\":\"binance\",\"maxNotional\":\"10000.00\",\"members\":[\"ETHBTC\",\"ETHUSDT\",\"WETHUSDT\"],\"name\":\"eth-proxies\",\"rationale\":\"same underlying; move together intraday\"},{\"exchange\":\"binance\",\"maxNotional\":null,\"members\":[\"JUPUSDT\",\"SOLUSDT\"],\"name\":\"solana-beta\",\"rationale\":\"ecosystem correlation, ceiling documented elsewhere\"}],\"dailyLossIncludesFees\":true,\"dailyLossIncludesUnrealized\":true,\"entries\":[{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_SYMBOL_EXPOSURE\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"5000\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_CORRELATION_GROUP_EXPOSURE\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"0.000001\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_CONSECUTIVE_LOSSES\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"COUNT\",\"value\":\"5\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_LEVERAGE\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"LEVERAGE_X\",\"value\":\"3\",\"windowMicros\":null}],\"feeRateBps\":\"7.5\",\"priceDeviationReference\":\"MID\",\"protectionPolicy\":{\"allowRiskReducingOrders\":false,\"cancelRateAction\":\"BLOCK_STRATEGY\",\"consecutiveLossesAction\":\"BLOCK_ACCOUNT\",\"dailyLossAction\":\"BLOCK_ACCOUNT\",\"drawdownAction\":\"BLOCK_ACCOUNT\",\"orderRateAction\":\"BLOCK_STRATEGY\",\"staleRiskStateAction\":\"BLOCK_NEW_RISK\",\"strategyDailyLossAction\":\"BLOCK_STRATEGY\"}}",
+      "digest": "6a03c60d020f14cf31f5603bd7035012015f25942bdfeef342071c859e9a410c"
+    },
+    {
+      "name": "exotic-decimals",
+      "rawEntries": [
+        {
+          "ruleId": "MAX_ORDER_NOTIONAL",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "5000",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_ORDER_QUANTITY",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "100.10",
+          "unit": "BASE_QUANTITY",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_POSITION_QUANTITY",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "0.0000004",
+          "unit": "BASE_QUANTITY",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_PRICE_DEVIATION",
+          "scope": "GLOBAL",
+          "target": null,
+          "enabled": true,
+          "value": "250.000",
+          "unit": "BPS",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        },
+        {
+          "ruleId": "MAX_ACCOUNT_EXPOSURE",
+          "scope": "ACCOUNT",
+          "target": "acct-1",
+          "enabled": true,
+          "value": "100000000000000",
+          "unit": "QUOTE_NOTIONAL",
+          "priority": 0,
+          "effectiveFromMicros": 0,
+          "effectiveUntilMicros": null,
+          "entryVersion": 1,
+          "windowMicros": null
+        }
+      ],
+      "canonicalPayload": {
+        "entries": [
+          {
+            "ruleId": "MAX_ORDER_QUANTITY",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "100.10",
+            "unit": "BASE_QUANTITY",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_ORDER_NOTIONAL",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "5000",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_POSITION_QUANTITY",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "4E-7",
+            "unit": "BASE_QUANTITY",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_ACCOUNT_EXPOSURE",
+            "scope": "ACCOUNT",
+            "target": "acct-1",
+            "enabled": true,
+            "value": "100000000000000",
+            "unit": "QUOTE_NOTIONAL",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          },
+          {
+            "ruleId": "MAX_PRICE_DEVIATION",
+            "scope": "GLOBAL",
+            "target": null,
+            "enabled": true,
+            "value": "250.000",
+            "unit": "BPS",
+            "priority": 0,
+            "effectiveFromMicros": 0,
+            "effectiveUntilMicros": null,
+            "entryVersion": 1,
+            "windowMicros": null
+          }
+        ],
+        "correlationGroups": [],
+        "protectionPolicy": {
+          "dailyLossAction": "BLOCK_NEW_RISK",
+          "strategyDailyLossAction": "BLOCK_STRATEGY",
+          "drawdownAction": "BLOCK_ACCOUNT",
+          "consecutiveLossesAction": "BLOCK_STRATEGY",
+          "orderRateAction": "BLOCK_STRATEGY",
+          "cancelRateAction": "BLOCK_STRATEGY",
+          "staleRiskStateAction": "BLOCK_NEW_RISK",
+          "allowRiskReducingOrders": true
+        },
+        "dailyLossIncludesUnrealized": false,
+        "dailyLossIncludesFees": true,
+        "priceDeviationReference": "SIDE_TOUCH",
+        "feeRateBps": null
+      },
+      "canonicalJson": "{\"correlationGroups\":[],\"dailyLossIncludesFees\":true,\"dailyLossIncludesUnrealized\":false,\"entries\":[{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_ORDER_QUANTITY\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"BASE_QUANTITY\",\"value\":\"100.10\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_ORDER_NOTIONAL\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"5000\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_POSITION_QUANTITY\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"BASE_QUANTITY\",\"value\":\"4E-7\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_ACCOUNT_EXPOSURE\",\"scope\":\"ACCOUNT\",\"target\":\"acct-1\",\"unit\":\"QUOTE_NOTIONAL\",\"value\":\"100000000000000\",\"windowMicros\":null},{\"effectiveFromMicros\":0,\"effectiveUntilMicros\":null,\"enabled\":true,\"entryVersion\":1,\"priority\":0,\"ruleId\":\"MAX_PRICE_DEVIATION\",\"scope\":\"GLOBAL\",\"target\":null,\"unit\":\"BPS\",\"value\":\"250.000\",\"windowMicros\":null}],\"feeRateBps\":null,\"priceDeviationReference\":\"SIDE_TOUCH\",\"protectionPolicy\":{\"allowRiskReducingOrders\":true,\"cancelRateAction\":\"BLOCK_STRATEGY\",\"consecutiveLossesAction\":\"BLOCK_STRATEGY\",\"dailyLossAction\":\"BLOCK_NEW_RISK\",\"drawdownAction\":\"BLOCK_ACCOUNT\",\"orderRateAction\":\"BLOCK_STRATEGY\",\"staleRiskStateAction\":\"BLOCK_NEW_RISK\",\"strategyDailyLossAction\":\"BLOCK_STRATEGY\"}}",
+      "digest": "0b5f4d3525f6bef48ce6f4d51b058de5198a79b77972821fe035e917a98b2be9"
+    }
+  ]
+}

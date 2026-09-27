@@ -1,0 +1,1307 @@
+{
+  "generatedBy": "libs/trading-core/scripts/gen_part11_fixtures.py",
+  "keys": {
+    "leaderLease": [
+      {
+        "key": "wlct:trading:lock:leader:a",
+        "name": "a"
+      },
+      {
+        "key": "wlct:trading:lock:leader:execution-reconciliation",
+        "name": "execution-reconciliation"
+      },
+      {
+        "key": "wlct:trading:lock:leader:copy-dispatch",
+        "name": "copy-dispatch"
+      },
+      {
+        "key": "wlct:trading:lock:leader:with.dots-and_underscores123",
+        "name": "with.dots-and_underscores123"
+      },
+      {
+        "key": "wlct:trading:lock:leader:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    ],
+    "nameRejects": [
+      {
+        "error": "wire token",
+        "name": ""
+      },
+      {
+        "error": "wire token",
+        "name": "-lead"
+      },
+      {
+        "error": "wire token",
+        "name": "has space"
+      },
+      {
+        "error": "wire token",
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "error": "wire token",
+        "name": "semi;colon"
+      }
+    ],
+    "partitionClaim": [
+      {
+        "key": "wlct:trading:lock:partition:trade-execution:0",
+        "name": "trade-execution",
+        "partition": 0
+      },
+      {
+        "key": "wlct:trading:lock:partition:trade-execution:1",
+        "name": "trade-execution",
+        "partition": 1
+      },
+      {
+        "key": "wlct:trading:lock:partition:trade-execution:7",
+        "name": "trade-execution",
+        "partition": 7
+      },
+      {
+        "key": "wlct:trading:lock:partition:trade-execution:4095",
+        "name": "trade-execution",
+        "partition": 4095
+      },
+      {
+        "key": "wlct:trading:lock:partition:trade-signal:0",
+        "name": "trade-signal",
+        "partition": 0
+      },
+      {
+        "key": "wlct:trading:lock:partition:trade-signal:1",
+        "name": "trade-signal",
+        "partition": 1
+      },
+      {
+        "key": "wlct:trading:lock:partition:trade-signal:7",
+        "name": "trade-signal",
+        "partition": 7
+      },
+      {
+        "key": "wlct:trading:lock:partition:trade-signal:4095",
+        "name": "trade-signal",
+        "partition": 4095
+      },
+      {
+        "key": "wlct:trading:lock:partition:a:0",
+        "name": "a",
+        "partition": 0
+      },
+      {
+        "key": "wlct:trading:lock:partition:a:1",
+        "name": "a",
+        "partition": 1
+      },
+      {
+        "key": "wlct:trading:lock:partition:a:7",
+        "name": "a",
+        "partition": 7
+      },
+      {
+        "key": "wlct:trading:lock:partition:a:4095",
+        "name": "a",
+        "partition": 4095
+      }
+    ],
+    "partitionClaimRejects": [
+      {
+        "error": "non-negative",
+        "name": "g",
+        "partition": -1
+      }
+    ]
+  },
+  "lease": {
+    "construction": [
+      {
+        "ok": true,
+        "renewMillis": 10000,
+        "ttlMillis": 30000
+      },
+      {
+        "ok": true,
+        "renewMillis": 4999,
+        "ttlMillis": 10000
+      },
+      {
+        "error": "renew interval must be less than half the lease TTL - a single late renewal would hand leadership to the queue",
+        "ok": false,
+        "renewMillis": 5000,
+        "ttlMillis": 10000
+      },
+      {
+        "error": "lease TTLs below one second elect on network jitter",
+        "ok": false,
+        "renewMillis": null,
+        "ttlMillis": 999
+      },
+      {
+        "error": "renew intervals below 250ms are a busy loop, not a cadence",
+        "ok": false,
+        "renewMillis": 100,
+        "ttlMillis": 10000
+      },
+      {
+        "derivedRenewMillis": 10000,
+        "ok": true,
+        "renewMillis": null,
+        "ttlMillis": 30000
+      }
+    ],
+    "defaults": {
+      "defaultRetryDivisor": 8,
+      "defaultTtlMillis": 30000
+    },
+    "renewDueMicros": [
+      {
+        "expected": true,
+        "lastActionMicros": 1699999999990000,
+        "nowMicros": 1700000000000000,
+        "renewMillis": 10
+      },
+      {
+        "expected": false,
+        "lastActionMicros": 1699999999990001,
+        "nowMicros": 1700000000000000,
+        "renewMillis": 10
+      },
+      {
+        "expected": false,
+        "lastActionMicros": 1700000000000000,
+        "nowMicros": 1700000000000000,
+        "renewMillis": 10
+      },
+      {
+        "expected": true,
+        "lastActionMicros": 1699999999000000,
+        "nowMicros": 1700000000000000,
+        "renewMillis": 10
+      },
+      {
+        "expected": true,
+        "lastActionMicros": 1699999999750000,
+        "nowMicros": 1700000000000000,
+        "renewMillis": 250
+      },
+      {
+        "expected": false,
+        "lastActionMicros": 1699999999750001,
+        "nowMicros": 1700000000000000,
+        "renewMillis": 250
+      },
+      {
+        "expected": true,
+        "lastActionMicros": 1700000000000001,
+        "nowMicros": 1700000000000000,
+        "renewMillis": 10
+      },
+      {
+        "expected": true,
+        "lastActionMicros": 1701000000000000,
+        "nowMicros": 1700000000000000,
+        "renewMillis": 60000
+      }
+    ],
+    "renewDueMicrosRejects": [
+      {
+        "error": "renew intervals must be plain integer milliseconds >= 1",
+        "renewMillis": 0
+      },
+      {
+        "error": "renew intervals must be plain integer milliseconds >= 1",
+        "renewMillis": -5
+      },
+      {
+        "error": "now_micros must be a plain integer of microseconds",
+        "nowMicros": "'1000'"
+      }
+    ],
+    "scripts": {
+      "claimRelease": {
+        "sha256": "c8144ac1a6f4c8f4944e514c7974a06bfadd0847e4bff2cd8e69b51aff660cd4",
+        "text": "\nif redis.call('GET', KEYS[1]) == ARGV[1] then\n    return redis.call('DEL', KEYS[1])\nelse\n    return 0\nend\n"
+      },
+      "claimRenew": {
+        "sha256": "b07a05603acdccd661e590d4a1338afc0ffd6043aea47c36365343ab948658fb",
+        "text": "\nif redis.call('GET', KEYS[1]) == ARGV[1] then\n    return redis.call('PEXPIRE', KEYS[1], ARGV[2])\nelse\n    return 0\nend\n"
+      },
+      "lockExtend": {
+        "sha256": "b07a05603acdccd661e590d4a1338afc0ffd6043aea47c36365343ab948658fb",
+        "text": "\nif redis.call('GET', KEYS[1]) == ARGV[1] then\n    return redis.call('PEXPIRE', KEYS[1], ARGV[2])\nelse\n    return 0\nend\n"
+      },
+      "lockRelease": {
+        "sha256": "c8144ac1a6f4c8f4944e514c7974a06bfadd0847e4bff2cd8e69b51aff660cd4",
+        "text": "\nif redis.call('GET', KEYS[1]) == ARGV[1] then\n    return redis.call('DEL', KEYS[1])\nelse\n    return 0\nend\n"
+      },
+      "note": "The lock manager's compare-and-extend and the claim renew are the SAME Lua text modulo whitespace; release likewise. The TS twin embeds its own copies and the parity spec asserts both the digests and that stripped equivalence, so a fix to one script in either language fails a test."
+    }
+  },
+  "membership": {
+    "defaults": {
+      "group": "trade-execution",
+      "key": "wlct:trading:coord:members:trade-execution"
+    },
+    "heartbeatExpiry": [
+      {
+        "expiryMillis": 1000,
+        "nowMillis": 0,
+        "ttlMillis": 1000
+      },
+      {
+        "expiryMillis": 1700000015000,
+        "nowMillis": 1700000000000,
+        "ttlMillis": 15000
+      },
+      {
+        "expiryMillis": 1700001440000,
+        "nowMillis": 1700000000000,
+        "ttlMillis": 1440000
+      }
+    ],
+    "heartbeatExpiryRejects": [
+      {
+        "error": "now_millis must be a non-negative epoch in milliseconds",
+        "nowMillis": -1,
+        "ttlMillis": 15000
+      },
+      {
+        "error": "membership TTLs below one second flap on network jitter",
+        "nowMillis": 1700000000000,
+        "ttlMillis": 999
+      },
+      {
+        "error": "ttl_millis must be a plain integer of milliseconds, got 15000.5",
+        "nowMillis": 1700000000000,
+        "ttlMillis": 15000.5
+      },
+      {
+        "error": "now_millis must be a plain integer of milliseconds, got True",
+        "nowMillis": true,
+        "ttlMillis": 15000
+      }
+    ],
+    "liveMembers": [
+      {
+        "entries": [],
+        "expected": [],
+        "nowMillis": 100
+      },
+      {
+        "entries": [
+          [
+            "a",
+            101
+          ]
+        ],
+        "expected": [
+          "a"
+        ],
+        "nowMillis": 100
+      },
+      {
+        "entries": [
+          [
+            "a",
+            100
+          ]
+        ],
+        "expected": [],
+        "nowMillis": 100
+      },
+      {
+        "entries": [
+          [
+            "a",
+            99
+          ]
+        ],
+        "expected": [],
+        "nowMillis": 100
+      },
+      {
+        "entries": [
+          [
+            "worker-beta",
+            1700000015000
+          ],
+          [
+            "worker-alpha",
+            1700000015000
+          ],
+          [
+            "worker-stray",
+            1700000000000
+          ]
+        ],
+        "expected": [
+          "worker-alpha",
+          "worker-beta"
+        ],
+        "nowMillis": 1700000000000
+      },
+      {
+        "entries": [
+          [
+            "dup",
+            90
+          ],
+          [
+            "dup",
+            120
+          ],
+          [
+            "other",
+            121
+          ]
+        ],
+        "expected": [
+          "dup",
+          "other"
+        ],
+        "nowMillis": 50
+      },
+      {
+        "entries": [
+          [
+            "dup",
+            120
+          ],
+          [
+            "dup",
+            90
+          ],
+          [
+            "dup",
+            60
+          ]
+        ],
+        "expected": [
+          "dup"
+        ],
+        "nowMillis": 50
+      }
+    ],
+    "liveMembersRejects": [
+      {
+        "entries": [
+          [
+            "has space",
+            100
+          ]
+        ],
+        "error": "membership entry 'has space' is not a member token",
+        "nowMillis": 100
+      },
+      {
+        "entries": [
+          [
+            "ok-1",
+            true
+          ]
+        ],
+        "error": "membership entry must be a (str, int) pair, got ('ok-1', True)",
+        "nowMillis": 100
+      },
+      {
+        "entries": [
+          [
+            "ok-1",
+            "100"
+          ]
+        ],
+        "error": "membership entry must be a (str, int) pair, got ('ok-1', '100')",
+        "nowMillis": 100
+      },
+      {
+        "entries": [
+          [
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            100
+          ]
+        ],
+        "error": "membership entry 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' is not a member token",
+        "nowMillis": 100
+      }
+    ],
+    "scripts": {
+      "ping": {
+        "sha256": "5993bd3424ac28d26c49c3606bf737dc87e95fcf5eae307467513cd6940e0224",
+        "text": "\nredis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])\nredis.call('ZADD', KEYS[1], 'GT', ARGV[2], ARGV[3])\nreturn redis.call('ZRANGE', KEYS[1], 0, -1, 'WITHSCORES')\n"
+      },
+      "resign": {
+        "sha256": "359b07d0b4bc43509402d9e95d74122b186194b9036921a775015a34f524f107",
+        "text": "\nredis.call('ZREM', KEYS[1], ARGV[1])\nreturn redis.call('ZCARD', KEYS[1])\n"
+      },
+      "snapshot": {
+        "sha256": "6f38c866fbe6c2a2c2299c16f3f35c3d6b4bc3d1ac9c5aadfbcce5320859f567",
+        "text": "\nif redis.call('EXISTS', KEYS[1]) == 0 then\n    return {}\nend\nreturn redis.call('ZRANGE', KEYS[1], 0, -1, 'WITHSCORES')\n"
+      }
+    }
+  },
+  "partitions": {
+    "assignments": [
+      {
+        "count": 1,
+        "members": [
+          "worker-a"
+        ],
+        "table": {
+          "worker-a": [
+            0
+          ]
+        }
+      },
+      {
+        "count": 3,
+        "members": [
+          "worker-a"
+        ],
+        "table": {
+          "worker-a": [
+            0,
+            1,
+            2
+          ]
+        }
+      },
+      {
+        "count": 8,
+        "members": [
+          "worker-a"
+        ],
+        "table": {
+          "worker-a": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        }
+      },
+      {
+        "count": 12,
+        "members": [
+          "worker-a"
+        ],
+        "table": {
+          "worker-a": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        }
+      },
+      {
+        "count": 1,
+        "members": [
+          "worker-a",
+          "worker-b"
+        ],
+        "table": {
+          "worker-a": [
+            0
+          ]
+        }
+      },
+      {
+        "count": 3,
+        "members": [
+          "worker-a",
+          "worker-b"
+        ],
+        "table": {
+          "worker-a": [
+            0
+          ],
+          "worker-b": [
+            1,
+            2
+          ]
+        }
+      },
+      {
+        "count": 8,
+        "members": [
+          "worker-a",
+          "worker-b"
+        ],
+        "table": {
+          "worker-a": [
+            0,
+            3,
+            5,
+            6
+          ],
+          "worker-b": [
+            1,
+            2,
+            4,
+            7
+          ]
+        }
+      },
+      {
+        "count": 12,
+        "members": [
+          "worker-a",
+          "worker-b"
+        ],
+        "table": {
+          "worker-a": [
+            0,
+            3,
+            5,
+            6,
+            9,
+            10
+          ],
+          "worker-b": [
+            1,
+            2,
+            4,
+            7,
+            8,
+            11
+          ]
+        }
+      },
+      {
+        "count": 1,
+        "members": [
+          "worker-a",
+          "worker-b",
+          "worker-c"
+        ],
+        "table": {
+          "worker-a": [
+            0
+          ]
+        }
+      },
+      {
+        "count": 3,
+        "members": [
+          "worker-a",
+          "worker-b",
+          "worker-c"
+        ],
+        "table": {
+          "worker-a": [
+            0
+          ],
+          "worker-b": [
+            1
+          ],
+          "worker-c": [
+            2
+          ]
+        }
+      },
+      {
+        "count": 8,
+        "members": [
+          "worker-a",
+          "worker-b",
+          "worker-c"
+        ],
+        "table": {
+          "worker-a": [
+            0,
+            3,
+            5,
+            6
+          ],
+          "worker-b": [
+            1,
+            4
+          ],
+          "worker-c": [
+            2,
+            7
+          ]
+        }
+      },
+      {
+        "count": 12,
+        "members": [
+          "worker-a",
+          "worker-b",
+          "worker-c"
+        ],
+        "table": {
+          "worker-a": [
+            0,
+            3,
+            5,
+            6,
+            9
+          ],
+          "worker-b": [
+            1,
+            4
+          ],
+          "worker-c": [
+            2,
+            7,
+            8,
+            10,
+            11
+          ]
+        }
+      },
+      {
+        "count": 1,
+        "members": [
+          "m1",
+          "m2",
+          "m3",
+          "m4",
+          "m5"
+        ],
+        "table": {
+          "m5": [
+            0
+          ]
+        }
+      },
+      {
+        "count": 3,
+        "members": [
+          "m1",
+          "m2",
+          "m3",
+          "m4",
+          "m5"
+        ],
+        "table": {
+          "m1": [
+            1,
+            2
+          ],
+          "m5": [
+            0
+          ]
+        }
+      },
+      {
+        "count": 8,
+        "members": [
+          "m1",
+          "m2",
+          "m3",
+          "m4",
+          "m5"
+        ],
+        "table": {
+          "m1": [
+            1,
+            2,
+            4,
+            7
+          ],
+          "m4": [
+            3,
+            6
+          ],
+          "m5": [
+            0,
+            5
+          ]
+        }
+      },
+      {
+        "count": 12,
+        "members": [
+          "m1",
+          "m2",
+          "m3",
+          "m4",
+          "m5"
+        ],
+        "table": {
+          "m1": [
+            1,
+            2,
+            4,
+            7,
+            8
+          ],
+          "m3": [
+            10
+          ],
+          "m4": [
+            3,
+            6,
+            9
+          ],
+          "m5": [
+            0,
+            5,
+            11
+          ]
+        }
+      },
+      {
+        "count": 1,
+        "members": [
+          "host-1:2001:9f3c",
+          "host-2:2001:a1b2"
+        ],
+        "table": {
+          "host-2:2001:a1b2": [
+            0
+          ]
+        }
+      },
+      {
+        "count": 3,
+        "members": [
+          "host-1:2001:9f3c",
+          "host-2:2001:a1b2"
+        ],
+        "table": {
+          "host-1:2001:9f3c": [
+            2
+          ],
+          "host-2:2001:a1b2": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "count": 8,
+        "members": [
+          "host-1:2001:9f3c",
+          "host-2:2001:a1b2"
+        ],
+        "table": {
+          "host-1:2001:9f3c": [
+            2,
+            3,
+            6,
+            7
+          ],
+          "host-2:2001:a1b2": [
+            0,
+            1,
+            4,
+            5
+          ]
+        }
+      },
+      {
+        "count": 12,
+        "members": [
+          "host-1:2001:9f3c",
+          "host-2:2001:a1b2"
+        ],
+        "table": {
+          "host-1:2001:9f3c": [
+            2,
+            3,
+            6,
+            7,
+            10,
+            11
+          ],
+          "host-2:2001:a1b2": [
+            0,
+            1,
+            4,
+            5,
+            8,
+            9
+          ]
+        }
+      }
+    ],
+    "crc32": [
+      {
+        "crc32": 0,
+        "input": ""
+      },
+      {
+        "crc32": 891568578,
+        "input": "abc"
+      },
+      {
+        "crc32": 2363233923,
+        "input": "x"
+      },
+      {
+        "crc32": 1342815582,
+        "input": "tenant-1:acct-2"
+      },
+      {
+        "crc32": 2950106508,
+        "input": "unicode-\u00fcn\u00efc\u00f8de-\u2713"
+      },
+      {
+        "crc32": 2414882351,
+        "input": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "crc32": 4230998605,
+        "input": "5qjnzx3s|7"
+      },
+      {
+        "crc32": 4230998605,
+        "input": "9eg9tvkb|7"
+      }
+    ],
+    "maxPartitions": 4096,
+    "movedByMembership": [
+      {
+        "after": [
+          "w1",
+          "w3"
+        ],
+        "before": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "count": 12,
+        "moved": {
+          "2": [
+            "w2",
+            "w3"
+          ],
+          "7": [
+            "w2",
+            "w3"
+          ],
+          "8": [
+            "w2",
+            "w3"
+          ]
+        }
+      },
+      {
+        "after": [
+          "w1",
+          "w2",
+          "w3",
+          "w4"
+        ],
+        "before": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "count": 12,
+        "moved": {
+          "1": [
+            "w3",
+            "w4"
+          ],
+          "2": [
+            "w2",
+            "w4"
+          ],
+          "4": [
+            "w3",
+            "w4"
+          ],
+          "7": [
+            "w2",
+            "w4"
+          ],
+          "8": [
+            "w2",
+            "w4"
+          ]
+        }
+      },
+      {
+        "after": [
+          "w2"
+        ],
+        "before": [
+          "w1",
+          "w2"
+        ],
+        "count": 40,
+        "moved": {
+          "0": [
+            "w1",
+            "w2"
+          ],
+          "10": [
+            "w1",
+            "w2"
+          ],
+          "12": [
+            "w1",
+            "w2"
+          ],
+          "14": [
+            "w1",
+            "w2"
+          ],
+          "16": [
+            "w1",
+            "w2"
+          ],
+          "18": [
+            "w1",
+            "w2"
+          ],
+          "20": [
+            "w1",
+            "w2"
+          ],
+          "22": [
+            "w1",
+            "w2"
+          ],
+          "24": [
+            "w1",
+            "w2"
+          ],
+          "26": [
+            "w1",
+            "w2"
+          ],
+          "28": [
+            "w1",
+            "w2"
+          ],
+          "3": [
+            "w1",
+            "w2"
+          ],
+          "31": [
+            "w1",
+            "w2"
+          ],
+          "33": [
+            "w1",
+            "w2"
+          ],
+          "35": [
+            "w1",
+            "w2"
+          ],
+          "37": [
+            "w1",
+            "w2"
+          ],
+          "39": [
+            "w1",
+            "w2"
+          ],
+          "5": [
+            "w1",
+            "w2"
+          ],
+          "6": [
+            "w1",
+            "w2"
+          ],
+          "9": [
+            "w1",
+            "w2"
+          ]
+        }
+      }
+    ],
+    "partitionFor": [
+      {
+        "count": 1,
+        "key": "abc",
+        "partition": 0
+      },
+      {
+        "count": 2,
+        "key": "abc",
+        "partition": 0
+      },
+      {
+        "count": 8,
+        "key": "abc",
+        "partition": 2
+      },
+      {
+        "count": 12,
+        "key": "abc",
+        "partition": 6
+      },
+      {
+        "count": 4096,
+        "key": "abc",
+        "partition": 450
+      },
+      {
+        "count": 1,
+        "key": "tenant-1:acct-2",
+        "partition": 0
+      },
+      {
+        "count": 2,
+        "key": "tenant-1:acct-2",
+        "partition": 0
+      },
+      {
+        "count": 8,
+        "key": "tenant-1:acct-2",
+        "partition": 6
+      },
+      {
+        "count": 12,
+        "key": "tenant-1:acct-2",
+        "partition": 6
+      },
+      {
+        "count": 4096,
+        "key": "tenant-1:acct-2",
+        "partition": 3422
+      },
+      {
+        "count": 1,
+        "key": "x",
+        "partition": 0
+      },
+      {
+        "count": 2,
+        "key": "x",
+        "partition": 1
+      },
+      {
+        "count": 8,
+        "key": "x",
+        "partition": 3
+      },
+      {
+        "count": 12,
+        "key": "x",
+        "partition": 3
+      },
+      {
+        "count": 4096,
+        "key": "x",
+        "partition": 1667
+      },
+      {
+        "count": 1,
+        "key": "unicode-\u00fcn\u00efc\u00f8de-\u2713",
+        "partition": 0
+      },
+      {
+        "count": 2,
+        "key": "unicode-\u00fcn\u00efc\u00f8de-\u2713",
+        "partition": 0
+      },
+      {
+        "count": 8,
+        "key": "unicode-\u00fcn\u00efc\u00f8de-\u2713",
+        "partition": 4
+      },
+      {
+        "count": 12,
+        "key": "unicode-\u00fcn\u00efc\u00f8de-\u2713",
+        "partition": 0
+      },
+      {
+        "count": 4096,
+        "key": "unicode-\u00fcn\u00efc\u00f8de-\u2713",
+        "partition": 3468
+      },
+      {
+        "count": 1,
+        "key": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "partition": 0
+      },
+      {
+        "count": 2,
+        "key": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "partition": 1
+      },
+      {
+        "count": 8,
+        "key": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "partition": 7
+      },
+      {
+        "count": 12,
+        "key": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "partition": 11
+      },
+      {
+        "count": 4096,
+        "key": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "partition": 3631
+      },
+      {
+        "count": 1,
+        "key": "acct-17",
+        "partition": 0
+      },
+      {
+        "count": 2,
+        "key": "acct-17",
+        "partition": 1
+      },
+      {
+        "count": 8,
+        "key": "acct-17",
+        "partition": 3
+      },
+      {
+        "count": 12,
+        "key": "acct-17",
+        "partition": 3
+      },
+      {
+        "count": 4096,
+        "key": "acct-17",
+        "partition": 2179
+      },
+      {
+        "count": 1,
+        "key": "tenant:42:symbol:BTCUSDT",
+        "partition": 0
+      },
+      {
+        "count": 2,
+        "key": "tenant:42:symbol:BTCUSDT",
+        "partition": 1
+      },
+      {
+        "count": 8,
+        "key": "tenant:42:symbol:BTCUSDT",
+        "partition": 7
+      },
+      {
+        "count": 12,
+        "key": "tenant:42:symbol:BTCUSDT",
+        "partition": 3
+      },
+      {
+        "count": 4096,
+        "key": "tenant:42:symbol:BTCUSDT",
+        "partition": 3583
+      }
+    ],
+    "rejects": {
+      "counts": [
+        {
+          "count": "0",
+          "error": "partition counts must be within 1..4096"
+        },
+        {
+          "count": "-1",
+          "error": "partition counts must be within 1..4096"
+        },
+        {
+          "count": "4097",
+          "error": "partition counts must be within 1..4096"
+        },
+        {
+          "count": "'8'",
+          "error": "partition counts must be plain integers"
+        },
+        {
+          "count": "true",
+          "error": "partition counts must be plain integers"
+        }
+      ],
+      "keys": [
+        {
+          "count": 8,
+          "key": ""
+        }
+      ],
+      "members": [
+        {
+          "members": [
+            "has space"
+          ]
+        },
+        {
+          "members": [
+            ""
+          ]
+        },
+        {
+          "members": [
+            "-lead"
+          ]
+        },
+        {
+          "members": [
+            "has|pipe"
+          ]
+        },
+        {
+          "members": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "members": [
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        }
+      ]
+    },
+    "tieBreak": [
+      {
+        "members": [
+          "5qjnzx3s",
+          "9eg9tvkb"
+        ],
+        "partition": 0,
+        "score": 1649115118,
+        "winner": "5qjnzx3s"
+      },
+      {
+        "members": [
+          "5qjnzx3s",
+          "9eg9tvkb"
+        ],
+        "partition": 3,
+        "score": 4215418452,
+        "winner": "5qjnzx3s"
+      },
+      {
+        "members": [
+          "5qjnzx3s",
+          "9eg9tvkb"
+        ],
+        "partition": 7,
+        "score": 4230998605,
+        "winner": "5qjnzx3s"
+      },
+      {
+        "members": [
+          "5qjnzx3s",
+          "9eg9tvkb"
+        ],
+        "partition": 15,
+        "score": 3665469167,
+        "winner": "5qjnzx3s"
+      }
+    ]
+  },
+  "schema": "part11-coordination-v1"
+}

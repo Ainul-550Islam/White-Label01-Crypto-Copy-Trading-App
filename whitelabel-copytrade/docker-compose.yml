@@ -1,0 +1,454 @@
+# =============================================================================
+# White-label copy-trading platform - local and staging composition.
+#
+# Design notes:
+#  * Only Postgres, Redis, the API and the admin console publish ports. The
+#    Python services and the notification worker stay on the internal network:
+#    they are reachable by service name and by nothing else.
+#  * Every service reads the same root .env, so there is one place to configure
+#    the stack and no secret is written into this file.
+#  * Health checks gate startup order. `depends_on: condition: service_healthy`
+#    means the API never boots against a database that is still initialising.
+#  * Named volumes hold state. Bind mounts are used only for the development
+#    profile, where hot reload is worth the trade-off.
+# =============================================================================
+
+name: wlct
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-restart: &default-restart
+  restart: unless-stopped
+
+services:
+  # ---------------------------------------------------------------------------
+  # Data stores
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16.4-alpine
+    container_name: wlct-postgres
+    <<: *default-restart
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wlct}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-wlct}
+      # Deterministic collation avoids index-corruption surprises when the base
+      # image's libc changes between upgrades.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - log_min_duration_statement=1000
+      # Consumed by infrastructure/database/init/02-roles.sql.
+      - -c
+      - wlct.app_password=${POSTGRES_APP_PASSWORD:-}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/database/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Bound to loopback: the database must not be reachable from the LAN.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wlct} -d ${POSTGRES_DB:-wlct}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - wlct-internal
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: wlct-redis
+    <<: *default-restart
+    logging: *default-logging
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 512mb
+      # Queue jobs and session state must never be silently evicted; only keys
+      # with an explicit TTL are eligible.
+      - --maxmemory-policy
+      - volatile-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - wlct-internal
+
+  # ---------------------------------------------------------------------------
+  # Migrations
+  #
+  # A one-shot job rather than an API entrypoint step: running migrations from
+  # every replica is a race, and a failed migration must stop the deploy rather
+  # than crash-loop an application container.
+  # ---------------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: build
+    container_name: wlct-migrate
+    restart: "no"
+    logging: *default-logging
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public
+    command: >
+      sh -c "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - wlct-internal
+
+  # ---------------------------------------------------------------------------
+  # Application services
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: runtime
+    container_name: wlct-api
+    <<: *default-restart
+    logging: *default-logging
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public&connection_limit=20&pool_timeout=20
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TRADING_ENGINE_URL: http://trading-engine:8001
+      MARKET_DATA_URL: http://market-data:8002
+      NOTIFICATION_SERVICE_URL: http://notification-service:8003
+      # Part 20: the engine-posture panel (`GET /v1/observability/execution`, section 4
+      # of `docs/PART20_ENGINE_STATUS_EDGE.md`). Both names must be set here, not only in
+      # `.env`, for two measured reasons. `.env.example` sets `EXECUTION_ENGINE_URL` to
+      # `http://127.0.0.1:8093` - correct for a developer running uvicorn, and inside this
+      # network it aims the API container at itself, so the panel would answer
+      # `unverified` with a connection error on a deployment where the engine is healthy
+      # and publishes no host port at all. And `.env.example` documents
+      # `EXECUTION_ENGINE_TOKEN` commented out, while the engine validates
+      # `EXECUTION_INTERNAL_TOKEN`: `worker:` translates that one secret under two names,
+      # and the panel needs the same translation. (No line numbers here on purpose - this
+      # part inserted lines above `worker:`, which is exactly how a cited line number
+      # becomes a false statement in a file nobody re-reads.) Nothing is required of the operator either way: the
+      # observability module constructs a client only when `engineInternalClientConfigured`
+      # holds, so with the variables absent the API still boots and the panel says
+      # `unconfigured` with the reason - which is the fail-closed half of Part 20, left
+      # working deliberately. A wrong panel row, not a missing one, is the failure mode this
+      # part was written against.
+      EXECUTION_ENGINE_URL: http://execution-engine:8093
+      EXECUTION_ENGINE_TOKEN: ${EXECUTION_INTERNAL_TOKEN:-}
+      # The API enqueues; the standalone worker consumes. Running the worker
+      # inline as well would double-process every job.
+      QUEUE_RUN_INLINE_WORKERS: "false"
+    ports:
+      - "${API_PORT:-4000}:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - wlct-internal
+      - wlct-edge
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/notification-service.Dockerfile
+      target: runtime
+    container_name: wlct-notification-service
+    <<: *default-restart
+    logging: *default-logging
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      NOTIFICATION_SERVICE_PORT: 8003
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    expose:
+      - "8003"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - wlct-internal
+
+  trading-engine:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/trading-engine.Dockerfile
+      target: runtime
+    container_name: wlct-trading-engine
+    <<: *default-restart
+    logging: *default-logging
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      TRADING_ENGINE_PORT: 8001
+      # Part 9: observability mirror cadence + master switch (see .env.example).
+      HEALTH_REFRESH_MS: ${HEALTH_REFRESH_MS:-5000}
+      OBSERVABILITY_ENABLED: ${OBSERVABILITY_ENABLED:-true}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Part 1 ships with execution hard-disabled. Enabling it requires a
+      # deliberate change here and in the root .env.
+      EXECUTION_ENABLED: ${EXECUTION_ENABLED:-false}
+      EXCHANGE_SANDBOX_MODE: ${EXCHANGE_SANDBOX_MODE:-true}
+    expose:
+      - "8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - wlct-internal
+
+  # ---------------------------------------------------------------------------
+  # Part 11: the execution plane, split in two on purpose. The ENGINE holds
+  # venue contact (adapters, credentials domain, locks, incidents); the
+  # WORKER holds the queue (admission, partition claims, ack policy). Each
+  # can say "no" to the other and both mean it: the worker refuses to boot
+  # when the engine reports an incompatible mode, and the engine serves only
+  # an authenticated internal token plus a tenant header.
+
+  execution-engine:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/execution-engine.Dockerfile
+      target: runtime
+    container_name: wlct-execution-engine
+    <<: *default-restart
+    logging: *default-logging
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      SERVICE_PORT: 8093
+      # Bind inside the container so the compose network can route to it; the
+      # port is EXPOSEd to internal networks only - never published.
+      EXECUTION_ENGINE_HOST: 0.0.0.0
+      EXECUTION_INSTANCE_ID: ${EXECUTION_INSTANCE_ID:-execution-engine-1}
+      EXECUTION_INTERNAL_TOKEN: ${EXECUTION_INTERNAL_TOKEN:?EXECUTION_INTERNAL_TOKEN is required for the execution engine}
+      # simulated is the only wired mode; live refuses startup by code.
+      EXECUTION_MODE: simulated
+      EXECUTION_DRY_RUN: ${EXECUTION_DRY_RUN:-true}
+      # Part 13 durable store. memory is the default (readiness reports
+      # storeDurable=false, as it always has); postgres requires the
+      # engine tables (applied by the migrate job's own migrations) and a
+      # DSN - both are start-up refusals when missing, never a fallback.
+      EXECUTION_STORE_BACKEND: ${EXECUTION_STORE_BACKEND:-memory}
+      EXECUTION_POSTGRES_DSN: ${EXECUTION_POSTGRES_DSN:-}
+      # Part 14 journal retention. ENABLED gates APPLY only - inspect and
+      # dry-run work regardless, and every value is validated at startup by
+      # the core's retention law (bounds in docs/PART14_RETENTION.md). The
+      # scheduler (if any) is the deployment's business; nothing here runs
+      # deletes on its own.
+      EXECUTION_RETENTION_ENABLED: ${EXECUTION_RETENTION_ENABLED:-false}
+      EXECUTION_RETENTION_EVENT_DAYS: ${EXECUTION_RETENTION_EVENT_DAYS:-90}
+      EXECUTION_RETENTION_BATCH_ROWS: ${EXECUTION_RETENTION_BATCH_ROWS:-2000}
+      EXECUTION_RETENTION_MAX_BATCHES: ${EXECUTION_RETENTION_MAX_BATCHES:-50}
+      # Part 15: the evidence window only (the audit itself is read-only, so
+      # there is no enablement switch to thread through). Empty-string-safe
+      # like every other default here; the config validator rejects 0.
+      EXECUTION_ENABLEMENT_MAX_AGE_DAYS: ${EXECUTION_ENABLEMENT_MAX_AGE_DAYS:-30}
+      # Part 16: the credential source and the placement review's cost bounds.
+      # The review has no enable switch, so nothing here can turn it off; the
+      # defaults below are the safe ones and the config validator refuses a
+      # nonsense value at boot rather than at the first order. NOTE the absence
+      # of any API-key line: `environment` credentials are read from the host
+      # process environment when an operator opts into them, and this file is
+      # not a place a secret may be written (docs/SECURITY.md).
+      EXECUTION_CREDENTIAL_SOURCE: ${EXECUTION_CREDENTIAL_SOURCE:-none}
+      EXECUTION_CREDENTIAL_ENV_PREFIX: ${EXECUTION_CREDENTIAL_ENV_PREFIX:-WLCT_BINANCE}
+      EXECUTION_CREDENTIAL_TENANT_ID: ${EXECUTION_CREDENTIAL_TENANT_ID:-tenant-1}
+      EXECUTION_CREDENTIAL_ACCOUNT_ID: ${EXECUTION_CREDENTIAL_ACCOUNT_ID:-account-1}
+      EXECUTION_CREDENTIAL_CACHE_SECONDS: ${EXECUTION_CREDENTIAL_CACHE_SECONDS:-300}
+      EXECUTION_PLACEMENT_ATTESTATION_TTL_MS: ${EXECUTION_PLACEMENT_ATTESTATION_TTL_MS:-300000}
+      EXECUTION_PLACEMENT_MAX_KEY_AGE_DAYS: ${EXECUTION_PLACEMENT_MAX_KEY_AGE_DAYS:-90}
+      EXECUTION_PLACEMENT_REQUIRE_IP_ALLOWLIST: ${EXECUTION_PLACEMENT_REQUIRE_IP_ALLOWLIST:-true}
+      # Part 17 added no variable of its own: the durable incident sink is a
+      # consequence of EXECUTION_STORE_BACKEND (postgres brings engine_incidents
+      # with it, memory keeps the in-process recorder) and a mismatched pair is
+      # refused at composition, so there is nothing to mis-configure here.
+      # Part 18's knob is the platform's, shared with the two sibling services:
+      # GET /metrics renders this process's stage histograms and counters, and
+      # NODE_ENV=production refuses to parse with it off.
+      OBSERVABILITY_ENABLED: ${OBSERVABILITY_ENABLED:-true}
+    expose:
+      - "8093"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - wlct-internal
+
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: runtime
+    container_name: wlct-worker
+    <<: *default-restart
+    logging: *default-logging
+    command: ["node", "dist/worker.js"]
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      # The worker container owns ALL inline workers (maintenance,
+      # notification, trade-execution); the API keeps them off.
+      QUEUE_RUN_INLINE_WORKERS: "true"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public&connection_limit=10&pool_timeout=20
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      WORKER_ENABLED: "true"
+      WORKER_ID: ${WORKER_ID:-worker-1}
+      WORKER_MEMBERSHIP: ${WORKER_MEMBERSHIP:-worker-1}
+      # Part 12: the compose fleet self-registers via the Redis heartbeat
+      # zset; the list above stays as the boot/fallback view. Flipping this
+      # back to config is a one-line redeploy - claims decide authority in
+      # both modes, so nothing else about safety changes.
+      WORKER_MEMBERSHIP_MODE: ${WORKER_MEMBERSHIP_MODE:-registry}
+      WORKER_MEMBERSHIP_TTL_MS: ${WORKER_MEMBERSHIP_TTL_MS:-30000}
+      WORKER_PARTITION_COUNT: ${WORKER_PARTITION_COUNT:-8}
+      WORKER_PARTITION_LEASE_TTL_MS: ${WORKER_PARTITION_LEASE_TTL_MS:-15000}
+      WORKER_PARTITION_RETRY_MS: ${WORKER_PARTITION_RETRY_MS:-2500}
+      WORKER_DEFER_DELAY_MS: ${WORKER_DEFER_DELAY_MS:-3000}
+      WORKER_MAX_DEFERS: ${WORKER_MAX_DEFERS:-30}
+      WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-10000}
+      EXECUTION_ENGINE_URL: http://execution-engine:8093
+      # One secret, two names: the engine validates EXECUTION_INTERNAL_TOKEN,
+      # the worker presents it as EXECUTION_ENGINE_TOKEN.
+      EXECUTION_ENGINE_TOKEN: ${EXECUTION_INTERNAL_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      execution-engine:
+        condition: service_healthy
+    # No ports: the worker serves nothing. Its visibility is structured logs
+    # plus the API's read-only GET /v1/observability/worker-coordination,
+    # which reads the same Redis claims this process writes.
+    networks:
+      - wlct-internal
+
+  market-data:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/market-data.Dockerfile
+      target: runtime
+    container_name: wlct-market-data
+    <<: *default-restart
+    logging: *default-logging
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      MARKET_DATA_PORT: 8002
+      # Part 9: observability mirror cadence + master switch (see .env.example).
+      HEALTH_REFRESH_MS: ${HEALTH_REFRESH_MS:-5000}
+      OBSERVABILITY_ENABLED: ${OBSERVABILITY_ENABLED:-true}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    expose:
+      - "8002"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - wlct-internal
+
+  admin-web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/admin-web.Dockerfile
+      target: runtime
+      args:
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-CopyTrade Admin}
+        NEXT_PUBLIC_API_VERSION: ${NEXT_PUBLIC_API_VERSION:-v1}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
+        NEXT_PUBLIC_WS_PATH: ${NEXT_PUBLIC_WS_PATH:-/socket.io}
+    container_name: wlct-admin-web
+    <<: *default-restart
+    logging: *default-logging
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Server-to-server inside the compose network; the browser never sees it.
+      API_BASE_URL: http://api:4000/api
+      ADMIN_TENANT_SLUG: ${ADMIN_TENANT_SLUG:-platform}
+      SESSION_COOKIE_SECRET: ${SESSION_COOKIE_SECRET:?SESSION_COOKIE_SECRET is required}
+    ports:
+      - "${ADMIN_WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - wlct-internal
+      - wlct-edge
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  # Service-to-service traffic. Not reachable from outside the host.
+  wlct-internal:
+    driver: bridge
+    internal: false
+  # Everything that legitimately faces a browser.
+  wlct-edge:
+    driver: bridge

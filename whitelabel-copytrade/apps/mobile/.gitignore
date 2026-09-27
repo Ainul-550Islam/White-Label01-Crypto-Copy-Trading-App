@@ -1,0 +1,14 @@
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+ios/Pods/
+ios/.symlinks/
+android/.gradle/
+android/local.properties
+*.iml
+.flutter-plugins
+.flutter-plugins-dependencies
+# Generated localizations are committed so the repo is complete (see audit).
+# lib/l10n/app_localizations*.dart

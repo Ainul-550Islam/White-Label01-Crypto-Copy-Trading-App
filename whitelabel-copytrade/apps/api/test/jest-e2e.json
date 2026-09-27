@@ -1,0 +1,16 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@wlct/shared-types$": "<rootDir>/../../../packages/shared-types/src",
+    "^@wlct/config$": "<rootDir>/../../../packages/config/src",
+    "^@wlct/utils$": "<rootDir>/../../../packages/utils/src",
+    "^@wlct/validation$": "<rootDir>/../../../packages/validation/src",
+    "^src/(.*)$": "<rootDir>/../src/$1"
+  }
+}

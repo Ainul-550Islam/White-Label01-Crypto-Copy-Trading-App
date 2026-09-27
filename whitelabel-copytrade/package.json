@@ -1,0 +1,55 @@
+{
+  "name": "whitelabel-copytrade",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-tenant white-label crypto copy-trading platform (non-custodial, API-key based)",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.11.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/api",
+    "apps/admin-web",
+    "apps/web",
+    "services/notification-service"
+  ],
+  "scripts": {
+    "build:packages": "npm run build --workspace=@wlct/shared-types && npm run build --workspace=@wlct/config && npm run build --workspace=@wlct/utils && npm run build --workspace=@wlct/validation",
+    "build:api": "npm run build --workspace=@wlct/api",
+    "build:admin": "npm run build --workspace=@wlct/admin-web",
+    "build:web": "npm run build --workspace=@wlct/web",
+    "build:notification": "npm run build --workspace=@wlct/notification-service",
+    "build": "npm run build:packages && npm run build:api && npm run build:notification && npm run build:admin && npm run build:web",
+    "dev:api": "npm run start:dev --workspace=@wlct/api",
+    "dev:admin": "npm run dev --workspace=@wlct/admin-web",
+    "dev:web": "npm run dev --workspace=@wlct/web",
+    "dev:notification": "npm run start:dev --workspace=@wlct/notification-service",
+    "prisma:generate": "npm run prisma:generate --workspace=@wlct/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace=@wlct/api",
+    "prisma:deploy": "npm run prisma:deploy --workspace=@wlct/api",
+    "prisma:reset": "npm run prisma:reset --workspace=@wlct/api",
+    "prisma:studio": "npm run prisma:studio --workspace=@wlct/api",
+    "db:seed": "npm run db:seed --workspace=@wlct/api",
+    "lint": "npm run lint --workspace=@wlct/api",
+    "test": "npm run test --workspace=@wlct/api",
+    "test:e2e": "npm run test:e2e --workspace=@wlct/api",
+    "typecheck": "npm run typecheck --workspace=@wlct/api && npm run typecheck --workspace=@wlct/admin-web && npm run typecheck --workspace=@wlct/web && npm run typecheck --workspace=@wlct/notification-service",
+    "keys:generate": "node scripts/generate-keys.mjs",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f api",
+    "smoke": "bash scripts/smoke-test.sh",
+    "verify": "bash scripts/verify-part1.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "prisma": "^5.22.0",
+    "rimraf": "^5.0.7",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
+  }
+}

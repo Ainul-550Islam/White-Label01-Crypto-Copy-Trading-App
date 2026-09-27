@@ -1,0 +1,49 @@
+[project]
+name = "wlct-execution-engine"
+version = "1.0.0"
+description = "Trading worker's execution core: hosts wlct_trading.execution behind the internal API"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+# trading-core is a repo package; mypy does not resolve PEP 660 lightweight
+# editables. Pointing mypy_path at the source makes every wlct_trading import
+# FULLY TYPED (better than site-packages resolution), so the money path's
+# types are checked, not blurred to Any.
+mypy_path = "$MYPY_CONFIG_FILE_DIR/../../libs/trading-core"
+warn_unreachable = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+# Stub-less third-party modules the service imports. Same list as the
+# trading engine: PEP 561 says these ship no types; strictness is unchanged
+# for first-party code. asyncpg joins the list with Part 13: it is the one
+# module allowed to touch the driver (app/pg_store.py); the store itself
+# speaks the PgPool protocol and stays driver-free.
+module = ["asyncpg.*", "pythonjsonlogger.*", "jsonlogger.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# One rule relaxed for one file, with cause: ServiceJsonFormatter subclasses
+# pythonjsonlogger's JsonFormatter, whose __init__ mypy can only ever see as
+# untyped (no stubs exist and never will - upstream). The constructor
+# override in that file TYPES the subclass surface; the residual `super().__init__`
+# call into the stub-less base is what no-untyped-call flags. Refusing to
+# call an untyped third-party base is not more correct, so this file opts
+# out of THAT rule only; every other strict rule still applies to it in
+# full, and to all other files without exception.
+module = ["app.logging_config"]
+disallow_untyped_calls = false

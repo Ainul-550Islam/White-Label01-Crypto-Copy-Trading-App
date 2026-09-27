@@ -1,0 +1,65 @@
+[package]
+name = "low-latency-gateway"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Internal low-latency market-data normalization and execution-transport plane. Not a second source of financial truth: accelerates transport only."
+publish = false
+
+# One production binary (composition root) plus the library crate that the
+# embedded deterministic contract tests exercise.
+[[bin]]
+name = "low-latency-gateway"
+path = "src/main.rs"
+
+[lib]
+name = "low_latency_gateway"
+path = "src/lib.rs"
+
+[dependencies]
+# Async runtime: real async execution for feed sessions, transport listener
+# and shutdown coordination.
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util"] }
+# Production WebSocket client for venue market-data feeds (TLS via rustls;
+# webpki roots so no system trust store dependency).
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# rustls 0.23 panics on first TLS use when more than one CryptoProvider
+# feature is enabled transitively and none is installed. Pin the ring
+# provider explicitly and install it at boot (main.rs) so venue WSS
+# connections are deterministic and never panic.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Intent-envelope integrity: HMAC-SHA256 over a canonical serialization.
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+url = "2.5"
+uuid = { version = "1.11", features = ["v4"] }
+
+# Deliberately NOT included:
+# - parking_lot: the few mutexes here guard sub-microsecond critical sections
+#   (counter maps, replay cache) and never span an await; std Mutex is
+#   sufficient and keeps the dependency tree auditable.
+# - reqwest/hyper: the internal execution-engine integration speaks a small
+#   versioned HTTP/1.1 JSON contract implemented directly on tokio TcpStream
+#   to keep the transport plane lean.
+# - prometheus/metrics crates: the metrics registry is fixed-schema atomics
+#   (no dynamic labels, therefore no label-cardinality secret leakage).
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+
+[profile.test]
+opt-level = 1
+
+[dev-dependencies]
+# None: every deterministic test uses the crate itself plus std/tokio already
+# declared above. No test-only backdoors into production types.

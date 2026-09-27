@@ -1,0 +1,30 @@
+[project]
+name = "wlct-trading-engine"
+version = "1.0.0"
+description = "Copy-trading execution engine for the white-label platform"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+# Stub-less third-party modules the services import. Listing them here is
+# ordinary mypy configuration (PEP 561 says these ship no types); the strict
+# settings above continue to apply to first-party code unchanged.
+module = ["asyncpg.*", "pythonjsonlogger.*", "jsonlogger.*"]
+ignore_missing_imports = true

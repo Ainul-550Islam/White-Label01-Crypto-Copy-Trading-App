@@ -1,0 +1,20 @@
+{
+  "// purpose": [
+    "Type context for test files only.",
+    "",
+    "tsconfig.json deliberately excludes **/*.spec.ts so that `nest build` emits",
+    "no test code into dist. That exclusion also hides spec files from",
+    "typescript-eslint's typed rules, which then refuses to parse them. Rather",
+    "than turn typed linting off for tests - tests on a money path are exactly",
+    "where an unnoticed `any` does damage - this config gives them a project of",
+    "their own, and .eslintrc.cjs points at both."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": true,
+    "types": ["node", "jest"]
+  },
+  "include": ["src/**/*.spec.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+vendor/
+
+# Production/Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Rust
+target/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Dart/Flutter
+.dart_tool/
+.dartServer/
+.packages
+.flutter-plugins*
+
+# Runtime data (NEVER commit)
+.pgdata/
+postgres-data/
+data/pg/
+*.pid
+
+# Environment and sensitive data
+.env
+.env.local
+.env.development.local
+.env.production.local
+!.env.example
+
+# Logs and Caches
+*.log
+.cache/
+.turbo/
+.npm/
+coverage/
+*.lcov
+
+# Prisma generated client (generated via `prisma generate`)
+node_modules/@prisma/client
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/

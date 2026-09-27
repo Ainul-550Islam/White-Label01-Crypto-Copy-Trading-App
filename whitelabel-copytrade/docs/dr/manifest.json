@@ -1,0 +1,184 @@
+{
+  "schema": "wlct-dr-manifest-v3",
+  "title": "White-Label Copy-Trading Platform - disaster recovery manifest",
+  "invariants": [
+    "A backup that has never been restored is a hope, not a backup: every component's plan is only complete when its restore has been executed once, under time, and verified.",
+    "This file names environment KEYS and repository PATHS; it never contains values, credentials, connection strings, or dumps. Anything secret-shaped in here is a validator failure.",
+    "Restore order is data-first with key material before the data it unlocks: consumers with stale data are wrong, and encrypted data without keys is gone.",
+    "Backup obligations are scheduled or explicitly waived, never tacit: every component declares cadenceHours (max hours between recorded successes) or a cadenceWaiver explaining why the clock does not apply. The ledger (docs/dr/backup-ledger.jsonl) is the record; `--due` answers 'what is overdue' and a backup that happened unrecorded is, to this manifest, a backup that did not happen.",
+    "Row-level security is a claim, not a state: the platform may say policies are enabled and enforcing only while a PASSING enablement audit is younger than rlsEvidence.cadenceHours, and that claim's record lives in its own append-only evidence ledger. An audit that never ran and an audit that failed are different findings and both refuse the claim."
+  ],
+  "rpoMinutes": 60,
+  "rtoHours": 4,
+  "reviewCadenceDays": 90,
+  "components": [
+    {
+      "id": "encryption-keys",
+      "restoreOrder": 1,
+      "title": "Application key material",
+      "kind": "sealed-secrets",
+      "purpose": "Field-level encryption master key and blind-index key (apps/api field encryption). Losing these does not lose the plaintext of orders; it loses credential recoverability and indexed lookup forever.",
+      "backupMethod": "The secret-store export (sealed or KMS-wrapped) is under the organization's escrow policy; this manifest verifies only the escrow's existence and the drill record, never the material.",
+      "envRefs": [
+        "ENCRYPTION_PROVIDER",
+        "ENCRYPTION_MASTER_KEY_BASE64",
+        "BLIND_INDEX_KEY_BASE64"
+      ],
+      "paths": [
+        ".env.example"
+      ],
+      "verification": "Decode the restored master key and assert exactly 32 bytes; decode the blind-index key and assert at least 32 bytes; run one encrypt/decrypt round-trip probe (scripts smoke, no DB writes). Any mismatch stops the restore: a partially-restored app that cannot read its own stored secrets is worse than a down app.",
+      "cadenceHours": 720
+    },
+    {
+      "id": "postgres",
+      "restoreOrder": 2,
+      "title": "PostgreSQL - the durable truth",
+      "kind": "managed-or-selfhosted-database",
+      "purpose": "Every row the platform owes an audit: tenants, users, sessions, orders, fills, incidents, audit log, risk configuration versions, SLO evaluations, dataset registry.",
+      "backupMethod": "Logical: pg_dump -Fc of the application database on a cadence inside rpoMinutes, retained at least 30 days. Physical/managed: continuous WAL archiving (PITR) is the recovery path; the logical dump is the cross-environment seed. Backups are stored OUTSIDE the failure domain (different account/region) and encrypted at rest by the storage layer.",
+      "envRefs": [
+        "POSTGRES_HOST",
+        "POSTGRES_PORT",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+        "POSTGRES_SCHEMA",
+        "POSTGRES_APP_PASSWORD"
+      ],
+      "paths": [
+        "apps/api/prisma/schema.prisma",
+        "apps/api/prisma/migrations",
+        "docker-compose.yml"
+      ],
+      "verification": "Restore into a scratch instance; assert _prisma_migrations has no failed row and its count equals the repository's migration directories; run the post-restore probe queries from docs/DR.md; only then name it a backup.",
+      "cadenceHours": 24,
+      "rpoMechanism": "Continuous WAL archiving (PITR) is the RPO mechanism; the cadence below bounds the logical cross-environment seed dump, whose staleness is therefore an availability risk window, not the data-loss window the RPO names."
+    },
+    {
+      "id": "redis",
+      "restoreOrder": 4,
+      "title": "Redis - queues, coordination, warm state",
+      "kind": "cache-and-queue",
+      "purpose": "BullMQ queues and sidecars, risk reservations and rate windows, partition claims, leader leases, SLO bucket hashes.",
+      "backupMethod": "RDB snapshot retained for forensics only. Redis is deliberately REBUILDABLE, not restored-to: every durable fact it holds is either re-derivable (health mirrors, readiness, sidecar TTLs) or owned by Postgres. The one exception to note honestly: un-drained queue jobs inside the snapshot window are lost on restore and simply re-published by their producers' flows.",
+      "envRefs": [
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "REDIS_DB",
+        "REDIS_PASSWORD"
+      ],
+      "paths": [],
+      "verification": "After a warm-empty restart: queue depths read 0, no stuck active jobs, and GET observability/worker-coordination shows no claims until workers re-claim. If any of those fail, the incident is a coordination bug, not a backup gap - treat it as one.",
+      "cadenceHours": null,
+      "cadenceWaiver": "Rebuildable by design: queues, claims, reservations and mirrors are all re-derived by the workers within one tick. The forensic RDB exists for incident archaeology only - scheduling its copy would manufacture an obligation the component's own contract denies."
+    },
+    {
+      "id": "dataset-objects",
+      "restoreOrder": 5,
+      "title": "Historical dataset files",
+      "kind": "object-storage-or-filesystem",
+      "purpose": "Ingested historical archives under the configured DATASET_STORAGE backend (Part 7). Re-downloadable in principle from the upstream source; re-downloading at 2am in an incident is exactly the failure this component exists to remove from the plan.",
+      "backupMethod": "Bucket replication (managed backend) or an rsync/borg target outside the host (local backend, the current default). The dataset registry rows in Postgres reference files by content digest; the backup is valid when every registry row's digest resolves in the backup store.",
+      "envRefs": [
+        "DATASET_STORAGE_BACKEND"
+      ],
+      "paths": [
+        "libs/trading-core/wlct_trading/datasets",
+        "services/execution-engine"
+      ],
+      "verification": "For each of the 10 most recent dataset versions, list the backed-up object and compare the stored sha256 digest to the registry row. A digest mismatch is a corrupt-backup incident, not a warning.",
+      "cadenceHours": 24
+    },
+    {
+      "id": "deployment-config",
+      "restoreOrder": 3,
+      "title": "Deployment configuration and topology",
+      "kind": "repository-tracked-config",
+      "purpose": "Compose topology, Dockerfiles, the env TEMPLATE, the generated Prisma client contract, and the API surface docs. No .env values are here, and that is the design: secrets live in the secret store (or the operator's sealed file), never in git, never in backups of git.",
+      "backupMethod": "Version control is the backup, with two live caveats: the release artifact images (api, worker, engines, admin-web) must be pinned and retained in the registry, and the secret-store entry names the deployment references must match what the manifest lists in envRefs.",
+      "envRefs": [
+        "NODE_ENV",
+        "API_PORT",
+        "API_HOST",
+        "JWT_ACCESS_SECRET",
+        "JWT_REFRESH_SECRET",
+        "EXECUTION_ENGINE_TOKEN",
+        "EXECUTION_INTERNAL_TOKEN",
+        "WORKER_MEMBERSHIP"
+      ],
+      "paths": [
+        "docker-compose.yml",
+        "infrastructure/docker/api.Dockerfile",
+        "infrastructure/docker/execution-engine.Dockerfile",
+        ".env.example"
+      ],
+      "verification": "In a fresh environment: compose config resolves every referenced path, every envRef appears in the (externally provided) env, and `npm run build:packages && npm run build` plus the three Python services' test suites pass against the restored database.",
+      "cadenceHours": 168
+    }
+  ],
+  "restoreProcedure": [
+    {
+      "step": 1,
+      "component": "encryption-keys",
+      "action": "Restore key material; run the decode + round-trip probe; stop on any mismatch"
+    },
+    {
+      "step": 2,
+      "component": "postgres",
+      "action": "Provision the scratch-then-final instance; restore physical (PITR to a chosen LSN) or logical dump; verify _prisma_migrations and the probe queries"
+    },
+    {
+      "step": 3,
+      "component": "deployment-config",
+      "action": "Deploy pinned images against the restored database with the env template; run migrations only if the image's schema is older than the restored DB (never ahead of it)"
+    },
+    {
+      "step": 4,
+      "component": "redis",
+      "action": "Warm-empty; do NOT restore the snapshot into production (its jobs, reservations and claims are all stale by definition); verify the queue gauges"
+    },
+    {
+      "step": 5,
+      "component": "dataset-objects",
+      "action": "Verify registry digests resolve in the backup or live store; datasets not re-materialised are reported, not hidden"
+    },
+    {
+      "step": 6,
+      "component": null,
+      "action": "Start the worker with WORKER_ENABLED=true; confirm claims land (GET observability/worker-coordination shows exactly the members in WORKER_MEMBERSHIP), then re-enable the API; confirm the execution engine's /health/ready reports the mode the deployment believes"
+    },
+    {
+      "step": 7,
+      "component": null,
+      "action": "Rehearsal record: duration against rtoHours, every verification outcome, and every deviation go into the drill document; a restore without a record did not happen"
+    }
+  ],
+  "drill": {
+    "cadenceDays": 90,
+    "timed": true,
+    "successCriteria": [
+      "end-to-end restore completes within rtoHours on the restored dataset, not a toy one",
+      "every component's verification string above executed and its outcome recorded, including at least one deliberate failure injected into the restore path (e.g. the wrong master key) to prove the stop-the-line behavior",
+      "the _prisma_migrations audit, queue gauge check, and worker claim observation all pass with zero manual SQL beyond the documented probes"
+    ]
+  },
+  "nonGoals": [
+    "This manifest automates nothing yet; the scheduler and the alerting on missed backups are deliberate follow-ups (see docs/ROADMAP.md open items). It IS the contract any automation must satisfy.",
+    "Point-in-time recovery depth, WAL retention and storage-side encryption are the platform/database provider's contracts with the operator; the manifest records what they must provide, not how.",
+    "No component here backs up exchange-side truth: fills and order final states are the venue's record, reconciled on restore by the existing reconciliation paths, not restored by us.",
+    "The RLS evidence ledger records that an audit ran and what it concluded; it does not make the policies true. Enforcement stays in Postgres (enable.sql), and a fresh FAIL in this ledger is an incident, not a stale-data problem."
+  ],
+  "rlsEvidence": {
+    "cadenceHours": 168,
+    "requiredGrade": "pass",
+    "evidenceLedger": "docs/dr/rls-evidence.jsonl",
+    "verifier": "/internal/v1/enablement/audit",
+    "command": "node scripts/rls-enablement.mjs",
+    "coverageArtifact": "apps/api/prisma/rls/rls_coverage.json",
+    "enableArtifact": "apps/api/prisma/rls/enable.sql",
+    "disableArtifact": "apps/api/prisma/rls/disable.sql",
+    "detail": "Part 15: enable.sql ships a five-item pre-flight checklist that ends with a human confirming isolation. This block is the machine-shaped version of that confirmation: the verifier endpoint probes the catalogue and counts, grades PASS/FAIL/UNVERIFIED through wlct_trading.enablement, and the operator records the outcome with --record-rls. cadenceHours 168 is one week because a policy flip (a new table, a role change, a migration that recreated a table) is invisible to every other check in this manifest. The command is read-only: this script never connects to a database, so a recorded line is a HUMAN/Automation statement about a run, and --check-rls ages that statement rather than inventing it.",
+    "scope": "The engine endpoint verifies the engine plane only (engine_orders, engine_order_events, engine_order_fills, engine_incidents, engine_retention_runs). The platform's other covered tables are audited by the operator-side checklist in apps/api/prisma/rls/enable.sql, which this manifest's cadence also ages."
+  }
+}

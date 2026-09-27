@@ -1,0 +1,51 @@
+PART 14 - FILE INDEX (open any path directly; none are skipped)
+================================================================
+Every file created or modified by Part 14, with its exact current line
+count (measured with wc -l on 2026-09-14). Full source for each one is
+also in docs/PART14_HANDOVER_FULL_SOURCE.md (12,404 lines, one fenced
+block per file, byte-audited against disk).
+
+CREATED (12)
+  196  libs/trading-core/wlct_trading/retention.py
+  251  libs/trading-core/tests/test_part14_retention.py
+  282  services/execution-engine/app/retention.py
+  163  services/execution-engine/app/routers/retention.py
+  655  services/execution-engine/tests/test_part14_retention.py
+  190  services/execution-engine/tests/test_part14_drift_parity.py
+  392  services/execution-engine/tests/test_part14_retention_live.py
+   47  apps/api/prisma/migrations/20260914160000_part14_retention_ledger/migration.sql
+  197  scripts/retention-run.mjs
+  253  scripts/retention-run.test.mjs
+  320  docs/PART14_RETENTION.md
+  319  scripts/gen_part14_handover.py
+       -> subtotal 3,265 lines
+
+MODIFIED (17)
+  298  services/execution-engine/app/config.py
+  236  services/execution-engine/app/schemas.py
+  270  services/execution-engine/app/composition.py
+  162  services/execution-engine/app/main.py
+ 4181  apps/api/prisma/schema.prisma
+  372  apps/api/prisma/migrations/20260913120000_part11_row_level_security/migration.sql
+  135  apps/api/prisma/rls/enable.sql
+   97  apps/api/prisma/rls/disable.sql
+  206  apps/api/prisma/rls/rls_coverage.json
+  408  docker-compose.yml
+  989  .env.example
+   72  services/execution-engine/.env.example
+  380  docs/PART13_DURABLE_STORE.md
+  118  docs/DR.md
+  314  docs/ARCHITECTURE.md
+  391  docs/SECURITY.md
+  215  docs/ROADMAP.md
+       -> current size 8,774 lines; Part-14 delta +266
+
+TOTALS
+  29 files, 3,531 shipped lines (3,265 new + 266 delta)
+
+WHAT WAS ALREADY PRINTED IN CHAT, IN FULL
+  Files 1-28 as listed above (every line, across batches 1-3c plus the
+  first 1,230 lines of schema.prisma). Only the remainder of
+  apps/api/prisma/schema.prisma (lines 1,231-4,181) was not pasted into
+  chat; the whole file is now opened in the viewer instead, which is what
+  this index exists for.

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": false,
+    // Incremental builds are deliberately OFF for the whole monorepo.
+    //
+    // Every package/app cleans with `rimraf dist` (and `nest build` uses
+    // deleteOutDir) before compiling. A `.tsbuildinfo` left over from the
+    // previous run makes tsc believe nothing changed, so it exits 0 having
+    // emitted nothing at all and downstream projects fail with TS2307.
+    // `tsBuildInfoFile` is not a fix either: relative paths in a tsconfig are
+    // resolved against the file that DECLARES them, so a value set here would
+    // point every project at one shared file at the repository root.
+    // Full builds take a few seconds; correctness is worth more.
+    "incremental": false,
+    "strict": true,
+    "strictNullChecks": true,
+    "strictPropertyInitialization": false,
+    "noImplicitAny": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "exclude": ["node_modules", "dist", "build", ".next"]
+}

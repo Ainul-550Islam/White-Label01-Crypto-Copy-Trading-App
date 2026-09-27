@@ -1,0 +1,425 @@
+{
+  "bundle": {
+    "compose": "docker-compose.observability.yml",
+    "prometheusConfig": "infrastructure/observability/prometheus/prometheus.yml",
+    "readme": "infrastructure/observability/README.md",
+    "rules": "infrastructure/observability/prometheus/rules/wlct.rules.yml"
+  },
+  "cadence": {
+    "scrapeInterval": null,
+    "sustainedFor": null,
+    "why": "the repository declares neither, so neither is invented here; the image's default applies and the generator refuses to emit a file that sets one"
+  },
+  "excluded": [
+    {
+      "evidence": "services/notification-service/app",
+      "reason": "its source contains no GET /metrics route, so there is nothing to scrape",
+      "service": "notification-service"
+    },
+    {
+      "evidence": "docker-compose.yml: worker has neither expose nor ports",
+      "reason": "serves no port at all, so there is no target to scrape",
+      "service": "worker"
+    },
+    {
+      "evidence": "apps/admin-web/src",
+      "reason": "its source contains no GET /metrics route, so there is nothing to scrape",
+      "service": "admin-web"
+    }
+  ],
+  "families": {
+    "admin-web": [
+      "wlct_2fa",
+      "wlct_2fa_did",
+      "wlct_csrf",
+      "wlct_did"
+    ],
+    "api": [
+      "wlct_any",
+      "wlct_capped_total",
+      "wlct_http_request_duration_seconds",
+      "wlct_http_requests_total",
+      "wlct_ops_alert_folds_total",
+      "wlct_ops_alert_open_count",
+      "wlct_orders_submitted_total",
+      "wlct_probe_",
+      "wlct_probe_age",
+      "wlct_probe_total",
+      "wlct_process_cpu_seconds_total",
+      "wlct_process_memory_rss_bytes",
+      "wlct_process_open_handles",
+      "wlct_process_uptime_seconds",
+      "wlct_queue_oldest_waiting_age_ms",
+      "wlct_queue_waiting_jobs",
+      "wlct_read_routing_decisions_total",
+      "wlct_registry_series_overflow_total",
+      "wlct_slo_burn_rate_ppm",
+      "wlct_slo_error_budget_remaining_ppm",
+      "wlct_slo_state",
+      "wlct_tracing_export_consecutive_failures",
+      "wlct_tracing_export_outcomes_total",
+      "wlct_tracing_spans_total",
+      "wlct_trading",
+      "wlct_unit",
+      "wlct_worker_coordination_events_total",
+      "wlct_worker_deferred_jobs_total"
+    ],
+    "execution-engine": [
+      "wlct_component_health",
+      "wlct_component_health_age_seconds",
+      "wlct_correlation",
+      "wlct_current_trace",
+      "wlct_dataset_",
+      "wlct_execution_",
+      "wlct_execution_metrics_resets_total",
+      "wlct_execution_stage_latency_micros",
+      "wlct_execution_wiring",
+      "wlct_market_",
+      "wlct_orders_",
+      "wlct_pipeline_transition_micros",
+      "wlct_positions_",
+      "wlct_process_cpu_seconds_total",
+      "wlct_process_file_descriptor_limit",
+      "wlct_process_memory_rss_bytes",
+      "wlct_process_open_file_descriptors",
+      "wlct_process_uptime_seconds",
+      "wlct_queue_",
+      "wlct_registry_series_overflow_total",
+      "wlct_risk_",
+      "wlct_strategy_",
+      "wlct_trading"
+    ],
+    "market-data": [
+      "wlct_component_health",
+      "wlct_component_health_age_seconds",
+      "wlct_correlation",
+      "wlct_current_trace",
+      "wlct_dataset_",
+      "wlct_execution_",
+      "wlct_market_",
+      "wlct_market_alert_active",
+      "wlct_market_poll_cycles_total",
+      "wlct_market_quote_age_seconds",
+      "wlct_market_quotes_updated_total",
+      "wlct_orders_",
+      "wlct_pipeline_transition_micros",
+      "wlct_positions_",
+      "wlct_process_cpu_seconds_total",
+      "wlct_process_file_descriptor_limit",
+      "wlct_process_memory_rss_bytes",
+      "wlct_process_open_file_descriptors",
+      "wlct_process_uptime_seconds",
+      "wlct_queue_",
+      "wlct_registry_series_overflow_total",
+      "wlct_risk_",
+      "wlct_strategy_",
+      "wlct_tracing_export_consecutive_failures",
+      "wlct_tracing_export_outcomes_total",
+      "wlct_tracing_spans_total",
+      "wlct_trading"
+    ],
+    "notification-service": [
+      "wlct_component_health",
+      "wlct_component_health_age_seconds",
+      "wlct_correlation",
+      "wlct_current_trace",
+      "wlct_dataset_",
+      "wlct_execution_",
+      "wlct_market_",
+      "wlct_orders_",
+      "wlct_pipeline_transition_micros",
+      "wlct_positions_",
+      "wlct_process_cpu_seconds_total",
+      "wlct_process_file_descriptor_limit",
+      "wlct_process_memory_rss_bytes",
+      "wlct_process_open_file_descriptors",
+      "wlct_process_uptime_seconds",
+      "wlct_queue_",
+      "wlct_registry_series_overflow_total",
+      "wlct_risk_",
+      "wlct_strategy_",
+      "wlct_trading"
+    ],
+    "trading-engine": [
+      "wlct_component_health",
+      "wlct_component_health_age_seconds",
+      "wlct_correlation",
+      "wlct_current_trace",
+      "wlct_dataset_",
+      "wlct_execution_",
+      "wlct_kill_switch_global_engaged",
+      "wlct_market_",
+      "wlct_market_data_mirror_age_seconds",
+      "wlct_orders_",
+      "wlct_pipeline_transition_micros",
+      "wlct_positions_",
+      "wlct_process_cpu_seconds_total",
+      "wlct_process_file_descriptor_limit",
+      "wlct_process_memory_rss_bytes",
+      "wlct_process_open_file_descriptors",
+      "wlct_process_uptime_seconds",
+      "wlct_queue_",
+      "wlct_registry_series_overflow_total",
+      "wlct_risk_",
+      "wlct_risk_active_protections",
+      "wlct_risk_decision_micros",
+      "wlct_risk_decisions_total",
+      "wlct_risk_state_published_accounts",
+      "wlct_risk_state_stale_accounts",
+      "wlct_strategy_",
+      "wlct_tracing_export_consecutive_failures",
+      "wlct_tracing_export_outcomes_total",
+      "wlct_tracing_spans_total",
+      "wlct_trading"
+    ],
+    "worker": [
+      "wlct_worker_coordination_events_total",
+      "wlct_worker_deferred_jobs_total"
+    ]
+  },
+  "image": {
+    "minimumVersionForHttpHeaders": "2.53",
+    "reference": "prom/prometheus:v3.5.0",
+    "why": "pinned because this config uses `http_headers`, and a floating tag lets a major version change the format underneath a committed file"
+  },
+  "notIncluded": [
+    {
+      "item": "Alertmanager",
+      "reason": "the platform already owns the alert lifecycle - ALERT_RULES, the fold, durable dedupe and retention in wlct_trading/observability/alerts.py and apps/api/src/modules/observability - and a second store of the same alerts is a second truth to reconcile"
+    },
+    {
+      "item": "Grafana provisioning and dashboard JSON",
+      "reason": "a panel file needs a data source UID and a layout, neither of which exists in this tree; the dashboard the platform does own is the derived document built by wlct_trading/observability/dashboard.py, and --dashboard renders exactly that from an exposition file an operator captures"
+    },
+    {
+      "item": "RED rows over the scraped text",
+      "reason": "the RED view is Part 21's, in-process, and needs surfaces and budgets a caller owns; a file cannot own a budget without inventing one, which is the law Part 21 states and this bundle repeats rather than competes with"
+    },
+    {
+      "item": "OpenTelemetry collector",
+      "reason": "`OTEL_ENDPOINT` names http://otel-collector:4318 in .env.example as a deployment-provided address; shipping a collector would mean choosing the exporter it writes to, and this repository has no trace backend to name"
+    },
+    {
+      "item": "node-exporter or any host-level exporter",
+      "reason": "out of scope for a platform whose failure modes are trading-path ones, and every added exporter is another image to pin and another surface to secure"
+    }
+  ],
+  "reading": "The deployment side of the platform's telemetry, as data. `targets` are the services whose own compose block and source say there is something to scrape; `excluded` names every candidate that is not scraped and why, because an omission reads as an oversight. `rules.rendered` are ALERT_RULES entries with a numeric threshold AND a registered family; `rules.refused` is the rest of the catalog with the reason each stayed unwritten. `families` is a literal scan of each service's own source: a name listed there is a mention, not proof the endpoint serves it, and the count is not a count of series. Nothing here records a measurement - no scrape was performed to build it.",
+  "rules": {
+    "catalogSize": 24,
+    "refused": [
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "AMBIGUOUS_EXECUTION",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "DATASET_VALIDATION_FAILURES",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "EXCHANGE_DISCONNECTED",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "EXECUTION_QUEUE_BACKLOG",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "EXECUTION_UNAVAILABLE",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "KILL_SWITCH_ENGAGED",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "MARKET_DATA_STALE",
+        "searched": []
+      },
+      {
+        "reason": "no registered family in this tree exposes the unit the rule names",
+        "ruleId": "ORDERBOOK_RESYNC_STORM",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "POSTGRES_UNAVAILABLE",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "PROTECTION_TRIGGERED",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "QUEUE_BACKLOG",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "RATE_LIMIT_EXHAUSTION",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "RECONCILIATION_DISCREPANCY",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "REDIS_UNAVAILABLE",
+        "searched": []
+      },
+      {
+        "reason": "no registered family in this tree exposes the unit the rule names",
+        "ruleId": "REPEATED_ORDER_REJECTION",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "RISK_ENGINE_UNAVAILABLE",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "RISK_SNAPSHOT_STALE",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "SLO_TELEMETRY_GAP",
+        "searched": []
+      },
+      {
+        "reason": "no registered family in this tree exposes the unit the rule names",
+        "ruleId": "STRATEGY_ERROR_SPIKE",
+        "searched": []
+      },
+      {
+        "reason": "no numeric threshold in the catalog (threshold: None)",
+        "ruleId": "WORKER_FAILURE",
+        "searched": []
+      }
+    ],
+    "rendered": [
+      {
+        "evidence": [
+          "registered help: Remaining error-budget ratio of the latest evaluation tick, ppm (0..1_000_000).",
+          "the catalog's unit `remaining_budget_ppm` is the family's name verbatim, so the threshold needs no conversion",
+          "the direction is `<=` because the condition says the remaining budget IS ZERO: a gauge that counts remaining budget fires downward, and `>` would alert on every healthy second of the platform's life"
+        ],
+        "expr": "wlct_slo_error_budget_remaining_ppm <= 0",
+        "family": "wlct_slo_error_budget_remaining_ppm",
+        "labels": {
+          "rule_id": "SLO_BUDGET_EXHAUSTED",
+          "severity": "critical"
+        },
+        "ruleId": "SLO_BUDGET_EXHAUSTED",
+        "severity": "CRITICAL",
+        "title": "Error budget exhausted"
+      },
+      {
+        "evidence": [
+          "registered help: Burn-rate of the latest evaluation tick per window, ppm.",
+          "apps/api/src/modules/observability/slo.service.ts sets `wlct_slo_burn_rate_ppm` with `window_kind` short|long, and the rule's condition says the short window reached the fast multiplier AND the long window agrees - which is why the expression is an `and` over both",
+          "the catalog's unit is `burn_rate_ratio` while the family's registered help says `ppm`, so the threshold is multiplied by 1e6 and by nothing else"
+        ],
+        "expr": "wlct_slo_burn_rate_ppm{window_kind=\"short\"} > 14400000 and wlct_slo_burn_rate_ppm{window_kind=\"long\"} > 14400000",
+        "family": "wlct_slo_burn_rate_ppm",
+        "labels": {
+          "rule_id": "SLO_BURN_FAST",
+          "severity": "critical"
+        },
+        "ruleId": "SLO_BURN_FAST",
+        "severity": "CRITICAL",
+        "title": "Error budget burning fast"
+      },
+      {
+        "evidence": [
+          "registered help: Burn-rate of the latest evaluation tick per window, ppm.",
+          "the rule's condition says `both evaluation windows crossed the slow burn multiplier`, so the expression covers short and long exactly as written; the ppm law is the same one SLO_BURN_FAST uses"
+        ],
+        "expr": "wlct_slo_burn_rate_ppm{window_kind=\"short\"} > 6000000 and wlct_slo_burn_rate_ppm{window_kind=\"long\"} > 6000000",
+        "family": "wlct_slo_burn_rate_ppm",
+        "labels": {
+          "rule_id": "SLO_BURN_SLOW",
+          "severity": "warning"
+        },
+        "ruleId": "SLO_BURN_SLOW",
+        "severity": "WARNING",
+        "title": "Error budget burning steadily"
+      },
+      {
+        "evidence": [
+          "registered help: Consecutive trace export failures (alert threshold at 3; reset by any success or deliberate skip).",
+          "apps/api/src/modules/observability/metrics.registry.provider.ts registers the family with the help text 'Consecutive trace export failures (alert threshold at 3; reset by any success or deliberate skip)'",
+          "the direction follows AlertRule's own docstring - `threshold` is the value the observation exceeded - so `>` even though the help text's prose says `at 3`; whether three failures or four are the trigger is the catalog's policy, not this file's"
+        ],
+        "expr": "wlct_tracing_export_consecutive_failures > 3",
+        "family": "wlct_tracing_export_consecutive_failures",
+        "labels": {
+          "rule_id": "TELEMETRY_EXPORT_FAILING",
+          "severity": "warning"
+        },
+        "ruleId": "TELEMETRY_EXPORT_FAILING",
+        "severity": "WARNING",
+        "title": "Telemetry export failing"
+      }
+    ]
+  },
+  "schema": "wlct.observability.scrape-bundle/1",
+  "targets": [
+    {
+      "authHeader": "x-metrics-token",
+      "composeService": "api",
+      "familiesNamedInSource": 28,
+      "metricsPath": "${PROMETHEUS_PATH}",
+      "metricsPathIsExpansion": true,
+      "pathEvidence": "apps/api/src/config/app-config.service.ts reads PROMETHEUS_PATH (.env.example)",
+      "port": 4000,
+      "portEvidence": "docker-compose.yml: api.ports: ${API_PORT:-4000}:4000",
+      "service": "api"
+    },
+    {
+      "authHeader": null,
+      "composeService": "trading-engine",
+      "familiesNamedInSource": 30,
+      "metricsPath": "/metrics",
+      "metricsPathIsExpansion": false,
+      "pathEvidence": "services/trading-engine/app/routers/observability.py:27",
+      "port": 8001,
+      "portEvidence": "docker-compose.yml: trading-engine.expose: 8001",
+      "service": "trading-engine"
+    },
+    {
+      "authHeader": null,
+      "composeService": "execution-engine",
+      "familiesNamedInSource": 23,
+      "metricsPath": "/metrics",
+      "metricsPathIsExpansion": false,
+      "pathEvidence": "services/execution-engine/app/routers/observability.py:38",
+      "port": 8093,
+      "portEvidence": "docker-compose.yml: execution-engine.expose: 8093",
+      "service": "execution-engine"
+    },
+    {
+      "authHeader": null,
+      "composeService": "market-data",
+      "familiesNamedInSource": 27,
+      "metricsPath": "/metrics",
+      "metricsPathIsExpansion": false,
+      "pathEvidence": "services/market-data/app/routers/observability.py:27",
+      "port": 8002,
+      "portEvidence": "docker-compose.yml: market-data.expose: 8002",
+      "service": "market-data"
+    }
+  ]
+}

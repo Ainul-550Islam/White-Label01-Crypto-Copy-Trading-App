@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://whitelabel-copytrade.com/schemas/staging-deployment-evidence.schema.json",
+  "title": "Staging Deployment Evidence",
+  "description": "Schema for the staging deployment evidence artifact",
+  "type": "object",
+  "required": [
+    "status",
+    "commitSha",
+    "buildTag",
+    "deployedAt",
+    "services",
+    "schemaVersion",
+    "smokeTestPassed",
+    "errors"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "BLOCKED", "UNVERIFIED"],
+      "description": "Overall deployment status"
+    },
+    "commitSha": {
+      "type": "string",
+      "description": "Git commit SHA"
+    },
+    "buildTag": {
+      "type": "string",
+      "description": "Immutable build tag"
+    },
+    "deployedAt": {
+      "type": "number",
+      "description": "Unix timestamp of deployment"
+    },
+    "services": {
+      "type": "array",
+      "description": "Service health status",
+      "items": {
+        "$ref": "#/$defs/ServiceHealth"
+      }
+    },
+    "schemaVersion": {
+      "type": "string",
+      "description": "Database schema version"
+    },
+    "smokeTestPassed": {
+      "type": "boolean",
+      "description": "Whether smoke test passed"
+    },
+    "errors": {
+      "type": "array",
+      "description": "Any errors encountered",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ci": {
+      "$ref": "#/$defs/CIMetadata"
+    },
+    "readinessArtifact": {
+      "type": "object",
+      "description": "Reference to the readiness artifact",
+      "properties": {
+        "commitSha": { "type": "string" },
+        "stagingReady": { "type": "boolean" },
+        "overall": { "type": "string" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "description": "Post-deploy verification results",
+      "properties": {
+        "status": { "type": "string" },
+        "checks": { "type": "array" }
+      }
+    }
+  },
+  "$defs": {
+    "ServiceHealth": {
+      "type": "object",
+      "required": ["name", "healthy", "detail"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Service name"
+        },
+        "healthy": {
+          "type": "boolean",
+          "description": "Whether service is healthy"
+        },
+        "buildIdentity": {
+          "type": "string",
+          "description": "Build identity reported by service"
+        },
+        "detail": {
+          "type": "string",
+          "description": "Health check detail"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CIMetadata": {
+      "type": "object",
+      "properties": {
+        "commitSha": { "type": "string" },
+        "branch": { "type": "string" },
+        "runId": { "type": "string" },
+        "runNumber": { "type": "string" },
+        "workflow": { "type": "string" },
+        "repository": { "type": "string" },
+        "actor": { "type": "string" },
+        "eventName": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

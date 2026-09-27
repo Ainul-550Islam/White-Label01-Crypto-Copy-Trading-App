@@ -1,0 +1,107 @@
+# =============================================================================
+# Staging profile for live-readiness verification.
+#
+# This overlay adds:
+#   - PostgreSQL with the execution-engine tables
+#   - Redis with authentication
+#   - Execution engine with staging-specific configuration
+#   - Staging-specific environment variables
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f infrastructure/staging/docker-compose.staging.yml up
+#
+# Design notes:
+#   - All staging defaults are FAIL-CLOSED: nothing here enables live trading
+#   - The execution engine starts in simulated mode with real infrastructure
+#   - Credentials are NOT included — they must be provided separately
+#   - The profile is clearly identified as "staging" in all health surfaces
+#   - Production must never inherit staging defaults
+# =============================================================================
+
+name: wlct-staging
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — staging instance with execution-engine tables
+  # ---------------------------------------------------------------------------
+  postgres:
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wlct_staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-wlct_staging}
+    # Staging uses the same init scripts as production
+    volumes:
+      - postgres-data-staging:/var/lib/postgresql/data
+      - ./infrastructure/database/init:/docker-entrypoint-initdb.d:ro
+
+  # ---------------------------------------------------------------------------
+  # Redis — staging instance with authentication
+  # ---------------------------------------------------------------------------
+  redis:
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - volatile-lru
+    volumes:
+      - redis-data-staging:/data
+
+  # ---------------------------------------------------------------------------
+  # Migrations — run against staging database
+  # ---------------------------------------------------------------------------
+  migrate:
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public
+
+  # ---------------------------------------------------------------------------
+  # API — staging instance
+  # ---------------------------------------------------------------------------
+  api:
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public&connection_limit=20&pool_timeout=20
+
+  # ---------------------------------------------------------------------------
+  # Execution engine — staging with real infrastructure
+  # ---------------------------------------------------------------------------
+  execution-engine:
+    environment:
+      NODE_ENV: staging
+      # Staging uses simulated mode — live mode still refuses
+      EXECUTION_MODE: simulated
+      EXECUTION_DRY_RUN: "true"
+      # Real PostgreSQL for durable store verification
+      EXECUTION_STORE_BACKEND: ${EXECUTION_STORE_BACKEND:-postgres}
+      EXECUTION_POSTGRES_DSN: ${EXECUTION_POSTGRES_DSN:-postgresql://wlct_staging:${POSTGRES_PASSWORD}@postgres:5432/wlct_staging}
+      # Real Redis for distributed lock verification
+      EXECUTION_DISTRIBUTED_LOCKS: ${EXECUTION_DISTRIBUTED_LOCKS:-true}
+      EXECUTION_REDIS_URL: ${EXECUTION_REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
+      # Credential source — defaults to none for safety
+      EXECUTION_CREDENTIAL_SOURCE: ${EXECUTION_CREDENTIAL_SOURCE:-none}
+      EXECUTION_CREDENTIAL_FETCHER: ${EXECUTION_CREDENTIAL_FETCHER:-none}
+      # Operator confirmation — defaults to not required
+      EXECUTION_REQUIRE_OPERATOR_CONFIRMATION: ${EXECUTION_REQUIRE_OPERATOR_CONFIRMATION:-false}
+      # IP allowlist required by default
+      EXECUTION_PLACEMENT_REQUIRE_IP_ALLOWLIST: "true"
+      # Instance ID for staging
+      EXECUTION_INSTANCE_ID: ${EXECUTION_INSTANCE_ID:-execution-engine-staging}
+
+  # ---------------------------------------------------------------------------
+  # Worker — staging instance
+  # ---------------------------------------------------------------------------
+  worker:
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public&connection_limit=10&pool_timeout=20
+
+volumes:
+  postgres-data-staging:
+    driver: local
+  redis-data-staging:
+    driver: local

@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wlct-trading-core"
+version = "0.6.0"
+description = "Shared trading data-plane domain library for the WLCT platform"
+requires-python = ">=3.11"
+# The core library has no runtime dependencies and must keep it that way: it is
+# imported by every data-plane service, and a dependency here is a dependency
+# everywhere. The live network transport is an opt-in extra.
+dependencies = []
+
+[project.optional-dependencies]
+# Production network transport (wlct_trading.net). Only the market-data service
+# and the live smoke test install this.
+#
+# httpx rather than aiohttp: services/market-data already depends on httpx and
+# uses it in app/services/providers.py. Two async HTTP stacks in one process
+# would mean two connection pools and two sets of timeout semantics for no
+# capability that is missing.
+live = [
+  "websockets>=13.1,<18",
+  "httpx>=0.27,<0.29",
+]
+dev = [
+  "pytest>=8.0",
+  "mypy>=1.8",
+  "ruff>=0.3",
+]
+
+[tool.setuptools.packages.find]
+include = ["wlct_trading*"]
+
+[tool.setuptools.package-data]
+# Type information ships with the package: services run mypy strict against
+# this library's API, and the marker is what makes that legal instead of a
+# stub-search exercise.
+wlct_trading = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# No asyncio plugin is required: the handful of coroutine calls in the test
+# suite are driven explicitly with asyncio.run(), which keeps the library's
+# test dependencies to pytest alone.
+#
+# Every test in tests/ is hermetic: no internet, no credentials, no database,
+# no Redis. The live smoke test is a separate script, not a test, precisely so
+# that it cannot be picked up by a bare `pytest` run.
+markers = [
+  "live: touches a real exchange endpoint; never collected by default",
+]
+addopts = "-m 'not live'"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+
+# websockets is an optional ([live] extra) dependency imported lazily inside a
+# try/except with a purposeful error message; when it is not installed the
+# guarded import must not become a type error.
+[[tool.mypy.overrides]]
+module = ["websockets.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# The ruleset is pinned rather than inherited from ruff's defaults, because
+# those defaults have grown between releases and a CI gate that changes
+# colour with the tool version is not a gate. E4/E7/E9/F is the classic
+# default: syntax-level errors, imports, pyflakes. Correctness is gated;
+# wrapping is not -- `ruff format` deliberately does not gate this repo, and
+# the hand-wrapped line shapes are part of the reading experience.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Every generator here appends the repo's trading-core to sys.path BEFORE it
+# can import wlct_trading - that is how the tools grade the tree they ship
+# in - so its post-insert imports are E402 by construction. The exception
+# lives HERE rather than as `# noqa` in the file itself, because Part 22's
+# audit asserts scripts/gen_observability_bundle.py carries no suppression
+# tokens: a generator whose whole job is refusing must not quiet a finding
+# in its own text. One config entry, reviewed as one, for all of them.
+"scripts/gen_*_fixtures.py" = ["E402"]
+"scripts/gen_observability_bundle.py" = ["E402"]

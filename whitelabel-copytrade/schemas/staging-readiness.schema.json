@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://whitelabel-copytrade.com/schemas/staging-readiness.schema.json",
+  "title": "Staging Readiness Artifact",
+  "description": "Schema for the staging readiness artifact produced by the rehearsal",
+  "type": "object",
+  "required": [
+    "mode",
+    "environment",
+    "timestamp",
+    "executionMode",
+    "liveRefused",
+    "overall",
+    "stagingReady",
+    "checks",
+    "errors"
+  ],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["strict", "dependencies", "runtime"],
+      "description": "The rehearsal mode"
+    },
+    "environment": {
+      "type": "string",
+      "description": "The detected environment (development, staging, production)"
+    },
+    "timestamp": {
+      "type": "number",
+      "description": "Unix timestamp of the rehearsal"
+    },
+    "executionMode": {
+      "type": "string",
+      "description": "The configured execution mode"
+    },
+    "liveRefused": {
+      "type": "boolean",
+      "const": true,
+      "description": "Must always be true - live mode is refused"
+    },
+    "overall": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "BLOCKED", "UNVERIFIED"],
+      "description": "Overall rehearsal result"
+    },
+    "stagingReady": {
+      "type": "boolean",
+      "description": "Whether staging deployment is authorized"
+    },
+    "checks": {
+      "type": "array",
+      "description": "Individual prerequisite checks",
+      "items": {
+        "$ref": "#/$defs/RehearsalCheck"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Any errors encountered during rehearsal",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ci": {
+      "$ref": "#/$defs/CIMetadata"
+    },
+    "toolVersions": {
+      "type": "object",
+      "description": "Versions of tools used"
+    }
+  },
+  "$defs": {
+    "RehearsalCheck": {
+      "type": "object",
+      "required": [
+        "name",
+        "prerequisite",
+        "status",
+        "configured",
+        "runtimeWired",
+        "verified",
+        "detail"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable check name"
+        },
+        "prerequisite": {
+          "type": "string",
+          "description": "Prerequisite identifier"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PASS", "FAIL", "BLOCKED", "UNVERIFIED", "SKIPPED"],
+          "description": "Check result status"
+        },
+        "configured": {
+          "type": "boolean",
+          "description": "Whether the feature is configured"
+        },
+        "runtimeWired": {
+          "type": "boolean",
+          "description": "Whether the runtime object is wired"
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Whether the check was verified"
+        },
+        "detail": {
+          "type": "string",
+          "description": "Human-readable detail"
+        },
+        "recoveryTested": {
+          "type": "boolean",
+          "description": "Whether recovery was tested"
+        },
+        "persistenceTested": {
+          "type": "boolean",
+          "description": "Whether persistence was tested"
+        },
+        "fencingTested": {
+          "type": "boolean",
+          "description": "Whether fencing was tested"
+        },
+        "safeFields": {
+          "type": "object",
+          "description": "Secret-safe fields for debugging"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CIMetadata": {
+      "type": "object",
+      "properties": {
+        "commitSha": {
+          "type": "string",
+          "description": "Git commit SHA"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Git branch"
+        },
+        "runId": {
+          "type": "string",
+          "description": "CI run identifier"
+        },
+        "runNumber": {
+          "type": "string",
+          "description": "CI run number"
+        },
+        "workflow": {
+          "type": "string",
+          "description": "CI workflow name"
+        },
+        "repository": {
+          "type": "string",
+          "description": "Repository name"
+        },
+        "actor": {
+          "type": "string",
+          "description": "CI actor"
+        },
+        "eventName": {
+          "type": "string",
+          "description": "CI event name"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
