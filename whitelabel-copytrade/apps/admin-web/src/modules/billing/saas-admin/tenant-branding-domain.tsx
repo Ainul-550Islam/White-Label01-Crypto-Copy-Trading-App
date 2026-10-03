@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   getTenantDetail,
   getBranding,
@@ -38,7 +38,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
   const [domainInput, setDomainInput] = useState('');
   const [verificationChallenge, setVerificationChallenge] = useState<any>(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -70,11 +70,11 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantId]);
 
   useEffect(() => {
-    fetchData();
-  }, [tenantId]);
+    void fetchData();
+  }, [fetchData]);
 
   const handleBrandingUpdate = async () => {
     setActionLoading('branding');

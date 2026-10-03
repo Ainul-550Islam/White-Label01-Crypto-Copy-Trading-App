@@ -60,13 +60,16 @@ export class DepositAddressService {
     try {
       const provider = await this.providerFactory.getProviderForNetwork({ networkId, assetId });
       const capabilities = await provider.getCapabilities();
-      if (!capabilities.canObserveAddress) {
-        throw new BadRequestException(`Provider ${provider.providerId} does not support address generation for ${networkId}`);
+      // Phase 3 fail-closed: only a provider that controls the key material
+      // may hand out a deposit address. A locally derived string would look
+      // like an address and any funds sent to it would be unrecoverable, so
+      // there is no fallback of any kind.
+      if (!capabilities.canGenerateAddress || typeof provider.generateDepositAddress !== 'function') {
+        throw new BadRequestException(
+          `Provider ${provider.providerId} cannot generate deposit addresses for ${assetId} on ${networkId}; configure a custody provider with address generation`,
+        );
       }
 
-      // In real implementation, would call provider to generate address
-      // For this control plane, we generate deterministic address from idempotency to avoid fake random, but mark as provider-derived
-      // We must not treat generated address as proof of funds — only as expected destination
       const idempotencyKey = deterministicIdempotencyKey({
         type: `deposit-address:${assetId}:${networkId}`,
         tenantId,
@@ -77,25 +80,17 @@ export class DepositAddressService {
       });
 
       // Check if address already generated via idempotency
-      const existingByKey = await (this.prisma as any).custodyWalletAddress.findFirst({ where: { idempotencyKey } });
+      const existingByKey = await (this.prisma as any).custodyWalletAddress.findFirst({ where: { tenantId, idempotencyKey } });
       if (existingByKey) return existingByKey;
 
-      // Generate deterministic placeholder address for testing — in production would be provider-generated
-      // Format: explicit network prefix to avoid ambiguous assignment
-      const hash = require('crypto').createHash('sha256').update(`${tenantId}:${walletId}:${assetId}:${networkId}:${clientProfileId ?? ''}:${accountId ?? ''}`).digest('hex');
-      // For different networks, use different address formats
-      if (networkId === 'bitcoin') {
-        generatedAddress = `bc1q${hash.slice(0, 38)}`;
-      } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base', 'avalanche'].includes(networkId)) {
-        generatedAddress = `0x${hash.slice(0, 40)}`;
-      } else if (networkId === 'solana') {
-        generatedAddress = hash.slice(0, 44);
-      } else {
-        generatedAddress = `${networkId}_${hash.slice(0, 40)}`;
+      const generated = await provider.generateDepositAddress({ assetId, networkId, walletId, tenantId, idempotencyKey, label });
+      if (!generated || typeof generated.address !== 'string' || generated.address.trim() === '') {
+        throw new BadRequestException('Provider did not return a deposit address');
       }
-
-      providerReference = `provider:${provider.providerId}:${hash.slice(0, 16)}`;
+      generatedAddress = generated.address.trim();
+      providerReference = generated.providerReference;
     } catch (e) {
+      if (e instanceof BadRequestException) throw e;
       throw new BadRequestException(`Failed to generate deposit address via provider: ${(e as Error).message}`);
     }
 
@@ -153,14 +148,10 @@ export class DepositAddressService {
     if (assetId) where.assetId = assetId;
     if (networkId) where.networkId = networkId;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyWalletAddress.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyWalletAddress.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyWalletAddress.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyWalletAddress.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
 import { DailyLossResult, RiskState, RiskSeverity, RiskPolicyScope } from './risk-management.types';
+import { resolveDayStartEquity, scopeAccountIdsOf } from './day-start-equity';
 
 /**
  * Daily loss limit enforcement with deterministic UTC reset.
@@ -115,30 +116,19 @@ export class DailyLossLimitService {
       where: { tenantId, ...(accountId ? { accountId } : {}) },
     });
 
-    let realizedPnlTotal = 0n;
     let latestTs: Date | null = null;
     for (const pos of positions) {
-      const realizedStr = pos.realisedPnl?.toString() ?? '0';
-      if (isValidDecimal(realizedStr)) {
-        // For daily, we should only count today's realized? But Position realised is cumulative.
-        // We need daily starting reference. For simplicity, use fills to compute daily realized.
-        // We'll sum realized from fills? Fill doesn't have PnL. So we use position realized minus starting reference from snapshot.
-        // For now, approximate: if we have daily snapshot, use it. Else use 0.
-      }
       if (!latestTs || new Date(pos.updatedAt) > latestTs) latestTs = pos.updatedAt;
     }
 
-    // Realized from fills: we don't have PnL per fill in canonical Fill, but we can approximate via position realizedPnl change?
-    // For this implementation, we use Position realisedPnl as current, and starting equity from snapshot.
-    // Fetch starting equity snapshot for today
-    const startSnapshot = await this.prisma.riskManagementSnapshot.findFirst({
-      where: { tenantId, accountId: accountId ?? undefined, capturedAt: { gte: dayStart, lt: new Date(dayStart.getTime() + 60000) } },
-      orderBy: { capturedAt: 'asc' },
-    });
-
-    let startingEquity: string | null = startSnapshot?.grossExposure ?? null; // placeholder, should be equity
-    // If no snapshot, use wallet total at day start? For now use current wallet minus realized+unrealized as approximation? We must not fake.
-    // If startingEquity unavailable, we mark UNKNOWN for daily PnL unless we have alternative canonical source.
+    // Day-start equity: the FIRST risk snapshot (RiskSnapshotMetadata.equity,
+    // written by the engine each evaluation) captured on this UTC trading day,
+    // per account. It is persisted, so a restart never resets the reference.
+    // For a multi-account scope every account holding balances or positions
+    // must have one; a partial sum would understate the reference and hide a
+    // loss, so any gap makes the whole reference unknown (fail closed).
+    const scopeAccountIds = scopeAccountIdsOf(accountId, [...balances, ...positions]);
+    const startingEquity = await resolveDayStartEquity(this.prisma, tenantId, tradingDay, scopeAccountIds);
 
     // Compute current equity
     let walletTotal = 0n;
@@ -154,19 +144,6 @@ export class DailyLossLimitService {
     }
     const currentEquity = walletTotal + unrealizedTotal;
     const currentEquityStr = formatScaled(currentEquity);
-
-    // If startingEquity unavailable, try to get from TenantSetting or use currentEquity as fallback? Must not fake.
-    // We will if unavailable, set startingEquity = null and dailyPnl = null -> UNKNOWN.
-    if (!startingEquity) {
-      // Try to get from RiskSnapshotMetadata for today
-      const meta = await this.prisma.riskSnapshotMetadata.findFirst({
-        where: { tenantId, accountId: accountId ?? undefined, tradingDay },
-        orderBy: { capturedAt: 'asc' },
-      });
-      if (meta?.equity) {
-        startingEquity = meta.equity.toString();
-      }
-    }
 
     let dailyPnl: string | null = null;
     let realizedPnl: string | null = null;
@@ -249,4 +226,5 @@ export class DailyLossLimitService {
 
     return [result];
   }
+
 }

@@ -7,6 +7,8 @@ import { LoadingState } from '@/components/loading-state';
 import { ErrorState } from '@/components/error-state';
 import { EmptyState } from '@/components/empty-state';
 import Link from 'next/link';
+import type { BillingOverview } from '@/api/billing-api';
+import type { CopySubscription, Paged, TradingStatus } from '@/api/trading-api';
 
 interface WidgetProps {
   title: string;
@@ -55,7 +57,7 @@ export function PortfolioWidget({ data, isLoading, error }: { data?: { nav: stri
   );
 }
 
-export function TradingStatusWidget({ data, isLoading }: { data?: { eligibility: string; isLive: boolean; restrictions: Array<{ type: string; reason: string }> }; isLoading: boolean }): JSX.Element {
+export function TradingStatusWidget({ data, isLoading }: { data?: TradingStatus; isLoading: boolean }): JSX.Element {
   if (isLoading) return <Widget title="Trading Status"><LoadingState /></Widget>;
   if (!data) return <Widget title="Trading Status"><EmptyState title="No trading status" /></Widget>;
 
@@ -64,7 +66,9 @@ export function TradingStatusWidget({ data, isLoading }: { data?: { eligibility:
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <StatusBadge status={data.eligibility} />
-          {data.isLive ? <StatusBadge status="LIVE" variant="success" /> : <StatusBadge status="PAPER" />}
+          {data.maintenance?.active && (
+            <StatusBadge status="MAINTENANCE" variant={data.maintenance.isEmergency ? 'danger' : 'warning'} />
+          )}
         </div>
         {data.restrictions.length > 0 && (
           <ul className="space-y-1">
@@ -81,7 +85,7 @@ export function TradingStatusWidget({ data, isLoading }: { data?: { eligibility:
   );
 }
 
-export function CopySubscriptionsWidget({ data, isLoading }: { data?: { data: Array<{ id: string; strategyId: string; status: string; allocationAmount: string }> }; isLoading: boolean }): JSX.Element {
+export function CopySubscriptionsWidget({ data, isLoading }: { data?: Paged<CopySubscription>; isLoading: boolean }): JSX.Element {
   if (isLoading) return <Widget title="Copy Subscriptions"><LoadingState /></Widget>;
 
   const subs = data?.data ?? [];
@@ -93,11 +97,11 @@ export function CopySubscriptionsWidget({ data, isLoading }: { data?: { data: Ar
       ) : (
         <ul className="space-y-2">
           {subs.slice(0, 3).map((s) => (
-            <li key={s.id} className="flex items-center justify-between text-sm">
+            <li key={s.subscriptionId} className="flex items-center justify-between text-sm">
               <span className="truncate">{s.strategyId.slice(0, 8)}</span>
               <div className="flex items-center gap-2">
                 <Money value={s.allocationAmount} />
-                <StatusBadge status={s.status} />
+                <StatusBadge status={s.state} />
               </div>
             </li>
           ))}
@@ -133,7 +137,7 @@ export function ExchangeHealthWidget({ data, isLoading }: { data?: { data: Array
   );
 }
 
-export function FundingWidget({ data, isLoading }: { data?: { data: Array<{ id: string; type: string; amount: string; state: string }> }; isLoading: boolean }): JSX.Element {
+export function FundingWidget({ data, isLoading }: { data?: { data: Array<{ id: string; type: string; amount: string; currency: string; state: string }> }; isLoading: boolean }): JSX.Element {
   if (isLoading) return <Widget title="Recent Funding"><LoadingState /></Widget>;
 
   const items = data?.data ?? [];
@@ -145,10 +149,10 @@ export function FundingWidget({ data, isLoading }: { data?: { data: Array<{ id: 
       ) : (
         <ul className="space-y-2">
           {items.map((f) => (
-            <li key={f.id} className="flex items-center justify-between text-sm">
-              <span>{f.type}</span>
+            <li key={`${f.type}-${f.id}`} className="flex items-center justify-between text-sm">
+              <span>{f.type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'}</span>
               <div className="flex items-center gap-2">
-                <Money value={f.amount} />
+                <Money value={f.amount} currency={f.currency} />
                 <StatusBadge status={f.state} />
               </div>
             </li>
@@ -159,22 +163,29 @@ export function FundingWidget({ data, isLoading }: { data?: { data: Array<{ id: 
   );
 }
 
-export function BillingWidget({ subscription, usage, isLoading }: { subscription?: { planName: string; status: string; currentPeriodEnd: string }; usage?: Array<{ meter: string; current: number; limit: number }>; isLoading: boolean }): JSX.Element {
+export function BillingWidget({ data, isLoading, error }: { data?: BillingOverview; isLoading: boolean; error?: unknown }): JSX.Element {
   if (isLoading) return <Widget title="Billing"><LoadingState /></Widget>;
+  if (error) return <Widget title="Billing"><ErrorState error={error} /></Widget>;
 
+  const subscription = data?.subscription ?? null;
+  const renewal = subscription?.renewalDate ?? subscription?.currentPeriodEnd ?? null;
   return (
     <Widget title="Billing" action={{ label: 'Manage', href: '/billing' }}>
       {subscription ? (
         <div className="space-y-2">
           <p className="text-sm">
-            <span className="font-medium">{subscription.planName}</span> <StatusBadge status={subscription.status} />
+            <span className="font-medium">{subscription.planName ?? subscription.planCode ?? 'Current plan'}</span> <StatusBadge status={subscription.status} />
           </p>
-          <p className="text-xs text-muted">Renews {new Date(subscription.currentPeriodEnd).toLocaleDateString()}</p>
-          {usage && usage.length > 0 && (
+          {renewal && (
+            <p className="text-xs text-muted">
+              {subscription.cancelAtPeriodEnd ? 'Ends' : 'Renews'} {new Date(renewal).toLocaleDateString()}
+            </p>
+          )}
+          {data && data.usage.length > 0 && (
             <div className="mt-2 space-y-1">
-              {usage.slice(0, 2).map((u) => (
+              {data.usage.slice(0, 2).map((u) => (
                 <div key={u.meter} className="text-xs">
-                  {u.meter}: {u.current}/{u.limit}
+                  {u.label}: {u.current}/{u.unlimited ? 'Unlimited' : (u.limit ?? '—')}
                 </div>
               ))}
             </div>

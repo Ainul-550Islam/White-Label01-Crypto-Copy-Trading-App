@@ -243,12 +243,12 @@ export class UsageRepository {
     });
   }
 
-  /** Count active traders for a tenant. */
+  /** Count active traders for a tenant. A trader is a TraderProfile - the row
+   * TraderProfileService creates behind PlanLimitTradersGuard - not a
+   * TradingAccount (those are governed by maxExchangeAccountsPerUser).
+   * deletedAt: null is the soft-delete filter. */
   async countActiveTraders(tenantId: string): Promise<number> {
-    return this.prisma.tradingAccount.count({
-      // deletedAt: null is the soft-delete filter; TradingAccountStatus has
-    // no DELETED member, so the previous `status: { not: 'DELETED' }`
-    // predicate named a state that cannot exist.
+    return this.prisma.traderProfile.count({
       where: { tenantId, deletedAt: null },
     });
   }

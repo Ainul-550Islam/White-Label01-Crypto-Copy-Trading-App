@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { randomUUID, createHash } from 'crypto';
 import { ResearchDatasetStatus, ResearchStrategyVersionStatus } from './research.types';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Persistence abstraction for research project, strategy version reference, dataset metadata, backtest run, metrics, validation state, promotion state, and result references with tenant isolation.
@@ -37,7 +38,7 @@ export class ResearchRepository {
     idempotencyKey?: string | null;
   }): Promise<any> {
     if (input.idempotencyKey) {
-      const existing = await (this.prisma as any).researchDataset.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+      const existing = await (this.prisma as any).researchDataset.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existing) return existing;
     }
 
@@ -110,8 +111,11 @@ export class ResearchRepository {
 
   async updateDatasetStatus(id: string, tenantId: string, status: ResearchDatasetStatus, validationResult?: Record<string, any> | null): Promise<any | null> {
     try {
-      return await (this.prisma as any).researchDataset.update({ where: { id }, data: { status, validationResult, updatedAt: new Date() } });
-    } catch { return null; }
+      return await (this.prisma as any).researchDataset.update({ where: { id, tenantId }, data: { status, validationResult, updatedAt: new Date() } });
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
+    }
   }
 
   // Strategy Versions
@@ -135,7 +139,7 @@ export class ResearchRepository {
     idempotencyKey?: string | null;
   }): Promise<any> {
     if (input.idempotencyKey) {
-      const existing = await (this.prisma as any).researchStrategyVersion.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+      const existing = await (this.prisma as any).researchStrategyVersion.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existing) return existing;
     }
 
@@ -198,8 +202,11 @@ export class ResearchRepository {
 
   async updateStrategyVersionStatus(id: string, tenantId: string, status: ResearchStrategyVersionStatus, extra?: { frozenAt?: Date; publishedAt?: Date; deprecatedAt?: Date }): Promise<any | null> {
     try {
-      return await (this.prisma as any).researchStrategyVersion.update({ where: { id }, data: { status, ...extra, updatedAt: new Date() } });
-    } catch { return null; }
+      return await (this.prisma as any).researchStrategyVersion.update({ where: { id, tenantId }, data: { status, ...extra, updatedAt: new Date() } });
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
+    }
   }
 
   // Audit logs helper

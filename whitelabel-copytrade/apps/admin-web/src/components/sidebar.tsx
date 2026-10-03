@@ -31,8 +31,19 @@ export const NAV_ITEMS: NavItem[] = [
   // its two writes append definition VERSIONS and ask the evaluator to look.
   { href: '/slo', label: 'Service objectives', permission: 'operations:read' },
   { href: '/branding', label: 'Branding', permission: 'tenant:read' },
-  { href: '/subscription', label: 'Subscription', permission: 'billing:read' },
-  { href: '/audit-logs', label: 'Audit log', permission: 'audit:read' },
+  // Round 7: these two entries used 'billing:read' and 'audit:read', which
+  // are not permissions (packages/shared-types rbac.ts), so the links were
+  // hidden from everyone except '*' holders. They now name the permissions
+  // the API actually enforces on the routes the pages call.
+  { href: '/subscription', label: 'Subscription', permission: 'subscription:read' },
+  // Round 7: the self-service billing portal (plans, checkout, invoices,
+  // usage) and the plan catalogue. Both were built but never mounted.
+  { href: '/billing', label: 'Billing', permission: 'subscription:read' },
+  { href: '/plans', label: 'Plan catalogue', permission: 'plan:read' },
+  // Platform-wide SaaS tenant administration (plan, branding, domains,
+  // entitlements per tenant). The API requires platform:manage on every call.
+  { href: '/saas-admin', label: 'SaaS tenants', permission: 'platform:manage', platformOnly: true },
+  { href: '/audit-logs', label: 'Audit log', permission: 'audit_log:read' },
   { href: '/settings', label: 'Settings', permission: 'tenant:read' },
 ];
 

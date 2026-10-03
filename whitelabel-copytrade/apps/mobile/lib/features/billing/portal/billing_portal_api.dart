@@ -1,4 +1,9 @@
 /// Billing Portal API client for mobile - consumes canonical APIs, no hardcoded pricing.
+///
+/// Paths are relative to the versioned API base (ApiClient already targets
+/// `/api/v1`), and every response is unwrapped from the `{success, data}`
+/// envelope by ApiClient before [_asMap] sees it.
+library;
 
 import '../../../core/network/api_client.dart';
 
@@ -7,56 +12,55 @@ class BillingPortalApi {
 
   BillingPortalApi(this._client);
 
+  /// A non-object payload is a contract violation: surface it as an error
+  /// rather than rendering an empty billing state as if it were real.
+  static Map<String, dynamic> _asMap(Object? data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    throw const FormatException('Billing portal returned a non-object payload');
+  }
+
   Future<Map<String, dynamic>> getBillingOverview() async {
-    final res = await _client.get('/v1/billing/portal/overview');
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/overview', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> getCurrentSubscription() async {
-    final res = await _client.get('/v1/billing/portal/subscription');
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/subscription', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> getAvailablePlans() async {
-    final res = await _client.get('/v1/billing/portal/plans');
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/plans', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> getPlanComparison() async {
-    final res = await _client.get('/v1/billing/portal/plans/comparison');
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/plans/comparison', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> getUsageSummary() async {
-    final res = await _client.get('/v1/billing/portal/usage');
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/usage', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> listInvoices({String? status, int? limit}) async {
-    final query = <String, dynamic>{};
+    final Map<String, Object?> query = <String, Object?>{};
     if (status != null) query['status'] = status;
     if (limit != null) query['limit'] = limit;
-    final res = await _client.get('/v1/billing/portal/invoices', queryParameters: query);
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/invoices', queryParameters: query, parser: _asMap);
   }
 
   Future<Map<String, dynamic>> getInvoiceDetail(String id) async {
-    final res = await _client.get('/v1/billing/portal/invoices/$id');
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/invoices/$id', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> listPayments({String? status, String? provider, int? limit}) async {
-    final query = <String, dynamic>{};
+    final Map<String, Object?> query = <String, Object?>{};
     if (status != null) query['status'] = status;
     if (provider != null) query['provider'] = provider;
     if (limit != null) query['limit'] = limit;
-    final res = await _client.get('/v1/billing/portal/payments', queryParameters: query);
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/payments', queryParameters: query, parser: _asMap);
   }
 
   Future<Map<String, dynamic>> getPaymentStatus(String id) async {
-    final res = await _client.get('/v1/billing/portal/payments/$id/status');
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/payments/$id/status', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> createCheckoutSession({
@@ -68,7 +72,7 @@ class BillingPortalApi {
     String? cancelUrl,
     String? idempotencyKey,
   }) async {
-    final res = await _client.post('/v1/billing/portal/checkout', data: {
+    return _client.post<Map<String, dynamic>>('/billing/portal/checkout', body: <String, Object?>{
       'planId': planId,
       if (billingInterval != null) 'billingInterval': billingInterval,
       if (currency != null) 'currency': currency,
@@ -76,41 +80,35 @@ class BillingPortalApi {
       if (successUrl != null) 'successUrl': successUrl,
       if (cancelUrl != null) 'cancelUrl': cancelUrl,
       if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
-    });
-    return res.data as Map<String, dynamic>;
+    }, parser: _asMap,);
   }
 
   Future<Map<String, dynamic>> getCheckoutStatus(String id) async {
-    final res = await _client.get('/v1/billing/portal/checkout/$id/status');
-    return res.data as Map<String, dynamic>;
+    return _client.get<Map<String, dynamic>>('/billing/portal/checkout/$id/status', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> cancelSubscription({String? reason, bool? atPeriodEnd}) async {
-    final res = await _client.post('/v1/billing/portal/subscription/cancel', data: {
+    return _client.post<Map<String, dynamic>>('/billing/portal/subscription/cancel', body: <String, Object?>{
       if (reason != null) 'reason': reason,
       if (atPeriodEnd != null) 'atPeriodEnd': atPeriodEnd,
-    });
-    return res.data as Map<String, dynamic>;
+    }, parser: _asMap,);
   }
 
   Future<Map<String, dynamic>> resumeSubscription() async {
-    final res = await _client.post('/v1/billing/portal/subscription/resume');
-    return res.data as Map<String, dynamic>;
+    return _client.post<Map<String, dynamic>>('/billing/portal/subscription/resume', parser: _asMap);
   }
 
   Future<Map<String, dynamic>> changePlan({required String planId, bool? atPeriodEnd}) async {
-    final res = await _client.post('/v1/billing/portal/subscription/change-plan', data: {
+    return _client.post<Map<String, dynamic>>('/billing/portal/subscription/change-plan', body: <String, Object?>{
       'planId': planId,
       if (atPeriodEnd != null) 'atPeriodEnd': atPeriodEnd,
-    });
-    return res.data as Map<String, dynamic>;
+    }, parser: _asMap,);
   }
 
   Future<Map<String, dynamic>> changeInterval({required String newInterval, bool? atPeriodEnd}) async {
-    final res = await _client.post('/v1/billing/portal/subscription/change-interval', data: {
+    return _client.post<Map<String, dynamic>>('/billing/portal/subscription/change-interval', body: <String, Object?>{
       'newInterval': newInterval,
       if (atPeriodEnd != null) 'atPeriodEnd': atPeriodEnd,
-    });
-    return res.data as Map<String, dynamic>;
+    }, parser: _asMap,);
   }
 }

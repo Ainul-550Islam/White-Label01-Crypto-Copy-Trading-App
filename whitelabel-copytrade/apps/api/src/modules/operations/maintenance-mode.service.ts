@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { MaintenanceWindowService } from './maintenance-window.service';
 import { OperationalAuditService } from './operational-audit.service';
@@ -7,6 +7,7 @@ import { RedisService } from '../../infrastructure/redis/redis.service';
 import {
   OperationalMaintenanceScope,
   OperationalMaintenanceState,
+  activeMaintenanceWhere,
   redactSecrets,
 } from './operations.types';
 
@@ -35,6 +36,13 @@ export class MaintenanceModeService {
     return parts.join(':');
   }
 
+  /**
+   * Whether an active maintenance window covers `scope` for this tenant (see
+   * activeMaintenanceWhere). Redis is an advisory fast path set by
+   * enterMaintenance; the database is authoritative. A database failure is
+   * not swallowed: this used to return false on any error, so an outage of
+   * the check silently lifted maintenance.
+   */
   async isInMaintenance(params: {
     scope: OperationalMaintenanceScope;
     scopeTarget?: string | null;
@@ -42,34 +50,18 @@ export class MaintenanceModeService {
   }): Promise<boolean> {
     const { scope, scopeTarget = null, tenantId = null } = params;
 
-    // Check Redis fast path
     try {
-      const key = this.getMaintenanceKey(scope, scopeTarget, tenantId);
-      const val = await this.redis.client.get(key);
+      const val = await this.redis.client.get(this.getMaintenanceKey(scope, scopeTarget, tenantId));
       if (val === 'ACTIVE') return true;
-    } catch {}
-
-    // Check DB authoritative windows
-    try {
-      const now = new Date();
-      const where: any = {
-        state: OperationalMaintenanceState.ACTIVE as any,
-        scope: scope as any,
-        scheduledStart: { lte: now },
-        scheduledEnd: { gte: now },
-      };
-      if (scopeTarget) where.scopeTarget = scopeTarget;
-      if (tenantId !== null) {
-        where.OR = [{ tenantId }, { tenantId: null }, { scope: OperationalMaintenanceScope.PLATFORM }];
-      } else {
-        where.scope = { in: [scope, OperationalMaintenanceScope.PLATFORM] };
-      }
-
-      const active = await (this.prisma as any).operationalMaintenanceWindow.findFirst({ where });
-      return !!active;
-    } catch {
-      return false;
+    } catch (err) {
+      this.logger.warn(`Maintenance fast path unavailable, using the database: ${(err as Error).message}`);
     }
+
+    const active = await this.prisma.operationalMaintenanceWindow.findFirst({
+      where: activeMaintenanceWhere({ scope, scopeTarget, tenantId, now: new Date() }),
+      select: { id: true },
+    });
+    return active !== null;
   }
 
   async enterMaintenance(params: {
@@ -225,8 +217,12 @@ export class MaintenanceModeService {
       tenantId: params.tenantId ?? null,
     });
     if (inMaintenance) {
-      // Integrate with existing live-gate/execution boundaries — restrict new actions without rewriting execution state
-      throw new BadRequestException(`Operation ${params.operation} blocked: maintenance active for ${params.scope}${params.scopeTarget ? `:${params.scopeTarget}` : ''}`);
+      // Restricts new actions only; running executions are left to their own
+      // state machines. 503: the operation is temporarily unavailable, the
+      // request itself is fine.
+      throw new ServiceUnavailableException(
+        `Operation ${params.operation} blocked: maintenance active for ${params.scope}${params.scopeTarget ? `:${params.scopeTarget}` : ''}`,
+      );
     }
   }
 }

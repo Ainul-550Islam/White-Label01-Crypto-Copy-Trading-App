@@ -11,6 +11,11 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/risk/presentation/risk_screen.dart';
 import '../../features/strategies/presentation/strategies_screen.dart';
+import '../../features/copy_trading/presentation/copy_trading_screen.dart';
+import '../../features/exchange_accounts/presentation/exchange_accounts_screen.dart';
+import '../../features/funding/presentation/funding_screen.dart';
+import '../../features/notifications/presentation/notifications_screen.dart';
+import '../../features/portfolio/presentation/portfolio_screen.dart';
 import '../di/providers.dart';
 import 'route_paths.dart';
 
@@ -105,6 +110,31 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         path: RoutePaths.risk,
         name: RouteNames.risk,
         builder: (BuildContext context, GoRouterState state) => const RiskScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.exchangeAccounts,
+        name: RouteNames.exchangeAccounts,
+        builder: (BuildContext context, GoRouterState state) => const ExchangeAccountsScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.copyTrading,
+        name: RouteNames.copyTrading,
+        builder: (BuildContext context, GoRouterState state) => const CopyTradingScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.funding,
+        name: RouteNames.funding,
+        builder: (BuildContext context, GoRouterState state) => const FundingScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.portfolio,
+        name: RouteNames.portfolio,
+        builder: (BuildContext context, GoRouterState state) => const PortfolioScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.notifications,
+        name: RouteNames.notifications,
+        builder: (BuildContext context, GoRouterState state) => const NotificationsScreen(),
       ),
       GoRoute(
         path: RoutePaths.settings,

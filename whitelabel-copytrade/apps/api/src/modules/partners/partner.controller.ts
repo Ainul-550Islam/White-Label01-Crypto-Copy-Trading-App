@@ -1,4 +1,6 @@
 import { Controller, Get, Post, Put, Body, Param, Query, BadRequestException, UseGuards } from '@nestjs/common';
+import { Permission } from '@wlct/shared-types';
+import { PlatformOnly, RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { PartnerProfileService } from './partner-profile.service';
 import { PartnerAgreementService } from './partner-agreement.service';
 import { PartnerTenantService } from './partner-tenant.service';
@@ -52,7 +54,18 @@ import {
   ReconciliationQueryDto,
 } from './dto/partner-query.dto';
 
-@Controller('v1/partners')
+/**
+ * Partner (reseller/white-label agency) management spans tenants: agreements,
+ * tenant assignment and transfer, commissions, settlements and payouts.
+ *
+ * It used to carry no permission metadata, so any authenticated user of any
+ * tenant could transition partner payouts or move tenants between partners.
+ * It is a platform-operator surface: platform users only, platform:manage to
+ * change anything, platform:manage or platform:read_metrics to read.
+ */
+@PlatformOnly()
+@RequirePermissions(Permission.PLATFORM_MANAGE)
+@Controller('partners')
 export class PartnerController {
   constructor(
     private readonly profileService: PartnerProfileService,
@@ -102,11 +115,13 @@ export class PartnerController {
   }
 
   @Get()
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listPartners(@Query() q: PartnerQueryDto) {
     return this.profileService.listProfiles({ state: q.state, type: q.type, ownerUserId: q.ownerUserId });
   }
 
   @Get(':id')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getPartner(@Param('id') id: string) {
     return this.profileService.getProfile(id);
   }
@@ -141,11 +156,13 @@ export class PartnerController {
   }
 
   @Get(':id/agreements')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listAgreements(@Param('id') id: string) {
     return this.agreementService.listAgreements(id);
   }
 
   @Get(':id/agreements/active')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getActiveAgreement(@Param('id') id: string) {
     const agr = await this.agreementService.getActiveAgreement(id);
     if (!agr) throw new BadRequestException(`no active agreement for partner ${id}`);
@@ -194,6 +211,7 @@ export class PartnerController {
   }
 
   @Get(':id/tenants')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listTenants(@Param('id') id: string, @Query() q: PartnerTenantQueryDto) {
     return this.tenantService.listTenantsForPartner(id, { state: q.state, relationshipType: q.relationshipType });
   }
@@ -220,12 +238,14 @@ export class PartnerController {
   }
 
   @Get(':id/users')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listUsers(@Param('id') id: string) {
     return this.userService.listUsersForPartner(id);
   }
 
   // --- Plans & Pricing ---
   @Get(':id/plans')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getEligiblePlans(@Param('id') id: string) {
     return this.planService.getEligiblePlans(id);
   }
@@ -258,6 +278,7 @@ export class PartnerController {
   }
 
   @Get(':id/campaigns')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listCampaigns(@Param('id') id: string) {
     return this.discountService.listCampaigns(id);
   }
@@ -273,6 +294,7 @@ export class PartnerController {
   }
 
   @Get(':id/referrals')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listReferrals(@Param('id') id: string) {
     return this.referralService.listReferrals(id);
   }
@@ -297,6 +319,7 @@ export class PartnerController {
   }
 
   @Get(':id/attributions')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listAttributions(@Param('id') id: string) {
     return this.attributionService.listAttributionsForPartner(id);
   }
@@ -348,6 +371,7 @@ export class PartnerController {
   }
 
   @Get(':id/commissions')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listCommissions(@Param('id') id: string, @Query() q: PartnerCommissionQueryDto) {
     return this.commissionLedger.listCommissions(id, { tenantId: q.tenantId, state: q.state, settlementId: q.settlementId, currency: q.currency });
   }
@@ -367,11 +391,13 @@ export class PartnerController {
   }
 
   @Get(':id/settlements')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listSettlements(@Param('id') id: string, @Query() q: PartnerSettlementQueryDto) {
     return this.settlementService.listSettlements(id, { state: q.state, currency: q.currency });
   }
 
   @Get(':id/settlements/:settlementId')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getSettlement(@Param('id') id: string, @Param('settlementId') settlementId: string) {
     return this.settlementService.getSettlement(settlementId, id);
   }
@@ -397,6 +423,7 @@ export class PartnerController {
   }
 
   @Get(':id/payouts')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listPayouts(@Param('id') id: string, @Query() q: PartnerPayoutQueryDto) {
     return this.payoutService.listPayouts(id, { settlementId: q.settlementId, state: q.state });
   }
@@ -417,6 +444,7 @@ export class PartnerController {
 
   // --- Invoices ---
   @Get(':id/invoices')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listInvoices(@Param('id') id: string, @Query('currency') currency: string) {
     return this.invoiceService.listStatements(id, { currency });
   }
@@ -435,12 +463,14 @@ export class PartnerController {
 
   // --- Usage, Performance, Analytics ---
   @Get(':id/usage')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getUsage(@Param('id') id: string, @Query('periodStart') periodStart: string, @Query('periodEnd') periodEnd: string, @Query('correlationId') correlationId: string) {
     if (!periodStart || !periodEnd) throw new BadRequestException('periodStart and periodEnd required');
     return this.usageService.aggregateUsage({ partnerId: id, periodStart, periodEnd, correlationId: correlationId ?? `corr_${Date.now()}` });
   }
 
   @Get(':id/performance')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getPerformance(@Param('id') id: string, @Query() q: PartnerAnalyticsQueryDto) {
     return this.performanceService.calculatePerformance({
       partnerId: id,
@@ -452,6 +482,7 @@ export class PartnerController {
   }
 
   @Get(':id/analytics')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getAnalytics(@Param('id') id: string, @Query() q: PartnerAnalyticsQueryDto) {
     return this.analyticsService.getAnalytics({
       partnerId: id,
@@ -470,17 +501,20 @@ export class PartnerController {
   }
 
   @Get(':id/reconciliation/mismatches')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listMismatches(@Param('id') id: string, @Query() q: ReconciliationQueryDto) {
     return this.reconciliationService.listMismatches(id, { type: q.type as any, severity: q.severity });
   }
 
   @Get(':id/audit')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async listAudit(@Param('id') id: string, @Query('take') take: string) {
     return this.auditService.listEvents(id, { take: take ? parseInt(take, 10) : 100 });
   }
 
   // --- Portal ---
   @Get(':id/portal')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getPortal(@Param('id') id: string, @Query() q: PartnerPortalQueryDto) {
     return this.portalService.getPortalData({
       partnerId: id,
@@ -493,6 +527,7 @@ export class PartnerController {
   }
 
   @Get(':id/policy')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getPolicy(@Param('id') id: string) {
     const profile = await this.profileService.getProfile(id);
     const agreement = await this.agreementService.getActiveAgreement(id);

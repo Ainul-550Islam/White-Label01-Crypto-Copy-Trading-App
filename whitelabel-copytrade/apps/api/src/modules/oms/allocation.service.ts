@@ -119,15 +119,11 @@ export class AllocationService {
 
   async getAllocations(params: { tenantId: string; accountId?: string; strategyId?: string; traderId?: string; followerId?: string; symbol?: string }) {
     const { tenantId, accountId, strategyId, traderId, followerId, symbol } = params;
-    try {
-      return await (this.prisma as any).omsAllocation.findMany({
-        where: { tenantId, ...(accountId ? { accountId } : {}), ...(strategyId ? { strategyId } : {}), ...(traderId ? { traderId } : {}), ...(followerId ? { followerId } : {}), ...(symbol ? { symbol } : {}) },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).omsAllocation.findMany({
+      where: { tenantId, ...(accountId ? { accountId } : {}), ...(strategyId ? { strategyId } : {}), ...(traderId ? { traderId } : {}), ...(followerId ? { followerId } : {}), ...(symbol ? { symbol } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
   }
 
   async getAllocationSummary(params: { tenantId: string; strategyId?: string; traderId?: string; followerId?: string }) {

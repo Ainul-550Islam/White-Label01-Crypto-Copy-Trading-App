@@ -160,8 +160,8 @@ export class ChurnResponseDto {
   logoChurnRate!: string;
   revenueChurnAmount!: { amount: string; currency: string; minorUnit: number };
   revenueChurnRate!: string; // Definition: churned MRR / MRR at start * 100
-  netRevenueRetention!: string;
-  grossRevenueRetention!: string;
+  netRevenueRetention!: string | null; // null: expansion revenue is not measured
+  grossRevenueRetention!: string | null; // Definition: 100 - revenueChurnRate (floored at 0); null when MRR at start is 0
   totalCustomersStart!: number;
   totalCustomersEnd!: number;
   totalSubscriptionsStart!: number;

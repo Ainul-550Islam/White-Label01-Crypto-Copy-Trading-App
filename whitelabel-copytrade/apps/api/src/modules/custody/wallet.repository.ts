@@ -51,7 +51,7 @@ export class WalletRepository {
     });
 
     try {
-      const existing = await (this.prisma as any).custodyWallet.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).custodyWallet.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log({ event: 'custody.wallet.idempotent_hit', idempotencyKey });
         return existing;
@@ -94,11 +94,7 @@ export class WalletRepository {
   }
 
   async getWallet(params: { tenantId: string; walletId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).custodyWallet.findFirst({ where: { id: params.walletId, tenantId: params.tenantId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).custodyWallet.findFirst({ where: { id: params.walletId, tenantId: params.tenantId } });
   }
 
   async listWallets(params: {
@@ -121,15 +117,11 @@ export class WalletRepository {
     if (state) where.state = state;
     if (walletType) where.walletType = walletType;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyWallet.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyWallet.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyWallet.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyWallet.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async updateWalletState(params: { tenantId: string; walletId: string; state: string; isActive?: boolean }): Promise<any> {

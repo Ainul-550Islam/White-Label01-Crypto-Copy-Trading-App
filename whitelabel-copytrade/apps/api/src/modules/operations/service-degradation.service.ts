@@ -126,20 +126,16 @@ export class ServiceDegradationService {
     serviceName: string;
     capability?: string | null;
   }): Promise<any | null> {
-    try {
-      const where: any = {
-        serviceName: params.serviceName,
-        endsAt: null,
-      };
-      if (params.tenantId !== undefined) where.tenantId = params.tenantId;
-      if (params.capability) where.capability = params.capability;
-      return await (this.prisma as any).operationalServiceDegradation.findFirst({
-        where,
-        orderBy: { createdAt: 'desc' },
-      });
-    } catch {
-      return null;
-    }
+    const where: any = {
+      serviceName: params.serviceName,
+      endsAt: null,
+    };
+    if (params.tenantId !== undefined) where.tenantId = params.tenantId;
+    if (params.capability) where.capability = params.capability;
+    return await (this.prisma as any).operationalServiceDegradation.findFirst({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async listDegradations(params: {
@@ -155,20 +151,16 @@ export class ServiceDegradationService {
     if (serviceName) where.serviceName = serviceName;
     if (level) where.level = level;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).operationalServiceDegradation.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).operationalServiceDegradation.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).operationalServiceDegradation.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).operationalServiceDegradation.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async enforceAllowedOperation(params: {

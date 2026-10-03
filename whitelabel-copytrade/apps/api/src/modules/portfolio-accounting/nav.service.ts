@@ -4,7 +4,8 @@ import { CashLedgerService } from './cash-ledger.service';
 import { PositionAccountingService } from './position-accounting.service';
 import { ValuationService } from './valuation.service';
 import { AccountingPolicyService } from './accounting-policy.service';
-import { add, sub, redactSecrets, deterministicIdempotencyKey } from './portfolio-accounting.types';
+import { add, sub, redactSecrets, deterministicIdempotencyKey, isValidDecimal } from './portfolio-accounting.types';
+import { isAdjustmentReversed } from './accounting-adjustment.service';
 
 /**
  * Calculates NAV from cash + valued positions + adjustments, currency-safe, evidence.
@@ -80,12 +81,15 @@ export class NavService {
     // NAV = cash + grossAsset - grossLiability + adjustments (adjustments from adjustment service — for now 0)
     let adjustments = '0';
     try {
+      // Only manual adjustments (no originalEventId) move NAV directly: event-linked
+      // reversals/corrections already act through isReversed and the correction event.
       const adjustmentRecords = await (this.prisma as any).portfolioAccountingAdjustment.findMany({
-        where: { tenantId, profileId, createdAt: { lte: at }, isReversed: false },
+        where: { tenantId, profileId, createdAt: { lte: at }, originalEventId: null },
       });
       for (const adj of adjustmentRecords) {
-        if (adj.adjustedAmount) {
-          adjustments = add(adjustments, adj.adjustedAmount);
+        if (isAdjustmentReversed(adj)) continue;
+        if (adj.amount && isValidDecimal(adj.amount)) {
+          adjustments = add(adjustments, adj.amount);
         }
       }
     } catch {}

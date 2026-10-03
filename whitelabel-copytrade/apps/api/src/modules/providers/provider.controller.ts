@@ -18,6 +18,8 @@ import {
   HttpStatus,
   ForbiddenException,
 } from '@nestjs/common';
+import { Permission } from '@wlct/shared-types';
+import { PlatformOnly, RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProviderDomain, ProviderName } from './provider.types';
 import { ProviderPolicyService } from './provider-policy.service';
 import { ProviderHealthService } from './provider-health.service';
@@ -40,7 +42,18 @@ import {
   ProviderConfigurationStatusDto,
 } from './dto/provider-action.dto';
 
-@Controller('v1/providers')
+/**
+ * Provider operations (health, capabilities, configuration status,
+ * observations, reconciliation, webhook diagnostics/replay, enable/disable,
+ * controlled retry). The controller carried no permission metadata and takes
+ * tenantId from the query/body, so any tenant user could disable a provider,
+ * replay webhooks or read another tenant's provider state. It is platform
+ * infrastructure: platform-only; reads platform:manage or
+ * platform:read_metrics, actions platform:manage (class default).
+ */
+@PlatformOnly()
+@RequirePermissions(Permission.PLATFORM_MANAGE)
+@Controller('providers')
 export class ProviderController {
   constructor(
     private readonly policyService: ProviderPolicyService,
@@ -51,6 +64,7 @@ export class ProviderController {
   ) {}
 
   @Get('health')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getHealth(
     @Query() query: ProviderHealthQueryDto,
     @Headers('x-correlation-id') correlationId: string,
@@ -87,6 +101,7 @@ export class ProviderController {
   }
 
   @Get('capabilities')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getCapabilities(
     @Query() query: ProviderCapabilityQueryDto,
     @Headers('x-correlation-id') correlationId: string,
@@ -127,6 +142,7 @@ export class ProviderController {
   }
 
   @Get('configuration/status')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getConfigurationStatus(
     @Query() query: ProviderConfigurationStatusDto,
     @Headers('x-correlation-id') correlationId: string,
@@ -158,6 +174,7 @@ export class ProviderController {
   }
 
   @Get('observations')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getObservations(@Query() query: ProviderObservationQueryDto) {
     if (query.correlationId) {
       return { data: this.observationService.getObservationsByCorrelationId(query.correlationId) };
@@ -184,6 +201,7 @@ export class ProviderController {
   }
 
   @Get('reconciliation')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getReconciliation(@Query() query: ProviderReconciliationQueryDto) {
     return {
       data: {
@@ -196,6 +214,7 @@ export class ProviderController {
   }
 
   @Get('webhooks/diagnostics')
+  @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.PLATFORM_READ_METRICS)
   async getWebhookDiagnostics(@Query() query: WebhookDiagnosticsQueryDto) {
     return {
       data: {

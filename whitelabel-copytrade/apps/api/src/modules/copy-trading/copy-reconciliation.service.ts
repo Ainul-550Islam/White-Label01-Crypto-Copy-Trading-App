@@ -1,9 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CopyExecutionRepository } from './copy-execution.repository';
 import { CopySubscriptionRepository } from './copy-subscription.repository';
 import { CopyReconciliationCategory, CopyReconciliationSeverity } from './copy-trading.types';
 import { randomUUID } from 'crypto';
+import { LeaderEventSourceService, subscriptionWasLiveAt } from './leader-event-source.service';
+
+/** Events younger than this are still in flight (ingestion interval + dispatch). */
+const MISSING_COPY_GRACE_MS = 60_000;
 
 /**
  * Reconciles leader ↔ copy intent ↔ copy execution ↔ follower order/fill for correctness, detects missing/duplicate/stale/mismatch/slippage/delay anomalies, and produces auditable diffs.
@@ -17,6 +21,10 @@ export class CopyReconciliationService {
     private readonly prisma: PrismaService,
     private readonly executionRepo: CopyExecutionRepository,
     private readonly subscriptionRepo: CopySubscriptionRepository,
+    // Phase 3: the leader-event store (leader fills). Optional so a harness
+    // without it still reconciles executions; missing-copy detection then
+    // reports itself as skipped instead of silently passing.
+    @Optional() private readonly leaderEvents?: LeaderEventSourceService,
   ) {}
 
   async reconcileTenant(tenantId: string, filters?: { strategyId?: string; from?: Date; to?: Date; limit?: number }): Promise<{ records: any[]; summary: Record<string, number> }> {
@@ -202,16 +210,70 @@ export class CopyReconciliationService {
       }
     }
 
-    // Missing copy detection - leader events without follower executions
-    // We need leader events - for simplicity, get trader orders in range and check if active subs have executions
-    try {
-      // Simplified - real implementation would need leader event store
-      // We just log that we would check leader orders vs executions here
-      const traderUserIds = subscriptions.map((s: any) => s.traderId).filter(Boolean);
-      if (traderUserIds.length > 0) {
-        // Placeholder for future leader event store check
+    // Missing copy detection - every leader event (leader fill) that happened
+    // while a subscription was live must have a CopyExecution for that
+    // subscription (FILLED, SKIPPED, BLOCKED... any outcome is an answer; no
+    // record at all is a silent miss). Events inside the grace window are
+    // still in flight and are not judged yet.
+    if (!this.leaderEvents) {
+      summary.MISSING_COPY_CHECK_SKIPPED = 1;
+    } else {
+      try {
+        const now = Date.now();
+        const byStrategy = new Map<string, any[]>();
+        for (const sub of subscriptions as any[]) {
+          if (filters?.strategyId && sub.strategyId !== filters.strategyId && sub.traderId !== filters.strategyId) continue;
+          const list = byStrategy.get(sub.strategyId) ?? [];
+          list.push(sub);
+          byStrategy.set(sub.strategyId, list);
+        }
+        const strategies = byStrategy.size > 0 ? await this.leaderEvents.listLeadingStrategies(tenantId, [...byStrategy.keys()]) : [];
+        for (const strategy of strategies) {
+          const subs = byStrategy.get(strategy.id) ?? [];
+          const events = await this.leaderEvents.listForStrategy(tenantId, strategy, from, to, 500);
+          if (events.length === 0) continue;
+          const copies = (await (this.prisma as any).copyExecution?.findMany({
+            where: { tenantId, leaderEventId: { in: events.map((e) => e.event.eventId) } },
+            select: { leaderEventId: true, subscriptionId: true },
+          })) || [];
+          const copied = new Set(copies.map((c: any) => `${c.leaderEventId}|${c.subscriptionId}`));
+          for (const record of events) {
+            const ageMs = now - record.occurredAt.getTime();
+            if (ageMs < MISSING_COPY_GRACE_MS) continue;
+            for (const sub of subs) {
+              if (!subscriptionWasLiveAt(sub, record.occurredAt)) continue;
+              if (copied.has(`${record.event.eventId}|${sub.id}`)) continue;
+              const rec = await this.createRecord({
+                tenantId,
+                leaderEventId: record.event.eventId,
+                subscriptionId: sub.id,
+                executionId: null,
+                category: CopyReconciliationCategory.MISSING_COPY,
+                severity: CopyReconciliationSeverity.HIGH,
+                expected: { copyExecution: 'one record per live subscription', subscriptionState: sub.state },
+                actual: { found: 0, eventAgeMs: ageMs },
+                leaderReference: {
+                  leaderEventId: record.event.eventId,
+                  leaderOrderId: record.event.orderId,
+                  leaderFillId: record.event.fillId,
+                  symbol: record.event.symbol,
+                  side: record.event.side,
+                  quantity: record.event.quantity,
+                  price: record.event.price,
+                  occurredAt: record.occurredAt.toISOString(),
+                },
+                followerReference: { subscriptionId: sub.id, followerId: sub.followerId, followerAccountId: sub.followerAccountId ?? null },
+              });
+              records.push(rec);
+              incrementSummary(CopyReconciliationCategory.MISSING_COPY);
+            }
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`Missing-copy detection failed tenant=${tenantId} error=${e.message}`);
+        summary.MISSING_COPY_CHECK_FAILED = 1;
       }
-    } catch {}
+    }
 
     this.logger.log(`Reconciliation completed tenant=${tenantId} records=${records.length} summary=${JSON.stringify(summary)}`);
 
@@ -249,7 +311,6 @@ export class CopyReconciliationService {
           followerReference: input.followerReference,
           resolved: false,
           createdAt: new Date(),
-          updatedAt: new Date(),
         },
       });
     } catch (e: any) {
@@ -259,13 +320,21 @@ export class CopyReconciliationService {
   }
 
   async resolveRecord(tenantId: string, recordId: string, actorId: string, notes?: string): Promise<any | null> {
-    try {
-      const updated = await (this.prisma as any).copyReconciliationRecord.update({ where: { id: recordId }, data: { resolved: true, resolvedById: actorId, resolvedAt: new Date(), resolutionNotes: notes || null, updatedAt: new Date() } });
-      if (updated.tenantId !== tenantId) return null;
-      return updated;
-    } catch {
-      return null;
-    }
+    // Tenant check before the write (the old code updated first and checked afterwards).
+    const existing = await (this.prisma as any).copyReconciliationRecord.findFirst({ where: { id: recordId, tenantId } });
+    if (!existing) return null;
+    // Columns: resolved/resolvedAt/resolvedBy. No notes column: kept in actual._resolution.
+    const actual = existing.actual && typeof existing.actual === 'object' && !Array.isArray(existing.actual) ? existing.actual : {};
+    const updated = await (this.prisma as any).copyReconciliationRecord.update({
+      where: { id: recordId },
+      data: {
+        resolved: true,
+        resolvedBy: actorId,
+        resolvedAt: new Date(),
+        ...(notes ? { actual: { ...actual, _resolution: { notes } } } : {}),
+      },
+    });
+    return updated;
   }
 
   async listRecords(tenantId: string, filters?: { resolved?: boolean; category?: CopyReconciliationCategory; severity?: CopyReconciliationSeverity; page?: number; limit?: number }): Promise<{ data: any[]; total: number }> {

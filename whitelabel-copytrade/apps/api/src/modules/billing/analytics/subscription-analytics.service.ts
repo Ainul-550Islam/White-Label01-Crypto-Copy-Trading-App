@@ -216,21 +216,17 @@ export class SubscriptionAnalyticsService {
       return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
     } catch (e: any) {
       this.logger.warn(`Failed to fetch subscriptions in period: ${e.message}`);
-      return [];
+      throw e;
     }
   }
 
   private async fetchCurrentActive(params: { tenantId?: string; asOfDate?: Date }): Promise<any[]> {
     const asOfDate = params.asOfDate || new Date();
-    try {
-      const where: any = {
-        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
-        currentPeriodEnd: { gte: asOfDate },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
+      currentPeriodEnd: { gte: asOfDate },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
   }
 }

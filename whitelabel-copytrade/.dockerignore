@@ -20,3 +20,18 @@ __pycache__
 **/__pycache__
 .venv
 **/.venv
+# Generated locally and gitignored; never part of an image build context.
+# apps/api/.generated holds the TEST-ONLY SSO key pairs (private keys) that
+# the jest globalSetup creates.
+.generated
+**/.generated
+*.tsbuildinfo
+**/*.tsbuildinfo
+**/*.egg-info
+target
+**/target
+.pgdata
+postgres-data
+data/pg
+.dart_tool
+**/.dart_tool

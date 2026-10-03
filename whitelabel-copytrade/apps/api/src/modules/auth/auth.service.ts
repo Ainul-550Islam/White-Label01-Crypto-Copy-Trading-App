@@ -19,7 +19,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CryptoService } from '../../infrastructure/crypto/crypto.service';
 import { PasswordService } from '../../infrastructure/crypto/password.service';
 import { TokenService } from './services/token.service';
-import { SessionService } from './services/session.service';
+import { SessionService, type SessionAuthMethod, type SessionSamlLogout } from './services/session.service';
 import { TwoFactorService } from './services/two-factor.service';
 import { AccountLockoutService } from './services/account-lockout.service';
 import { UsersService } from '../users/users.service';
@@ -34,6 +34,13 @@ import type { RegisterDto } from './dto/register.dto';
 import type { VerifyTwoFactorDto } from './dto/verify-two-factor.dto';
 import type { ChangePasswordDto } from './dto/change-password.dto';
 import type { TenantContext } from '../../common/types/request.types';
+
+/** How an SSO-issued session is labelled: method, issuing configuration, SAML logout data. */
+interface SsoSessionOrigin {
+  authMethod: SessionAuthMethod;
+  ssoConfigurationId: string;
+  samlLogout: SessionSamlLogout | null;
+}
 
 export interface AuthRequestContext {
   ipHash: string;
@@ -231,6 +238,12 @@ export class AuthService {
 
     this.assertAccountUsable(user.status);
 
+    // Round 7: an ENFORCED SSO policy closes the password door. Checked only
+    // after the password was verified, so the answer cannot be used to probe
+    // which accounts exist (wrong passwords still get INVALID_CREDENTIALS and
+    // count towards lockout).
+    await this.assertPasswordLoginAllowed(tenant.tenantId, email, emailIndex, user, dto, context);
+
     // Opportunistic upgrade when argon2 parameters have been hardened.
     if (this.passwords.needsRehash(user.passwordHash)) {
       const rehashed = await this.passwords.hash(dto.password);
@@ -271,6 +284,77 @@ export class AuthService {
     return this.completeLogin(user.id, tenant, dto, context, emailIndex);
   }
 
+  /**
+   * Refuses password login when the tenant ENFORCES single sign-on for this
+   * account.
+   *
+   * A configuration enforces when it is active, `enforced` and in state
+   * ENFORCED (the same triple the security console writes). Its
+   * `allowedDomains`, when set, limit enforcement to accounts whose email is in
+   * one of those domains, so a tenant can enforce SSO for its staff domain while
+   * retail followers keep password login. An empty list enforces for every
+   * account of the tenant.
+   *
+   * Platform staff (`isPlatformUser`) are exempt: they are the break-glass path
+   * when a tenant's IdP is down or misconfigured, and they never authenticate
+   * through a tenant IdP. There is no other bypass and no fallback - if the
+   * lookup itself fails the login fails (the error propagates as a server
+   * error), rather than silently allowing a password the policy forbids.
+   */
+  private async assertPasswordLoginAllowed(
+    tenantId: string,
+    email: string,
+    emailIndex: string,
+    user: { id: string; isPlatformUser: boolean },
+    dto: LoginDto,
+    context: AuthRequestContext,
+  ): Promise<void> {
+    if (user.isPlatformUser) return;
+
+    const enforcing = await this.prisma.ssoConfiguration.findMany({
+      where: { tenantId, isActive: true, enforced: true, state: 'ENFORCED' },
+      select: { providerType: true, allowedDomains: true },
+    });
+    if (enforcing.length === 0) return;
+
+    const domain = email.split('@')[1]?.toLowerCase() ?? '';
+    const applicable = enforcing.filter(
+      (config) =>
+        config.allowedDomains.length === 0 ||
+        config.allowedDomains.some((allowed) => allowed.toLowerCase() === domain),
+    );
+    if (applicable.length === 0) return;
+
+    await this.recordLoginAttempt({
+      tenantId,
+      userId: user.id,
+      emailIndex,
+      successful: false,
+      reason: 'sso_required',
+      deviceId: dto.deviceId,
+      context,
+    });
+    await this.audit.record({
+      tenantId,
+      actorType: AuditActorType.USER,
+      actorId: user.id,
+      action: AuditAction.USER_LOGIN_FAILED,
+      outcome: AuditOutcome.DENIED,
+      resourceType: 'User',
+      resourceId: user.id,
+      description: 'Password login refused: the tenant enforces single sign-on for this account.',
+      metadata: { reason: 'sso_required', providers: applicable.map((config) => config.providerType) },
+      ipHash: context.ipHash,
+      userAgent: context.userAgent,
+      requestId: context.requestId,
+    });
+
+    throw new AppException({
+      code: ErrorCode.SSO_REQUIRED,
+      message: 'Your organisation requires single sign-on. Sign in with your identity provider.',
+    });
+  }
+
   /** Second leg of a 2FA login. */
   async verifyTwoFactor(
     tenant: TenantContext,
@@ -303,6 +387,14 @@ export class AuthService {
     }
 
     this.assertAccountUsable(user.status);
+
+    // A challenge that followed an SSO login carries that login's transaction:
+    // the session is labelled exactly as it would have been without 2FA
+    // (method, configuration, SAML logout context), so logout still reaches
+    // the IdP. An unresolvable reference refuses the session - checked before
+    // the second factor, so the challenge is not spent on a login that
+    // cannot complete.
+    const origin = payload.sso ? await this.ssoSessionOrigin(tenant.tenantId, payload.sso) : null;
 
     try {
       const result = await this.twoFactor.verify(user.id, {
@@ -356,6 +448,7 @@ export class AuthService {
       appVersion: null,
       trusted: dto.trustDevice,
       context,
+      ...(origin ?? {}),
     });
   }
 
@@ -547,6 +640,146 @@ export class AuthService {
   // Internals
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Single sign-on completion (Part 11)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Issues a session for a user whose identity an IdP has already proven
+   * (see modules/auth/sso). Uses exactly the same machinery as password
+   * login: account-state checks, the 2FA challenge when the account has 2FA
+   * enabled, the revocable server-side session, rotating hashed refresh
+   * tokens, risk assessment, login-attempt and audit records.
+   */
+  async completeSsoLogin(
+    userId: string,
+    tenant: TenantContext,
+    device: { deviceId: string; deviceName: string | null; platform: string | null; appVersion: string | null },
+    context: AuthRequestContext,
+    sso?: { providerType: 'OIDC' | 'SAML'; configurationId: string; transactionId?: string },
+  ): Promise<LoginResultDto> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId: tenant.tenantId, deletedAt: null },
+      select: { id: true, email: true, status: true, twoFactorEnabled: true },
+    });
+    if (!user) {
+      throw new AppException({ code: ErrorCode.INVALID_CREDENTIALS });
+    }
+
+    this.assertAccountUsable(user.status);
+    const emailIndex = this.crypto.blindIndex(user.email);
+
+    // The session's SSO origin. With a login transaction it is read from that
+    // (consumed, same-tenant) transaction and must agree with the caller's
+    // provider binding; resolved before any two-factor challenge is issued.
+    let origin: SsoSessionOrigin | null = null;
+    if (sso?.transactionId) {
+      origin = await this.ssoSessionOrigin(tenant.tenantId, sso.transactionId);
+      if (origin.ssoConfigurationId !== sso.configurationId || origin.authMethod !== (sso.providerType === 'SAML' ? 'SSO_SAML' : 'SSO_OIDC')) {
+        throw new AppException({ code: ErrorCode.TOKEN_INVALID, message: 'Single sign-on could not be completed.' });
+      }
+    } else if (sso) {
+      origin = {
+        authMethod: sso.providerType === 'SAML' ? 'SSO_SAML' : 'SSO_OIDC',
+        ssoConfigurationId: sso.configurationId,
+        samlLogout: null,
+      };
+    }
+
+    if (user.twoFactorEnabled) {
+      const challenge = sso?.transactionId
+        ? await this.tokens.issueTwoFactorChallenge(user.id, tenant.tenantId, device.deviceId, { sso: sso.transactionId })
+        : await this.tokens.issueTwoFactorChallenge(user.id, tenant.tenantId, device.deviceId);
+      await this.recordLoginAttempt({
+        tenantId: tenant.tenantId,
+        userId: user.id,
+        emailIndex,
+        successful: false,
+        reason: 'sso_two_factor_required',
+        deviceId: device.deviceId,
+        context,
+      });
+      const result: TwoFactorChallengeDto = {
+        twoFactorRequired: true,
+        challengeToken: challenge.token,
+        expiresIn: challenge.expiresIn,
+        methods: [TwoFactorMethod.TOTP, TwoFactorMethod.RECOVERY_CODE],
+      };
+      return result;
+    }
+
+    const session = await this.establishSession(user.id, tenant, {
+      deviceId: device.deviceId,
+      deviceName: device.deviceName,
+      platform: device.platform,
+      appVersion: device.appVersion,
+      context,
+      ...(origin ?? {}),
+    });
+
+    await this.recordLoginAttempt({
+      tenantId: tenant.tenantId,
+      userId: user.id,
+      emailIndex,
+      successful: true,
+      reason: 'sso',
+      deviceId: device.deviceId,
+      context,
+    });
+
+    return session;
+  }
+
+  /** Revokes a just-issued SSO session (used when its durable audit record cannot be written). */
+  async revokeSsoSession(userId: string, sessionId: string): Promise<void> {
+    await this.sessions.revoke(userId, sessionId, 'sso_audit_failed');
+    await this.tokens.revokeSessionTokens(sessionId, 'sso_audit_failed');
+  }
+
+  /**
+   * IdP-initiated SAML Single Logout: revokes the subject's sessions issued by
+   * the configuration (only the named SessionIndexes when the IdP gave any).
+   * Access tokens of a revoked session are refused by the JWT strategy's
+   * session check. Returns the number of sessions revoked.
+   */
+  async revokeSamlIdpSessions(input: {
+    tenantId: string;
+    configurationId: string;
+    subjectHash: string;
+    sessionIndexHashes: string[];
+  }): Promise<number> {
+    return this.sessions.revokeSamlSubjectSessions({ ...input, reason: 'saml_idp_logout' });
+  }
+
+  /**
+   * The origin of an SSO login, read from its consumed login transaction:
+   * it must belong to this tenant and be CONSUMED (the login completed).
+   * The SAML logout data is copied as stored (sealed; never decrypted here).
+   */
+  private async ssoSessionOrigin(tenantId: string, transactionId: string): Promise<SsoSessionOrigin> {
+    const tx = await this.prisma.ssoAuthTransaction.findFirst({
+      where: { id: transactionId, tenantId, status: 'CONSUMED' },
+      select: { providerType: true, configurationId: true, samlLogoutContext: true },
+    });
+    if (!tx) {
+      throw new AppException({ code: ErrorCode.TOKEN_INVALID, message: 'Single sign-on could not be completed.' });
+    }
+    const stored = tx.samlLogoutContext as unknown as Partial<SessionSamlLogout> | null;
+    const samlLogout =
+      tx.providerType === 'SAML' && stored && stored.context && typeof stored.subjectHash === 'string'
+        ? {
+            context: stored.context,
+            subjectHash: stored.subjectHash,
+            sessionIndexHash: typeof stored.sessionIndexHash === 'string' ? stored.sessionIndexHash : null,
+          }
+        : null;
+    return {
+      authMethod: tx.providerType === 'SAML' ? 'SSO_SAML' : 'SSO_OIDC',
+      ssoConfigurationId: tx.configurationId,
+      samlLogout,
+    };
+  }
+
   private async completeLogin(
     userId: string,
     tenant: TenantContext,
@@ -586,6 +819,9 @@ export class AuthService {
       appVersion: string | null;
       trusted?: boolean;
       context: AuthRequestContext;
+      authMethod?: SessionAuthMethod;
+      ssoConfigurationId?: string | null;
+      samlLogout?: SessionSamlLogout | null;
     },
   ): Promise<AuthenticatedSessionDto> {
     const { context } = options;
@@ -600,6 +836,9 @@ export class AuthService {
       userAgent: context.userAgent,
       ipHash: context.ipHash,
       trusted: options.trusted ?? false,
+      authMethod: options.authMethod ?? 'PASSWORD',
+      ssoConfigurationId: options.ssoConfigurationId ?? null,
+      samlLogout: options.samlLogout ?? null,
     });
 
     const access = await this.permissions.getEffectiveAccess(userId);

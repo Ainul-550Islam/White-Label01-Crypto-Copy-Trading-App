@@ -69,12 +69,16 @@ export class ExchangeConnectivityService {
     // Build provider context - backend only, never logs secrets
     let credentials;
     try {
-      // For ENVELOPE_DB, decrypt; for SECRET_MANAGER, this will throw explicit error if vault not configured
+      // For ENVELOPE_DB, decrypt; for SECRET_MANAGER, read through the configured Vault / AWS store.
+      // Either path throws an explicit ExchangeProviderError instead of returning a placeholder.
       credentials = await this.credentialService.getDecryptedCredentialsForProvider(input.tenantId, input.accountId, input.venue, input.environment);
     } catch (e: any) {
-      // If credential is SECRET_MANAGER and vault fetch not implemented, we return failure without activating account
+      // SECRET_MANAGER credential whose store is not configured, misconfigured or temporarily
+      // unreachable: connectivity cannot be tested, so report degraded - never a fake success.
       if (e.code === ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE && e.message.includes('SECRET_MANAGER')) {
-        // For SECRET_MANAGER without vault, we cannot test connectivity - return degraded but not fake success
+        // The reason names the actual cause (not configured / HTTP 503 / request failed) so an
+        // operator does not reconfigure a store that is merely down. SecretStoreError and
+        // ExchangeCredentialService messages never carry secret material.
         return {
           connected: false,
           degraded: true,
@@ -84,7 +88,7 @@ export class ExchangeConnectivityService {
           clockDriftMs: null,
           capabilities: [],
           failureCode: ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE,
-          failureReason: 'Secret manager vault not configured or fetch not implemented',
+          failureReason: `Secret manager unavailable: ${e.message}`,
           isSimulated: isSandbox,
           environment: input.environment,
         };

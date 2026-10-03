@@ -48,7 +48,7 @@ having.
 
 | service | port | path | note |
 | --- | --- | --- | --- |
-| `api` | 4000 | `${PROMETHEUS_PATH}` | token expanded from the deployment environment (28 `wlct_*` names in its source) |
+| `api` | 4000 | `${PROMETHEUS_PATH}` | token expanded from the deployment environment (30 `wlct_*` names in its source) |
 | `trading-engine` | 8001 | `/metrics` | unauthenticated on the internal network (30 `wlct_*` names in its source) |
 | `execution-engine` | 8093 | `/metrics` | unauthenticated on the internal network (23 `wlct_*` names in its source) |
 | `market-data` | 8002 | `/metrics` | unauthenticated on the internal network (27 `wlct_*` names in its source) |

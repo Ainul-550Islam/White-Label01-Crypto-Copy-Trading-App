@@ -26,7 +26,10 @@ RUN apt-get update \
 RUN python -m venv "$VIRTUAL_ENV"
 
 COPY services/trading-engine/requirements.txt ./requirements.txt
-RUN pip install --require-hashes=false -r requirements.txt
+# Exact `==` pins, no hashes in the file, so pip runs in its normal mode.
+# (`--require-hashes` is an on-switch that takes no value; the former
+# `--require-hashes=false` made pip exit with a usage error.)
+RUN pip install -r requirements.txt
 
 # Part 9: the service publishes observability through the shared pure-Python
 # library (zero runtime dependencies, so this adds no transitive surface).

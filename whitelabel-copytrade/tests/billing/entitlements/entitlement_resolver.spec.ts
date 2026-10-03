@@ -1,170 +1,124 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import { EntitlementResolver } from '../../../apps/api/src/modules/billing/entitlements/entitlement.resolver';
-import { EntitlementStatus } from '../../../apps/api/src/modules/billing/entitlements/entitlement.types';
+import { EntitlementService } from '../../../apps/api/src/modules/billing/entitlements/entitlement.service';
+import {
+  EntitlementSource,
+  EntitlementStatus,
+} from '../../../apps/api/src/modules/billing/entitlements/entitlement.types';
+import { makeEntitlement, MemoryEntitlementRepository } from './entitlement.fixtures';
+
+const ctx = { userId: 'user-1', tenantId: 'tenant-1' };
+const otherTenant = { userId: 'user-9', tenantId: 'tenant-2' };
 
 describe('EntitlementResolver', () => {
+  let repo: MemoryEntitlementRepository;
   let resolver: EntitlementResolver;
 
   beforeEach(() => {
-    resolver = new EntitlementResolver();
+    repo = new MemoryEntitlementRepository();
+    repo.rows.set('ent-1', makeEntitlement());
+    repo.rows.set(
+      'ent-2',
+      makeEntitlement({ id: 'ent-2', tenantId: 'tenant-2', userId: 'user-9' }),
+    );
+    resolver = new EntitlementResolver(new EntitlementService(repo));
   });
 
-  describe('entitlement', () => {
-    it('should resolve entitlement by ID', async () => {
-      const mockEntitlement = {
-        id: 'ent-1',
-        tenantId: 'tenant-1',
-        userId: 'user-1',
-        planId: 'plan-basic',
-        planName: 'Basic',
-        planTier: 'basic',
-        status: EntitlementStatus.ACTIVE,
-        features: [],
-        limits: [],
-        startsAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
+  describe('queries', () => {
+    it("resolves an entitlement of the caller's tenant by id", async () => {
+      expect((await resolver.getEntitlement('ent-1', ctx))?.id).toBe('ent-1');
+    });
 
-      // Mock the service dependency
-      (resolver as any).entitlementService = {
-        getEntitlement: async () => mockEntitlement,
-      };
+    it("returns null for another tenant's entitlement id, exactly like a missing one", async () => {
+      expect(await resolver.getEntitlement('ent-2', ctx)).toBeNull();
+      expect(await resolver.getEntitlement('missing', ctx)).toBeNull();
+    });
 
-      const result = await resolver.entitlement({ id: 'ent-1' });
-      expect(result).toEqual(mockEntitlement);
+    it("resolves the caller's own entitlement", async () => {
+      expect((await resolver.getMyEntitlement(ctx))?.id).toBe('ent-1');
+      expect((await resolver.getMyEntitlement(otherTenant))?.id).toBe('ent-2');
+    });
+
+    it("lists only the caller's tenant even if the filter names another tenant", async () => {
+      const rows = await resolver.listEntitlements({ tenantId: 'tenant-2' }, ctx);
+      expect(rows.map((r) => r.id)).toEqual(['ent-1']);
+    });
+
+    it('checks feature access for the caller', async () => {
+      expect((await resolver.checkFeatureAccess('copy_trading', ctx)).allowed).toBe(true);
+      expect((await resolver.checkFeatureAccess('api_access', ctx)).allowed).toBe(false);
+    });
+
+    it('returns a summary and active features', async () => {
+      expect((await resolver.getEntitlementSummary(ctx))?.featureCount).toBe(4);
+      expect((await resolver.getActiveFeatures(ctx)).map((f) => f.key)).toEqual([
+        'copy_trading',
+        'signals',
+        'orders_per_day',
+      ]);
     });
   });
 
-  describe('userEntitlements', () => {
-    it('should resolve user entitlements', async () => {
-      const mockEntitlements = [
-        { id: 'ent-1', userId: 'user-1', status: EntitlementStatus.ACTIVE },
-        { id: 'ent-2', userId: 'user-1', status: EntitlementStatus.EXPIRED },
-      ];
-
-      (resolver as any).entitlementService = {
-        getUserEntitlements: async () => mockEntitlements,
-      };
-
-      const result = await resolver.userEntitlements({ userId: 'user-1' });
-      expect(result).toHaveLength(2);
+  describe("mutations are confined to the caller's tenant", () => {
+    it('refuses to create an entitlement for another tenant', async () => {
+      await expect(
+        resolver.createEntitlement(
+          { tenantId: 'tenant-2', userId: 'user-5', planId: 'p', source: EntitlementSource.MANUAL },
+          ctx,
+        ),
+      ).rejects.toThrow('Cannot create entitlement for different tenant');
+      expect(repo.created).toHaveLength(0);
     });
-  });
 
-  describe('createEntitlement', () => {
-    it('should create a new entitlement', async () => {
-      const input = {
-        tenantId: 'tenant-1',
-        userId: 'user-1',
-        planId: 'plan-basic',
-      };
-
-      const mockCreated = {
-        id: 'ent-new',
-        ...input,
-        status: EntitlementStatus.ACTIVE,
-        features: [],
-        limits: [],
-        startsAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      (resolver as any).entitlementService = {
-        createEntitlement: async () => mockCreated,
-      };
-
-      const result = await resolver.createEntitlement({ input });
-      expect(result.id).toBe('ent-new');
-      expect(result.status).toBe(EntitlementStatus.ACTIVE);
+    it("creates one in the caller's tenant", async () => {
+      const created = await resolver.createEntitlement(
+        { tenantId: 'tenant-1', userId: 'user-5', planId: 'p', source: EntitlementSource.MANUAL },
+        ctx,
+      );
+      expect(created.tenantId).toBe('tenant-1');
     });
-  });
 
-  describe('updateEntitlement', () => {
-    it('should update an existing entitlement', async () => {
-      const input = {
-        status: EntitlementStatus.SUSPENDED,
-      };
-
-      const mockUpdated = {
-        id: 'ent-1',
-        status: EntitlementStatus.SUSPENDED,
-      };
-
-      (resolver as any).entitlementService = {
-        updateEntitlement: async () => mockUpdated,
-      };
-
-      const result = await resolver.updateEntitlement({ id: 'ent-1', input });
-      expect(result.status).toBe(EntitlementStatus.SUSPENDED);
+    it('refuses update / cancel / suspend / reactivate across tenants', async () => {
+      const msg = 'Entitlement does not belong to this tenant';
+      await expect(
+        resolver.updateEntitlement('ent-2', { metadata: { x: 'y' } }, ctx),
+      ).rejects.toThrow(msg);
+      await expect(resolver.cancelEntitlement('ent-2', ctx)).rejects.toThrow(msg);
+      await expect(resolver.suspendEntitlement('ent-2', ctx)).rejects.toThrow(msg);
+      await expect(resolver.reactivateEntitlement('ent-2', ctx)).rejects.toThrow(msg);
+      expect(repo.rows.get('ent-2')!.status).toBe(EntitlementStatus.ACTIVE);
     });
-  });
 
-  describe('checkFeatureAccess', () => {
-    it('should check feature access', async () => {
-      const mockResult = {
-        allowed: true,
-        featureEnabled: true,
-        limitCheck: null,
-      };
+    it('updates within the tenant', async () => {
+      const updated = await resolver.updateEntitlement('ent-1', { metadata: { note: 'vip' } }, ctx);
+      expect(updated.metadata).toEqual({ note: 'vip' });
+      expect((await resolver.suspendEntitlement('ent-1', ctx)).status).toBe(
+        EntitlementStatus.SUSPENDED,
+      );
+    });
 
-      (resolver as any).entitlementService = {
-        checkFeatureAccess: async () => mockResult,
-      };
-
-      const result = await resolver.checkFeatureAccess({
-        entitlementId: 'ent-1',
-        featureKey: 'basic_trading',
-      });
-      expect(result.allowed).toBe(true);
+    it('recordUsage / resetUsage report success as a boolean', async () => {
+      expect(await resolver.recordUsage('orders_per_day', 1, ctx)).toBe(true);
+      expect(await resolver.recordUsage('api_access', 1, ctx)).toBe(false);
+      expect(await resolver.resetUsage('orders_per_day', ctx)).toBe(true);
+      expect(
+        await resolver.resetUsage('orders_per_day', { userId: 'nobody', tenantId: 'tenant-1' }),
+      ).toBe(false);
     });
   });
 
   describe('field resolvers', () => {
-    it('should resolve features field', async () => {
-      const entitlement = {
-        id: 'ent-1',
-        features: [
-          { key: 'basic_trading', enabled: true },
-          { key: 'copy_trading', enabled: true },
-        ],
-      };
-
-      const result = await resolver.features(entitlement as any);
-      expect(result).toHaveLength(2);
-    });
-
-    it('should resolve limits field', async () => {
-      const entitlement = {
-        id: 'ent-1',
-        limits: [
-          { key: 'max_portfolios', value: 3, usage: 1 },
-        ],
-      };
-
-      const result = await resolver.limits(entitlement as any);
-      expect(result).toHaveLength(1);
-    });
-
-    it('should resolve isActive field', async () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-      };
-
-      const result = await resolver.isActive(entitlement as any);
-      expect(result).toBe(true);
-    });
-
-    it('should resolve isTrial field', async () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.TRIAL,
-      };
-
-      const result = await resolver.isTrial(entitlement as any);
-      expect(result).toBe(true);
+    it('isActive / featureAccess / activeFeatures / limitsNearThreshold', async () => {
+      const ent = makeEntitlement();
+      expect(await resolver.isActive(ent, ctx)).toBe(true);
+      expect(
+        await resolver.isActive(makeEntitlement({ status: EntitlementStatus.EXPIRED }), ctx),
+      ).toBe(false);
+      expect((await resolver.featureAccess(ent, 'signals', ctx)).remaining).toBe(0);
+      expect(await resolver.activeFeatures(ent, ctx)).toHaveLength(3);
+      expect((await resolver.limitsNearThreshold(ent, 90, ctx)).map((l) => l.key)).toEqual([
+        'api_calls',
+      ]);
     });
   });
 });

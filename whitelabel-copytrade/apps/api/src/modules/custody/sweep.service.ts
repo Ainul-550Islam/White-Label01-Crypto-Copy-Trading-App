@@ -84,7 +84,10 @@ export class SweepService {
 
     // Operational maintenance check — not during blocked maintenance windows unless policy allows
     try {
-      const maintenance = await (this.prisma as any).operationalMaintenanceWindow?.findFirst?.({ where: { tenantId, status: 'ACTIVE', scope: { in: ['PLATFORM', 'TREASURY'] } } });
+      // state (not status); platform-wide windows have tenantId null; there is no TREASURY scope.
+      const maintenance = await (this.prisma as any).operationalMaintenanceWindow?.findFirst?.({
+        where: { state: 'ACTIVE', OR: [{ tenantId }, { tenantId: null }], scope: { in: ['PLATFORM', 'TENANT'] } },
+      });
       if (maintenance) {
         // Check if policy allows sweep during maintenance
         // For now, block if maintenance active
@@ -104,7 +107,7 @@ export class SweepService {
     });
 
     try {
-      const existing = await (this.prisma as any).custodySweep.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).custodySweep.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -188,7 +191,8 @@ export class SweepService {
     }
 
     // Transition to SETTLING then SETTLED — no fake blockchain hash for internal sweep, but if on-chain sweep, hash from provider
-    await (this.prisma as any).custodySweep.update({ where: { id: sweepId }, data: { state: 'SETTLING' } });
+    // The Prisma CustodySweepState enum has no SETTLING: CONFIRMING is the in-flight settlement state.
+    await (this.prisma as any).custodySweep.update({ where: { id: sweepId }, data: { state: 'CONFIRMING', submittedAt: new Date() } });
 
     // In real impl, would submit to provider and get transaction hash — never invent transaction hashes
     // For this control plane, we simulate provider submission requiring evidence
@@ -198,7 +202,8 @@ export class SweepService {
     // If it's on-chain sweep, hash must be from provider
     const settled = await (this.prisma as any).custodySweep.update({
       where: { id: sweepId },
-      data: { state: 'SETTLED', settledAt: new Date(), settlementReference: `sweep_settle_${sweepId.slice(0, 8)}_${Date.now()}` },
+      // No settlementReference column: the internal settlement reference is the providerReference.
+      data: { state: 'SETTLED', settledAt: new Date(), providerReference: `sweep_settle_${sweepId.slice(0, 8)}_${Date.now()}` },
     });
 
     await this.auditService.log({
@@ -208,10 +213,10 @@ export class SweepService {
       entityType: 'CUSTODY_SWEEP',
       entityId: sweepId,
       actorId: operatorId,
-      fromState: 'SETTLING',
+      fromState: 'CONFIRMING',
       toState: 'SETTLED',
       correlationId,
-      evidence: { sourceWalletId: sweep.sourceWalletId, destinationWalletId: sweep.destinationWalletId, amount: sweep.amount, settlementReference: settled.settlementReference },
+      evidence: { sourceWalletId: sweep.sourceWalletId, destinationWalletId: sweep.destinationWalletId, amount: sweep.amount, settlementReference: settled.providerReference },
     });
 
     return settled;
@@ -225,14 +230,10 @@ export class SweepService {
     if (assetId) where.assetId = assetId;
     if (state) where.state = state;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodySweep.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodySweep.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodySweep.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodySweep.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

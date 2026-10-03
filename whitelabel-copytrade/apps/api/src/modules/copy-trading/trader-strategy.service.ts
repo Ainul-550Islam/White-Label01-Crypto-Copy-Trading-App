@@ -3,6 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { TraderStrategyStatus, TraderStrategyType, TraderStrategy } from './copy-trading.types';
 import { StrategyValidationService } from './strategy-validation.service';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Trader strategy lifecycle: create, configure, validate, publish, pause, resume, archive, and resolve strategy configuration using existing strategy/trading infrastructure.
@@ -37,7 +38,7 @@ export class TraderStrategyService {
     if (trader.userId !== input.userId) throw new Error('Trader ownership mismatch');
 
     if (input.idempotencyKey) {
-      const existing = await (this.prisma as any).traderStrategy?.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+      const existing = await (this.prisma as any).traderStrategy?.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existing) {
         this.logger.log(`Idempotent strategy return key=${input.idempotencyKey}`);
         return this.mapToStrategy(existing);
@@ -83,11 +84,11 @@ export class TraderStrategyService {
     return strategy ? this.mapToStrategy(strategy) : null;
   }
 
-  async listByTrader(tenantId: string, traderId: string, filters?: { status?: TraderStrategyStatus; page?: number; limit?: number }): Promise<{ data: TraderStrategy[]; total: number }> {
+  async listByTrader(tenantId: string, traderId: string, filters?: { status?: TraderStrategyStatus; statuses?: TraderStrategyStatus[]; page?: number; limit?: number }): Promise<{ data: TraderStrategy[]; total: number }> {
     const page = filters?.page || 1;
     const limit = filters?.limit || 20;
     const skip = (page - 1) * limit;
-    const where: any = { tenantId, traderId, deletedAt: null, ...(filters?.status ? { status: filters.status } : {}) };
+    const where: any = { tenantId, traderId, deletedAt: null, ...this.statusWhere(filters) };
     const [rows, total] = await Promise.all([
       (this.prisma as any).traderStrategy?.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }) || [],
       (this.prisma as any).traderStrategy?.count({ where }) || 0,
@@ -95,16 +96,28 @@ export class TraderStrategyService {
     return { data: rows.map((r: any) => this.mapToStrategy(r)), total };
   }
 
-  async listByTenant(tenantId: string, filters?: { status?: TraderStrategyStatus; traderId?: string; page?: number; limit?: number }): Promise<{ data: TraderStrategy[]; total: number }> {
+  async listByTenant(tenantId: string, filters?: { status?: TraderStrategyStatus; statuses?: TraderStrategyStatus[]; traderId?: string; page?: number; limit?: number }): Promise<{ data: TraderStrategy[]; total: number }> {
     const page = filters?.page || 1;
     const limit = filters?.limit || 20;
     const skip = (page - 1) * limit;
-    const where: any = { tenantId, deletedAt: null, ...(filters?.status ? { status: filters.status } : {}), ...(filters?.traderId ? { traderId: filters.traderId } : {}) };
+    const where: any = { tenantId, deletedAt: null, ...this.statusWhere(filters), ...(filters?.traderId ? { traderId: filters.traderId } : {}) };
     const [rows, total] = await Promise.all([
       (this.prisma as any).traderStrategy?.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }) || [],
       (this.prisma as any).traderStrategy?.count({ where }) || 0,
     ]);
     return { data: rows.map((r: any) => this.mapToStrategy(r)), total };
+  }
+
+  /**
+   * `statuses` is an allow-list (catalogue visibility); a requested `status`
+   * outside it matches nothing instead of widening the list.
+   */
+  private statusWhere(filters?: { status?: TraderStrategyStatus; statuses?: TraderStrategyStatus[] }): Record<string, unknown> {
+    if (filters?.statuses) {
+      const allowed = filters.status ? filters.statuses.filter((s) => s === filters.status) : filters.statuses;
+      return { status: { in: allowed } };
+    }
+    return filters?.status ? { status: filters.status } : {};
   }
 
   async updateStrategy(tenantId: string, strategyId: string, userId: string, updates: { name?: string; description?: string | null; supportedSymbols?: string[]; supportedVenues?: string[]; riskProfile?: Record<string, any>; feePolicy?: Record<string, any>; strategyConfig?: Record<string, any> }): Promise<TraderStrategy | null> {
@@ -118,8 +131,9 @@ export class TraderStrategyService {
     try {
       const updated = await (this.prisma as any).traderStrategy.update({ where: { id: strategyId }, data: { ...updates, updatedAt: new Date() } });
       return this.mapToStrategy(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 

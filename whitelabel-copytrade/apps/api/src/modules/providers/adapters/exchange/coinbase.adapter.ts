@@ -51,6 +51,10 @@ export class CoinbaseProductionAdapter {
   }
 
   private getBaseUrl(isSandbox: boolean): string {
+    // This adapter speaks the Coinbase EXCHANGE (institutional, HMAC +
+    // passphrase) API, whose sandbox is api-public.sandbox.exchange.coinbase.com.
+    // Retail Advanced Trade accounts (CDP JWT keys, sandbox
+    // api-sandbox.coinbase.com) are served by exchanges/venues/coinbase.provider.ts.
     if (isSandbox) return 'https://api-public.sandbox.exchange.coinbase.com';
     return this.policyService.getPolicy(this.domain, this.provider)?.baseUrl || 'https://api.exchange.coinbase.com';
   }

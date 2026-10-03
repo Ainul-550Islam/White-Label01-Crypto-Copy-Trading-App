@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class FeatureAccessItemDto {
   @ApiProperty() featureKey: string;
@@ -47,7 +48,21 @@ export class WhiteLabelStateResponseDto {
   @ApiPropertyOptional() configuration: Record<string, unknown> | null;
 }
 
+/**
+ * Body of the white-label request/enable/disable actions. Every property needs
+ * a class-validator decorator: the global pipe runs with whitelist +
+ * forbidNonWhitelisted, so an undecorated property is rejected with 422 even
+ * though it is declared here.
+ */
 export class WhiteLabelActionRequestDto {
-  @ApiPropertyOptional() configuration?: Record<string, unknown>;
-  @ApiPropertyOptional() reason?: string;
+  @ApiPropertyOptional({ description: 'Requested white-label configuration (free-form, stored on the request).' })
+  @IsOptional()
+  @IsObject()
+  configuration?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ description: 'Reason recorded in the audit trail (disable).', maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }

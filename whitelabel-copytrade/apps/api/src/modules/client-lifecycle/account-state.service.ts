@@ -71,38 +71,22 @@ export class AccountStateService {
   }
 
   async isAccountActive(params: { tenantId: string; accountId: string }): Promise<boolean> {
-    try {
-      const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
-      return account?.state === 'ACTIVE';
-    } catch {
-      return false;
-    }
+    const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
+    return account?.state === 'ACTIVE';
   }
 
   async isAccountRestricted(params: { tenantId: string; accountId: string }): Promise<boolean> {
-    try {
-      const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
-      return account?.state === 'RESTRICTED';
-    } catch {
-      return false;
-    }
+    const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
+    return account?.state === 'RESTRICTED';
   }
 
   async isAccountSuspended(params: { tenantId: string; accountId: string }): Promise<boolean> {
-    try {
-      const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
-      return account?.state === 'SUSPENDED';
-    } catch {
-      return false;
-    }
+    const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
+    return account?.state === 'SUSPENDED';
   }
 
   async isAccountClosed(params: { tenantId: string; accountId: string }): Promise<boolean> {
-    try {
-      const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
-      return account?.state === 'CLOSED';
-    } catch {
-      return false;
-    }
+    const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
+    return account?.state === 'CLOSED';
   }
 }

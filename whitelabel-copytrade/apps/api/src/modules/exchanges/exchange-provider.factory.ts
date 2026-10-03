@@ -2,120 +2,20 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeCapability, ExchangeOrderType, ExchangeConnectionState, ExchangeBalance, ExchangePosition, ExchangeOrder, ExchangeFill, ExchangeSymbol, ExchangeCapabilityDiscovery, ExchangePositionSide, ExchangeOrderStatus, ExchangeOrderSide, normalizeTimestampMicros } from './exchange.types';
 import { ExchangeProvider, ExchangeProviderError, ExchangeProviderErrorCode, ExchangeProviderContext, ExchangeServerTime, ExchangeAccountMetadata } from './exchange-provider.interface';
 import { ExchangeRegistryService } from './exchange-registry.service';
+import {
+  BaseExchangeProvider,
+  addDecimalStrings,
+  absDecimalString,
+  signOfDecimalString,
+  isDecimalString,
+  canonicalFromConcatenated,
+} from './base-exchange-provider';
+import { BybitProvider } from './venues/bybit.provider';
+import { OkxProvider } from './venues/okx.provider';
+import { KrakenProvider } from './venues/kraken.provider';
+import { CoinbaseProvider } from './venues/coinbase.provider';
 import * as crypto from 'crypto';
 
-// ---------------------------------------------------------------------------
-// Base provider with common HTTP and safety utilities - no secret logging
-// ---------------------------------------------------------------------------
-
-abstract class BaseExchangeProvider implements ExchangeProvider {
-  abstract readonly venue: ExchangeVenue;
-  abstract readonly displayName: string;
-  abstract readonly supportedEnvironments: ExchangeEnvironment[];
-  abstract readonly supportedCapabilities: ExchangeCapability[];
-
-  protected readonly logger = new Logger(this.constructor.name);
-
-  protected getRestBaseUrlForEnv(environment: ExchangeEnvironment): string {
-    switch (environment) {
-      case ExchangeEnvironment.LIVE:
-        return this.getLiveRestUrl();
-      case ExchangeEnvironment.TESTNET:
-        return this.getTestnetRestUrl();
-      case ExchangeEnvironment.SANDBOX:
-        return this.getSandboxRestUrl();
-      default:
-        return this.getLiveRestUrl();
-    }
-  }
-
-  protected abstract getLiveRestUrl(): string;
-  protected abstract getTestnetRestUrl(): string;
-  protected abstract getSandboxRestUrl(): string;
-  protected abstract getLiveWsUrl(): string;
-  protected abstract getTestnetWsUrl(): string;
-  protected abstract getSandboxWsUrl(): string;
-
-  validateEnvironmentBinding(environment: ExchangeEnvironment, isSandbox: boolean): boolean {
-    if (environment === ExchangeEnvironment.LIVE && isSandbox) return false;
-    if ((environment === ExchangeEnvironment.TESTNET || environment === ExchangeEnvironment.SANDBOX) && !isSandbox) return false;
-    return this.supportedEnvironments.includes(environment);
-  }
-
-  getRestBaseUrl(environment: ExchangeEnvironment): string {
-    return this.getRestBaseUrlForEnv(environment);
-  }
-
-  getWebsocketBaseUrl(environment: ExchangeEnvironment): string {
-    switch (environment) {
-      case ExchangeEnvironment.LIVE:
-        return this.getLiveWsUrl();
-      case ExchangeEnvironment.TESTNET:
-        return this.getTestnetWsUrl();
-      case ExchangeEnvironment.SANDBOX:
-        return this.getSandboxWsUrl();
-      default:
-        return this.getLiveWsUrl();
-    }
-  }
-
-  protected async httpGet(url: string, headers: Record<string, string> = {}, timeoutMs = 5000): Promise<any> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { method: 'GET', headers, signal: controller.signal });
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = text;
-      }
-      if (!res.ok) {
-        const err: any = new Error(`HTTP ${res.status} ${res.statusText}`);
-        err.status = res.status;
-        err.headers = Object.fromEntries(res.headers.entries());
-        err.data = data;
-        throw err;
-      }
-      return data;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  protected normalizeError(e: any, venue: ExchangeVenue, environment: ExchangeEnvironment): ExchangeProviderError {
-    const status = e.status || 0;
-    const msg = (e.message || '').toLowerCase();
-    const data = e.data;
-
-    if (status === 401 || status === 403 || msg.includes('api key') || msg.includes('signature') || msg.includes('auth') || (data && (data.code === -2015 || data.code === -2014))) {
-      return new ExchangeProviderError(ExchangeProviderErrorCode.AUTH_FAILED, `Authentication failed for ${venue}`, venue, environment, false, null, e);
-    }
-    if (status === 429 || msg.includes('rate limit') || msg.includes('too many requests') || (data && data.code === -1003)) {
-      const retryAfter = e.headers?.['retry-after'] ? parseInt(e.headers['retry-after'], 10) * 1000 : 1000;
-      return new ExchangeProviderError(ExchangeProviderErrorCode.RATE_LIMITED, `Rate limited for ${venue}`, venue, environment, true, retryAfter, e);
-    }
-    if (msg.includes('timeout') || msg.includes('aborted') || status === 504) {
-      return new ExchangeProviderError(ExchangeProviderErrorCode.TIMEOUT, `Timeout for ${venue}`, venue, environment, true, 1000, e);
-    }
-    if (status >= 500) {
-      return new ExchangeProviderError(ExchangeProviderErrorCode.SERVER_ERROR, `Server error for ${venue}: ${status}`, venue, environment, true, 1000, e);
-    }
-    return new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, e.message || `Unknown error for ${venue}`, venue, environment, false, null, e);
-  }
-
-  abstract testConnectivity(context: ExchangeProviderContext): Promise<any>;
-  abstract getServerTime(context: ExchangeProviderContext): Promise<ExchangeServerTime>;
-  abstract getAccountMetadata(context: ExchangeProviderContext): Promise<ExchangeAccountMetadata>;
-  abstract getCapabilities(context: ExchangeProviderContext): Promise<ExchangeCapabilityDiscovery>;
-  abstract getBalances(context: ExchangeProviderContext): Promise<ExchangeBalance[]>;
-  abstract getPositions(context: ExchangeProviderContext): Promise<ExchangePosition[]>;
-  abstract getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]>;
-  abstract getOrderHistory(context: ExchangeProviderContext, symbol?: string, limit?: number): Promise<ExchangeOrder[]>;
-  abstract getTradeHistory(context: ExchangeProviderContext, symbol?: string, limit?: number): Promise<ExchangeFill[]>;
-  abstract getSymbols(context: ExchangeProviderContext): Promise<ExchangeSymbol[]>;
-}
 
 // ---------------------------------------------------------------------------
 // Binance adapter - real implementation, no fake data
@@ -181,41 +81,10 @@ class BinanceProvider extends BaseExchangeProvider {
   }
 
   async testConnectivity(context: ExchangeProviderContext): Promise<any> {
-    const start = Date.now();
-    try {
-      const serverTime = await this.getServerTime(context);
-      // Test authenticated endpoint - account info
-      const timestamp = Date.now();
-      const query = `timestamp=${timestamp}`;
-      const signature = this.sign(query, context.credentials.apiSecret);
-      const url = `${this.getRestBaseUrlForEnv(context.environment)}/api/v3/account?${query}&signature=${signature}`;
-      const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
-      const accountData = await this.httpGet(url, headers);
-      const latency = Date.now() - start;
-
-      // Validate no withdrawal permission per security policy
-      const canWithdraw = accountData.canWithdraw || false;
-      if (canWithdraw) {
-        throw new ExchangeProviderError(ExchangeProviderErrorCode.WITHDRAWAL_NOT_ALLOWED, 'Withdrawal permission detected', context.venue, context.environment, false);
-      }
-
-      return {
-        connected: true,
-        degraded: false,
-        state: ExchangeConnectionState.CONNECTED,
-        latencyMs: latency,
-        serverTimeMicros: serverTime.serverTimeMicros,
-        clockDriftMs: serverTime.driftMs,
-        capabilities: this.supportedCapabilities,
-        failureCode: null,
-        failureReason: null,
-        isSimulated: context.isSandbox,
-        environment: context.environment,
-      };
-    } catch (e: any) {
-      if (e instanceof ExchangeProviderError) throw e;
-      throw this.normalizeError(e, context.venue, context.environment);
-    }
+    // Server time + /api/v3/account through the shared proof: a key that can
+    // withdraw is refused, a read-only key connects DEGRADED (it syncs but the
+    // venue will refuse orders), and every venue error is classified.
+    return this.connectivityFromMetadata(context);
   }
 
   async getAccountMetadata(context: ExchangeProviderContext): Promise<ExchangeAccountMetadata> {
@@ -231,9 +100,10 @@ class BinanceProvider extends BaseExchangeProvider {
         venue: context.venue,
         environment: context.environment,
         isSandbox: context.isSandbox,
-        canTrade: data.canTrade,
+        canTrade: data.canTrade === true,
         canRead: true,
-        canWithdraw: data.canWithdraw,
+        // Absent or malformed flag counts as "can withdraw" - fail closed.
+        canWithdraw: data.canWithdraw !== false,
         ipRestricted: false,
         permissions: data.permissions || [],
         uid: null,
@@ -271,12 +141,13 @@ class BinanceProvider extends BaseExchangeProvider {
       const data = await this.httpGet(url, headers);
       const balances = data.balances || [];
       return balances
-        .filter((b: any) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0)
+        .filter((b: any) => isDecimalString(b.free) && isDecimalString(b.locked))
+        .filter((b: any) => signOfDecimalString(b.free) > 0 || signOfDecimalString(b.locked) > 0)
         .map((b: any) => ({
           asset: b.asset,
           free: b.free, // preserve string precision
           locked: b.locked,
-          total: (parseFloat(b.free) + parseFloat(b.locked)).toString(), // but we preserve free/locked as strings, total computed safely? We should add as decimal strings without float - simplified for real adapter
+          total: addDecimalStrings(b.free, b.locked), // exact decimal-string addition, no float rounding
           providerReference: null,
           timestampMicros: (BigInt(Date.now()) * BigInt(1000)).toString(),
           source: 'REST',
@@ -287,36 +158,48 @@ class BinanceProvider extends BaseExchangeProvider {
     }
   }
 
+  /** USD-M futures are served from their own host, never from the spot REST base. */
+  private futuresBaseUrl(environment: ExchangeEnvironment): string {
+    return environment === ExchangeEnvironment.LIVE ? 'https://fapi.binance.com' : 'https://testnet.binancefuture.com';
+  }
+
   async getPositions(context: ExchangeProviderContext): Promise<ExchangePosition[]> {
-    // Binance spot has no positions, futures does - try futures endpoint if capability
+    // Binance spot has no positions; USD-M futures does. A key without futures
+    // enabled is answered 401/403 (-2015) by the futures host - that is the
+    // truthful "no futures positions" case. Every other failure (network,
+    // rate limit, 5xx, clock) is surfaced instead of being reported as flat.
+    const timestamp = Date.now();
+    const query = `timestamp=${timestamp}`;
+    const signature = this.sign(query, context.credentials.apiSecret);
+    const url = `${this.futuresBaseUrl(context.environment)}/fapi/v2/positionRisk?${query}&signature=${signature}`;
+    const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
+    let data: any;
     try {
-      const timestamp = Date.now();
-      const query = `timestamp=${timestamp}`;
-      const signature = this.sign(query, context.credentials.apiSecret);
-      const url = `${this.getRestBaseUrlForEnv(context.environment)}/fapi/v2/positionRisk?${query}&signature=${signature}`;
-      const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
-      const data = await this.httpGet(url, headers);
-      if (!Array.isArray(data)) return [];
-      return data
-        .filter((p: any) => parseFloat(p.positionAmt) !== 0)
-        .map((p: any) => ({
-          providerPositionId: null,
-          symbol: p.symbol.replace('USDT', '-USDT'),
-          exchangeSymbol: p.symbol,
-          side: parseFloat(p.positionAmt) > 0 ? ExchangePositionSide.LONG : ExchangePositionSide.SHORT,
-          quantity: Math.abs(parseFloat(p.positionAmt)).toString(),
-          entryPrice: p.entryPrice,
-          markPrice: p.markPrice,
-          liquidationPrice: p.liquidationPrice,
-          leverage: p.leverage,
-          unrealizedPnl: p.unRealizedProfit,
-          realizedPnl: null,
-          timestampMicros: (BigInt(Date.now()) * BigInt(1000)).toString(),
-          isSimulated: context.isSandbox,
-        }));
-    } catch {
-      return [];
+      data = await this.httpGet(url, headers);
+    } catch (e: any) {
+      if (e?.status === 401 || e?.status === 403 || e?.data?.code === -2015) return [];
+      throw this.normalizeError(e, context.venue, context.environment);
     }
+    if (!Array.isArray(data)) {
+      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'Binance positionRisk returned a non-array body', context.venue, context.environment, true);
+    }
+    return data
+      .filter((p: any) => isDecimalString(p.positionAmt) && signOfDecimalString(p.positionAmt) !== 0)
+      .map((p: any) => ({
+        providerPositionId: null,
+        symbol: canonicalFromConcatenated(p.symbol),
+        exchangeSymbol: p.symbol,
+        side: signOfDecimalString(p.positionAmt) > 0 ? ExchangePositionSide.LONG : ExchangePositionSide.SHORT,
+        quantity: absDecimalString(p.positionAmt),
+        entryPrice: p.entryPrice,
+        markPrice: p.markPrice,
+        liquidationPrice: p.liquidationPrice,
+        leverage: p.leverage,
+        unrealizedPnl: p.unRealizedProfit,
+        realizedPnl: null,
+        timestampMicros: (BigInt(Date.now()) * BigInt(1000)).toString(),
+        isSimulated: context.isSandbox,
+      }));
   }
 
   async getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]> {
@@ -335,7 +218,7 @@ class BinanceProvider extends BaseExchangeProvider {
       return orders.map((o: any) => ({
         clientOrderId: o.clientOrderId,
         providerOrderId: o.orderId?.toString() || null,
-        symbol: o.symbol.replace('USDT', '-USDT'),
+        symbol: canonicalFromConcatenated(o.symbol),
         exchangeSymbol: o.symbol,
         side: o.side,
         type: o.type,
@@ -373,7 +256,7 @@ class BinanceProvider extends BaseExchangeProvider {
       return orders.map((o: any) => ({
         clientOrderId: o.clientOrderId,
         providerOrderId: o.orderId?.toString() || null,
-        symbol: o.symbol.replace('USDT', '-USDT'),
+        symbol: canonicalFromConcatenated(o.symbol),
         exchangeSymbol: o.symbol,
         side: o.side,
         type: o.type,
@@ -412,7 +295,7 @@ class BinanceProvider extends BaseExchangeProvider {
         providerTradeId: t.id?.toString(),
         providerOrderId: t.orderId?.toString() || null,
         clientOrderId: null,
-        symbol: t.symbol.replace('USDT', '-USDT'),
+        symbol: canonicalFromConcatenated(t.symbol),
         side: t.isBuyer ? ExchangeOrderSide.BUY : ExchangeOrderSide.SELL,
         price: t.price,
         quantity: t.qty,
@@ -478,9 +361,18 @@ class BinanceProvider extends BaseExchangeProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Generic provider for other venues - real HTTP but venue-specific
+// Operator-configured venue without a dedicated adapter
 // ---------------------------------------------------------------------------
 
+/**
+ * Placeholder registration for `OTHER_CONFIGURED`: an operator may list a
+ * venue in the registry (URLs, environments) before an adapter for it exists.
+ * It answers server time from the configured REST base when that endpoint
+ * exists, and refuses every account-data call with NOT_SUPPORTED. It never
+ * returns an empty list, because an empty balance/position/order list is a
+ * FACT the reconciliation and risk engines act on ("the account is flat"),
+ * and inventing that fact for a venue nobody can read would be fake success.
+ */
 class GenericExchangeProvider extends BaseExchangeProvider {
   constructor(
     public readonly venue: ExchangeVenue,
@@ -516,120 +408,78 @@ class GenericExchangeProvider extends BaseExchangeProvider {
     return this.sandboxWs;
   }
 
+  private notSupported(context: ExchangeProviderContext, operation: string): ExchangeProviderError {
+    return new ExchangeProviderError(
+      ExchangeProviderErrorCode.NOT_SUPPORTED,
+      `${this.displayName} (${this.venue}) has no exchange adapter: ${operation} is not available. Add a dedicated provider under exchanges/venues before connecting accounts to this venue.`,
+      context.venue,
+      context.environment,
+      false,
+    );
+  }
+
   async getServerTime(context: ExchangeProviderContext): Promise<ExchangeServerTime> {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/time`;
+    let data: any;
     try {
-      const data = await this.httpGet(url).catch(() => ({ serverTime: Date.now() }));
-      const serverTimeMs = data.serverTime || data.time || Date.now();
-      const localMs = Date.now();
-      return {
-        serverTimeMicros: (BigInt(serverTimeMs) * BigInt(1000)).toString(),
-        localTimeMicros: (BigInt(localMs) * BigInt(1000)).toString(),
-        driftMs: localMs - serverTimeMs,
-      };
+      data = await this.httpGet(url);
     } catch (e: any) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
+    const serverTimeMs = Number(data?.serverTime ?? data?.time);
+    if (!Number.isFinite(serverTimeMs) || serverTimeMs <= 0) {
+      throw this.notSupported(context, 'server time');
+    }
+    return this.serverTimeFromMs(serverTimeMs);
   }
 
   async testConnectivity(context: ExchangeProviderContext): Promise<any> {
-    const start = Date.now();
-    try {
-      const serverTime = await this.getServerTime(context);
-      // For generic provider, we attempt to fetch balances as connectivity proof
-      // Never create order as connectivity test per spec
-      const balances = await this.getBalances(context).catch(() => null);
-      const latency = Date.now() - start;
-
-      if (balances === null) {
-        throw new ExchangeProviderError(ExchangeProviderErrorCode.AUTH_FAILED, `Auth failed for ${this.venue}`, context.venue, context.environment, false);
-      }
-
-      return {
-        connected: true,
-        degraded: false,
-        state: ExchangeConnectionState.CONNECTED,
-        latencyMs: latency,
-        serverTimeMicros: serverTime.serverTimeMicros,
-        clockDriftMs: serverTime.driftMs,
-        capabilities: this.supportedCapabilities,
-        failureCode: null,
-        failureReason: null,
-        isSimulated: context.isSandbox,
-        environment: context.environment,
-      };
-    } catch (e: any) {
-      if (e instanceof ExchangeProviderError) throw e;
-      throw this.normalizeError(e, context.venue, context.environment);
-    }
+    throw this.notSupported(context, 'connectivity verification');
   }
 
   async getAccountMetadata(context: ExchangeProviderContext): Promise<ExchangeAccountMetadata> {
-    // Generic - return safe metadata without calling real endpoint if not implemented
-    return {
-      accountId: context.accountId,
-      venue: context.venue,
-      environment: context.environment,
-      isSandbox: context.isSandbox,
-      canTrade: false,
-      canRead: true,
-      canWithdraw: false,
-      ipRestricted: false,
-      permissions: ['read'],
-      uid: null,
-      email: null,
-    };
+    throw this.notSupported(context, 'account metadata');
   }
 
   async getCapabilities(context: ExchangeProviderContext): Promise<ExchangeCapabilityDiscovery> {
     return {
       venue: context.venue,
       environment: context.environment,
-      capabilities: this.supportedCapabilities,
-      supportedOrderTypes: [ExchangeOrderType.MARKET, ExchangeOrderType.LIMIT],
+      capabilities: [],
+      supportedOrderTypes: [],
       supportedEnvironments: this.supportedEnvironments,
-      apiVersion: 'v1',
-      restAvailable: true,
-      websocketAvailable: true,
-      rateLimitModel: 'REQUEST_COUNT',
-      authenticationModel: 'HMAC_SHA256',
-      symbolFormat: 'BTCUSDT',
+      apiVersion: 'unknown',
+      restAvailable: false,
+      websocketAvailable: false,
+      rateLimitModel: 'UNKNOWN',
+      authenticationModel: 'UNKNOWN',
+      symbolFormat: 'UNKNOWN',
       timestamp: new Date().toISOString(),
     };
   }
 
   async getBalances(context: ExchangeProviderContext): Promise<ExchangeBalance[]> {
-    // For generic provider, we return empty array to avoid fake balances
-    // Real implementation would call venue-specific endpoint with HMAC
-    // To avoid fake success, we throw if credentials missing
-    if (!context.credentials.apiKey || !context.credentials.apiSecret) {
-      throw new ExchangeProviderError(ExchangeProviderErrorCode.AUTH_FAILED, 'Missing credentials', context.venue, context.environment, false);
-    }
-    // In real deployment, this would call actual exchange - for generic we return empty to avoid fake data
-    // This is not fake success, it's empty result indicating no balances or not implemented
-    // For testing, empty is valid and idempotent
-    return [];
+    throw this.notSupported(context, 'balances');
   }
 
   async getPositions(context: ExchangeProviderContext): Promise<ExchangePosition[]> {
-    return [];
+    throw this.notSupported(context, 'positions');
   }
 
   async getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]> {
-    return [];
+    throw this.notSupported(context, 'open orders');
   }
 
   async getOrderHistory(context: ExchangeProviderContext, symbol?: string, limit?: number): Promise<ExchangeOrder[]> {
-    return [];
+    throw this.notSupported(context, 'order history');
   }
 
   async getTradeHistory(context: ExchangeProviderContext, symbol?: string, limit?: number): Promise<ExchangeFill[]> {
-    return [];
+    throw this.notSupported(context, 'trade history');
   }
 
   async getSymbols(context: ExchangeProviderContext): Promise<ExchangeSymbol[]> {
-    // Return minimal symbols from cache or empty - never guess precision, but return empty if not available
-    return [];
+    throw this.notSupported(context, 'symbols');
   }
 }
 
@@ -655,80 +505,33 @@ export class ExchangeProviderFactory implements OnModuleInit {
     try {
       this.registerProvider(ExchangeVenue.BINANCE, new BinanceProvider());
 
+      const urlsOf = (entry: NonNullable<ReturnType<ExchangeRegistryService['getVenue']>>) => ({
+        liveRest: entry.baseRestUrlLive,
+        testnetRest: entry.baseRestUrlTestnet,
+        sandboxRest: entry.baseRestUrlSandbox,
+        liveWs: entry.baseWsUrlLive,
+        testnetWs: entry.baseWsUrlTestnet,
+        sandboxWs: entry.baseWsUrlSandbox,
+      });
+
       const bybitEntry = this.registry.getVenue(ExchangeVenue.BYBIT);
       if (bybitEntry) {
-        this.registerProvider(
-          ExchangeVenue.BYBIT,
-          new GenericExchangeProvider(
-            ExchangeVenue.BYBIT,
-            bybitEntry.displayName,
-            bybitEntry.baseRestUrlLive,
-            bybitEntry.baseRestUrlTestnet,
-            bybitEntry.baseRestUrlSandbox,
-            bybitEntry.baseWsUrlLive,
-            bybitEntry.baseWsUrlTestnet,
-            bybitEntry.baseWsUrlSandbox,
-            bybitEntry.supportedEnvironments,
-            bybitEntry.supportedCapabilities,
-          ),
-        );
+        this.registerProvider(ExchangeVenue.BYBIT, new BybitProvider(urlsOf(bybitEntry), bybitEntry.displayName));
       }
 
       const okxEntry = this.registry.getVenue(ExchangeVenue.OKX);
       if (okxEntry) {
-        this.registerProvider(
-          ExchangeVenue.OKX,
-          new GenericExchangeProvider(
-            ExchangeVenue.OKX,
-            okxEntry.displayName,
-            okxEntry.baseRestUrlLive,
-            okxEntry.baseRestUrlTestnet,
-            okxEntry.baseRestUrlSandbox,
-            okxEntry.baseWsUrlLive,
-            okxEntry.baseWsUrlTestnet,
-            okxEntry.baseWsUrlSandbox,
-            okxEntry.supportedEnvironments,
-            okxEntry.supportedCapabilities,
-          ),
-        );
+        this.registerProvider(ExchangeVenue.OKX, new OkxProvider(urlsOf(okxEntry), okxEntry.displayName));
       }
 
       const krakenEntry = this.registry.getVenue(ExchangeVenue.KRAKEN);
       if (krakenEntry) {
-        this.registerProvider(
-          ExchangeVenue.KRAKEN,
-          new GenericExchangeProvider(
-            ExchangeVenue.KRAKEN,
-            krakenEntry.displayName,
-            krakenEntry.baseRestUrlLive,
-            krakenEntry.baseRestUrlTestnet,
-            krakenEntry.baseRestUrlSandbox,
-            krakenEntry.baseWsUrlLive,
-            krakenEntry.baseWsUrlTestnet,
-            krakenEntry.baseWsUrlSandbox,
-            krakenEntry.supportedEnvironments,
-            krakenEntry.supportedCapabilities,
-          ),
-        );
+        this.registerProvider(ExchangeVenue.KRAKEN, new KrakenProvider(urlsOf(krakenEntry), krakenEntry.displayName));
       }
 
       const coinbaseEntry = this.registry.getVenue(ExchangeVenue.COINBASE);
       if (coinbaseEntry) {
-        this.registerProvider(
-          ExchangeVenue.COINBASE,
-          new GenericExchangeProvider(
-            ExchangeVenue.COINBASE,
-            coinbaseEntry.displayName,
-            coinbaseEntry.baseRestUrlLive,
-            coinbaseEntry.baseRestUrlTestnet,
-            coinbaseEntry.baseRestUrlSandbox,
-            coinbaseEntry.baseWsUrlLive,
-            coinbaseEntry.baseWsUrlTestnet,
-            coinbaseEntry.baseWsUrlSandbox,
-            coinbaseEntry.supportedEnvironments,
-            coinbaseEntry.supportedCapabilities,
-          ),
-        );
+        this.registerProvider(ExchangeVenue.COINBASE, new CoinbaseProvider(urlsOf(coinbaseEntry), coinbaseEntry.displayName));
       }
 
       const otherEntry = this.registry.getVenue(ExchangeVenue.OTHER_CONFIGURED);

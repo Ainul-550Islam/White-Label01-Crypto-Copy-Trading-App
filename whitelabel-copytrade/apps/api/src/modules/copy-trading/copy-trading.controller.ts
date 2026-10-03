@@ -12,11 +12,28 @@ import { CopyExecutionRepository } from './copy-execution.repository';
 import { CreateTraderProfileDto, UpdateTraderProfileDto, CreateTraderStrategyDto, UpdateTraderStrategyDto, TraderStrategyFilterDto } from './dto/trader-strategy.dto';
 import { CreateFollowerSubscriptionDto, UpdateFollowerSubscriptionDto, FollowerSubscriptionFilterDto, CopyExecutionFilterDto } from './dto/follower-subscription.dto';
 import { CreateCopyPolicyDto, LeaderEventDto } from './dto/copy-policy.dto';
-import { TraderVerificationState } from './copy-trading.types';
+import { TraderStrategy, TraderStrategyStatus, TraderVerificationState } from './copy-trading.types';
+import { Permission } from '@wlct/shared-types';
+import { RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
+
+/** Strategy states a non-owner may see: live, or paused with existing followers. */
+const PUBLIC_STRATEGY_STATUSES: TraderStrategyStatus[] = [TraderStrategyStatus.PUBLISHED, TraderStrategyStatus.PAUSED];
+import { authRoles, authTenantId, authUserIdOrNull, hasAdminRole } from '../../common/guards/request-principal';
+import { limitParam, pageParam } from '../../common/dto/pagination-params';
 
 /**
  * Tenant-protected endpoints for trader/follower/platform capabilities.
  * Marketplace listing, trader profile management, strategy publishing, subscription lifecycle, execution inspection, policy resolution, ranking, performance, and reconciliation.
+ */
+/**
+ * Copy trading. Every route carries explicit permission metadata (it used to
+ * carry none, so any authenticated tenant user passed the global guard):
+ * - strategy:read            catalogue (traders, strategies, rankings, policies)
+ * - strategy:manage          trader side (profiles, strategies, leader events)
+ * - copy_subscription:read   own subscriptions and executions
+ * - copy_subscription:manage subscribe / pause / resume / stop / cancel
+ * The handlers keep their ownership checks on top of that. Non-owners see only
+ * published/paused strategies and never a trader's strategyConfig.
  */
 @Controller('copy-trading')
 export class CopyTradingController {
@@ -34,20 +51,42 @@ export class CopyTradingController {
   ) {}
 
   private getContext(req: any): { tenantId: string; userId: string; roles: string[] } {
-    const tenantId = req.user?.tenantId || req.headers['x-tenant-id'];
-    const userId = req.user?.id || req.user?.userId;
-    const roles = req.user?.roles || [];
-    if (!tenantId) throw new BadRequestException('tenantId required');
+    // Token tenant only; a header can never select the tenant.
+    const tenantId = authTenantId(req);
+    const userId = authUserIdOrNull(req);
+    const roles = authRoles(req);
     if (!userId) throw new BadRequestException('userId required');
     return { tenantId, userId, roles };
   }
 
   private isAdmin(roles: string[]): boolean {
-    return roles.includes('admin') || roles.includes('tenant_admin') || roles.includes('platform_admin');
+    return hasAdminRole(roles);
+  }
+
+  /** Owner or tenant admin sees drafts and the private strategy configuration. */
+  private canSeePrivateStrategy(strategy: TraderStrategy, userId: string, roles: string[]): boolean {
+    return strategy.userId === userId || this.isAdmin(roles);
+  }
+
+  /** Catalogue view for everyone else: never the trader's strategyConfig. */
+  private toPublicStrategy(strategy: TraderStrategy): Omit<TraderStrategy, 'strategyConfig'> {
+    const visible: Partial<TraderStrategy> = { ...strategy };
+    delete visible.strategyConfig;
+    return visible as Omit<TraderStrategy, 'strategyConfig'>;
+  }
+
+  /** A non-public trader profile exists only for its owner and tenant admins. */
+  private async assertTraderVisible(tenantId: string, traderId: string, userId: string, roles: string[]) {
+    const profile = await this.traderProfileService.getProfile(tenantId, traderId);
+    if (!profile || (!profile.isPublic && profile.userId !== userId && !this.isAdmin(roles))) {
+      throw new NotFoundException('Trader profile not found');
+    }
+    return profile;
   }
 
   // Trader Profile
   @Post('traders/profile')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async createTraderProfile(@Request() req: any, @Body() dto: CreateTraderProfileDto) {
     const { tenantId, userId } = this.getContext(req);
     // Prevent client-provided verified status/performance
@@ -57,6 +96,7 @@ export class CopyTradingController {
   }
 
   @Get('traders/profile/me')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async getMyProfile(@Request() req: any) {
     const { tenantId, userId } = this.getContext(req);
     const profile = await this.traderProfileService.getProfileByUserId(tenantId, userId);
@@ -65,15 +105,15 @@ export class CopyTradingController {
   }
 
   @Get('traders/:traderId/profile')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async getTraderProfile(@Request() req: any, @Param('traderId') traderId: string) {
-    const { tenantId } = this.getContext(req);
-    const profile = await this.traderProfileService.getProfile(tenantId, traderId);
-    if (!profile) throw new NotFoundException('Trader profile not found');
+    const { tenantId, userId, roles } = this.getContext(req);
     // Safe public stats - no fake profit/ROI
-    return profile;
+    return this.assertTraderVisible(tenantId, traderId, userId, roles);
   }
 
   @Put('traders/:traderId/profile')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async updateTraderProfile(@Request() req: any, @Param('traderId') traderId: string, @Body() dto: UpdateTraderProfileDto) {
     const { tenantId, userId } = this.getContext(req);
     const existing = await this.traderProfileService.getProfile(tenantId, traderId);
@@ -83,13 +123,15 @@ export class CopyTradingController {
   }
 
   @Get('traders')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async listTraders(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    const filters = { verificationState: query.verificationState as TraderVerificationState, isFeatured: query.isFeatured ? query.isFeatured === 'true' : undefined, search: query.search, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 };
+    const filters = { verificationState: query.verificationState as TraderVerificationState, isFeatured: query.isFeatured ? query.isFeatured === 'true' : undefined, search: query.search, page: pageParam(query.page), limit: limitParam(query.limit, 20) };
     return this.traderProfileService.listPublicProfiles(tenantId, filters);
   }
 
   @Post('traders/:traderId/verify')
+  @RequireAnyPermission(Permission.TENANT_UPDATE, Permission.PLATFORM_MANAGE)
   async verifyTrader(@Request() req: any, @Param('traderId') traderId: string) {
     const { tenantId, userId, roles } = this.getContext(req);
     if (!this.isAdmin(roles)) throw new ForbiddenException('Only admin can verify traders');
@@ -100,6 +142,7 @@ export class CopyTradingController {
 
   // Trader Strategy
   @Post('strategies')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async createStrategy(@Request() req: any, @Body() dto: CreateTraderStrategyDto) {
     const { tenantId, userId } = this.getContext(req);
     // Prevent client-provided verified status/performance/execution result
@@ -107,26 +150,39 @@ export class CopyTradingController {
   }
 
   @Get('strategies/:strategyId')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async getStrategy(@Request() req: any, @Param('strategyId') strategyId: string) {
-    const { tenantId } = this.getContext(req);
+    const { tenantId, userId, roles } = this.getContext(req);
     const strategy = await this.traderStrategyService.getStrategy(tenantId, strategyId);
     if (!strategy) throw new NotFoundException('Strategy not found');
-    return strategy;
+    if (this.canSeePrivateStrategy(strategy, userId, roles)) return strategy;
+    if (!PUBLIC_STRATEGY_STATUSES.includes(strategy.status)) throw new NotFoundException('Strategy not found');
+    return this.toPublicStrategy(strategy);
   }
 
   @Get('strategies')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async listStrategies(@Request() req: any, @Query() query: TraderStrategyFilterDto) {
-    const { tenantId } = this.getContext(req);
-    return this.traderStrategyService.listByTenant(tenantId, { status: query.status as any, traderId: query.traderId, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    const { tenantId, roles } = this.getContext(req);
+    const filters = { status: query.status as any, traderId: query.traderId, page: pageParam(query.page), limit: limitParam(query.limit, 20) };
+    if (this.isAdmin(roles)) return this.traderStrategyService.listByTenant(tenantId, filters);
+    const result = await this.traderStrategyService.listByTenant(tenantId, { ...filters, statuses: PUBLIC_STRATEGY_STATUSES });
+    return { ...result, data: result.data.map((strategy) => this.toPublicStrategy(strategy)) };
   }
 
   @Get('traders/:traderId/strategies')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async listTraderStrategies(@Request() req: any, @Param('traderId') traderId: string, @Query() query: any) {
-    const { tenantId } = this.getContext(req);
-    return this.traderStrategyService.listByTrader(tenantId, traderId, { status: query.status, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    const { tenantId, userId, roles } = this.getContext(req);
+    const filters = { status: query.status, page: pageParam(query.page), limit: limitParam(query.limit, 20) };
+    const profile = await this.traderProfileService.getProfile(tenantId, traderId);
+    if (profile && (profile.userId === userId || this.isAdmin(roles))) return this.traderStrategyService.listByTrader(tenantId, traderId, filters);
+    const result = await this.traderStrategyService.listByTrader(tenantId, traderId, { ...filters, statuses: PUBLIC_STRATEGY_STATUSES });
+    return { ...result, data: result.data.map((strategy) => this.toPublicStrategy(strategy)) };
   }
 
   @Put('strategies/:strategyId')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async updateStrategy(@Request() req: any, @Param('strategyId') strategyId: string, @Body() dto: UpdateTraderStrategyDto) {
     const { tenantId, userId } = this.getContext(req);
     const updated = await this.traderStrategyService.updateStrategy(tenantId, strategyId, userId, dto);
@@ -135,12 +191,14 @@ export class CopyTradingController {
   }
 
   @Post('strategies/:strategyId/publish')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async publishStrategy(@Request() req: any, @Param('strategyId') strategyId: string) {
     const { tenantId, userId } = this.getContext(req);
     return this.traderStrategyService.publishStrategy(tenantId, strategyId, userId, userId);
   }
 
   @Post('strategies/:strategyId/pause')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async pauseStrategy(@Request() req: any, @Param('strategyId') strategyId: string) {
     const { tenantId, userId } = this.getContext(req);
     const paused = await this.traderStrategyService.pauseStrategy(tenantId, strategyId, userId, userId);
@@ -149,6 +207,7 @@ export class CopyTradingController {
   }
 
   @Post('strategies/:strategyId/resume')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async resumeStrategy(@Request() req: any, @Param('strategyId') strategyId: string) {
     const { tenantId, userId } = this.getContext(req);
     const resumed = await this.traderStrategyService.resumeStrategy(tenantId, strategyId, userId, userId);
@@ -157,6 +216,7 @@ export class CopyTradingController {
   }
 
   @Post('strategies/:strategyId/archive')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async archiveStrategy(@Request() req: any, @Param('strategyId') strategyId: string) {
     const { tenantId, userId } = this.getContext(req);
     const archived = await this.traderStrategyService.archiveStrategy(tenantId, strategyId, userId, userId);
@@ -166,6 +226,7 @@ export class CopyTradingController {
 
   // Follower Subscription
   @Post('subscriptions')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_MANAGE)
   async createSubscription(@Request() req: any, @Body() dto: CreateFollowerSubscriptionDto) {
     const { tenantId, userId } = this.getContext(req);
     // Prevent client-provided execution result
@@ -173,12 +234,14 @@ export class CopyTradingController {
   }
 
   @Get('subscriptions/me')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_READ)
   async listMySubscriptions(@Request() req: any, @Query() query: FollowerSubscriptionFilterDto) {
     const { tenantId, userId } = this.getContext(req);
-    return this.subscriptionRepo.listByFollower(tenantId, userId, { state: query.state as any, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.subscriptionRepo.listByFollower(tenantId, userId, { state: query.state as any, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Get('subscriptions/:subscriptionId')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_READ)
   async getSubscription(@Request() req: any, @Param('subscriptionId') subscriptionId: string) {
     const { tenantId, userId, roles } = this.getContext(req);
     const sub = await this.subscriptionRepo.findById(subscriptionId, tenantId);
@@ -192,15 +255,17 @@ export class CopyTradingController {
   }
 
   @Get('traders/:traderId/subscriptions')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_READ)
   async listTraderSubscriptions(@Request() req: any, @Param('traderId') traderId: string, @Query() query: any) {
     const { tenantId, userId, roles } = this.getContext(req);
     const profile = await this.traderProfileService.getProfile(tenantId, traderId);
     if (!profile) throw new NotFoundException('Trader not found');
     if (profile.userId !== userId && !this.isAdmin(roles)) throw new ForbiddenException('Not authorized to view trader subscriptions');
-    return this.subscriptionRepo.listByTrader(tenantId, traderId, { state: query.state, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.subscriptionRepo.listByTrader(tenantId, traderId, { state: query.state, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Post('subscriptions/:subscriptionId/pause')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_MANAGE)
   async pauseSubscription(@Request() req: any, @Param('subscriptionId') subscriptionId: string) {
     const { tenantId, userId } = this.getContext(req);
     const paused = await this.followerSubscriptionService.pauseSubscription(tenantId, subscriptionId, userId, userId, req.headers['x-request-id']);
@@ -209,6 +274,7 @@ export class CopyTradingController {
   }
 
   @Post('subscriptions/:subscriptionId/resume')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_MANAGE)
   async resumeSubscription(@Request() req: any, @Param('subscriptionId') subscriptionId: string) {
     const { tenantId, userId } = this.getContext(req);
     const resumed = await this.followerSubscriptionService.resumeSubscription(tenantId, subscriptionId, userId, userId, req.headers['x-request-id']);
@@ -217,6 +283,7 @@ export class CopyTradingController {
   }
 
   @Post('subscriptions/:subscriptionId/stop')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_MANAGE)
   async stopSubscription(@Request() req: any, @Param('subscriptionId') subscriptionId: string) {
     const { tenantId, userId } = this.getContext(req);
     const stopped = await this.followerSubscriptionService.stopCopy(tenantId, subscriptionId, userId, userId, req.headers['x-request-id']);
@@ -225,6 +292,7 @@ export class CopyTradingController {
   }
 
   @Delete('subscriptions/:subscriptionId')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_MANAGE)
   async cancelSubscription(@Request() req: any, @Param('subscriptionId') subscriptionId: string) {
     const { tenantId, userId } = this.getContext(req);
     const cancelled = await this.followerSubscriptionService.cancelSubscription(tenantId, subscriptionId, userId, userId, req.headers['x-request-id']);
@@ -234,12 +302,19 @@ export class CopyTradingController {
 
   // Copy Execution
   @Post('executions/leader-event')
+  @RequirePermissions(Permission.STRATEGY_MANAGE)
   async processLeaderEvent(@Request() req: any, @Body() dto: LeaderEventDto & { traderId: string; strategyId: string }) {
     const { tenantId, userId, roles } = this.getContext(req);
     // Only trader or system can submit leader events
     const strategy = await this.traderStrategyService.getStrategy(tenantId, dto.strategyId);
     if (!strategy) throw new NotFoundException('Strategy not found');
     if (strategy.userId !== userId && !this.isAdmin(roles)) throw new ForbiddenException('Only strategy owner can submit leader events');
+    // The trader is the strategy's trader, never a value from the body: a
+    // mismatching traderId would attribute the event (and its compliance
+    // check) to someone else.
+    const traderId = strategy.traderId;
+    if (!traderId) throw new NotFoundException('Strategy has no trader');
+    if (dto.traderId && dto.traderId !== traderId) throw new BadRequestException('traderId does not match the strategy');
 
     const leaderEvent = {
       eventId: dto.eventId,
@@ -257,10 +332,11 @@ export class CopyTradingController {
       isSimulated: dto.isSimulated || false,
     };
 
-    return this.copyExecutionService.processLeaderEvent({ tenantId, leaderEvent, traderId: dto.traderId, strategyId: dto.strategyId, actorId: userId });
+    return this.copyExecutionService.processLeaderEvent({ tenantId, leaderEvent, traderId, strategyId: dto.strategyId, actorId: userId });
   }
 
   @Get('executions/:executionId')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_READ)
   async getExecution(@Request() req: any, @Param('executionId') executionId: string) {
     const { tenantId, userId, roles } = this.getContext(req);
     const exec = await this.executionRepo.findById(executionId, tenantId);
@@ -273,13 +349,15 @@ export class CopyTradingController {
   }
 
   @Get('executions')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_READ)
   async listExecutions(@Request() req: any, @Query() query: CopyExecutionFilterDto) {
     const { tenantId, userId } = this.getContext(req);
     // For follower, list own executions
-    return this.executionRepo.listByFollower(tenantId, userId, { status: query.status as any, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.executionRepo.listByFollower(tenantId, userId, { status: query.status as any, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Get('subscriptions/:subscriptionId/executions')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_READ)
   async listSubscriptionExecutions(@Request() req: any, @Param('subscriptionId') subscriptionId: string, @Query() query: any) {
     const { tenantId, userId, roles } = this.getContext(req);
     const sub = await this.subscriptionRepo.findById(subscriptionId, tenantId);
@@ -288,17 +366,19 @@ export class CopyTradingController {
       const traderProfile = await this.traderProfileService.getProfile(tenantId, sub.traderId);
       if (!traderProfile || traderProfile.userId !== userId) throw new ForbiddenException('Not authorized');
     }
-    return this.executionRepo.listBySubscription(tenantId, subscriptionId, { status: query.status, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.executionRepo.listBySubscription(tenantId, subscriptionId, { status: query.status, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   // Policy
   @Get('policies/effective')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async getEffectivePolicy(@Request() req: any, @Query() query: { strategyId?: string; subscriptionId?: string }) {
     const { tenantId } = this.getContext(req);
     return this.copyPolicyService.resolveEffectivePolicy({ tenantId, strategyId: query.strategyId, subscriptionId: query.subscriptionId });
   }
 
   @Get('policies/platform')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async getPlatformPolicy(@Request() req: any) {
     this.getContext(req);
     return this.copyPolicyService.getPlatformPolicy();
@@ -306,27 +386,32 @@ export class CopyTradingController {
 
   // Performance & Ranking
   @Get('traders/:traderId/performance')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async getTraderPerformance(@Request() req: any, @Param('traderId') traderId: string) {
-    const { tenantId } = this.getContext(req);
+    const { tenantId, userId, roles } = this.getContext(req);
+    await this.assertTraderVisible(tenantId, traderId, userId, roles);
     const perf = await this.traderPerformanceService.getPerformance(tenantId, traderId);
     if (!perf) throw new NotFoundException('Trader not found');
     return perf;
   }
 
   @Get('rankings')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async getRankings(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.traderRankingService.getRanking(tenantId, { verificationState: query.verificationState, isFeatured: query.isFeatured ? query.isFeatured === 'true' : undefined, search: query.search, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20, sortBy: query.sortBy });
+    return this.traderRankingService.getRanking(tenantId, { verificationState: query.verificationState, isFeatured: query.isFeatured ? query.isFeatured === 'true' : undefined, search: query.search, page: pageParam(query.page), limit: limitParam(query.limit, 20), sortBy: query.sortBy });
   }
 
   @Get('rankings/featured')
+  @RequirePermissions(Permission.STRATEGY_READ)
   async getFeatured(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.traderRankingService.getFeaturedTraders(tenantId, query.limit ? parseInt(query.limit) : 10);
+    return this.traderRankingService.getFeaturedTraders(tenantId, limitParam(query.limit, 10));
   }
 
   // Reconciliation
   @Post('reconciliation/run')
+  @RequirePermissions(Permission.RECONCILIATION_TRIGGER)
   async runReconciliation(@Request() req: any, @Body() body: { strategyId?: string; from?: string; to?: string; limit?: number }) {
     const { tenantId, roles } = this.getContext(req);
     if (!this.isAdmin(roles)) throw new ForbiddenException('Only admin can run reconciliation');
@@ -334,13 +419,15 @@ export class CopyTradingController {
   }
 
   @Get('reconciliation/records')
+  @RequireAnyPermission(Permission.RECONCILIATION_TRIGGER, Permission.RECONCILIATION_RESOLVE)
   async listReconciliationRecords(@Request() req: any, @Query() query: any) {
     const { tenantId, roles } = this.getContext(req);
     if (!this.isAdmin(roles)) throw new ForbiddenException('Only admin can view reconciliation');
-    return this.reconciliationService.listRecords(tenantId, { resolved: query.resolved !== undefined ? query.resolved === 'true' : undefined, category: query.category, severity: query.severity, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.reconciliationService.listRecords(tenantId, { resolved: query.resolved !== undefined ? query.resolved === 'true' : undefined, category: query.category, severity: query.severity, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Post('reconciliation/:recordId/resolve')
+  @RequirePermissions(Permission.RECONCILIATION_RESOLVE)
   async resolveReconciliation(@Request() req: any, @Param('recordId') recordId: string, @Body() body: { notes?: string }) {
     const { tenantId, userId, roles } = this.getContext(req);
     if (!this.isAdmin(roles)) throw new ForbiddenException('Only admin can resolve reconciliation');

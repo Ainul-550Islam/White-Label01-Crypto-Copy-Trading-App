@@ -67,7 +67,7 @@ export class DepositMonitoringService {
     });
 
     try {
-      const existing = await (this.prisma as any).custodyDeposit.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).custodyDeposit.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log({ event: 'custody.deposit.idempotent_hit', idempotencyKey, transactionHash });
         return existing;

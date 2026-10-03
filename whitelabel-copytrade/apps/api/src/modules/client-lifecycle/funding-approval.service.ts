@@ -67,7 +67,7 @@ export class FundingApprovalService {
     });
 
     try {
-      const existing = await (this.prisma as any).fundingApproval.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).fundingApproval.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -213,19 +213,15 @@ export class FundingApprovalService {
     if (withdrawalRequestId) where.withdrawalRequestId = withdrawalRequestId;
     if (decision) where.decision = decision;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).fundingApproval.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).fundingApproval.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).fundingApproval.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).fundingApproval.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

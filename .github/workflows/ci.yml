@@ -1,0 +1,379 @@
+# -----------------------------------------------------------------------------
+# Continuous integration for the White-Label Copy-Trading platform.
+#
+# The project lives in `whitelabel-copytrade/` inside this repository, so every
+# job runs from there. The same workflow is called by production-release.yml
+# (`workflow_call`), which means nothing can be released that did not pass
+# exactly these checks at exactly that commit.
+#
+# What runs, and why each job exists:
+#   node      - API unit + contract tests (jest), typecheck of every TS app,
+#               production builds of admin-web and web, repository validators
+#               (DR manifest, ops 50/60-check suites, Terraform API task env
+#               checked against the production env schema).
+#   database  - a FRESH Postgres gets every Prisma migration, then Prisma must
+#               report zero drift between migrations and schema.prisma, and the
+#               generated RLS enable/disable scripts must apply. This is the
+#               check that would have caught the missing developer/mobile
+#               migration and the non-idempotent reconcile migration.
+#   rust      - packages/sdk-rust: `cargo test --locked` (webhook signature
+#               verification and backend-pinned catalogs).
+#   terraform - infra/production/terraform: `fmt -check` + `validate` with no
+#               backend and no credentials, on the same Terraform version the
+#               release pipeline applies with. Catches schema errors (e.g. a
+#               block the AWS provider does not accept) before a release plan.
+#   mobile    - Flutter client (apps/mobile) on a pinned SDK: dependency
+#               resolution, `flutter analyze` (errors and warnings fatal),
+#               generated-l10n drift check, and `flutter test`.
+#   docker    - builds the runtime target of every image production-release.yml
+#               builds and pushes, from the same Dockerfiles and context, without
+#               pushing. Added in round 8: the first real build found four image
+#               bugs (API nest build out of heap, a COPY with no source, an
+#               invalid pip flag in two engine images) that no CI job could see,
+#               so the first place they would have failed was a release.
+#   python    - trading-core and the three Python services. execution-engine
+#               additionally runs its live-Postgres suites against a
+#               NOSUPERUSER NOBYPASSRLS role (RLS never applies to superusers,
+#               so the RLS assertions are only meaningful for such a role).
+#
+# The root `tests/` tree (billing entitlements, limits, plans, catalog - library
+# code with no spec beside it) runs in the node job through
+# `npm run test:billing-lib` (jest, type-checked, tests/jest.config.js).
+# -----------------------------------------------------------------------------
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: whitelabel-copytrade
+
+env:
+  NODE_VERSION: 20.11.0
+  PYTHON_VERSION: '3.11'
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  node:
+    name: Node (api, admin-web, web, notification-service)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: whitelabel-copytrade/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
+
+      - name: Build shared packages
+        run: npm run build:packages
+
+      - name: API unit and contract tests
+        run: npm test --workspace @wlct/api -- --ci
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+
+      - name: Billing library specs (root tests/)
+        run: npm run test:billing-lib -- --ci
+
+      # Type-checking cannot see a provider missing from a module or a constructor
+      # that throws; this boots the Nest graph (no DB, no port) and names the gap.
+      - name: API dependency-injection graph resolves
+        run: npm run check:api-di
+
+      - name: Prisma literal check (untyped Prisma calls vs schema)
+        run: npm run check:prisma-literals
+
+      - name: Route authorization check (every route carries permission metadata)
+        run: npm run check:route-authorization
+
+      - name: Client API contract check (web, admin web and mobile calls hit declared routes with accepted query keys)
+        run: npm run check:web-api-contract
+
+      - name: Script unit tests (contract checker, DR manifest, retention)
+        run: node --test scripts/
+
+      - name: Typecheck (api, admin-web, web, notification-service)
+        run: npm run typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+
+      - name: Production build - admin-web and web
+        run: npm run build:admin && npm run build:web
+        env:
+          NODE_ENV: production
+          # Build-time placeholders only; real values are injected at runtime.
+          API_BASE_URL: http://api:4000/api
+          ADMIN_TENANT_SLUG: platform
+          SESSION_COOKIE_SECRET: build_time_placeholder_not_used_at_runtime
+
+      - name: TypeScript SDK (build + node:test route-parity suite)
+        run: |
+          npm run build --workspace @wlct/sdk-typescript
+          npm test --workspace @wlct/sdk-typescript
+
+      - name: Customer web unit tests
+        run: npm test --workspace @wlct/web
+
+      - name: Repository validators
+        run: |
+          node scripts/dr-manifest.mjs --check
+          node scripts/check-terraform-api-env.mjs
+          node ops/governance-validation-50-checks.js
+          node ops/partner-validation-60-checks.js
+          node ops/provider-validation-50-checks.js
+          node ops/production-validation-50-checks.js
+          node apps/web/src/tests/run-50-checks.js
+
+  database:
+    name: Migrations on a fresh Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wlct
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PG_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wlct
+      DIRECT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wlct
+      SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wlct_shadow
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: whitelabel-copytrade/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Apply every migration to an empty database
+        run: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+
+      - name: Migrations and schema.prisma agree (zero drift)
+        run: |
+          echo 'CREATE DATABASE wlct_shadow' | npx prisma db execute --stdin --url "$PG_ADMIN_URL"
+          npx prisma migrate diff \
+            --from-migrations apps/api/prisma/migrations \
+            --to-schema-datamodel apps/api/prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
+
+      - name: Generated RLS scripts apply (enable, then disable)
+        run: |
+          npx prisma db execute --file apps/api/prisma/rls/enable.sql --url "$DATABASE_URL"
+          npx prisma db execute --file apps/api/prisma/rls/disable.sql --url "$DATABASE_URL"
+
+  python:
+    name: Python (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - libs/trading-core
+          - services/execution-engine
+          - services/market-data
+          - services/trading-engine
+          - packages/sdk-python
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: whitelabel-copytrade/${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            whitelabel-copytrade/libs/trading-core/pyproject.toml
+            whitelabel-copytrade/packages/sdk-python/pyproject.toml
+            whitelabel-copytrade/services/*/requirements*.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          elif [ "${{ matrix.project }}" = "libs/trading-core" ]; then
+            # `live` brings httpx/websockets, which the wlct_trading.net tests
+            # exercise (without it 13 tests fail on ModuleNotFoundError
+            # rather than skipping).
+            pip install -e '.[dev,live]'
+          else
+            # packages/sdk-python: zero runtime dependencies by design.
+            pip install -e . pytest
+          fi
+
+      - name: Disposable NOSUPERUSER database for live suites
+        if: matrix.project == 'services/execution-engine'
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE engine_ci LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD 'engine_ci'" \
+            -c "CREATE DATABASE enginetest OWNER engine_ci"
+          echo "EXECUTION_TEST_POSTGRES_DSN=postgresql://engine_ci:engine_ci@localhost:5432/enginetest" >> "$GITHUB_ENV"
+
+      - name: Tests
+        run: python -m pytest -q
+
+  mobile:
+    name: Mobile (Flutter)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: whitelabel-copytrade/apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Pinned so a new stable release cannot turn CI red on its own
+          # (3.47 is the version the client was last verified with).
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies (lockfile is committed)
+        run: flutter pub get --enforce-lockfile
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Generated localizations are up to date
+        run: |
+          flutter gen-l10n
+          git diff --exit-code -- lib/l10n
+
+      - name: Tests
+        run: flutter test --no-pub
+
+  rust:
+    name: Rust SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: whitelabel-copytrade/packages/sdk-rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            whitelabel-copytrade/packages/sdk-rust/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('whitelabel-copytrade/packages/sdk-rust/Cargo.lock') }}
+
+      - name: Tests (lockfile enforced)
+        run: cargo test --locked
+
+  docker:
+    name: Docker image (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      # Same list as production-release.yml `build`; the worker runs the api
+      # image with another command, so it has no image of its own.
+      matrix:
+        component:
+          - api
+          - admin-web
+          - web
+          - notification-service
+          - trading-engine
+          - market-data
+          - execution-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (runtime target, not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: whitelabel-copytrade
+          file: whitelabel-copytrade/infrastructure/docker/${{ matrix.component }}.Dockerfile
+          target: runtime
+          push: false
+          cache-from: type=gha,scope=${{ matrix.component }}
+
+  terraform:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: whitelabel-copytrade/infra/production/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.5
+          terraform_wrapper: false
+
+      - name: Format
+        run: terraform fmt -check -diff
+
+      - name: Init (no backend, providers from .terraform.lock.hcl)
+        run: terraform init -backend=false -input=false -lockfile=readonly
+
+      - name: Validate
+        run: terraform validate

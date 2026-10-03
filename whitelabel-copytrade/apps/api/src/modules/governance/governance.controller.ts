@@ -10,6 +10,9 @@ import {
   Req,
   BadRequestException,
 } from '@nestjs/common';
+import { Permission } from '@wlct/shared-types';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { BindTenantParamsGuard } from '../../common/guards/bind-tenant-params.guard';
 import { PrivacyRequestService } from './privacy-request.service';
 import { PrivacyDiscoveryService } from './privacy-discovery.service';
 import { PrivacyExportService } from './privacy-export.service';
@@ -60,7 +63,20 @@ import {
   GovernanceQueryDto,
 } from './dto/privacy-request.dto';
 
-@Controller('v1/governance')
+/**
+ * Privacy, retention, legal holds, consents, regulatory reports and evidence.
+ *
+ * This controller used to carry no permission metadata and took `tenantId`
+ * from the body/query, so any authenticated user of any tenant could run it
+ * against any tenant (including executing privacy deletions and releasing
+ * legal holds). Now:
+ * - BindTenantParamsGuard pins body/query tenantId to the caller's tenant;
+ * - reads need compliance:read, writes compliance:write (class default);
+ * - destructive or attesting actions need compliance:write + compliance:reviewer.
+ */
+@RequirePermissions(Permission.COMPLIANCE_WRITE)
+@UseGuards(BindTenantParamsGuard)
+@Controller('governance')
 export class GovernanceController {
   constructor(
     private readonly privacyRequest: PrivacyRequestService,
@@ -118,6 +134,7 @@ export class GovernanceController {
   }
 
   @Get('privacy-requests')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listPrivacyRequests(@Query() q: GovernanceQueryDto) {
     if (!q.tenantId) throw new BadRequestException('tenantId required');
     return this.queryService.queryPrivacyRequests({
@@ -129,6 +146,7 @@ export class GovernanceController {
   }
 
   @Get('privacy-requests/:id')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async getPrivacyRequest(@Param('id') id: string, @Query('tenantId') tenantId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.privacyRequest.getRequest(tenantId, id);
@@ -172,6 +190,7 @@ export class GovernanceController {
   }
 
   @Post('privacy-requests/:id/deletion-execute')
+  @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
   async executeDeletion(@Param('id') id: string, @Body() dto: PrivacyDeletionExecuteDto) {
     return this.privacyDeletion.executeDeletion({
       tenantId: dto.tenantId,
@@ -186,6 +205,7 @@ export class GovernanceController {
 
   // --- Retention ---
   @Get('retention/policies')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async getRetentionPolicies(@Query('tenantId') tenantId: string, @Query('jurisdiction') jurisdiction: string) {
     if (!jurisdiction) throw new BadRequestException('jurisdiction required');
     return this.retentionPolicy.getPolicies(tenantId ?? null, jurisdiction);
@@ -206,6 +226,7 @@ export class GovernanceController {
   }
 
   @Post('retention/:id/action')
+  @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
   async executeRetentionAction(@Param('id') id: string, @Body() dto: ExecuteRetentionActionDto) {
     return this.retentionEngine.executeAction({
       tenantId: dto.tenantId,
@@ -218,6 +239,7 @@ export class GovernanceController {
   }
 
   @Get('retention/candidates')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listRetentionCandidates(@Query() q: GovernanceQueryDto) {
     if (!q.tenantId) throw new BadRequestException('tenantId required');
     return this.retentionEngine.listCandidates(q.tenantId, { state: q.state as any });
@@ -250,6 +272,7 @@ export class GovernanceController {
   }
 
   @Post('legal-holds/:id/release')
+  @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
   async releaseLegalHold(@Param('id') id: string, @Body() dto: ReleaseLegalHoldDto) {
     return this.legalHold.releaseHold({
       holdId: id,
@@ -261,11 +284,13 @@ export class GovernanceController {
   }
 
   @Get('legal-holds')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listLegalHolds(@Query('tenantId') tenantId: string, @Query('state') state: string) {
     return this.legalHold.listHolds(tenantId ?? null, { state: state as any });
   }
 
   @Get('legal-holds/active')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listActiveLegalHolds(@Query('tenantId') tenantId: string) {
     return this.legalHold.listActiveHolds(tenantId ?? null);
   }
@@ -299,6 +324,7 @@ export class GovernanceController {
   }
 
   @Get('consents')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listConsents(@Query('tenantId') tenantId: string, @Query('subjectUserId') subjectUserId: string) {
     if (!tenantId || !subjectUserId) throw new BadRequestException('tenantId and subjectUserId required');
     return this.consent.listConsents(tenantId, subjectUserId);
@@ -320,6 +346,7 @@ export class GovernanceController {
   }
 
   @Get('reports')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listReports(@Query() q: GovernanceQueryDto) {
     if (!q.tenantId) throw new BadRequestException('tenantId required');
     return this.queryService.queryReports({
@@ -332,6 +359,7 @@ export class GovernanceController {
   }
 
   @Get('reports/:id')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async getReport(@Param('id') id: string, @Query('tenantId') tenantId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.reportService.getReport(tenantId, id);
@@ -359,6 +387,7 @@ export class GovernanceController {
   }
 
   @Post('reports/:id/certification/:certId/certify')
+  @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
   async certifyReport(@Param('id') id: string, @Param('certId') certId: string, @Body() dto: CertifyReportDto) {
     return this.certificationService.certifyReport({
       tenantId: dto.tenantId,
@@ -417,18 +446,21 @@ export class GovernanceController {
   }
 
   @Get('reports/:id/deliveries')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listDeliveries(@Param('id') id: string, @Query('tenantId') tenantId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.deliveryService.listDeliveries(tenantId, id);
   }
 
   @Get('reports/:id/validation')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async getValidation(@Param('id') id: string, @Query('tenantId') tenantId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.validationService.getValidation(tenantId, id);
   }
 
   @Get('reports/:id/certifications')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listCertifications(@Param('id') id: string, @Query('tenantId') tenantId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.certificationService.listCertifications(tenantId, id);
@@ -452,6 +484,7 @@ export class GovernanceController {
   }
 
   @Post('evidence-packages/:id/finalize')
+  @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
   async finalizeEvidencePackage(@Param('id') id: string, @Body() dto: FinalizeEvidencePackageDto) {
     return this.evidence.finalizePackage({
       tenantId: dto.tenantId,
@@ -462,6 +495,7 @@ export class GovernanceController {
   }
 
   @Get('evidence-packages')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listEvidencePackages(@Query() q: GovernanceQueryDto) {
     if (!q.tenantId) throw new BadRequestException('tenantId required');
     return this.queryService.queryEvidence({
@@ -473,6 +507,7 @@ export class GovernanceController {
 
   // --- Audit ---
   @Get('audit/events')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listAuditEvents(@Query() q: GovernanceQueryDto) {
     if (!q.tenantId) throw new BadRequestException('tenantId required');
     return this.queryService.queryAudit({
@@ -483,6 +518,7 @@ export class GovernanceController {
   }
 
   @Post('audit/export')
+  @RequirePermissions(Permission.COMPLIANCE_READ, Permission.AUDIT_LOG_READ)
   async exportAudit(@Body() dto: AuditExportDto) {
     return this.auditExport.exportAuditTrail({
       tenantId: dto.tenantId,
@@ -506,6 +542,7 @@ export class GovernanceController {
   }
 
   @Get('reconciliation/mismatches')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listMismatches(@Query('tenantId') tenantId: string, @Query('reportId') reportId: string, @Query('type') type: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.reconciliation.listMismatches(tenantId, { reportId, type: type as any });
@@ -513,12 +550,14 @@ export class GovernanceController {
 
   // --- Metrics ---
   @Get('metrics')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async getMetrics(@Query('tenantId') tenantId: string, @Query('correlationId') correlationId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.metrics.getMetrics(tenantId, correlationId ?? `corr_${Date.now()}`);
   }
 
   @Get('overview')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async getOverview(@Query('tenantId') tenantId: string, @Query('correlationId') correlationId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.queryService.queryGovernanceOverview({ tenantId, correlationId: correlationId ?? `corr_${Date.now()}` });
@@ -526,12 +565,14 @@ export class GovernanceController {
 
   // --- Data Classification & Inventory ---
   @Get('classification')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listClassifications(@Query('tenantId') tenantId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.classification.listClassifications(tenantId);
   }
 
   @Get('inventory')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listInventory(@Query('tenantId') tenantId: string, @Query('subjectUserId') subjectUserId: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
     if (subjectUserId) return this.inventory.listForSubject(tenantId, subjectUserId);
@@ -540,17 +581,20 @@ export class GovernanceController {
 
   // --- Templates ---
   @Get('templates')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async listTemplates(@Query('jurisdiction') jurisdiction: string) {
     return this.templateService.listTemplates(jurisdiction);
   }
 
   @Get('templates/:reportType/:jurisdiction')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async getTemplate(@Param('reportType') reportType: string, @Param('jurisdiction') jurisdiction: string) {
     return this.templateService.getTemplate(reportType, jurisdiction);
   }
 
   // --- Policy ---
   @Get('policy/:jurisdiction')
+  @RequirePermissions(Permission.COMPLIANCE_READ)
   async getPolicy(@Param('jurisdiction') jurisdiction: string, @Query('tenantId') tenantId: string) {
     return this.policyService.buildPolicy(tenantId ?? null, jurisdiction);
   }

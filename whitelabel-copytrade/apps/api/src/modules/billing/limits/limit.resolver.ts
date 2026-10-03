@@ -32,7 +32,7 @@ export class LimitResolver {
     context: { userId: string; tenantId: string }
   ): Promise<Limit | null> {
     try {
-      return await this.service.getLimit(id);
+      return await this.service.getLimit(id, context.tenantId);
     } catch (error) {
       return null;
     }
@@ -133,7 +133,7 @@ export class LimitResolver {
     data: UpdateLimitRequest,
     context: { userId: string; tenantId: string }
   ): Promise<Limit> {
-    return this.service.updateLimit(id, data);
+    return this.service.updateLimit(id, data, context.tenantId);
   }
 
   /**
@@ -144,7 +144,7 @@ export class LimitResolver {
     context: { userId: string; tenantId: string }
   ): Promise<boolean> {
     try {
-      await this.service.deleteLimit(id);
+      await this.service.deleteLimit(id, context.tenantId);
       return true;
     } catch (error) {
       return false;

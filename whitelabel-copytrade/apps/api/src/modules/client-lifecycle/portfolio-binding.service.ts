@@ -30,15 +30,14 @@ export class PortfolioBindingService {
     if (!account) throw new BadRequestException('Institutional account not found or tenant mismatch');
 
     // Verify portfolio exists and belongs to same tenant — ownership verified
-    let portfolio: any = null;
-    try {
-      portfolio = await (this.prisma as any).portfolioAccountingProfile?.findFirst?.({ where: { id: portfolioId, tenantId } });
-      if (!portfolio) {
-        portfolio = await (this.prisma as any).portfolio?.findFirst?.({ where: { id: portfolioId, tenantId } });
-      }
-    } catch {}
-
-    if (portfolio && portfolio.tenantId && portfolio.tenantId !== tenantId) {
+    // Portfolios are PortfolioAccountingProfile rows (the model the lifecycle
+    // reconciliation checks bindings against). Tenant-scoped lookup: an unknown
+    // id and another tenant's id are both refused.
+    const portfolio: any = await this.prisma.portfolioAccountingProfile.findFirst({ where: { id: portfolioId, tenantId } });
+    if (!portfolio) {
+      throw new BadRequestException('Portfolio not found or tenant mismatch');
+    }
+    if (portfolio.tenantId && portfolio.tenantId !== tenantId) {
       throw new ForbiddenException('Cross-tenant portfolio binding rejected');
     }
 
@@ -68,7 +67,7 @@ export class PortfolioBindingService {
     });
 
     try {
-      const existing = await (this.prisma as any).accountRelationship.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).accountRelationship.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 

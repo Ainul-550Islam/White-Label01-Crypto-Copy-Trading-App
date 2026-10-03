@@ -27,10 +27,12 @@ import { MfaPolicyService } from './mfa-policy.service';
 import { SecurityEventService } from './security-event.service';
 import { SecurityAuditService } from './security-audit.service';
 import { SecurityThreatDetectionService } from './security-threat-detection.service';
-import { CreateSamlConfigDto, CreateOidcConfigDto, UpdateSsoConfigDto, SsoLoginInitiateDto, SsoCallbackDto } from './dto/sso-config.dto';
+import { CreateSamlConfigDto, CreateOidcConfigDto, UpdateSsoConfigDto } from './dto/sso-config.dto';
+import { CryptoService } from '../../infrastructure/crypto/crypto.service';
 import { CreateApiKeyDto, ListApiKeyDto, RotateApiKeyDto, RevokeApiKeyDto } from './dto/api-key.dto';
 import { CreateSecurityPolicyDto, UpdateSecurityPolicyDto, SessionQueryDto, DeviceQueryDto, SecurityEventQueryDto, ThreatQueryDto } from './dto/security-policy.dto';
 import { SsoProvider, ApiKeyState } from './security.types';
+import { isPlatformPrincipal } from '../../common/guards/request-principal';
 
 /**
  * RBAC-protected security API for SSO, API keys, sessions, devices, security events, and policy management.
@@ -51,7 +53,13 @@ export class SecurityController {
     private readonly eventService: SecurityEventService,
     private readonly auditService: SecurityAuditService,
     private readonly threatService: SecurityThreatDetectionService,
+    private readonly crypto: CryptoService,
   ) {}
+
+  /** Keyed, non-reversible client IP for audit records (never the raw address). */
+  private ipHashOf(req: { ip?: string }): string | undefined {
+    return req.ip ? this.crypto.hashIp(req.ip) : undefined;
+  }
 
   // ===== Security Policy =====
 
@@ -125,9 +133,15 @@ export class SecurityController {
   }
 
   // ===== SSO Configuration =====
+  //
+  // Round 7: tenant administrators (SSO_MANAGE + SECURITY_POLICY_WRITE, both in
+  // the TENANT_ADMIN matrix) manage SSO for their own tenant; the tenant comes
+  // from @TenantId, never from the body. PLATFORM_MANAGE used to be required as
+  // well, which made SSO a super-admin-only feature. The service refuses an
+  // enforcement that could lock the tenant's administrators out.
 
   @Post('sso/saml/config')
-  @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE, Permission.PLATFORM_MANAGE)
+  @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE)
   async configureSaml(@Body() dto: CreateSamlConfigDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
     return this.ssoService.configureSso({
       tenantId,
@@ -138,24 +152,42 @@ export class SecurityController {
       acsUrl: dto.acsUrl,
       audience: dto.audience,
       certificate: dto.certificate,
+      redirectUri: dto.redirectUri,
+      wantResponseSigned: dto.wantResponseSigned,
+      wantAssertionsEncrypted: dto.wantAssertionsEncrypted,
+      spDecryptionPrivateKey: dto.spDecryptionPrivateKey,
+      spEncryptionCertificate: dto.spEncryptionCertificate,
+      sloUrl: dto.sloUrl,
+      logoutCallbackUrl: dto.logoutCallbackUrl,
+      spSigningPrivateKey: dto.spSigningPrivateKey,
+      spSigningCertificate: dto.spSigningCertificate,
+      clockSkewSec: dto.clockSkewSec,
       allowedDomains: dto.allowedDomains,
       enforced: dto.enforced,
       jitEnabled: dto.jitEnabled,
       defaultRole: dto.defaultRole,
       actorId: user.userId || user.id,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      actorIsPlatform: isPlatformPrincipal(req),
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
 
   @Post('sso/oidc/config')
-  @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE, Permission.PLATFORM_MANAGE)
+  @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE)
   async configureOidc(@Body() dto: CreateOidcConfigDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
     return this.ssoService.configureSso({
       tenantId,
       providerType: SsoProvider.OIDC,
       issuer: dto.issuer,
       clientId: dto.clientId,
+      clientSecret: dto.clientSecret,
+      redirectUri: dto.redirectUri,
+      tokenEndpointAuthMethod: dto.tokenEndpointAuthMethod,
+      pkceRequired: dto.pkceRequired,
+      clockSkewSec: dto.clockSkewSec,
+      maxAuthAgeSec: dto.maxAuthAgeSec,
+      allowedAlgorithms: dto.allowedAlgorithms,
       audience: dto.audience,
       discoveryUrl: dto.discoveryUrl,
       jwksUrl: dto.jwksUrl,
@@ -166,13 +198,14 @@ export class SecurityController {
       defaultRole: dto.defaultRole,
       scopes: dto.scopes,
       actorId: user.userId || user.id,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      actorIsPlatform: isPlatformPrincipal(req),
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
 
   @Put('sso/:providerType/config')
-  @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE, Permission.PLATFORM_MANAGE)
+  @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE)
   async updateSsoConfig(@Param('providerType') providerType: string, @Body() dto: UpdateSsoConfigDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
     const provider = providerType.toUpperCase() as SsoProvider;
     if (![SsoProvider.SAML, SsoProvider.OIDC].includes(provider)) {
@@ -187,28 +220,49 @@ export class SecurityController {
       acsUrl: dto.acsUrl,
       audience: dto.audience,
       certificate: dto.certificate,
+      clientId: dto.clientId,
+      clientSecret: dto.clientSecret,
+      redirectUri: dto.redirectUri,
+      tokenEndpointAuthMethod: dto.tokenEndpointAuthMethod,
+      pkceRequired: dto.pkceRequired,
+      clockSkewSec: dto.clockSkewSec,
+      maxAuthAgeSec: dto.maxAuthAgeSec,
+      allowedAlgorithms: dto.allowedAlgorithms,
+      wantResponseSigned: dto.wantResponseSigned,
+      wantAssertionsEncrypted: dto.wantAssertionsEncrypted,
+      spDecryptionPrivateKey: dto.spDecryptionPrivateKey,
+      spEncryptionCertificate: dto.spEncryptionCertificate,
+      sloUrl: dto.sloUrl,
+      logoutCallbackUrl: dto.logoutCallbackUrl,
+      spSigningPrivateKey: dto.spSigningPrivateKey,
+      spSigningCertificate: dto.spSigningCertificate,
+      isActive: dto.isActive,
       allowedDomains: dto.allowedDomains,
       enforced: dto.enforced,
       jitEnabled: dto.jitEnabled,
       defaultRole: dto.defaultRole,
-      discoveryUrl: (dto as any).discoveryUrl,
-      jwksUrl: (dto as any).jwksUrl,
-      scopes: (dto as any).scopes,
+      discoveryUrl: dto.discoveryUrl,
+      jwksUrl: dto.jwksUrl,
+      scopes: dto.scopes,
       actorId: user.userId || user.id,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      actorIsPlatform: isPlatformPrincipal(req),
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
 
   @Delete('sso/:providerType/config')
-  @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE, Permission.PLATFORM_MANAGE)
+  @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE)
   async disableSso(@Param('providerType') providerType: string, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
     const provider = providerType.toUpperCase() as SsoProvider;
+    if (![SsoProvider.SAML, SsoProvider.OIDC].includes(provider)) {
+      throw new BadRequestException(`Invalid provider type ${providerType}`);
+    }
     return this.ssoService.disableSso({
       tenantId,
       providerType: provider,
       actorId: user.userId || user.id,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
@@ -220,48 +274,22 @@ export class SecurityController {
   }
 
   @Get('sso/providers')
-  @RequirePermissions(Permission.SSO_READ, Permission.PLATFORM_MANAGE)
+  @RequirePermissions(Permission.SSO_READ)
   async listSsoProviders(@TenantId() tenantId: string, @Query('tenantId') tenantIdQuery?: string, @CurrentUser() user?: any) {
     const effectiveTenantId = tenantIdQuery || tenantId;
     // Platform admin can query any tenant
     if (tenantIdQuery && tenantIdQuery !== tenantId) {
-      const perms = user?.permissions || user?.roles || [];
-      if (!perms.includes('PLATFORM_MANAGE')) {
+      // Cross-tenant reads are for platform staff holding platform:manage only.
+      const perms: string[] = Array.isArray(user?.permissions) ? user.permissions : [];
+      if (user?.isPlatformUser !== true || !perms.includes(Permission.PLATFORM_MANAGE)) {
         throw new ForbiddenException('Cross-tenant access denied');
       }
     }
     return this.ssoFactory.listTenantProviders(effectiveTenantId);
   }
 
-  @Post('sso/login/initiate')
-  @RequirePermissions(Permission.SSO_READ)
-  async initiateSsoLogin(@Body() dto: SsoLoginInitiateDto, @TenantId() tenantId: string, @Req() req: any) {
-    return this.ssoService.initiateLogin({
-      tenantId,
-      providerType: dto.providerType,
-      redirectUri: dto.redirectUri,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
-      requestId: req.headers['x-request-id'],
-    });
-  }
-
-  @Post('sso/login/callback')
-  // Public or authenticated - SSO callback must be validated, not bypass auth guard for enterprise flow
-  // We keep AuthGuard but allow unauthenticated via service validation
-  @RequirePermissions(Permission.SSO_READ)
-  async handleSsoCallback(@Body() dto: SsoCallbackDto, @TenantId() tenantId: string, @Req() req: any) {
-    return this.ssoService.handleCallback({
-      tenantId,
-      providerType: dto.providerType || SsoProvider.OIDC,
-      state: dto.state,
-      code: dto.code,
-      samlResponse: dto.samlResponse,
-      idToken: dto.idToken,
-      nonce: dto.nonce,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
-      requestId: req.headers['x-request-id'],
-    });
-  }
+  // SSO login itself is served by the public, rate-limited routes in
+  // modules/auth/sso (POST /v1/auth/sso/start, /callback, /saml/acs).
 
   // ===== API Keys =====
 
@@ -278,7 +306,7 @@ export class SecurityController {
       createdById: user.userId || user.id,
       callerPermissions: user.permissions || user.roles || [],
       idempotencyKey: dto.idempotencyKey,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
 
@@ -319,7 +347,7 @@ export class SecurityController {
       tenantId,
       caller,
       createdById: user.userId || user.id,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
       idempotencyKey: dto.idempotencyKey,
     });
@@ -344,7 +372,7 @@ export class SecurityController {
       tenantId,
       caller,
       reason: dto.reason,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
@@ -377,7 +405,7 @@ export class SecurityController {
       tenantId,
       reason: 'user_revoked',
       actorId: userId,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
@@ -393,7 +421,7 @@ export class SecurityController {
       exceptSessionId,
       reason: 'global_logout',
       actorId: userId,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
     return { revoked: count };
@@ -423,7 +451,7 @@ export class SecurityController {
       userId: user.userId || user.id,
       deviceId: body.deviceId,
       userAgent: body.userAgent || req.headers['user-agent'],
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
@@ -436,7 +464,7 @@ export class SecurityController {
       userId: user.userId || user.id,
       deviceId,
       actorId: user.userId || user.id,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
@@ -450,7 +478,7 @@ export class SecurityController {
       deviceId,
       actorId: user.userId || user.id,
       reason: body.reason,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       requestId: req.headers['x-request-id'],
     });
   }
@@ -464,7 +492,7 @@ export class SecurityController {
       userId: user.userId || user.id,
       deviceId,
       userAgent: req.headers['user-agent'],
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
     });
   }
 
@@ -479,7 +507,7 @@ export class SecurityController {
       roles: user.permissions || user.roles || [],
       operation,
       deviceId,
-      ipHash: req.ip ? `hash_${req.ip}` : undefined,
+      ipHash: this.ipHashOf(req),
       userAgent: req.headers['user-agent'],
     });
   }

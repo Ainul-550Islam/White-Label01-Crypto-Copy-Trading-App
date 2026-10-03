@@ -5,6 +5,7 @@ import { SecurityEventService } from './security-event.service';
 import { CacheService } from '../../infrastructure/redis/cache.service';
 import { SecurityRisk, SecurityDecision, SecurityEventType } from './security.types';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Detects suspicious login/session/API-key/device patterns from existing security events without becoming a second auth engine.
@@ -210,22 +211,18 @@ export class SecurityThreatDetectionService {
     const limit = filters?.limit || 20;
     const offset = (page - 1) * limit;
 
-    try {
-      const where: any = { tenantId };
-      if (filters?.userId) where.userId = filters.userId;
-      if (filters?.riskLevel) where.riskLevel = filters.riskLevel;
-      if (filters?.ruleId) where.ruleId = filters.ruleId;
-      if (filters?.resolved !== undefined) where.resolved = filters.resolved;
+    const where: any = { tenantId };
+    if (filters?.userId) where.userId = filters.userId;
+    if (filters?.riskLevel) where.riskLevel = filters.riskLevel;
+    if (filters?.ruleId) where.ruleId = filters.ruleId;
+    if (filters?.resolved !== undefined) where.resolved = filters.resolved;
 
-      const [data, total] = await Promise.all([
-        (this.prisma as any).securityThreatSignal?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
-        (this.prisma as any).securityThreatSignal?.count({ where }) || 0,
-      ]);
+    const [data, total] = await Promise.all([
+      (this.prisma as any).securityThreatSignal?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
+      (this.prisma as any).securityThreatSignal?.count({ where }) || 0,
+    ]);
 
-      return { data, total };
-    } catch {
-      return { data: [], total: 0 };
-    }
+    return { data, total };
   }
 
   async resolveThreat(signalId: string, tenantId: string, resolverId: string, resolution: string): Promise<any | null> {
@@ -246,8 +243,8 @@ export class SecurityThreatDetectionService {
 
       return updated || null;
     } catch (e: any) {
-      this.logger.warn(`Failed to resolve threat signal: ${e.message}`);
-      return null;
+      if (isRecordNotFound(e)) return null;
+      throw e;
     }
   }
 

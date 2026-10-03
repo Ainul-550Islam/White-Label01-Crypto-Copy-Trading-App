@@ -2,39 +2,9 @@
 
 Configuration, secure storage, the API client with refresh handling, routing, theming and localisation.
 
-54 files. Part of the complete Part 1 source dump - see `docs/source/README.md`.
+81 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
-
-FILE: apps/mobile/.flutter-plugins
-
-```text
-# This is a generated file; do not edit or check into version control.
-device_info_plus=/opt/pub_cache/hosted/pub.dev/device_info_plus-10.1.2/
-flutter_secure_storage=/opt/pub_cache/hosted/pub.dev/flutter_secure_storage-9.2.4/
-flutter_secure_storage_linux=/opt/pub_cache/hosted/pub.dev/flutter_secure_storage_linux-1.2.3/
-flutter_secure_storage_macos=/opt/pub_cache/hosted/pub.dev/flutter_secure_storage_macos-3.1.3/
-flutter_secure_storage_web=/opt/pub_cache/hosted/pub.dev/flutter_secure_storage_web-1.2.1/
-flutter_secure_storage_windows=/opt/pub_cache/hosted/pub.dev/flutter_secure_storage_windows-3.1.2/
-package_info_plus=/opt/pub_cache/hosted/pub.dev/package_info_plus-8.3.1/
-path_provider=/opt/pub_cache/hosted/pub.dev/path_provider-2.1.5/
-path_provider_android=/opt/pub_cache/hosted/pub.dev/path_provider_android-2.2.15/
-path_provider_foundation=/opt/pub_cache/hosted/pub.dev/path_provider_foundation-2.4.1/
-path_provider_linux=/opt/pub_cache/hosted/pub.dev/path_provider_linux-2.2.1/
-path_provider_windows=/opt/pub_cache/hosted/pub.dev/path_provider_windows-2.3.0/
-shared_preferences=/opt/pub_cache/hosted/pub.dev/shared_preferences-2.5.3/
-shared_preferences_android=/opt/pub_cache/hosted/pub.dev/shared_preferences_android-2.4.7/
-shared_preferences_foundation=/opt/pub_cache/hosted/pub.dev/shared_preferences_foundation-2.5.4/
-shared_preferences_linux=/opt/pub_cache/hosted/pub.dev/shared_preferences_linux-2.4.1/
-shared_preferences_web=/opt/pub_cache/hosted/pub.dev/shared_preferences_web-2.4.3/
-shared_preferences_windows=/opt/pub_cache/hosted/pub.dev/shared_preferences_windows-2.4.1/
-```
-
-FILE: apps/mobile/.flutter-plugins-dependencies
-
-```text
-{"info":"This is a generated file; do not edit or check into version control.","plugins":{"ios":[{"name":"device_info_plus","path":"/opt/pub_cache/hosted/pub.dev/device_info_plus-10.1.2/","native_build":true,"dependencies":[]},{"name":"flutter_secure_storage","path":"/opt/pub_cache/hosted/pub.dev/flutter_secure_storage-9.2.4/","native_build":true,"dependencies":[]},{"name":"package_info_plus","path":"/opt/pub_cache/hosted/pub.dev/package_info_plus-8.3.1/","native_build":true,"dependencies":[]},{"name":"path_provider_foundation","path":"/opt/pub_cache/hosted/pub.dev/path_provider_foundation-2.4.1/","shared_darwin_source":true,"native_build":true,"dependencies":[]},{"name":"shared_preferences_foundation","path":"/opt/pub_cache/hosted/pub.dev/shared_preferences_foundation-2.5.4/","shared_darwin_source":true,"native_build":true,"dependencies":[]}],"android":[{"name":"device_info_plus","path":"/opt/pub_cache/hosted/pub.dev/device_info_plus-10.1.2/","native_build":true,"dependencies":[]},{"name":"flutter_secure_storage","path":"/opt/pub_cache/hosted/pub.dev/flutter_secure_storage-9.2.4/","native_build":true,"dependencies":[]},{"name":"package_info_plus","path":"/opt/pub_cache/hosted/pub.dev/package_info_plus-8.3.1/","native_build":true,"dependencies":[]},{"name":"path_provider_android","path":"/opt/pub_cache/hosted/pub.dev/path_provider_android-2.2.15/","native_build":true,"dependencies":[]},{"name":"shared_preferences_android","path":"/opt/pub_cache/hosted/pub.dev/shared_preferences_android-2.4.7/","native_build":true,"dependencies":[]}],"macos":[{"name":"device_info_plus","path":"/opt/pub_cache/hosted/pub.dev/device_info_plus-10.1.2/","native_build":true,"dependencies":[]},{"name":"flutter_secure_storage_macos","path":"/opt/pub_cache/hosted/pub.dev/flutter_secure_storage_macos-3.1.3/","native_build":true,"dependencies":[]},{"name":"package_info_plus","path":"/opt/pub_cache/hosted/pub.dev/package_info_plus-8.3.1/","native_build":true,"dependencies":[]},{"name":"path_provider_foundation","path":"/opt/pub_cache/hosted/pub.dev/path_provider_foundation-2.4.1/","shared_darwin_source":true,"native_build":true,"dependencies":[]},{"name":"shared_preferences_foundation","path":"/opt/pub_cache/hosted/pub.dev/shared_preferences_foundation-2.5.4/","shared_darwin_source":true,"native_build":true,"dependencies":[]}],"linux":[{"name":"device_info_plus","path":"/opt/pub_cache/hosted/pub.dev/device_info_plus-10.1.2/","native_build":false,"dependencies":[]},{"name":"flutter_secure_storage_linux","path":"/opt/pub_cache/hosted/pub.dev/flutter_secure_storage_linux-1.2.3/","native_build":true,"dependencies":[]},{"name":"package_info_plus","path":"/opt/pub_cache/hosted/pub.dev/package_info_plus-8.3.1/","native_build":false,"dependencies":[]},{"name":"path_provider_linux","path":"/opt/pub_cache/hosted/pub.dev/path_provider_linux-2.2.1/","native_build":false,"dependencies":[]},{"name":"shared_preferences_linux","path":"/opt/pub_cache/hosted/pub.dev/shared_preferences_linux-2.4.1/","native_build":false,"dependencies":["path_provider_linux"]}],"windows":[{"name":"device_info_plus","path":"/opt/pub_cache/hosted/pub.dev/device_info_plus-10.1.2/","native_build":false,"dependencies":[]},{"name":"flutter_secure_storage_windows","path":"/opt/pub_cache/hosted/pub.dev/flutter_secure_storage_windows-3.1.2/","native_build":true,"dependencies":[]},{"name":"package_info_plus","path":"/opt/pub_cache/hosted/pub.dev/package_info_plus-8.3.1/","native_build":false,"dependencies":[]},{"name":"path_provider_windows","path":"/opt/pub_cache/hosted/pub.dev/path_provider_windows-2.3.0/","native_build":false,"dependencies":[]},{"name":"shared_preferences_windows","path":"/opt/pub_cache/hosted/pub.dev/shared_preferences_windows-2.4.1/","native_build":false,"dependencies":["path_provider_windows"]}],"web":[{"name":"device_info_plus","path":"/opt/pub_cache/hosted/pub.dev/device_info_plus-10.1.2/","dependencies":[]},{"name":"flutter_secure_storage_web","path":"/opt/pub_cache/hosted/pub.dev/flutter_secure_storage_web-1.2.1/","dependencies":[]},{"name":"package_info_plus","path":"/opt/pub_cache/hosted/pub.dev/package_info_plus-8.3.1/","dependencies":[]},{"name":"shared_preferences_web","path":"/opt/pub_cache/hosted/pub.dev/shared_preferences_web-2.4.3/","dependencies":[]}]},"dependencyGraph":[{"name":"device_info_plus","dependencies":[]},{"name":"flutter_secure_storage","dependencies":["flutter_secure_storage_linux","flutter_secure_storage_macos","flutter_secure_storage_web","flutter_secure_storage_windows"]},{"name":"flutter_secure_storage_linux","dependencies":[]},{"name":"flutter_secure_storage_macos","dependencies":[]},{"name":"flutter_secure_storage_web","dependencies":[]},{"name":"flutter_secure_storage_windows","dependencies":["path_provider"]},{"name":"package_info_plus","dependencies":[]},{"name":"path_provider","dependencies":["path_provider_android","path_provider_foundation","path_provider_linux","path_provider_windows"]},{"name":"path_provider_android","dependencies":[]},{"name":"path_provider_foundation","dependencies":[]},{"name":"path_provider_linux","dependencies":[]},{"name":"path_provider_windows","dependencies":[]},{"name":"shared_preferences","dependencies":["shared_preferences_android","shared_preferences_foundation","shared_preferences_linux","shared_preferences_web","shared_preferences_windows"]},{"name":"shared_preferences_android","dependencies":[]},{"name":"shared_preferences_foundation","dependencies":[]},{"name":"shared_preferences_linux","dependencies":["path_provider_linux"]},{"name":"shared_preferences_web","dependencies":[]},{"name":"shared_preferences_windows","dependencies":["path_provider_windows"]}],"date_created":"2026-09-11 10:26:12.595775","version":"3.24.5","swift_package_manager_enabled":false}
-```
 
 FILE: apps/mobile/.gitignore
 
@@ -51,18 +21,20 @@ android/local.properties
 *.iml
 .flutter-plugins
 .flutter-plugins-dependencies
-lib/l10n/app_localizations*.dart
+# Generated localizations are committed so the repo is complete (see audit).
+# lib/l10n/app_localizations*.dart
 ```
 
 FILE: apps/mobile/README.md
 
 ````markdown
-# Mobile client (Part 1 foundation)
+# Mobile client
 
-Flutter client for the white-label copy-trading platform. Part 1 ships the
-foundation only: configuration, networking, secure token storage, authentication
-state, routing, theming, localisation and error handling. Trading screens are
-intentionally absent.
+Flutter client for the white-label copy-trading platform: configuration,
+networking, secure token storage, authentication state, routing, theming,
+localisation and error handling, plus the follower-facing features below.
+Verified with Flutter 3.47.5 (the version pinned in CI): `flutter analyze`
+reports no errors or warnings and `flutter test` passes.
 
 ## What is here
 
@@ -78,6 +50,24 @@ intentionally absent.
 | Theming from tenant branding | `lib/core/theme/` |
 | Localisation (en, bn) | `lib/l10n/` |
 | Authentication feature | `lib/features/auth/` |
+| Strategies (read-only) and risk | `lib/features/strategies/`, `lib/features/risk/` |
+| Exchange accounts: list, connect, health check, disable | `lib/features/exchange_accounts/` |
+| Copy trading: rankings, subscribe, pause/resume/stop, activity | `lib/features/copy_trading/` |
+| Funding: wallets, deposit address, transactions | `lib/features/funding/` |
+| Portfolio: API-reported facts per profile | `lib/features/portfolio/` |
+| Notifications: inbox, read state, preferences | `lib/features/notifications/` |
+| Feature repositories and providers | `lib/core/di/feature_providers.dart` |
+| Shared loading / error / empty states | `lib/core/widgets/async_body.dart` |
+
+### Deliberately not on mobile
+
+* Enabling LIVE trading on an exchange account, key rotation, revocation and
+  IP allow-lists: web console only (they need step-up review).
+* Withdrawals: web console only (policy checks and approval workflow).
+* Any client-side recomputation of portfolio or performance numbers: the
+  screens show what the API reports and mark missing panels as partial data.
+* Exchange API secrets are sent once over TLS at connect time, never stored
+  on the device, never logged, and the form fields are cleared afterwards.
 
 ## Security notes
 
@@ -143,6 +133,7 @@ analyzer:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "lib/l10n/app_localizations*.dart"
+    - build/**
 
 linter:
   rules:
@@ -166,7 +157,6 @@ output-localization-file: app_localizations.dart
 output-class: AppLocalizations
 # Emit into lib/l10n instead of the synthetic flutter_gen package so imports are
 # ordinary relative paths and analysis works without a special resolver.
-synthetic-package: false
 nullable-getter: false
 ```
 
@@ -337,6 +327,107 @@ enum AppEnvironment {
   bool get isProduction => this == AppEnvironment.production;
   bool get isDevelopment => this == AppEnvironment.development;
 }
+```
+
+FILE: apps/mobile/lib/core/di/feature_providers.dart
+
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../features/copy_trading/data/copy_trading_repository.dart';
+import '../../features/copy_trading/domain/copy_models.dart';
+import '../../features/exchange_accounts/data/exchange_account_repository.dart';
+import '../../features/exchange_accounts/domain/exchange_account_models.dart';
+import '../../features/funding/data/funding_repository.dart';
+import '../../features/funding/domain/funding_models.dart';
+import '../../features/notifications/data/notification_repository.dart';
+import '../../features/notifications/domain/notification_models.dart';
+import '../../features/portfolio/data/portfolio_repository.dart';
+import '../../features/portfolio/domain/portfolio_models.dart';
+import 'providers.dart';
+
+/// Phase 3 composition: exchange accounts, copy trading, funding, portfolio
+/// and notifications. Same single object graph as providers.dart; every
+/// repository is one override point for tests. Reads are autoDispose
+/// FutureProviders, so leaving a screen drops its data and returning
+/// re-fetches - nothing is served from a stale in-memory copy.
+
+final Provider<ExchangeAccountRepository> exchangeAccountRepositoryProvider = Provider<ExchangeAccountRepository>((Ref ref) {
+  return ExchangeAccountRepository(apiClient: ref.watch(apiClientProvider), logger: ref.watch(appLoggerProvider));
+});
+
+final AutoDisposeFutureProvider<List<ExchangeAccountSummary>> exchangeAccountsProvider =
+    FutureProvider.autoDispose<List<ExchangeAccountSummary>>((Ref ref) {
+  return ref.watch(exchangeAccountRepositoryProvider).fetchAccounts();
+});
+
+final Provider<CopyTradingRepository> copyTradingRepositoryProvider = Provider<CopyTradingRepository>((Ref ref) {
+  return CopyTradingRepository(apiClient: ref.watch(apiClientProvider), logger: ref.watch(appLoggerProvider));
+});
+
+final AutoDisposeFutureProvider<List<RankedTrader>> copyRankingsProvider = FutureProvider.autoDispose<List<RankedTrader>>((Ref ref) {
+  return ref.watch(copyTradingRepositoryProvider).fetchRankings();
+});
+
+final AutoDisposeFutureProviderFamily<List<TraderStrategySummary>, String> traderStrategiesProvider =
+    FutureProvider.autoDispose.family<List<TraderStrategySummary>, String>((Ref ref, String traderId) {
+  return ref.watch(copyTradingRepositoryProvider).fetchTraderStrategies(traderId);
+});
+
+final AutoDisposeFutureProvider<List<CopySubscriptionSummary>> mySubscriptionsProvider =
+    FutureProvider.autoDispose<List<CopySubscriptionSummary>>((Ref ref) {
+  return ref.watch(copyTradingRepositoryProvider).fetchMySubscriptions();
+});
+
+final AutoDisposeFutureProvider<List<CopyExecutionSummary>> copyExecutionsProvider =
+    FutureProvider.autoDispose<List<CopyExecutionSummary>>((Ref ref) {
+  return ref.watch(copyTradingRepositoryProvider).fetchExecutions();
+});
+
+final Provider<FundingRepository> fundingRepositoryProvider = Provider<FundingRepository>((Ref ref) {
+  return FundingRepository(apiClient: ref.watch(apiClientProvider), logger: ref.watch(appLoggerProvider));
+});
+
+final AutoDisposeFutureProvider<List<FundingAccountSummary>> fundingAccountsProvider =
+    FutureProvider.autoDispose<List<FundingAccountSummary>>((Ref ref) {
+  return ref.watch(fundingRepositoryProvider).fetchAccounts();
+});
+
+final AutoDisposeFutureProvider<List<FundingRequestSummary>> fundingHistoryProvider =
+    FutureProvider.autoDispose<List<FundingRequestSummary>>((Ref ref) {
+  return ref.watch(fundingRepositoryProvider).fetchHistory();
+});
+
+final Provider<PortfolioRepository> portfolioRepositoryProvider = Provider<PortfolioRepository>((Ref ref) {
+  return PortfolioRepository(apiClient: ref.watch(apiClientProvider), logger: ref.watch(appLoggerProvider));
+});
+
+final AutoDisposeFutureProvider<List<PortfolioProfile>> portfolioProfilesProvider =
+    FutureProvider.autoDispose<List<PortfolioProfile>>((Ref ref) {
+  return ref.watch(portfolioRepositoryProvider).fetchProfiles();
+});
+
+final AutoDisposeFutureProviderFamily<PortfolioOverview, PortfolioProfile> portfolioOverviewProvider =
+    FutureProvider.autoDispose.family<PortfolioOverview, PortfolioProfile>((Ref ref, PortfolioProfile profile) {
+  return ref.watch(portfolioRepositoryProvider).fetchOverview(profile);
+});
+
+final Provider<NotificationRepository> notificationRepositoryProvider = Provider<NotificationRepository>((Ref ref) {
+  return NotificationRepository(apiClient: ref.watch(apiClientProvider), logger: ref.watch(appLoggerProvider));
+});
+
+final AutoDisposeFutureProvider<List<AppNotification>> notificationsProvider = FutureProvider.autoDispose<List<AppNotification>>((Ref ref) {
+  return ref.watch(notificationRepositoryProvider).fetchNotifications();
+});
+
+final AutoDisposeFutureProvider<int> unreadNotificationCountProvider = FutureProvider.autoDispose<int>((Ref ref) {
+  return ref.watch(notificationRepositoryProvider).fetchUnreadCount();
+});
+
+final AutoDisposeFutureProvider<List<NotificationPreference>> notificationPreferencesProvider =
+    FutureProvider.autoDispose<List<NotificationPreference>>((Ref ref) {
+  return ref.watch(notificationRepositoryProvider).fetchPreferences();
+});
 ```
 
 FILE: apps/mobile/lib/core/di/providers.dart
@@ -1032,7 +1123,8 @@ class ApiEndpoints {
   static String session(String id) => '/auth/sessions/$id';
 
   static const String twoFactorSetup = '/auth/two-factor/setup';
-  static const String twoFactorEnable = '/auth/two-factor/enable';
+  /// Confirms a pending two-factor setup with the first TOTP code (enables 2FA).
+  static const String twoFactorEnable = '/auth/two-factor/confirm';
   static const String twoFactorDisable = '/auth/two-factor/disable';
 
   static const String currentUser = '/users/me';
@@ -1060,6 +1152,38 @@ class ApiEndpoints {
   static const String notificationUnreadCount = '/notifications/unread-count';
   static const String notificationPreferences = '/notifications/preferences';
   static String markNotificationRead(String id) => '/notifications/$id/read';
+  static const String notificationsReadAll = '/notifications/read-all';
+
+  /// Phase 3: exchange accounts. Credentials are sent once on connect and
+  /// never read back (the API only returns a masked key).
+  static const String exchangeAccounts = '/exchanges/accounts';
+  static const String exchangeVenues = '/exchanges/registry/venues';
+  static String exchangeAccount(String id) => '/exchanges/accounts/$id';
+  static String exchangeAccountDisable(String id) => '/exchanges/accounts/$id/disable';
+  static String exchangeHealthCheck(String id) => '/exchanges/health/$id/check';
+
+  /// Phase 3: copy trading (follower side).
+  static const String copyRankings = '/copy-trading/rankings';
+  static String copyTraderStrategies(String traderId) => '/copy-trading/traders/$traderId/strategies';
+  static const String copySubscriptions = '/copy-trading/subscriptions';
+  static const String copyMySubscriptions = '/copy-trading/subscriptions/me';
+  static String copySubscriptionAction(String id, String action) => '/copy-trading/subscriptions/$id/$action';
+  static const String copyExecutions = '/copy-trading/executions';
+
+  /// Phase 3: funding through client-lifecycle requests on the customer's own
+  /// accounts (the API filters every list to the caller). Custody wallets and
+  /// deposit addresses are operator-only and answer 403 to customers.
+  /// Withdrawals are read-only here: creating one needs destination checks,
+  /// approvals and step-up auth that live in the web app.
+  static const String fundingAccounts = '/client-lifecycle/accounts';
+  static const String fundingRequests = '/client-lifecycle/funding';
+  static const String withdrawalRequests = '/client-lifecycle/withdrawals';
+
+  /// Phase 3: portfolio accounting (read-only).
+  static const String portfolioProfiles = '/portfolio-accounting/profiles';
+  static const String portfolioHoldings = '/portfolio-accounting/holdings';
+  static const String portfolioNav = '/portfolio-accounting/nav';
+  static const String portfolioPnl = '/portfolio-accounting/pnl';
 }
 ```
 
@@ -1293,6 +1417,83 @@ class AuthInterceptor extends Interceptor {
 }
 ```
 
+FILE: apps/mobile/lib/core/network/json_read.dart
+
+```dart
+/// Tolerant JSON readers shared by the Phase 3 feature repositories.
+///
+/// The API answers list routes in three shapes (a bare array, `{ data: [] }`
+/// and `{ items: [] }`) depending on the module. Parsing through these
+/// helpers means a shape difference degrades to an empty list or a null
+/// field instead of a crash, and a field is never invented: absent stays
+/// absent.
+class JsonRead {
+  const JsonRead._();
+
+  static Map<String, Object?> map(Object? value) {
+    if (value is Map) {
+      return value.map<String, Object?>(
+        (Object? key, Object? item) => MapEntry<String, Object?>(key.toString(), item),
+      );
+    }
+    return const <String, Object?>{};
+  }
+
+  /// Rows of a list response, whatever envelope the module uses.
+  static List<Map<String, Object?>> rows(Object? value) {
+    Object? list = value;
+    if (value is Map) {
+      list = value['data'] ?? value['items'] ?? value['results'];
+    }
+    if (list is! List) {
+      return const <Map<String, Object?>>[];
+    }
+    return list
+        .whereType<Map<Object?, Object?>>()
+        .map<Map<String, Object?>>(map)
+        .toList(growable: false);
+  }
+
+  static String? str(Map<String, Object?> json, String key) {
+    final Object? value = json[key];
+    if (value == null) {
+      return null;
+    }
+    final String text = value.toString();
+    return text.isEmpty ? null : text;
+  }
+
+  static String strOr(Map<String, Object?> json, String key, String fallback) =>
+      str(json, key) ?? fallback;
+
+  static bool boolean(Map<String, Object?> json, String key) => json[key] == true;
+
+  static int integer(Map<String, Object?> json, String key) {
+    final Object? value = json[key];
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static DateTime? date(Map<String, Object?> json, String key) {
+    final String? text = str(json, key);
+    return text == null ? null : DateTime.tryParse(text)?.toLocal();
+  }
+
+  static List<String> strings(Map<String, Object?> json, String key) {
+    final Object? value = json[key];
+    if (value is! List) {
+      return const <String>[];
+    }
+    return value.map((Object? item) => item.toString()).toList(growable: false);
+  }
+}
+```
+
 FILE: apps/mobile/lib/core/network/logging_interceptor.dart
 
 ```dart
@@ -1364,6 +1565,11 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/risk/presentation/risk_screen.dart';
 import '../../features/strategies/presentation/strategies_screen.dart';
+import '../../features/copy_trading/presentation/copy_trading_screen.dart';
+import '../../features/exchange_accounts/presentation/exchange_accounts_screen.dart';
+import '../../features/funding/presentation/funding_screen.dart';
+import '../../features/notifications/presentation/notifications_screen.dart';
+import '../../features/portfolio/presentation/portfolio_screen.dart';
 import '../di/providers.dart';
 import 'route_paths.dart';
 
@@ -1460,6 +1666,31 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         builder: (BuildContext context, GoRouterState state) => const RiskScreen(),
       ),
       GoRoute(
+        path: RoutePaths.exchangeAccounts,
+        name: RouteNames.exchangeAccounts,
+        builder: (BuildContext context, GoRouterState state) => const ExchangeAccountsScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.copyTrading,
+        name: RouteNames.copyTrading,
+        builder: (BuildContext context, GoRouterState state) => const CopyTradingScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.funding,
+        name: RouteNames.funding,
+        builder: (BuildContext context, GoRouterState state) => const FundingScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.portfolio,
+        name: RouteNames.portfolio,
+        builder: (BuildContext context, GoRouterState state) => const PortfolioScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.notifications,
+        name: RouteNames.notifications,
+        builder: (BuildContext context, GoRouterState state) => const NotificationsScreen(),
+      ),
+      GoRoute(
         path: RoutePaths.settings,
         name: RouteNames.settings,
         builder: (BuildContext context, GoRouterState state) => const SettingsScreen(),
@@ -1506,6 +1737,11 @@ class RoutePaths {
   static const String risk = '/risk';
   static const String settings = '/settings';
   static const String security = '/settings/security';
+  static const String exchangeAccounts = '/exchange-accounts';
+  static const String copyTrading = '/copy-trading';
+  static const String funding = '/funding';
+  static const String portfolio = '/portfolio';
+  static const String notifications = '/notifications';
 }
 
 class RouteNames {
@@ -1519,6 +1755,11 @@ class RouteNames {
   static const String risk = 'risk';
   static const String settings = 'settings';
   static const String security = 'security';
+  static const String exchangeAccounts = 'exchangeAccounts';
+  static const String copyTrading = 'copyTrading';
+  static const String funding = 'funding';
+  static const String portfolio = 'portfolio';
+  static const String notifications = 'notifications';
 }
 ```
 
@@ -1772,7 +2013,7 @@ class AppTheme {
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
@@ -1937,6 +2178,131 @@ final StateNotifierProvider<BrandingController, BrandTokens> brandingProvider =
     StateNotifierProvider<BrandingController, BrandTokens>((Ref ref) {
   return BrandingController(ref.watch(apiClientProvider));
 });
+```
+
+FILE: apps/mobile/lib/core/widgets/async_body.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../error/app_exception.dart';
+import '../../l10n/app_localizations.dart';
+
+/// Loading / error / empty / data rendering shared by the Phase 3 screens.
+/// An error is shown as the API's own message with a retry, never replaced
+/// by placeholder data.
+class AsyncBody<T> extends StatelessWidget {
+  const AsyncBody({
+    super.key,
+    required this.value,
+    required this.onRetry,
+    required this.builder,
+    this.isEmpty,
+    this.emptyText,
+  });
+
+  final AsyncValue<T> value;
+  final VoidCallback onRetry;
+  final Widget Function(T data) builder;
+  final bool Function(T data)? isEmpty;
+  final String? emptyText;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return value.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (Object error, StackTrace _) => ErrorPanel(message: describeError(error, l10n), onRetry: onRetry),
+      data: (T data) {
+        if (isEmpty != null && isEmpty!(data)) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(emptyText ?? l10n.nothingHereYet, textAlign: TextAlign.center),
+            ),
+          );
+        }
+        return builder(data);
+      },
+    );
+  }
+}
+
+String describeError(Object error, AppLocalizations l10n) {
+  if (error is AppException) {
+    return error.message;
+  }
+  if (error is ArgumentError) {
+    return error.message.toString();
+  }
+  return l10n.genericError;
+}
+
+class ErrorPanel extends StatelessWidget {
+  const ErrorPanel({super.key, required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
+            const SizedBox(height: 12),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            OutlinedButton(onPressed: onRetry, child: Text(l10n.retry)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Runs a write, shows the outcome in a snackbar, returns whether it worked.
+Future<bool> runAction(BuildContext context, Future<void> Function() action, {required String success}) async {
+  final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+  final AppLocalizations l10n = AppLocalizations.of(context);
+  try {
+    await action();
+    messenger.showSnackBar(SnackBar(content: Text(success)));
+    return true;
+  } catch (error) {
+    messenger.showSnackBar(SnackBar(content: Text(describeError(error, l10n))));
+    return false;
+  }
+}
+
+Future<bool> confirm(BuildContext context, {required String title, required String message}) async {
+  final AppLocalizations l10n = AppLocalizations.of(context);
+  final bool? ok = await showDialog<bool>(
+    context: context,
+    builder: (BuildContext context) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.cancel)),
+        FilledButton(onPressed: () => Navigator.of(context).pop(true), child: Text(l10n.confirm)),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
+String formatTimestamp(DateTime? at) {
+  if (at == null) {
+    return '—';
+  }
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${at.year}-${two(at.month)}-${two(at.day)} ${two(at.hour)}:${two(at.minute)}';
+}
 ```
 
 FILE: apps/mobile/lib/features/auth/data/auth_repository.dart
@@ -2858,6 +3224,4276 @@ class _TwoFactorScreenState extends ConsumerState<TwoFactorScreen> {
 }
 ```
 
+FILE: apps/mobile/lib/features/billing/entitlements/entitlement.dart
+
+```dart
+/// Entitlement Model
+/// 
+/// Represents a user's entitlement in the mobile application.
+library;
+
+enum EntitlementStatus {
+  active,
+  suspended,
+  expired,
+  cancelled,
+  trial,
+}
+
+enum UsagePeriod {
+  daily,
+  weekly,
+  monthly,
+  yearly,
+  lifetime,
+}
+
+class EntitlementFeature {
+  final String key;
+  final String name;
+  final String description;
+  final bool enabled;
+  final int? limit;
+  final String? unit;
+  final int? usage;
+  final double? usagePercentage;
+
+  const EntitlementFeature({
+    required this.key,
+    required this.name,
+    required this.description,
+    this.enabled = true,
+    this.limit,
+    this.unit,
+    this.usage,
+    this.usagePercentage,
+  });
+
+  factory EntitlementFeature.fromJson(Map<String, dynamic> json) {
+    return EntitlementFeature(
+      key: json['key'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String? ?? '',
+      enabled: json['enabled'] as bool? ?? true,
+      limit: json['limit'] as int?,
+      unit: json['unit'] as String?,
+      usage: json['usage'] as int?,
+      usagePercentage: (json['usagePercentage'] as num?)?.toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'key': key,
+      'name': name,
+      'description': description,
+      'enabled': enabled,
+      if (limit != null) 'limit': limit,
+      if (unit != null) 'unit': unit,
+      if (usage != null) 'usage': usage,
+      if (usagePercentage != null) 'usagePercentage': usagePercentage,
+    };
+  }
+
+  bool get isNearLimit => usagePercentage != null && usagePercentage! > 80;
+  bool get isAtLimit => usagePercentage != null && usagePercentage! >= 100;
+}
+
+class EntitlementLimit {
+  final String key;
+  final String name;
+  final String description;
+  final int value;
+  final String unit;
+  final int usage;
+  final double usagePercentage;
+  final bool hardLimit;
+  final DateTime? resetAt;
+
+  const EntitlementLimit({
+    required this.key,
+    required this.name,
+    required this.description,
+    required this.value,
+    required this.unit,
+    required this.usage,
+    required this.usagePercentage,
+    this.hardLimit = true,
+    this.resetAt,
+  });
+
+  factory EntitlementLimit.fromJson(Map<String, dynamic> json) {
+    return EntitlementLimit(
+      key: json['key'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String? ?? '',
+      value: json['value'] as int,
+      unit: json['unit'] as String,
+      usage: json['usage'] as int,
+      usagePercentage: (json['usagePercentage'] as num).toDouble(),
+      hardLimit: json['hardLimit'] as bool? ?? true,
+      resetAt: json['resetAt'] != null ? DateTime.parse(json['resetAt'] as String) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'key': key,
+      'name': name,
+      'description': description,
+      'value': value,
+      'unit': unit,
+      'usage': usage,
+      'usagePercentage': usagePercentage,
+      'hardLimit': hardLimit,
+      if (resetAt != null) 'resetAt': resetAt!.toIso8601String(),
+    };
+  }
+
+  bool get isUnlimited => value == -1;
+  bool get isNearLimit => usagePercentage > 80;
+  bool get isAtLimit => usagePercentage >= 100;
+  bool get isOverLimit => usage > value && !isUnlimited;
+
+  int get remaining => isUnlimited ? -1 : (value - usage).clamp(0, value);
+
+  String get displayValue {
+    if (isUnlimited) return 'Unlimited';
+    return '$value $unit';
+  }
+
+  String get usageDisplay {
+    if (isUnlimited) return '$usage used';
+    return '$usage / $value $unit';
+  }
+}
+
+class Entitlement {
+  final String id;
+  final String tenantId;
+  final String userId;
+  final String planId;
+  final String planName;
+  final String planTier;
+  final EntitlementStatus status;
+  final List<EntitlementFeature> features;
+  final List<EntitlementLimit> limits;
+  final DateTime startsAt;
+  final DateTime? expiresAt;
+  final DateTime? trialEndsAt;
+  final DateTime? cancelledAt;
+  final Map<String, String> metadata;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const Entitlement({
+    required this.id,
+    required this.tenantId,
+    required this.userId,
+    required this.planId,
+    required this.planName,
+    required this.planTier,
+    required this.status,
+    required this.features,
+    required this.limits,
+    required this.startsAt,
+    this.expiresAt,
+    this.trialEndsAt,
+    this.cancelledAt,
+    this.metadata = const {},
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory Entitlement.fromJson(Map<String, dynamic> json) {
+    return Entitlement(
+      id: json['id'] as String,
+      tenantId: json['tenantId'] as String,
+      userId: json['userId'] as String,
+      planId: json['planId'] as String,
+      planName: json['planName'] as String,
+      planTier: json['planTier'] as String,
+      status: EntitlementStatus.values.firstWhere(
+        (e) => e.name == json['status'],
+        orElse: () => EntitlementStatus.active,
+      ),
+      features: (json['features'] as List<dynamic>?)
+              ?.map((e) => EntitlementFeature.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      limits: (json['limits'] as List<dynamic>?)
+              ?.map((e) => EntitlementLimit.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      startsAt: DateTime.parse(json['startsAt'] as String),
+      expiresAt: json['expiresAt'] != null ? DateTime.parse(json['expiresAt'] as String) : null,
+      trialEndsAt: json['trialEndsAt'] != null ? DateTime.parse(json['trialEndsAt'] as String) : null,
+      cancelledAt: json['cancelledAt'] != null ? DateTime.parse(json['cancelledAt'] as String) : null,
+      metadata: Map<String, String>.from(json['metadata'] as Map? ?? {}),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: DateTime.parse(json['updatedAt'] as String),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'tenantId': tenantId,
+      'userId': userId,
+      'planId': planId,
+      'planName': planName,
+      'planTier': planTier,
+      'status': status.name,
+      'features': features.map((e) => e.toJson()).toList(),
+      'limits': limits.map((e) => e.toJson()).toList(),
+      'startsAt': startsAt.toIso8601String(),
+      if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
+      if (trialEndsAt != null) 'trialEndsAt': trialEndsAt!.toIso8601String(),
+      if (cancelledAt != null) 'cancelledAt': cancelledAt!.toIso8601String(),
+      'metadata': metadata,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+    };
+  }
+
+  bool get isActive => status == EntitlementStatus.active;
+  bool get isTrial => status == EntitlementStatus.trial;
+  bool get isSuspended => status == EntitlementStatus.suspended;
+  bool get isExpired => status == EntitlementStatus.expired;
+  bool get isCancelled => status == EntitlementStatus.cancelled;
+
+  bool get isExpiringSoon {
+    if (expiresAt == null) return false;
+    final daysUntilExpiry = expiresAt!.difference(DateTime.now()).inDays;
+    return daysUntilExpiry <= 7 && daysUntilExpiry > 0;
+  }
+
+  int? get daysUntilExpiry {
+    if (expiresAt == null) return null;
+    return expiresAt!.difference(DateTime.now()).inDays;
+  }
+
+  EntitlementFeature? getFeature(String key) {
+    return features.where((f) => f.key == key).firstOrNull;
+  }
+
+  bool hasFeature(String key) {
+    final feature = getFeature(key);
+    return feature?.enabled ?? false;
+  }
+
+  EntitlementLimit? getLimit(String key) {
+    return limits.where((l) => l.key == key).firstOrNull;
+  }
+
+  bool canPerformAction(String limitKey) {
+    final limit = getLimit(limitKey);
+    if (limit == null) return true;
+    if (limit.isUnlimited) return true;
+    return !limit.isOverLimit;
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/billing/entitlements/entitlement_service.dart
+
+```dart
+/// Entitlement Service
+/// 
+/// Service for managing billing entitlements in the mobile application.
+library;
+
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'entitlement.dart';
+
+class EntitlementService {
+  final String baseUrl;
+  final String? authToken;
+
+  EntitlementService({
+    required this.baseUrl,
+    this.authToken,
+  });
+
+  Map<String, String> get _headers => {
+    'Content-Type': 'application/json',
+    if (authToken != null) 'Authorization': 'Bearer $authToken',
+  };
+
+  /// Get the current user's entitlement
+  Future<Entitlement?> getCurrentEntitlement() async {
+    final uri = Uri.parse('$baseUrl/api/billing/entitlements/current');
+    final response = await http.get(uri, headers: _headers);
+    if (response.statusCode == 200) {
+      return Entitlement.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 404) return null;
+    throw Exception('Failed to fetch entitlement: ${response.statusCode}');
+  }
+
+  /// Get a specific entitlement by ID
+  Future<Entitlement?> getEntitlement(String entitlementId) async {
+    final uri = Uri.parse('$baseUrl/api/billing/entitlements/$entitlementId');
+    final response = await http.get(uri, headers: _headers);
+    if (response.statusCode == 200) {
+      return Entitlement.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 404) return null;
+    throw Exception('Failed to fetch entitlement: ${response.statusCode}');
+  }
+
+  /// Check if user has access to a specific feature
+  Future<bool> hasFeatureAccess(String featureKey) async {
+    final uri = Uri.parse('$baseUrl/api/billing/entitlements/check/$featureKey');
+    final response = await http.get(uri, headers: _headers);
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['allowed'] as bool;
+    }
+    return false;
+  }
+
+  /// Check if user can perform an action (limit check)
+  Future<bool> canPerformAction(String limitKey) async {
+    final uri = Uri.parse('$baseUrl/api/billing/entitlements/limits/$limitKey/check');
+    final response = await http.get(uri, headers: _headers);
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['allowed'] as bool;
+    }
+    return false;
+  }
+
+  /// Record usage for a feature
+  Future<void> recordUsage(String featureKey, {int amount = 1}) async {
+    final uri = Uri.parse('$baseUrl/api/billing/entitlements/usage');
+    final response = await http.post(
+      uri,
+      headers: _headers,
+      body: json.encode({
+        'featureKey': featureKey,
+        'amount': amount,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to record usage: ${response.statusCode}');
+    }
+  }
+
+  /// Get usage history for a feature
+  Future<List<Map<String, dynamic>>> getUsageHistory(
+    String featureKey, {
+    int limit = 100,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/billing/entitlements/usage/$featureKey')
+        .replace(queryParameters: {'limit': limit.toString()});
+    final response = await http.get(uri, headers: _headers);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body) as List<dynamic>;
+      return data.cast<Map<String, dynamic>>();
+    }
+    throw Exception('Failed to fetch usage history: ${response.statusCode}');
+  }
+
+  /// Get features that are near their usage limits
+  Future<List<EntitlementLimit>> getNearLimitFeatures() async {
+    final entitlement = await getCurrentEntitlement();
+    if (entitlement == null) return [];
+    return entitlement.limits.where((l) => l.isNearLimit).toList();
+  }
+
+  /// Get features that have exceeded their limits
+  Future<List<EntitlementLimit>> getExceededFeatures() async {
+    final entitlement = await getCurrentEntitlement();
+    if (entitlement == null) return [];
+    return entitlement.limits.where((l) => l.isOverLimit).toList();
+  }
+
+  /// Upgrade to a new plan
+  Future<Entitlement> upgradePlan(String newPlanId) async {
+    final uri = Uri.parse('$baseUrl/api/billing/entitlements/upgrade');
+    final response = await http.post(
+      uri,
+      headers: _headers,
+      body: json.encode({'planId': newPlanId}),
+    );
+    if (response.statusCode == 200) {
+      return Entitlement.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    throw Exception('Failed to upgrade plan: ${response.statusCode}');
+  }
+
+  /// Cancel current entitlement
+  Future<void> cancelEntitlement(String reason) async {
+    final uri = Uri.parse('$baseUrl/api/billing/entitlements/cancel');
+    final response = await http.post(
+      uri,
+      headers: _headers,
+      body: json.encode({'reason': reason}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to cancel entitlement: ${response.statusCode}');
+    }
+  }
+
+  /// Get entitlement summary for display
+  Future<Map<String, dynamic>> getEntitlementSummary() async {
+    final entitlement = await getCurrentEntitlement();
+    if (entitlement == null) {
+      return {
+        'hasEntitlement': false,
+        'planName': 'No Plan',
+        'status': 'none',
+      };
+    }
+
+    final nearLimitCount = entitlement.limits.where((l) => l.isNearLimit).length;
+    final exceededCount = entitlement.limits.where((l) => l.isOverLimit).length;
+
+    return {
+      'hasEntitlement': true,
+      'planName': entitlement.planName,
+      'planTier': entitlement.planTier,
+      'status': entitlement.status.name,
+      'featureCount': entitlement.features.where((f) => f.enabled).length,
+      'limitCount': entitlement.limits.length,
+      'nearLimitCount': nearLimitCount,
+      'exceededCount': exceededCount,
+      'isExpiringSoon': entitlement.isExpiringSoon,
+      'daysUntilExpiry': entitlement.daysUntilExpiry,
+    };
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/billing/entitlements/feature_access.dart
+
+```dart
+/// Feature Access
+/// 
+/// Utility class for checking feature access and limits.
+library;
+
+import 'entitlement.dart';
+
+class FeatureAccessResult {
+  final bool allowed;
+  final String? reason;
+  final int? remaining;
+  final int? limit;
+
+  const FeatureAccessResult({
+    required this.allowed,
+    this.reason,
+    this.remaining,
+    this.limit,
+  });
+
+  factory FeatureAccessResult.allowed({int? remaining, int? limit}) {
+    return FeatureAccessResult(
+      allowed: true,
+      remaining: remaining,
+      limit: limit,
+    );
+  }
+
+  factory FeatureAccessResult.denied(String reason) {
+    return FeatureAccessResult(
+      allowed: false,
+      reason: reason,
+    );
+  }
+}
+
+class FeatureAccess {
+  final Entitlement? _entitlement;
+
+  FeatureAccess(this._entitlement);
+
+  /// Check if user has access to a specific feature
+  FeatureAccessResult checkFeatureAccess(String featureKey) {
+    if (_entitlement == null) {
+      return FeatureAccessResult.denied('No active entitlement');
+    }
+
+    if (!_entitlement.isActive && !_entitlement.isTrial) {
+      return FeatureAccessResult.denied('Entitlement is not active');
+    }
+
+    final feature = _entitlement.getFeature(featureKey);
+    if (feature == null) {
+      return FeatureAccessResult.denied('Feature not available in your plan');
+    }
+
+    if (!feature.enabled) {
+      return FeatureAccessResult.denied('Feature is disabled');
+    }
+
+    return FeatureAccessResult.allowed();
+  }
+
+  /// Check if user can perform an action based on limits
+  FeatureAccessResult checkLimit(String limitKey) {
+    if (_entitlement == null) {
+      return FeatureAccessResult.denied('No active entitlement');
+    }
+
+    if (!_entitlement.isActive && !_entitlement.isTrial) {
+      return FeatureAccessResult.denied('Entitlement is not active');
+    }
+
+    final limit = _entitlement.getLimit(limitKey);
+    if (limit == null) {
+      return FeatureAccessResult.allowed();
+    }
+
+    if (limit.isUnlimited) {
+      return FeatureAccessResult.allowed(remaining: -1, limit: -1);
+    }
+
+    if (limit.isOverLimit) {
+      return FeatureAccessResult.denied(
+        'Usage limit exceeded: ${limit.usageDisplay}',
+      );
+    }
+
+    return FeatureAccessResult.allowed(
+      remaining: limit.remaining,
+      limit: limit.value,
+    );
+  }
+
+  /// Check if user has access to multiple features
+  Map<String, FeatureAccessResult> checkMultipleFeatures(List<String> featureKeys) {
+    return {
+      for (final key in featureKeys) key: checkFeatureAccess(key),
+    };
+  }
+
+  /// Check if user has access to any of the given features
+  FeatureAccessResult checkAnyFeature(List<String> featureKeys) {
+    for (final key in featureKeys) {
+      final result = checkFeatureAccess(key);
+      if (result.allowed) return result;
+    }
+    return FeatureAccessResult.denied('None of the required features are available');
+  }
+
+  /// Check if user has access to all of the given features
+  FeatureAccessResult checkAllFeatures(List<String> featureKeys) {
+    for (final key in featureKeys) {
+      final result = checkFeatureAccess(key);
+      if (!result.allowed) return result;
+    }
+    return FeatureAccessResult.allowed();
+  }
+
+  /// Get all available features
+  List<String> getAvailableFeatures() {
+    if (_entitlement == null) return [];
+    return _entitlement.features
+        .where((f) => f.enabled)
+        .map((f) => f.key)
+        .toList();
+  }
+
+  /// Get all limits with their current usage
+  Map<String, Map<String, dynamic>> getLimitStatus() {
+    if (_entitlement == null) return {};
+    return {
+      for (final limit in _entitlement.limits)
+        limit.key: {
+          'name': limit.name,
+          'value': limit.value,
+          'usage': limit.usage,
+          'remaining': limit.remaining,
+          'usagePercentage': limit.usagePercentage,
+          'isUnlimited': limit.isUnlimited,
+          'isNearLimit': limit.isNearLimit,
+          'isAtLimit': limit.isAtLimit,
+          'isOverLimit': limit.isOverLimit,
+        },
+    };
+  }
+
+  /// Get features that are near their limits
+  List<EntitlementLimit> getNearLimitFeatures() {
+    if (_entitlement == null) return [];
+    return _entitlement.limits.where((l) => l.isNearLimit).toList();
+  }
+
+  /// Get features that have exceeded their limits
+  List<EntitlementLimit> getExceededFeatures() {
+    if (_entitlement == null) return [];
+    return _entitlement.limits.where((l) => l.isOverLimit).toList();
+  }
+
+  /// Check if user can upgrade their plan
+  bool canUpgrade() {
+    if (_entitlement == null) return true;
+    return _entitlement.planTier != 'enterprise';
+  }
+
+  /// Check if user can downgrade their plan
+  bool canDowngrade() {
+    if (_entitlement == null) return false;
+    return _entitlement.planTier != 'free';
+  }
+
+  /// Get upgrade suggestions based on usage
+  List<String> getUpgradeSuggestions() {
+    if (_entitlement == null) return [];
+
+    final suggestions = <String>[];
+    final nearLimit = getNearLimitFeatures();
+    final exceeded = getExceededFeatures();
+
+    if (exceeded.isNotEmpty) {
+      suggestions.add(
+        'You have ${exceeded.length} limit(s) exceeded. Consider upgrading.',
+      );
+    }
+
+    if (nearLimit.isNotEmpty) {
+      suggestions.add(
+        '${nearLimit.length} limit(s) are near their maximum.',
+      );
+    }
+
+    return suggestions;
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/billing/plans/plan.dart
+
+```dart
+/// Plan Model
+/// 
+/// Represents a billing plan in the mobile application.
+library;
+
+enum PlanTier {
+  free,
+  basic,
+  standard,
+  premium,
+  enterprise,
+}
+
+enum PlanStatus {
+  active,
+  inactive,
+  deprecated,
+  archived,
+}
+
+enum BillingInterval {
+  monthly,
+  quarterly,
+  annual,
+  lifetime,
+}
+
+class PlanPrice {
+  final double amount;
+  final String currency;
+  final BillingInterval interval;
+  final int? trialDays;
+
+  const PlanPrice({
+    required this.amount,
+    this.currency = 'USD',
+    required this.interval,
+    this.trialDays,
+  });
+
+  factory PlanPrice.fromJson(Map<String, dynamic> json) {
+    return PlanPrice(
+      amount: (json['amount'] as num).toDouble(),
+      currency: json['currency'] as String? ?? 'USD',
+      interval: BillingInterval.values.firstWhere(
+        (e) => e.name == json['interval'],
+        orElse: () => BillingInterval.monthly,
+      ),
+      trialDays: json['trialDays'] as int?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'amount': amount,
+      'currency': currency,
+      'interval': interval.name,
+      if (trialDays != null) 'trialDays': trialDays,
+    };
+  }
+
+  String get formatted {
+    if (amount == 0) return 'Free';
+    final formatter = '\$${amount.toStringAsFixed(2)}';
+    switch (interval) {
+      case BillingInterval.monthly:
+        return '$formatter/mo';
+      case BillingInterval.quarterly:
+        return '$formatter/qtr';
+      case BillingInterval.annual:
+        return '$formatter/yr';
+      case BillingInterval.lifetime:
+        return '$formatter one-time';
+    }
+  }
+
+  double get annualSavings {
+    if (interval != BillingInterval.monthly) return 0;
+    final annualPrice = amount * 10;
+    return amount * 12 - annualPrice;
+  }
+
+  int get annualSavingsPercentage {
+    if (interval != BillingInterval.monthly) return 0;
+    final savings = annualSavings;
+    return ((savings / (amount * 12)) * 100).round();
+  }
+}
+
+class PlanFeature {
+  final String key;
+  final String name;
+  final String description;
+  final bool enabled;
+  final int? limit;
+  final String? unit;
+
+  const PlanFeature({
+    required this.key,
+    required this.name,
+    required this.description,
+    this.enabled = true,
+    this.limit,
+    this.unit,
+  });
+
+  factory PlanFeature.fromJson(Map<String, dynamic> json) {
+    return PlanFeature(
+      key: json['key'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String? ?? '',
+      enabled: json['enabled'] as bool? ?? true,
+      limit: json['limit'] as int?,
+      unit: json['unit'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'key': key,
+      'name': name,
+      'description': description,
+      'enabled': enabled,
+      if (limit != null) 'limit': limit,
+      if (unit != null) 'unit': unit,
+    };
+  }
+
+  String get displayValue {
+    if (!enabled) return 'Disabled';
+    if (limit != null) {
+      return '$limit ${unit ?? ''}'.trim();
+    }
+    return 'Enabled';
+  }
+}
+
+class PlanLimit {
+  final String key;
+  final String name;
+  final String description;
+  final int value;
+  final String unit;
+  final bool hardLimit;
+
+  const PlanLimit({
+    required this.key,
+    required this.name,
+    required this.description,
+    required this.value,
+    required this.unit,
+    this.hardLimit = true,
+  });
+
+  factory PlanLimit.fromJson(Map<String, dynamic> json) {
+    return PlanLimit(
+      key: json['key'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String? ?? '',
+      value: json['value'] as int,
+      unit: json['unit'] as String,
+      hardLimit: json['hardLimit'] as bool? ?? true,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'key': key,
+      'name': name,
+      'description': description,
+      'value': value,
+      'unit': unit,
+      'hardLimit': hardLimit,
+    };
+  }
+
+  bool get isUnlimited => value == -1;
+
+  String get displayValue {
+    if (isUnlimited) return 'Unlimited';
+    return '$value $unit';
+  }
+}
+
+class Plan {
+  final String id;
+  final String tenantId;
+  final String name;
+  final String slug;
+  final String description;
+  final PlanTier tier;
+  final PlanStatus status;
+  final PlanPrice price;
+  final List<PlanFeature> features;
+  final List<PlanLimit> limits;
+  final Map<String, String> metadata;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const Plan({
+    required this.id,
+    required this.tenantId,
+    required this.name,
+    required this.slug,
+    required this.description,
+    required this.tier,
+    required this.status,
+    required this.price,
+    required this.features,
+    required this.limits,
+    this.metadata = const {},
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory Plan.fromJson(Map<String, dynamic> json) {
+    return Plan(
+      id: json['id'] as String,
+      tenantId: json['tenantId'] as String,
+      name: json['name'] as String,
+      slug: json['slug'] as String,
+      description: json['description'] as String? ?? '',
+      tier: PlanTier.values.firstWhere(
+        (e) => e.name == json['tier'],
+        orElse: () => PlanTier.free,
+      ),
+      status: PlanStatus.values.firstWhere(
+        (e) => e.name == json['status'],
+        orElse: () => PlanStatus.active,
+      ),
+      price: PlanPrice.fromJson(json['price'] as Map<String, dynamic>),
+      features: (json['features'] as List<dynamic>?)
+              ?.map((e) => PlanFeature.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      limits: (json['limits'] as List<dynamic>?)
+              ?.map((e) => PlanLimit.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      metadata: Map<String, String>.from(json['metadata'] as Map? ?? {}),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: DateTime.parse(json['updatedAt'] as String),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'tenantId': tenantId,
+      'name': name,
+      'slug': slug,
+      'description': description,
+      'tier': tier.name,
+      'status': status.name,
+      'price': price.toJson(),
+      'features': features.map((e) => e.toJson()).toList(),
+      'limits': limits.map((e) => e.toJson()).toList(),
+      'metadata': metadata,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+    };
+  }
+
+  bool get isActive => status == PlanStatus.active;
+  bool get isFree => price.amount == 0;
+  bool get isTrial => price.trialDays != null && price.trialDays! > 0;
+
+  PlanFeature? getFeature(String key) {
+    return features.where((f) => f.key == key).firstOrNull;
+  }
+
+  bool hasFeature(String key) {
+    final feature = getFeature(key);
+    return feature?.enabled ?? false;
+  }
+
+  PlanLimit? getLimit(String key) {
+    return limits.where((l) => l.key == key).firstOrNull;
+  }
+
+  int? getLimitValue(String key) {
+    return getLimit(key)?.value;
+  }
+
+  bool get isUnlimited => tier == PlanTier.enterprise;
+}
+```
+
+FILE: apps/mobile/lib/features/billing/plans/plan_catalog.dart
+
+```dart
+/// Plan Catalog
+/// 
+/// Contains the predefined plan catalog with all available plans.
+library;
+
+import 'plan.dart';
+
+class PlanCatalog {
+  static final Plan freePlan = Plan(
+    id: 'plan-free',
+    tenantId: 'system',
+    name: 'Free',
+    slug: 'free',
+    description: 'Get started with basic trading features',
+    tier: PlanTier.free,
+    status: PlanStatus.active,
+    price: const PlanPrice(amount: 0, interval: BillingInterval.monthly),
+    features: [
+      const PlanFeature(
+        key: 'basic_trading',
+        name: 'Basic Trading',
+        description: 'Execute basic buy/sell orders',
+      ),
+      const PlanFeature(
+        key: 'portfolio_view',
+        name: 'Portfolio View',
+        description: 'View your portfolio overview',
+      ),
+      const PlanFeature(
+        key: 'market_data',
+        name: 'Market Data',
+        description: 'Access to market data',
+      ),
+      const PlanFeature(
+        key: 'stop_loss',
+        name: 'Stop Loss',
+        description: 'Set stop loss orders',
+      ),
+      const PlanFeature(
+        key: 'take_profit',
+        name: 'Take Profit',
+        description: 'Set take profit orders',
+      ),
+      const PlanFeature(
+        key: 'two_factor_auth',
+        name: 'Two-Factor Auth',
+        description: 'Secure your account with 2FA',
+      ),
+    ],
+    limits: [
+      const PlanLimit(
+        key: 'max_portfolios',
+        name: 'Portfolios',
+        description: 'Maximum portfolios',
+        value: 1,
+        unit: 'portfolios',
+      ),
+      const PlanLimit(
+        key: 'max_orders_per_day',
+        name: 'Daily Orders',
+        description: 'Maximum orders per day',
+        value: 10,
+        unit: 'orders',
+      ),
+      const PlanLimit(
+        key: 'max_position_value',
+        name: 'Position Value',
+        description: 'Maximum position value',
+        value: 1000,
+        unit: 'USD',
+      ),
+    ],
+    createdAt: DateTime(2024, 1, 1),
+    updatedAt: DateTime(2024, 1, 1),
+  );
+
+  static final Plan basicPlan = Plan(
+    id: 'plan-basic',
+    tenantId: 'system',
+    name: 'Basic',
+    slug: 'basic',
+    description: 'Perfect for individual traders getting started',
+    tier: PlanTier.basic,
+    status: PlanStatus.active,
+    price: const PlanPrice(
+      amount: 29,
+      interval: BillingInterval.monthly,
+      trialDays: 7,
+    ),
+    features: [
+      const PlanFeature(
+        key: 'basic_trading',
+        name: 'Basic Trading',
+        description: 'Execute basic buy/sell orders',
+      ),
+      const PlanFeature(
+        key: 'portfolio_view',
+        name: 'Portfolio View',
+        description: 'View your portfolio overview',
+      ),
+      const PlanFeature(
+        key: 'real_time_data',
+        name: 'Real-time Data',
+        description: 'Access to real-time market data',
+      ),
+      const PlanFeature(
+        key: 'copy_trading',
+        name: 'Copy Trading',
+        description: 'Copy trades from other traders',
+        limit: 3,
+        unit: 'traders',
+      ),
+      const PlanFeature(
+        key: 'basic_analytics',
+        name: 'Basic Analytics',
+        description: 'Basic trading analytics',
+      ),
+      const PlanFeature(
+        key: 'email_alerts',
+        name: 'Email Alerts',
+        description: 'Receive email notifications',
+      ),
+      const PlanFeature(
+        key: 'stop_loss',
+        name: 'Stop Loss',
+        description: 'Set stop loss orders',
+      ),
+      const PlanFeature(
+        key: 'take_profit',
+        name: 'Take Profit',
+        description: 'Set take profit orders',
+      ),
+      const PlanFeature(
+        key: 'two_factor_auth',
+        name: 'Two-Factor Auth',
+        description: 'Secure your account with 2FA',
+      ),
+    ],
+    limits: [
+      const PlanLimit(
+        key: 'max_portfolios',
+        name: 'Portfolios',
+        description: 'Maximum portfolios',
+        value: 3,
+        unit: 'portfolios',
+      ),
+      const PlanLimit(
+        key: 'max_exchanges',
+        name: 'Exchanges',
+        description: 'Connected exchanges',
+        value: 2,
+        unit: 'exchanges',
+      ),
+      const PlanLimit(
+        key: 'max_orders_per_day',
+        name: 'Daily Orders',
+        description: 'Maximum orders per day',
+        value: 50,
+        unit: 'orders',
+      ),
+      const PlanLimit(
+        key: 'max_position_value',
+        name: 'Position Value',
+        description: 'Maximum position value',
+        value: 10000,
+        unit: 'USD',
+      ),
+      const PlanLimit(
+        key: 'max_copy_sources',
+        name: 'Copy Sources',
+        description: 'Traders to copy from',
+        value: 3,
+        unit: 'traders',
+      ),
+    ],
+    createdAt: DateTime(2024, 1, 1),
+    updatedAt: DateTime(2024, 1, 1),
+  );
+
+  static final Plan standardPlan = Plan(
+    id: 'plan-standard',
+    tenantId: 'system',
+    name: 'Standard',
+    slug: 'standard',
+    description: 'For serious traders who need more power',
+    tier: PlanTier.standard,
+    status: PlanStatus.active,
+    price: const PlanPrice(
+      amount: 79,
+      interval: BillingInterval.monthly,
+      trialDays: 14,
+    ),
+    features: [
+      const PlanFeature(
+        key: 'basic_trading',
+        name: 'Basic Trading',
+        description: 'Execute basic buy/sell orders',
+      ),
+      const PlanFeature(
+        key: 'portfolio_view',
+        name: 'Portfolio View',
+        description: 'View your portfolio overview',
+      ),
+      const PlanFeature(
+        key: 'real_time_data',
+        name: 'Real-time Data',
+        description: 'Access to real-time market data',
+      ),
+      const PlanFeature(
+        key: 'copy_trading',
+        name: 'Copy Trading',
+        description: 'Copy trades from other traders',
+        limit: 10,
+        unit: 'traders',
+      ),
+      const PlanFeature(
+        key: 'advanced_analytics',
+        name: 'Advanced Analytics',
+        description: 'Advanced trading analytics',
+      ),
+      const PlanFeature(
+        key: 'risk_management',
+        name: 'Risk Management',
+        description: 'Risk management tools',
+      ),
+      const PlanFeature(
+        key: 'api_access',
+        name: 'API Access',
+        description: 'Access to trading API',
+      ),
+      const PlanFeature(
+        key: 'email_alerts',
+        name: 'Email Alerts',
+        description: 'Receive email notifications',
+      ),
+      const PlanFeature(
+        key: 'push_notifications',
+        name: 'Push Notifications',
+        description: 'Mobile push notifications',
+      ),
+      const PlanFeature(
+        key: 'stop_loss',
+        name: 'Stop Loss',
+        description: 'Set stop loss orders',
+      ),
+      const PlanFeature(
+        key: 'take_profit',
+        name: 'Take Profit',
+        description: 'Set take profit orders',
+      ),
+      const PlanFeature(
+        key: 'position_sizing',
+        name: 'Position Sizing',
+        description: 'Automatic position sizing',
+      ),
+      const PlanFeature(
+        key: 'custom_reports',
+        name: 'Custom Reports',
+        description: 'Generate custom reports',
+      ),
+      const PlanFeature(
+        key: 'webhook_support',
+        name: 'Webhook Support',
+        description: 'Webhook integrations',
+      ),
+      const PlanFeature(
+        key: 'two_factor_auth',
+        name: 'Two-Factor Auth',
+        description: 'Secure your account with 2FA',
+      ),
+    ],
+    limits: [
+      const PlanLimit(
+        key: 'max_portfolios',
+        name: 'Portfolios',
+        description: 'Maximum portfolios',
+        value: 10,
+        unit: 'portfolios',
+      ),
+      const PlanLimit(
+        key: 'max_exchanges',
+        name: 'Exchanges',
+        description: 'Connected exchanges',
+        value: 5,
+        unit: 'exchanges',
+      ),
+      const PlanLimit(
+        key: 'max_orders_per_day',
+        name: 'Daily Orders',
+        description: 'Maximum orders per day',
+        value: 200,
+        unit: 'orders',
+      ),
+      const PlanLimit(
+        key: 'max_position_value',
+        name: 'Position Value',
+        description: 'Maximum position value',
+        value: 100000,
+        unit: 'USD',
+      ),
+      const PlanLimit(
+        key: 'max_copy_sources',
+        name: 'Copy Sources',
+        description: 'Traders to copy from',
+        value: 10,
+        unit: 'traders',
+      ),
+      const PlanLimit(
+        key: 'max_strategies',
+        name: 'Strategies',
+        description: 'Custom strategies',
+        value: 5,
+        unit: 'strategies',
+      ),
+      const PlanLimit(
+        key: 'api_requests_per_minute',
+        name: 'API Rate',
+        description: 'API requests per minute',
+        value: 100,
+        unit: 'req/min',
+      ),
+    ],
+    createdAt: DateTime(2024, 1, 1),
+    updatedAt: DateTime(2024, 1, 1),
+  );
+
+  static final Plan premiumPlan = Plan(
+    id: 'plan-premium',
+    tenantId: 'system',
+    name: 'Premium',
+    slug: 'premium',
+    description: 'Full access to all features for professional traders',
+    tier: PlanTier.premium,
+    status: PlanStatus.active,
+    price: const PlanPrice(
+      amount: 199,
+      interval: BillingInterval.monthly,
+      trialDays: 30,
+    ),
+    features: [
+      const PlanFeature(key: 'basic_trading', name: 'Basic Trading', description: 'Execute basic buy/sell orders'),
+      const PlanFeature(key: 'advanced_trading', name: 'Advanced Trading', description: 'Advanced order types'),
+      const PlanFeature(key: 'margin_trading', name: 'Margin Trading', description: 'Trade with leverage'),
+      const PlanFeature(key: 'portfolio_view', name: 'Portfolio View', description: 'View your portfolio overview'),
+      const PlanFeature(key: 'real_time_data', name: 'Real-time Data', description: 'Access to real-time market data'),
+      const PlanFeature(key: 'historical_data', name: 'Historical Data', description: 'Access to historical data'),
+      const PlanFeature(key: 'advanced_charts', name: 'Advanced Charts', description: 'Advanced charting tools'),
+      const PlanFeature(key: 'copy_trading', name: 'Copy Trading', description: 'Copy trades from other traders', limit: 50, unit: 'traders'),
+      const PlanFeature(key: 'copy_trading_premium', name: 'Premium Copy Trading', description: 'Premium copy trading features'),
+      const PlanFeature(key: 'social_trading', name: 'Social Trading', description: 'Social trading features'),
+      const PlanFeature(key: 'advanced_analytics', name: 'Advanced Analytics', description: 'Advanced trading analytics'),
+      const PlanFeature(key: 'custom_reports', name: 'Custom Reports', description: 'Generate custom reports'),
+      const PlanFeature(key: 'portfolio_analytics', name: 'Portfolio Analytics', description: 'Portfolio analytics'),
+      const PlanFeature(key: 'risk_management', name: 'Risk Management', description: 'Risk management tools'),
+      const PlanFeature(key: 'position_sizing', name: 'Position Sizing', description: 'Automatic position sizing'),
+      const PlanFeature(key: 'api_access', name: 'API Access', description: 'Access to trading API'),
+      const PlanFeature(key: 'websocket_streaming', name: 'WebSocket Streaming', description: 'Real-time WebSocket streaming'),
+      const PlanFeature(key: 'webhook_support', name: 'Webhook Support', description: 'Webhook integrations'),
+      const PlanFeature(key: 'email_alerts', name: 'Email Alerts', description: 'Receive email notifications'),
+      const PlanFeature(key: 'push_notifications', name: 'Push Notifications', description: 'Mobile push notifications'),
+      const PlanFeature(key: 'sms_alerts', name: 'SMS Alerts', description: 'SMS notifications'),
+      const PlanFeature(key: 'priority_support', name: 'Priority Support', description: '24/7 priority support'),
+      const PlanFeature(key: 'custom_strategies', name: 'Custom Strategies', description: 'Create custom strategies'),
+      const PlanFeature(key: 'backtesting', name: 'Backtesting', description: 'Backtest strategies'),
+      const PlanFeature(key: 'stop_loss', name: 'Stop Loss', description: 'Set stop loss orders'),
+      const PlanFeature(key: 'take_profit', name: 'Take Profit', description: 'Set take profit orders'),
+      const PlanFeature(key: 'two_factor_auth', name: 'Two-Factor Auth', description: 'Secure your account with 2FA'),
+      const PlanFeature(key: 'ip_whitelist', name: 'IP Whitelist', description: 'IP whitelist security'),
+      const PlanFeature(key: 'tax_reporting', name: 'Tax Reporting', description: 'Tax reporting tools'),
+    ],
+    limits: [
+      const PlanLimit(key: 'max_portfolios', name: 'Portfolios', description: 'Maximum portfolios', value: 100, unit: 'portfolios'),
+      const PlanLimit(key: 'max_exchanges', name: 'Exchanges', description: 'Connected exchanges', value: 20, unit: 'exchanges'),
+      const PlanLimit(key: 'max_orders_per_day', name: 'Daily Orders', description: 'Maximum orders per day', value: 1000, unit: 'orders'),
+      const PlanLimit(key: 'max_position_value', name: 'Position Value', description: 'Maximum position value', value: 1000000, unit: 'USD'),
+      const PlanLimit(key: 'max_copy_sources', name: 'Copy Sources', description: 'Traders to copy from', value: 50, unit: 'traders'),
+      const PlanLimit(key: 'max_strategies', name: 'Strategies', description: 'Custom strategies', value: 20, unit: 'strategies'),
+      const PlanLimit(key: 'api_requests_per_minute', name: 'API Rate', description: 'API requests per minute', value: 1000, unit: 'req/min'),
+      const PlanLimit(key: 'max_storage_mb', name: 'Storage', description: 'Storage space', value: 5000, unit: 'MB'),
+    ],
+    createdAt: DateTime(2024, 1, 1),
+    updatedAt: DateTime(2024, 1, 1),
+  );
+
+  static final List<Plan> allPlans = [
+    freePlan,
+    basicPlan,
+    standardPlan,
+    premiumPlan,
+  ];
+
+  static Plan? getPlanById(String id) {
+    return allPlans.where((p) => p.id == id).firstOrNull;
+  }
+
+  static Plan? getPlanByTier(PlanTier tier) {
+    return allPlans.where((p) => p.tier == tier).firstOrNull;
+  }
+
+  static List<Plan> getActivePlans() {
+    return allPlans.where((p) => p.status == PlanStatus.active).toList();
+  }
+
+  static List<Plan> getPaidPlans() {
+    return allPlans.where((p) => p.price.amount > 0).toList();
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/billing/plans/plan_service.dart
+
+```dart
+/// Plan Service
+/// 
+/// Service for managing billing plans in the mobile application.
+library;
+
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'plan.dart';
+import 'plan_catalog.dart';
+
+class PlanService {
+  final String baseUrl;
+  final String? authToken;
+
+  PlanService({
+    required this.baseUrl,
+    this.authToken,
+  });
+
+  Map<String, String> get _headers => {
+    'Content-Type': 'application/json',
+    if (authToken != null) 'Authorization': 'Bearer $authToken',
+  };
+
+  /// Get all available plans
+  Future<List<Plan>> getPlans({PlanTier? tier}) async {
+    final queryParams = <String, String>{};
+    if (tier != null) queryParams['tier'] = tier.name;
+
+    final uri = Uri.parse('$baseUrl/api/billing/plans').replace(
+      queryParameters: queryParams.isNotEmpty ? queryParams : null,
+    );
+
+    final response = await http.get(uri, headers: _headers);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body) as List<dynamic>;
+      return data.map((json) => Plan.fromJson(json as Map<String, dynamic>)).toList();
+    }
+    throw Exception('Failed to fetch plans: ${response.statusCode}');
+  }
+
+  /// Get a specific plan by ID
+  Future<Plan?> getPlan(String planId) async {
+    final uri = Uri.parse('$baseUrl/api/billing/plans/$planId');
+    final response = await http.get(uri, headers: _headers);
+    if (response.statusCode == 200) {
+      return Plan.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 404) return null;
+    throw Exception('Failed to fetch plan: ${response.statusCode}');
+  }
+
+  /// Get the current user's plan
+  Future<Plan?> getCurrentPlan() async {
+    final uri = Uri.parse('$baseUrl/api/billing/current-plan');
+    final response = await http.get(uri, headers: _headers);
+    if (response.statusCode == 200) {
+      return Plan.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 404) return null;
+    throw Exception('Failed to fetch current plan: ${response.statusCode}');
+  }
+
+  /// Get local catalog plans (offline fallback)
+  List<Plan> getCatalogPlans() {
+    return PlanCatalog.allPlans;
+  }
+
+  /// Get a plan from the local catalog
+  Plan? getCatalogPlan(PlanTier tier) {
+    return PlanCatalog.getPlanByTier(tier);
+  }
+
+  /// Compare two plans
+  Map<String, dynamic> comparePlans(Plan plan1, Plan plan2) {
+    final features1 = plan1.features.map((f) => f.key).toSet();
+    final features2 = plan2.features.map((f) => f.key).toSet();
+    
+    final onlyInPlan1 = features1.difference(features2);
+    final onlyInPlan2 = features2.difference(features1);
+    final common = features1.intersection(features2);
+
+    return {
+      'plan1': plan1.name,
+      'plan2': plan2.name,
+      'onlyInPlan1': onlyInPlan1.toList(),
+      'onlyInPlan2': onlyInPlan2.toList(),
+      'commonFeatures': common.toList(),
+      'priceDifference': plan2.price.amount - plan1.price.amount,
+    };
+  }
+
+  /// Check if a plan has a specific feature
+  bool planHasFeature(Plan plan, String featureKey) {
+    return plan.hasFeature(featureKey);
+  }
+
+  /// Get plan limit value
+  int? getPlanLimit(Plan plan, String limitKey) {
+    return plan.getLimitValue(limitKey);
+  }
+
+  /// Calculate annual savings for a plan
+  double calculateAnnualSavings(Plan plan) {
+    return plan.price.annualSavings;
+  }
+
+  /// Get upgrade options for a plan
+  List<Plan> getUpgradeOptions(Plan currentPlan) {
+    return PlanCatalog.allPlans
+        .where((p) => 
+            p.price.amount > currentPlan.price.amount && 
+            p.status == PlanStatus.active,)
+        .toList();
+  }
+
+  /// Get downgrade options for a plan
+  List<Plan> getDowngradeOptions(Plan currentPlan) {
+    return PlanCatalog.allPlans
+        .where((p) => 
+            p.price.amount < currentPlan.price.amount && 
+            p.status == PlanStatus.active,)
+        .toList();
+  }
+
+  /// Initiate plan checkout
+  Future<Map<String, dynamic>> initiateCheckout(String planId) async {
+    final uri = Uri.parse('$baseUrl/api/billing/checkout');
+    final response = await http.post(
+      uri,
+      headers: _headers,
+      body: json.encode({'planId': planId}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('Failed to initiate checkout: ${response.statusCode}');
+  }
+
+  /// Cancel current plan
+  Future<void> cancelPlan(String reason) async {
+    final uri = Uri.parse('$baseUrl/api/billing/cancel');
+    final response = await http.post(
+      uri,
+      headers: _headers,
+      body: json.encode({'reason': reason}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to cancel plan: ${response.statusCode}');
+    }
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/billing/portal/billing_portal_api.dart
+
+```dart
+/// Billing Portal API client for mobile - consumes canonical APIs, no hardcoded pricing.
+///
+/// Paths are relative to the versioned API base (ApiClient already targets
+/// `/api/v1`), and every response is unwrapped from the `{success, data}`
+/// envelope by ApiClient before [_asMap] sees it.
+library;
+
+import '../../../core/network/api_client.dart';
+
+class BillingPortalApi {
+  final ApiClient _client;
+
+  BillingPortalApi(this._client);
+
+  /// A non-object payload is a contract violation: surface it as an error
+  /// rather than rendering an empty billing state as if it were real.
+  static Map<String, dynamic> _asMap(Object? data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    throw const FormatException('Billing portal returned a non-object payload');
+  }
+
+  Future<Map<String, dynamic>> getBillingOverview() async {
+    return _client.get<Map<String, dynamic>>('/billing/portal/overview', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> getCurrentSubscription() async {
+    return _client.get<Map<String, dynamic>>('/billing/portal/subscription', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> getAvailablePlans() async {
+    return _client.get<Map<String, dynamic>>('/billing/portal/plans', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> getPlanComparison() async {
+    return _client.get<Map<String, dynamic>>('/billing/portal/plans/comparison', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> getUsageSummary() async {
+    return _client.get<Map<String, dynamic>>('/billing/portal/usage', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> listInvoices({String? status, int? limit}) async {
+    final Map<String, Object?> query = <String, Object?>{};
+    if (status != null) query['status'] = status;
+    if (limit != null) query['limit'] = limit;
+    return _client.get<Map<String, dynamic>>('/billing/portal/invoices', queryParameters: query, parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> getInvoiceDetail(String id) async {
+    return _client.get<Map<String, dynamic>>('/billing/portal/invoices/$id', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> listPayments({String? status, String? provider, int? limit}) async {
+    final Map<String, Object?> query = <String, Object?>{};
+    if (status != null) query['status'] = status;
+    if (provider != null) query['provider'] = provider;
+    if (limit != null) query['limit'] = limit;
+    return _client.get<Map<String, dynamic>>('/billing/portal/payments', queryParameters: query, parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> getPaymentStatus(String id) async {
+    return _client.get<Map<String, dynamic>>('/billing/portal/payments/$id/status', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> createCheckoutSession({
+    required String planId,
+    String? billingInterval,
+    String? currency,
+    String? provider,
+    String? successUrl,
+    String? cancelUrl,
+    String? idempotencyKey,
+  }) async {
+    return _client.post<Map<String, dynamic>>('/billing/portal/checkout', body: <String, Object?>{
+      'planId': planId,
+      if (billingInterval != null) 'billingInterval': billingInterval,
+      if (currency != null) 'currency': currency,
+      if (provider != null) 'provider': provider,
+      if (successUrl != null) 'successUrl': successUrl,
+      if (cancelUrl != null) 'cancelUrl': cancelUrl,
+      if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
+    }, parser: _asMap,);
+  }
+
+  Future<Map<String, dynamic>> getCheckoutStatus(String id) async {
+    return _client.get<Map<String, dynamic>>('/billing/portal/checkout/$id/status', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> cancelSubscription({String? reason, bool? atPeriodEnd}) async {
+    return _client.post<Map<String, dynamic>>('/billing/portal/subscription/cancel', body: <String, Object?>{
+      if (reason != null) 'reason': reason,
+      if (atPeriodEnd != null) 'atPeriodEnd': atPeriodEnd,
+    }, parser: _asMap,);
+  }
+
+  Future<Map<String, dynamic>> resumeSubscription() async {
+    return _client.post<Map<String, dynamic>>('/billing/portal/subscription/resume', parser: _asMap);
+  }
+
+  Future<Map<String, dynamic>> changePlan({required String planId, bool? atPeriodEnd}) async {
+    return _client.post<Map<String, dynamic>>('/billing/portal/subscription/change-plan', body: <String, Object?>{
+      'planId': planId,
+      if (atPeriodEnd != null) 'atPeriodEnd': atPeriodEnd,
+    }, parser: _asMap,);
+  }
+
+  Future<Map<String, dynamic>> changeInterval({required String newInterval, bool? atPeriodEnd}) async {
+    return _client.post<Map<String, dynamic>>('/billing/portal/subscription/change-interval', body: <String, Object?>{
+      'newInterval': newInterval,
+      if (atPeriodEnd != null) 'atPeriodEnd': atPeriodEnd,
+    }, parser: _asMap,);
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/billing/portal/billing_portal_page.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'billing_portal_api.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/di/providers.dart';
+
+/// Mobile billing dashboard.
+/// Displays current plan, subscription status, renewal date, trial, usage,
+/// latest invoice, latest payment, available billing actions.
+/// Must consume API data dynamically - no hardcoded pricing.
+
+class BillingPortalPage extends StatefulWidget {
+  const BillingPortalPage({super.key});
+
+  @override
+  State<BillingPortalPage> createState() => _BillingPortalPageState();
+}
+
+class _BillingPortalPageState extends State<BillingPortalPage> {
+  late final BillingPortalApi _api;
+  Map<String, dynamic>? _overview;
+  List<dynamic> _invoices = [];
+  List<dynamic> _payments = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // The app-wide ApiClient (auth, base URL, envelope unwrapping) - never a
+    // second, unconfigured client.
+    _api = BillingPortalApi(ProviderScope.containerOf(context, listen: false).read(apiClientProvider));
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        _api.getBillingOverview(),
+        _api.listInvoices(limit: 3),
+        _api.listPayments(limit: 3),
+      ]);
+      setState(() {
+        _overview = results[0];
+        _invoices = (results[1]['invoices'] as List?) ?? [];
+        _payments = (results[2]['payments'] as List?) ?? [];
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Billing')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Billing')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('Error: $_error', textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              ElevatedButton(onPressed: _fetchData, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_overview == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Billing')),
+        body: const Center(child: Text('No billing data')),
+      );
+    }
+
+    final sub = _overview!['subscription'] as Map<String, dynamic>?;
+    final currentPlan = _overview!['currentPlan'] as Map<String, dynamic>?;
+    final usage = _overview!['usage'] as Map<String, dynamic>?;
+    final latestInvoice = _overview!['latestInvoice'] as Map<String, dynamic>?;
+    final latestPayment = _overview!['latestPayment'] as Map<String, dynamic>?;
+    final availableActions = (_overview!['availableActions'] as List?) ?? [];
+    final isInactive = sub?['isActive'] != true;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Billing & Subscription'),
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchData),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _fetchData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Current Subscription Card
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Current Subscription', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      if (isInactive)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.amber[200]!)),
+                          child: const Text('No active subscription - Choose a plan to get started'),
+                        )
+                      else
+                        Column(
+                          children: [
+                            _buildInfoRow('Plan', '${currentPlan?['name'] ?? sub?['planName'] ?? 'Unknown'}'),
+                            _buildInfoRow('Code', '${sub?['planCode'] ?? '-'}'),
+                            _buildInfoRow('Status', '${sub?['status'] ?? '-'}', isBadge: true, badgeColor: sub?['isActive'] == true ? Colors.green : Colors.grey),
+                            _buildInfoRow('Interval', '${sub?['interval'] ?? currentPlan?['interval'] ?? '-'}'),
+                            _buildInfoRow('Renewal', sub?['renewalDate'] != null ? DateTime.parse('${sub!['renewalDate']}').toLocal().toString().split(' ')[0] : 'N/A'),
+                            if (sub?['willCancelAtPeriodEnd'] == true)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 8),
+                                child: Text('⚠️ Cancels at period end', style: TextStyle(color: Colors.orange, fontSize: 12)),
+                              ),
+                            if (sub?['trialActive'] == true)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 4),
+                                child: Text('🎉 Trial active', style: TextStyle(color: Colors.blue, fontSize: 12)),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Usage
+              if (usage != null)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Usage & Limits', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 12),
+                        ...((usage['items'] as List?) ?? []).map((item) {
+                          final map = item as Map<String, dynamic>;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text('${map['label'] ?? map['key']}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                                    Text(
+                                      map['unlimited'] == true ? 'Unlimited' : '${map['current']}/${map['limit']}',
+                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                if (map['unlimited'] != true)
+                                  LinearProgressIndicator(
+                                    value: ((map['percentageUsed'] as num?) ?? 0) / 100,
+                                    backgroundColor: Colors.grey[200],
+                                    valueColor: AlwaysStoppedAnimation<Color>(((map['percentageUsed'] as num?) ?? 0) > 80 ? Colors.red : Colors.blue),
+                                  ),
+                                if (map['remaining'] != null && map['unlimited'] != true)
+                                  Text('${map['remaining']} remaining', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              ],
+                            ),
+                          );
+                        }),
+                        if ((usage['features'] as List?)?.isNotEmpty == true) ...[
+                          const SizedBox(height: 12),
+                          const Text('Features', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: ((usage['features'] as List).map((f) {
+                              final fm = f as Map<String, dynamic>;
+                              return Chip(
+                                label: Text('${fm['label']}: ${fm['included'] == true ? '✓' : '✗'}', style: const TextStyle(fontSize: 11)),
+                                backgroundColor: fm['included'] == true ? Colors.green[50] : Colors.grey[100],
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              );
+                            })).toList(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+
+              const SizedBox(height: 16),
+
+              // Invoices & Payments Row
+              Row(
+                children: [
+                  Expanded(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Latest Invoice', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            const SizedBox(height: 8),
+                            if (latestInvoice != null) ...[
+                              Text('No: ${latestInvoice['invoiceNumber']}', style: const TextStyle(fontSize: 12)),
+                              Text('Status: ${latestInvoice['status']}', style: const TextStyle(fontSize: 12)),
+                              Text('Total: ${latestInvoice['total']} ${latestInvoice['currency']}', style: const TextStyle(fontSize: 12)),
+                            ] else
+                              const Text('No invoices yet', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Latest Payment', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            const SizedBox(height: 8),
+                            if (latestPayment != null) ...[
+                              Text('Provider: ${latestPayment['provider']}', style: const TextStyle(fontSize: 12)),
+                              Text('Status: ${latestPayment['status']}', style: const TextStyle(fontSize: 12)),
+                              Text('Amount: ${latestPayment['amount']} ${latestPayment['currency']}', style: const TextStyle(fontSize: 12)),
+                            ] else
+                              const Text('No payments yet', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // Recent Invoices
+              if (_invoices.isNotEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Recent Invoices', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        ..._invoices.map((inv) {
+                          final m = inv as Map<String, dynamic>;
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('${m['invoiceNumber'] ?? m['id']}', style: const TextStyle(fontSize: 13)),
+                            subtitle: Text('${m['total']} ${m['currency']}', style: const TextStyle(fontSize: 11)),
+                            trailing: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: m['status'] == 'PAID' ? Colors.green[100] : Colors.amber[100],
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text('${m['status']}', style: TextStyle(fontSize: 10, color: m['status'] == 'PAID' ? Colors.green[800] : Colors.amber[800])),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                ),
+
+              const SizedBox(height: 16),
+
+              // Recent Payments
+              if (_payments.isNotEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Recent Payments', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        ..._payments.map((pay) {
+                          final m = pay as Map<String, dynamic>;
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('${m['amount']} ${m['currency']}', style: const TextStyle(fontSize: 13)),
+                            subtitle: Text('${m['provider'] ?? ''}', style: const TextStyle(fontSize: 11)),
+                            trailing: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: m['status'] == 'SUCCEEDED' ? Colors.green[100] : Colors.amber[100],
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text('${m['status']}', style: TextStyle(fontSize: 10, color: m['status'] == 'SUCCEEDED' ? Colors.green[800] : Colors.amber[800])),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                ),
+
+              const SizedBox(height: 16),
+
+              // Available Actions
+              if (availableActions.isNotEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Available Actions', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: availableActions.map((a) {
+                            return ActionChip(label: Text((a as String).replaceAll('_', ' ')), onPressed: () {});
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, {bool isBadge = false, MaterialColor? badgeColor}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          isBadge
+              ? Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: (badgeColor ?? Colors.grey)[100], borderRadius: BorderRadius.circular(4)),
+                  child: Text(value, style: TextStyle(fontSize: 11, color: (badgeColor ?? Colors.grey)[800])),
+                )
+              : Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/billing/portal/plan_comparison_page.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'billing_portal_api.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/di/providers.dart';
+
+/// Mobile dynamic plan comparison.
+/// Displays available plans, pricing, currency, billing interval,
+/// feature entitlements, numeric limits, current plan, upgrade/downgrade.
+/// No hardcoded plan pricing - all from API.
+
+class PlanComparisonPage extends StatefulWidget {
+  const PlanComparisonPage({super.key});
+
+  @override
+  State<PlanComparisonPage> createState() => _PlanComparisonPageState();
+}
+
+class _PlanComparisonPageState extends State<PlanComparisonPage> {
+  late final BillingPortalApi _api;
+  Map<String, dynamic>? _comparison;
+  bool _loading = true;
+  String? _error;
+  String? _actionLoading;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    // The app-wide ApiClient (auth, base URL, envelope unwrapping) - never a
+    // second, unconfigured client.
+    _api = BillingPortalApi(ProviderScope.containerOf(context, listen: false).read(apiClientProvider));
+    _fetchComparison();
+  }
+
+  Future<void> _fetchComparison() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await _api.getPlanComparison();
+      setState(() {
+        _comparison = data;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _selectPlan(String planId) async {
+    setState(() {
+      _actionLoading = planId;
+      _message = null;
+    });
+    try {
+      final result = await _api.changePlan(planId: planId, atPeriodEnd: false);
+      if (result['requiresCheckout'] == true) {
+        setState(() {
+          _message = 'Upgrade requires payment. Delta: ${result['priceDelta']}. Creating checkout...';
+        });
+        final checkout = await _api.createCheckoutSession(planId: planId);
+        final url = checkout['checkoutUrl'] as String?;
+        if (url != null && url.isNotEmpty && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Redirect to: $url')));
+          // In real app, use url_launcher to open provider checkout
+        }
+      } else {
+        setState(() {
+          _message = (result['message'] as String?) ?? 'Plan change successful';
+        });
+        await _fetchComparison();
+      }
+    } catch (e) {
+      setState(() {
+        _message = 'Error: $e';
+      });
+    } finally {
+      setState(() {
+        _actionLoading = null;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Compare Plans')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Compare Plans')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('Error: $_error'),
+              const SizedBox(height: 16),
+              ElevatedButton(onPressed: _fetchComparison, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final plans = (_comparison?['plans'] as List?) ?? [];
+    final featuresMatrix = (_comparison?['featuresMatrix'] as List?) ?? [];
+    final limitsMatrix = (_comparison?['limitsMatrix'] as List?) ?? [];
+
+    if (plans.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Compare Plans')),
+        body: const Center(child: Text('No plans available')),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Compare Plans'),
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchComparison)],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Choose the plan that fits your needs', style: TextStyle(fontSize: 16, color: Colors.grey)),
+            const SizedBox(height: 8),
+            const Text('All pricing from canonical billing catalog - never hardcoded', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            const SizedBox(height: 16),
+
+            if (_message != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.blue[200]!)),
+                child: Text(_message!, style: const TextStyle(fontSize: 13)),
+              ),
+
+            // Plan Cards - horizontal scroll
+            SizedBox(
+              height: 380,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: plans.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final plan = plans[index] as Map<String, dynamic>;
+                  final isCurrent = plan['isCurrent'] == true;
+                  return Container(
+                    width: 260,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: isCurrent ? Colors.blue : Colors.grey[300]!, width: isCurrent ? 2 : 1),
+                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.white,
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (isCurrent)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.blue[100], borderRadius: BorderRadius.circular(4)),
+                            child: const Text('Current Plan', style: TextStyle(fontSize: 10, color: Colors.blue)),
+                          ),
+                        const SizedBox(height: 8),
+                        Text('${plan['name'] ?? 'Plan'}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        Text('${plan['description'] ?? ''}', style: const TextStyle(fontSize: 12, color: Colors.grey), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('${plan['price']}', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 4),
+                            Text('${plan['currency'] ?? 'USD'}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                          ],
+                        ),
+                        Text('/ ${plan['interval']}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                        if (((plan['trialDays'] as num?) ?? 0) > 0) Text('${plan['trialDays']} day trial', style: const TextStyle(fontSize: 11, color: Colors.green)),
+
+                        const SizedBox(height: 12),
+                        const Text('Limits:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 4),
+                        ...((plan['limits'] as Map<String, dynamic>?)?.entries.where((e) => e.value != null && e.value is! bool).take(3).map((e) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 2),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(e.key, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                Text(e.value.toString(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                          );
+                        }) ?? []),
+
+                        const Spacer(),
+
+                        SizedBox(
+                          width: double.infinity,
+                          child: isCurrent
+                              ? const ElevatedButton(onPressed: null, child: Text('Current'))
+                              : ElevatedButton(
+                                  onPressed: _actionLoading == plan['id'] ? null : () => _selectPlan('${plan['id']}'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: plan['upgradeEligible'] == true ? Colors.blue : Colors.grey[800],
+                                  ),
+                                  child: Text(_actionLoading == plan['id']
+                                      ? '...'
+                                      : plan['upgradeEligible'] == true
+                                          ? 'Upgrade'
+                                          : plan['downgradeEligible'] == true
+                                              ? 'Downgrade'
+                                              : 'Select',),
+                                ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Features Matrix
+            if (featuresMatrix.isNotEmpty) ...[
+              const Text('Feature Comparison', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Card(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: [
+                      const DataColumn(label: Text('Feature')),
+                      ...plans.map((p) => DataColumn(label: Text('${(p as Map)['name']}', style: const TextStyle(fontSize: 12)))),
+                    ],
+                    rows: featuresMatrix.map<DataRow>((row) {
+                      final r = row as Map<String, dynamic>;
+                      final plansMap = r['plans'] as Map<String, dynamic>;
+                      return DataRow(cells: [
+                        DataCell(Text('${r['label'] ?? r['featureKey']}', style: const TextStyle(fontSize: 12))),
+                        ...plans.map((p) {
+                          final pid = (p as Map)['id'] as String;
+                          final included = plansMap[pid] == true;
+                          return DataCell(Center(child: Text(included ? '✓' : '—', style: TextStyle(color: included ? Colors.green : Colors.grey))));
+                        }),
+                      ],);
+                    }).toList(),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Limits Matrix
+            if (limitsMatrix.isNotEmpty) ...[
+              const Text('Limits Comparison', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Card(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: [
+                      const DataColumn(label: Text('Limit')),
+                      ...plans.map((p) => DataColumn(label: Text('${(p as Map)['name']}', style: const TextStyle(fontSize: 12)))),
+                    ],
+                    rows: limitsMatrix.map<DataRow>((row) {
+                      final r = row as Map<String, dynamic>;
+                      final plansMap = r['plans'] as Map<String, dynamic>;
+                      return DataRow(cells: [
+                        DataCell(Text('${r['label'] ?? r['limitKey']}', style: const TextStyle(fontSize: 12))),
+                        ...plans.map((p) {
+                          final pid = (p as Map)['id'] as String;
+                          final val = plansMap[pid];
+                          return DataCell(Center(child: Text(val == null ? 'Unlimited' : val.toString(), style: const TextStyle(fontSize: 12))));
+                        }),
+                      ],);
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/billing/portal/subscription_management_page.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'billing_portal_api.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/di/providers.dart';
+
+/// Mobile subscription management.
+/// Supports current plan, change plan, change interval, cancel at period end,
+/// resume, payment status, invoice access, safe error states.
+/// After checkout/provider return, always refresh billing state from backend.
+
+class SubscriptionManagementPage extends StatefulWidget {
+  const SubscriptionManagementPage({super.key});
+
+  @override
+  State<SubscriptionManagementPage> createState() => _SubscriptionManagementPageState();
+}
+
+class _SubscriptionManagementPageState extends State<SubscriptionManagementPage> {
+  late final BillingPortalApi _api;
+  Map<String, dynamic>? _state;
+  List<dynamic> _plans = [];
+  bool _loading = true;
+  String? _error;
+  String? _actionLoading;
+  String? _message;
+  bool _showCancelDialog = false;
+  final _cancelReasonController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // The app-wide ApiClient (auth, base URL, envelope unwrapping) - never a
+    // second, unconfigured client.
+    _api = BillingPortalApi(ProviderScope.containerOf(context, listen: false).read(apiClientProvider));
+    _fetchData();
+  }
+
+  @override
+  void dispose() {
+    _cancelReasonController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        _api.getCurrentSubscription(),
+        _api.getAvailablePlans(),
+      ]);
+      setState(() {
+        _state = results[0];
+        _plans = (results[1]['plans'] as List?) ?? [];
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _handleCancel() async {
+    setState(() {
+      _actionLoading = 'cancel';
+      _message = null;
+    });
+    try {
+      final result = await _api.cancelSubscription(reason: _cancelReasonController.text.isNotEmpty ? _cancelReasonController.text : null, atPeriodEnd: true);
+      setState(() {
+        _message = 'Subscription will cancel at ${result['effectiveAt'] != null ? DateTime.parse('${result['effectiveAt']}').toLocal().toString().split(' ')[0] : 'period end'}';
+        _showCancelDialog = false;
+      });
+      await _fetchData();
+    } catch (e) {
+      setState(() {
+        _message = 'Cancel failed: $e';
+      });
+    } finally {
+      setState(() {
+        _actionLoading = null;
+      });
+    }
+  }
+
+  Future<void> _handleResume() async {
+    setState(() {
+      _actionLoading = 'resume';
+      _message = null;
+    });
+    try {
+      final result = await _api.resumeSubscription();
+      setState(() {
+        _message = (result['message'] as String?) ?? 'Subscription resumed';
+      });
+      await _fetchData();
+    } catch (e) {
+      setState(() {
+        _message = 'Resume failed: $e';
+      });
+    } finally {
+      setState(() {
+        _actionLoading = null;
+      });
+    }
+  }
+
+  Future<void> _handleChangePlan(String planId) async {
+    setState(() {
+      _actionLoading = 'plan_$planId';
+      _message = null;
+    });
+    try {
+      final result = await _api.changePlan(planId: planId, atPeriodEnd: false);
+      if (result['requiresCheckout'] == true) {
+        setState(() {
+          _message = 'Upgrade requires checkout. Delta: ${result['priceDelta']}. Creating checkout...';
+        });
+        final checkout = await _api.createCheckoutSession(planId: planId);
+        final url = checkout['checkoutUrl'] as String?;
+        if (url != null && url.isNotEmpty && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Checkout URL: $url')));
+        }
+      } else {
+        setState(() {
+          _message = (result['message'] as String?) ?? 'Plan changed successfully';
+        });
+        await _fetchData();
+      }
+    } catch (e) {
+      setState(() {
+        _message = 'Plan change failed: $e';
+      });
+    } finally {
+      setState(() {
+        _actionLoading = null;
+      });
+    }
+  }
+
+  Future<void> _handleChangeInterval(String newInterval) async {
+    setState(() {
+      _actionLoading = 'interval_$newInterval';
+      _message = null;
+    });
+    try {
+      final result = await _api.changeInterval(newInterval: newInterval, atPeriodEnd: true);
+      setState(() {
+        _message = (result['message'] as String?) ?? 'Interval change to $newInterval scheduled';
+      });
+      await _fetchData();
+    } catch (e) {
+      setState(() {
+        _message = 'Interval change failed: $e';
+      });
+    } finally {
+      setState(() {
+        _actionLoading = null;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Subscription Management')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Subscription Management')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('Error: $_error'),
+              const SizedBox(height: 16),
+              ElevatedButton(onPressed: _fetchData, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final sub = _state?['subscription'] as Map<String, dynamic>?;
+    final canCancel = _state?['canCancel'] == true;
+    final canResume = _state?['canResume'] == true;
+    final effectiveActions = (_state?['effectiveActions'] as List?) ?? [];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Subscription Management'),
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchData)],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_message != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.blue[200]!)),
+                child: Text(_message!, style: const TextStyle(fontSize: 13)),
+              ),
+
+            // Current Subscription
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Current Subscription', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                    if (sub != null) ...[
+                      _buildRow('Plan', '${sub['plan']?['name'] ?? sub['planId'] ?? 'Unknown'}'),
+                      _buildRow('Status', '${sub['status'] ?? 'UNKNOWN'}', isBadge: true),
+                      _buildRow('Period End', sub['currentPeriodEnd'] != null ? DateTime.parse('${sub['currentPeriodEnd']}').toLocal().toString().split(' ')[0] : 'N/A'),
+                      _buildRow('Interval', '${sub['plan']?['interval'] ?? 'N/A'}'),
+                      if (sub['cancelAtPeriodEnd'] == true)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text('⚠️ Cancels at period end', style: TextStyle(color: Colors.orange, fontSize: 12)),
+                        ),
+                    ] else
+                      const Text('No active subscription', style: TextStyle(color: Colors.grey)),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Actions
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Actions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                    if (canCancel)
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => setState(() => _showCancelDialog = true),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                          child: const Text('Cancel at Period End'),
+                        ),
+                      ),
+                    if (canResume)
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _actionLoading == 'resume' ? null : _handleResume,
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                          child: Text(_actionLoading == 'resume' ? 'Resuming...' : 'Resume Subscription'),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: effectiveActions.map((a) => Chip(label: Text((a as String).replaceAll('_', ' '), style: const TextStyle(fontSize: 11)))).toList(),
+                    ),
+
+                    if (_showCancelDialog) ...[
+                      const SizedBox(height: 16),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      const Text('Confirm Cancellation', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      const Text('Your subscription will remain active until the end of the current period.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _cancelReasonController,
+                        decoration: const InputDecoration(labelText: 'Reason (optional)', border: OutlineInputBorder(), isDense: true),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _actionLoading == 'cancel' ? null : _handleCancel,
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                              child: Text(_actionLoading == 'cancel' ? 'Cancelling...' : 'Confirm Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(onPressed: () => setState(() => _showCancelDialog = false), child: const Text('Keep')),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Change Plan
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Change Plan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text('From canonical catalog - no hardcoded pricing', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    const SizedBox(height: 12),
+                    ..._plans.map((plan) {
+                      final p = plan as Map<String, dynamic>;
+                      final isCurrent = sub?['planId'] == p['id'];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        color: isCurrent ? Colors.blue[50] : null,
+                        child: ListTile(
+                          title: Text('${p['name']}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                          subtitle: Text('${p['code']} - ${p['interval']} - ${p['price']} ${p['currency']}', style: const TextStyle(fontSize: 12)),
+                          trailing: isCurrent
+                              ? const Chip(label: Text('Current', style: TextStyle(fontSize: 10)))
+                              : ElevatedButton(
+                                  onPressed: _actionLoading == 'plan_${p['id']}' ? null : () => _handleChangePlan('${p['id']}'),
+                                  child: Text(_actionLoading == 'plan_${p['id']}' ? '...' : 'Select', style: const TextStyle(fontSize: 12)),
+                                ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Change Interval
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Change Billing Interval', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: ['MONTHLY', 'QUARTERLY', 'YEARLY'].map((interval) {
+                        final isCurrentInterval = sub?['plan']?['interval'] == interval;
+                        return Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ElevatedButton(
+                              onPressed: isCurrentInterval || _actionLoading == 'interval_$interval' ? null : () => _handleChangeInterval(interval),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isCurrentInterval ? Colors.grey[300] : Colors.white,
+                                foregroundColor: isCurrentInterval ? Colors.grey : Colors.black,
+                                side: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              child: Text(_actionLoading == 'interval_$interval' ? '...' : interval, style: const TextStyle(fontSize: 11)),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Interval changes take effect at period end', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRow(String label, String value, {bool isBadge = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          isBadge
+              ? Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.green[100], borderRadius: BorderRadius.circular(4)),
+                  child: Text(value, style: TextStyle(fontSize: 11, color: Colors.green[800])),
+                )
+              : Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/copy_trading/data/copy_trading_repository.dart
+
+```dart
+import '../../../core/logging/app_logger.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/json_read.dart';
+import '../domain/copy_models.dart';
+
+/// Follower-side copy trading: discover traders, subscribe, pause / resume /
+/// stop, and see what was copied. Every order is placed by the server-side
+/// copy pipeline (risk checked, OMS routed); nothing here submits an order.
+class CopyTradingRepository {
+  CopyTradingRepository({required ApiClient apiClient, required AppLogger logger})
+      : _apiClient = apiClient,
+        _logger = logger;
+
+  final ApiClient _apiClient;
+  final AppLogger _logger;
+
+  Future<List<RankedTrader>> fetchRankings({String sortBy = 'score', String? search}) {
+    return _apiClient.get<List<RankedTrader>>(
+      ApiEndpoints.copyRankings,
+      queryParameters: <String, Object?>{'sortBy': sortBy, 'page': 1, 'limit': 50, if (search != null && search.isNotEmpty) 'search': search},
+      parser: (Object? data) => JsonRead.rows(data).map(RankedTrader.fromJson).toList(growable: false),
+    );
+  }
+
+  Future<List<TraderStrategySummary>> fetchTraderStrategies(String traderId) {
+    return _apiClient.get<List<TraderStrategySummary>>(
+      ApiEndpoints.copyTraderStrategies(traderId),
+      parser: (Object? data) => JsonRead.rows(data).map(TraderStrategySummary.fromJson).toList(growable: false),
+    );
+  }
+
+  Future<List<CopySubscriptionSummary>> fetchMySubscriptions() {
+    return _apiClient.get<List<CopySubscriptionSummary>>(
+      ApiEndpoints.copyMySubscriptions,
+      queryParameters: <String, Object?>{'page': 1, 'limit': 100},
+      parser: (Object? data) => JsonRead.rows(data).map(CopySubscriptionSummary.fromJson).toList(growable: false),
+    );
+  }
+
+  Future<List<CopyExecutionSummary>> fetchExecutions({int limit = 50}) {
+    return _apiClient.get<List<CopyExecutionSummary>>(
+      ApiEndpoints.copyExecutions,
+      queryParameters: <String, Object?>{'page': 1, 'limit': limit},
+      parser: (Object? data) => JsonRead.rows(data).map(CopyExecutionSummary.fromJson).toList(growable: false),
+    );
+  }
+
+  Future<CopySubscriptionSummary> subscribe(SubscribeRequest request) async {
+    final String? problem = request.validate();
+    if (problem != null) {
+      throw ArgumentError(problem);
+    }
+    final CopySubscriptionSummary created = await _apiClient.post<CopySubscriptionSummary>(
+      ApiEndpoints.copySubscriptions,
+      body: request.toJson(),
+      parser: (Object? data) => CopySubscriptionSummary.fromJson(JsonRead.map(data)),
+    );
+    _logger.debug('copy.subscribed', context: <String, Object?>{'mode': request.allocationMode});
+    return created;
+  }
+
+  Future<void> pause(String subscriptionId) => _action(subscriptionId, 'pause');
+
+  Future<void> resume(String subscriptionId) => _action(subscriptionId, 'resume');
+
+  /// Stop copying. Open positions are NOT closed by this - the API stops new
+  /// copies only, and the screen says so before confirming.
+  Future<void> stop(String subscriptionId) => _action(subscriptionId, 'stop');
+
+  Future<void> _action(String subscriptionId, String action) async {
+    await _apiClient.post<Object?>(ApiEndpoints.copySubscriptionAction(subscriptionId, action));
+    _logger.debug('copy.subscription_$action');
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/copy_trading/domain/copy_models.dart
+
+```dart
+import 'package:equatable/equatable.dart';
+
+import '../../../core/network/json_read.dart';
+
+/// Sizing modes the API accepts (CopySizingMode).
+class CopySizingModes {
+  const CopySizingModes._();
+
+  static const List<String> all = <String>['PROPORTIONAL', 'FIXED', 'PERCENTAGE_BALANCE'];
+}
+
+/// Decimal strings only - the API refuses floats for money.
+final RegExp decimalPattern = RegExp(r'^\d+(\.\d+)?$');
+
+class RankedTrader extends Equatable {
+  const RankedTrader({
+    required this.traderId,
+    required this.displayName,
+    required this.verificationState,
+    required this.followerCount,
+    required this.score,
+    required this.rank,
+    this.realizedPnl,
+    this.winRate,
+    this.maxDrawdown,
+    this.isFeatured = false,
+  });
+
+  factory RankedTrader.fromJson(Map<String, Object?> json) {
+    final Map<String, Object?> perf = JsonRead.map(json['performance']);
+    final Object? score = json['score'];
+    return RankedTrader(
+      traderId: JsonRead.strOr(json, 'traderId', ''),
+      displayName: JsonRead.strOr(json, 'displayName', '—'),
+      verificationState: JsonRead.strOr(json, 'verificationState', 'UNVERIFIED'),
+      followerCount: JsonRead.integer(json, 'followerCount'),
+      score: score is num ? score.toDouble() : double.tryParse(score?.toString() ?? '') ?? 0,
+      rank: JsonRead.integer(json, 'rank'),
+      realizedPnl: JsonRead.str(perf, 'realizedPnl'),
+      winRate: JsonRead.str(perf, 'winRate'),
+      maxDrawdown: JsonRead.str(perf, 'maxDrawdown'),
+      isFeatured: JsonRead.boolean(json, 'isFeatured'),
+    );
+  }
+
+  final String traderId;
+  final String displayName;
+  final String verificationState;
+  final int followerCount;
+  final double score;
+  final int rank;
+
+  /// Decimal strings exactly as the API computed them; null = not measured.
+  final String? realizedPnl;
+  final String? winRate;
+  final String? maxDrawdown;
+  final bool isFeatured;
+
+  bool get isVerified => verificationState == 'VERIFIED';
+
+  @override
+  List<Object?> get props => <Object?>[traderId, displayName, verificationState, followerCount, score, rank, realizedPnl, winRate, maxDrawdown, isFeatured];
+}
+
+class TraderStrategySummary extends Equatable {
+  const TraderStrategySummary({required this.id, required this.name, required this.status, this.description});
+
+  factory TraderStrategySummary.fromJson(Map<String, Object?> json) => TraderStrategySummary(
+        id: JsonRead.strOr(json, 'id', ''),
+        name: JsonRead.strOr(json, 'name', '—'),
+        status: JsonRead.strOr(json, 'status', 'UNKNOWN'),
+        description: JsonRead.str(json, 'description'),
+      );
+
+  final String id;
+  final String name;
+  final String status;
+  final String? description;
+
+  bool get isCopyable => status == 'PUBLISHED';
+
+  @override
+  List<Object?> get props => <Object?>[id, name, status, description];
+}
+
+class CopySubscriptionSummary extends Equatable {
+  const CopySubscriptionSummary({
+    required this.id,
+    required this.traderId,
+    required this.strategyId,
+    required this.state,
+    required this.allocationMode,
+    required this.allocationAmount,
+    required this.totalCopies,
+    required this.failedCopies,
+    this.followerAccountId,
+    this.startedAt,
+  });
+
+  factory CopySubscriptionSummary.fromJson(Map<String, Object?> json) => CopySubscriptionSummary(
+        id: JsonRead.strOr(json, 'id', ''),
+        traderId: JsonRead.strOr(json, 'traderId', ''),
+        strategyId: JsonRead.strOr(json, 'strategyId', ''),
+        state: JsonRead.strOr(json, 'state', 'UNKNOWN'),
+        allocationMode: JsonRead.strOr(json, 'allocationMode', 'PROPORTIONAL'),
+        allocationAmount: JsonRead.strOr(json, 'allocationAmount', '0'),
+        totalCopies: JsonRead.integer(json, 'totalCopies'),
+        failedCopies: JsonRead.integer(json, 'failedCopies'),
+        followerAccountId: JsonRead.str(json, 'followerAccountId'),
+        startedAt: JsonRead.date(json, 'startedAt'),
+      );
+
+  final String id;
+  final String traderId;
+  final String strategyId;
+  final String state;
+  final String allocationMode;
+  final String allocationAmount;
+  final int totalCopies;
+  final int failedCopies;
+  final String? followerAccountId;
+  final DateTime? startedAt;
+
+  bool get canPause => state == 'ACTIVE';
+  bool get canResume => state == 'PAUSED';
+  bool get canStop => state == 'ACTIVE' || state == 'PAUSED' || state == 'PENDING';
+
+  @override
+  List<Object?> get props => <Object?>[id, traderId, strategyId, state, allocationMode, allocationAmount, totalCopies, failedCopies, followerAccountId, startedAt];
+}
+
+class CopyExecutionSummary extends Equatable {
+  const CopyExecutionSummary({
+    required this.id,
+    required this.status,
+    required this.leaderQuantity,
+    this.followerQuantity,
+    this.followerPrice,
+    this.failureReason,
+    this.createdAt,
+    this.symbol,
+    this.side,
+  });
+
+  factory CopyExecutionSummary.fromJson(Map<String, Object?> json) {
+    final Map<String, Object?> intent = JsonRead.map(json['executionIntent']);
+    return CopyExecutionSummary(
+      id: JsonRead.strOr(json, 'id', ''),
+      status: JsonRead.strOr(json, 'status', 'UNKNOWN'),
+      leaderQuantity: JsonRead.strOr(json, 'leaderQuantity', '0'),
+      followerQuantity: JsonRead.str(json, 'followerQuantity'),
+      followerPrice: JsonRead.str(json, 'followerPrice'),
+      failureReason: JsonRead.str(json, 'failureReason'),
+      createdAt: JsonRead.date(json, 'createdAt'),
+      symbol: JsonRead.str(intent, 'symbol'),
+      side: JsonRead.str(intent, 'side'),
+    );
+  }
+
+  final String id;
+  final String status;
+  final String leaderQuantity;
+  final String? followerQuantity;
+  final String? followerPrice;
+  final String? failureReason;
+  final DateTime? createdAt;
+  final String? symbol;
+  final String? side;
+
+  bool get isFailure => status == 'FAILED' || status == 'REJECTED' || status == 'BLOCKED';
+
+  @override
+  List<Object?> get props => <Object?>[id, status, leaderQuantity, followerQuantity, followerPrice, failureReason, createdAt, symbol, side];
+}
+
+/// The subscribe form. Validation mirrors the API DTO so the user sees the
+/// problem before a round trip; the API validates again regardless.
+class SubscribeRequest {
+  const SubscribeRequest({
+    required this.traderId,
+    required this.strategyId,
+    required this.allocationMode,
+    required this.allocationAmount,
+    required this.followerAccountId,
+    required this.idempotencyKey,
+    this.maxAllocation,
+  });
+
+  final String traderId;
+  final String strategyId;
+  final String allocationMode;
+  final String allocationAmount;
+  final String followerAccountId;
+  final String idempotencyKey;
+  final String? maxAllocation;
+
+  /// Null when valid, otherwise the first problem.
+  String? validate() {
+    if (!CopySizingModes.all.contains(allocationMode)) {
+      return 'Unsupported allocation mode';
+    }
+    if (!decimalPattern.hasMatch(allocationAmount) || double.parse(allocationAmount) <= 0) {
+      return 'Allocation must be a positive decimal number';
+    }
+    if (allocationMode == 'PERCENTAGE_BALANCE' && double.parse(allocationAmount) > 100) {
+      return 'A balance percentage cannot exceed 100';
+    }
+    if (maxAllocation != null && maxAllocation!.isNotEmpty && !decimalPattern.hasMatch(maxAllocation!)) {
+      return 'Maximum allocation must be a decimal number';
+    }
+    if (followerAccountId.isEmpty) {
+      return 'Choose the exchange account that will copy';
+    }
+    return null;
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'traderId': traderId,
+        'strategyId': strategyId,
+        'allocationMode': allocationMode,
+        'allocationAmount': allocationAmount,
+        if (maxAllocation != null && maxAllocation!.isNotEmpty) 'maxAllocation': maxAllocation,
+        'followerAccountId': followerAccountId,
+        'idempotencyKey': idempotencyKey,
+      };
+}
+```
+
+FILE: apps/mobile/lib/features/copy_trading/presentation/copy_trading_screen.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../../core/di/feature_providers.dart';
+import '../../../core/widgets/async_body.dart';
+import '../../../l10n/app_localizations.dart';
+import '../../exchange_accounts/domain/exchange_account_models.dart';
+import '../domain/copy_models.dart';
+
+/// Copy trading, follower side: Traders (ranking) · My copies · Activity.
+class CopyTradingScreen extends ConsumerWidget {
+  const CopyTradingScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(l10n.copyTradingTitle),
+          bottom: TabBar(tabs: <Widget>[Tab(text: l10n.tradersTab), Tab(text: l10n.myCopiesTab), Tab(text: l10n.activityTab)]),
+        ),
+        body: const TabBarView(children: <Widget>[_TradersTab(), _SubscriptionsTab(), _ExecutionsTab()]),
+      ),
+    );
+  }
+}
+
+class _TradersTab extends ConsumerWidget {
+  const _TradersTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return RefreshIndicator(
+      onRefresh: () => ref.refresh(copyRankingsProvider.future),
+      child: AsyncBody<List<RankedTrader>>(
+        value: ref.watch(copyRankingsProvider),
+        onRetry: () => ref.invalidate(copyRankingsProvider),
+        isEmpty: (List<RankedTrader> rows) => rows.isEmpty,
+        emptyText: l10n.noTraders,
+        builder: (List<RankedTrader> rows) => ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: rows.length,
+          itemBuilder: (BuildContext context, int i) {
+            final RankedTrader t = rows[i];
+            return Card(
+              child: ListTile(
+                leading: CircleAvatar(child: Text('${t.rank > 0 ? t.rank : i + 1}')),
+                title: Row(children: <Widget>[
+                  Flexible(child: Text(t.displayName, overflow: TextOverflow.ellipsis)),
+                  if (t.isVerified) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16)),
+                ],),
+                subtitle: Text(
+                  '${l10n.followersLabel}: ${t.followerCount} · ${l10n.pnlLabel}: ${t.realizedPnl ?? '—'} · ${l10n.drawdownLabel}: ${t.maxDrawdown ?? '—'}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (BuildContext context) => _TraderSheet(trader: t),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _TraderSheet extends ConsumerWidget {
+  const _TraderSheet({required this.trader});
+
+  final RankedTrader trader;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Text(trader.displayName, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text('${l10n.pnlLabel}: ${trader.realizedPnl ?? '—'} · ${l10n.winRateLabel}: ${trader.winRate ?? '—'}'),
+            const SizedBox(height: 4),
+            Text(l10n.pastPerformanceNotice, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 16),
+            Text(l10n.strategiesTitle, style: Theme.of(context).textTheme.titleMedium),
+            SizedBox(
+              height: 260,
+              child: AsyncBody<List<TraderStrategySummary>>(
+                value: ref.watch(traderStrategiesProvider(trader.traderId)),
+                onRetry: () => ref.invalidate(traderStrategiesProvider(trader.traderId)),
+                isEmpty: (List<TraderStrategySummary> rows) => rows.where((TraderStrategySummary s) => s.isCopyable).isEmpty,
+                emptyText: l10n.noCopyableStrategies,
+                builder: (List<TraderStrategySummary> rows) => ListView(
+                  children: <Widget>[
+                    for (final TraderStrategySummary s in rows.where((TraderStrategySummary s) => s.isCopyable))
+                      ListTile(
+                        title: Text(s.name),
+                        subtitle: s.description == null ? null : Text(s.description!, maxLines: 2, overflow: TextOverflow.ellipsis),
+                        trailing: FilledButton(
+                          onPressed: () async {
+                            final bool? done = await showModalBottomSheet<bool>(
+                              context: context,
+                              isScrollControlled: true,
+                              builder: (BuildContext context) => SubscribeSheet(trader: trader, strategy: s),
+                            );
+                            if (done == true && context.mounted) {
+                              ref.invalidate(mySubscriptionsProvider);
+                              Navigator.of(context).pop();
+                            }
+                          },
+                          child: Text(l10n.copyAction),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Subscribe form: sizing mode, amount (decimal string), the follower's own
+/// exchange account. A fresh idempotency key per form instance makes a
+/// double tap or a retried request create one subscription, not two.
+class SubscribeSheet extends ConsumerStatefulWidget {
+  const SubscribeSheet({super.key, required this.trader, required this.strategy});
+
+  final RankedTrader trader;
+  final TraderStrategySummary strategy;
+
+  @override
+  ConsumerState<SubscribeSheet> createState() => _SubscribeSheetState();
+}
+
+class _SubscribeSheetState extends ConsumerState<SubscribeSheet> {
+  final TextEditingController _amount = TextEditingController();
+  final TextEditingController _max = TextEditingController();
+  final String _idempotencyKey = const Uuid().v4();
+  String _mode = CopySizingModes.all.first;
+  String? _accountId;
+  bool _acknowledged = false;
+  bool _submitting = false;
+  String? _problem;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _max.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final SubscribeRequest request = SubscribeRequest(
+      traderId: widget.trader.traderId,
+      strategyId: widget.strategy.id,
+      allocationMode: _mode,
+      allocationAmount: _amount.text.trim(),
+      maxAllocation: _max.text.trim(),
+      followerAccountId: _accountId ?? '',
+      idempotencyKey: _idempotencyKey,
+    );
+    final String? problem = request.validate();
+    setState(() => _problem = problem);
+    if (problem != null) {
+      return;
+    }
+    setState(() => _submitting = true);
+    final bool ok = await runAction(context, () => ref.read(copyTradingRepositoryProvider).subscribe(request), success: l10n.subscribed);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _submitting = false);
+    if (ok) {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final AsyncValue<List<ExchangeAccountSummary>> accounts = ref.watch(exchangeAccountsProvider);
+    return Padding(
+      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Text('${l10n.copyAction}: ${widget.strategy.name}', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              initialValue: _mode,
+              decoration: InputDecoration(labelText: l10n.sizingModeLabel, border: const OutlineInputBorder()),
+              items: CopySizingModes.all.map((String m) => DropdownMenuItem<String>(value: m, child: Text(m))).toList(),
+              onChanged: (String? v) => setState(() => _mode = v ?? _mode),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _amount,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: l10n.allocationLabel, border: const OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _max,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: l10n.maxAllocationLabel, border: const OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            accounts.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (Object e, StackTrace _) => Text(describeError(e, l10n)),
+              data: (List<ExchangeAccountSummary> rows) {
+                final List<ExchangeAccountSummary> usable = rows.where((ExchangeAccountSummary a) => !a.isDisabled).toList();
+                if (usable.isEmpty) {
+                  return Text(l10n.connectExchangeFirst);
+                }
+                return DropdownButtonFormField<String>(
+                  initialValue: _accountId,
+                  decoration: InputDecoration(labelText: l10n.copyingAccountLabel, border: const OutlineInputBorder()),
+                  items: usable
+                      .map((ExchangeAccountSummary a) => DropdownMenuItem<String>(value: a.id, child: Text('${a.label} · ${a.venue} · ${a.environment}')))
+                      .toList(),
+                  onChanged: (String? v) => setState(() => _accountId = v),
+                );
+              },
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _acknowledged,
+              onChanged: (bool? v) => setState(() => _acknowledged = v ?? false),
+              title: Text(l10n.copyRiskAcknowledgement, style: Theme.of(context).textTheme.bodySmall),
+            ),
+            if (_problem != null) Text(_problem!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            const SizedBox(height: 8),
+            FilledButton(
+              onPressed: (!_acknowledged || _submitting) ? null : _submit,
+              child: _submitting ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(l10n.startCopying),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SubscriptionsTab extends ConsumerWidget {
+  const _SubscriptionsTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    Future<void> act(Future<void> Function() op, String ok) async {
+      await runAction(context, op, success: ok);
+      ref.invalidate(mySubscriptionsProvider);
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => ref.refresh(mySubscriptionsProvider.future),
+      child: AsyncBody<List<CopySubscriptionSummary>>(
+        value: ref.watch(mySubscriptionsProvider),
+        onRetry: () => ref.invalidate(mySubscriptionsProvider),
+        isEmpty: (List<CopySubscriptionSummary> rows) => rows.isEmpty,
+        emptyText: l10n.noSubscriptions,
+        builder: (List<CopySubscriptionSummary> rows) => ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: rows.length,
+          itemBuilder: (BuildContext context, int i) {
+            final CopySubscriptionSummary s = rows[i];
+            final repo = ref.read(copyTradingRepositoryProvider);
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('${s.state} · ${s.allocationMode} ${s.allocationAmount}', style: Theme.of(context).textTheme.titleSmall),
+                    Text('${l10n.copiesLabel}: ${s.totalCopies} · ${l10n.failedLabel}: ${s.failedCopies}'),
+                    Text('${l10n.startedLabel}: ${formatTimestamp(s.startedAt)}'),
+                    Wrap(spacing: 8, children: <Widget>[
+                      if (s.canPause) OutlinedButton(onPressed: () => act(() => repo.pause(s.id), l10n.paused), child: Text(l10n.pause)),
+                      if (s.canResume) OutlinedButton(onPressed: () => act(() => repo.resume(s.id), l10n.resumed), child: Text(l10n.resume)),
+                      if (s.canStop)
+                        TextButton(
+                          onPressed: () async {
+                            if (await confirm(context, title: l10n.stopCopyingTitle, message: l10n.stopCopyingMessage)) {
+                              await act(() => repo.stop(s.id), l10n.stopped);
+                            }
+                          },
+                          child: Text(l10n.stop),
+                        ),
+                    ],),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ExecutionsTab extends ConsumerWidget {
+  const _ExecutionsTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return RefreshIndicator(
+      onRefresh: () => ref.refresh(copyExecutionsProvider.future),
+      child: AsyncBody<List<CopyExecutionSummary>>(
+        value: ref.watch(copyExecutionsProvider),
+        onRetry: () => ref.invalidate(copyExecutionsProvider),
+        isEmpty: (List<CopyExecutionSummary> rows) => rows.isEmpty,
+        emptyText: l10n.noCopyActivity,
+        builder: (List<CopyExecutionSummary> rows) => ListView.separated(
+          itemCount: rows.length,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (BuildContext context, int i) {
+            final CopyExecutionSummary e = rows[i];
+            return ListTile(
+              leading: Icon(e.isFailure ? Icons.error_outline : Icons.swap_horiz, color: e.isFailure ? Theme.of(context).colorScheme.error : null),
+              title: Text('${e.side ?? ''} ${e.symbol ?? ''} ${e.followerQuantity ?? e.leaderQuantity}'.trim()),
+              subtitle: Text('${e.status} · ${formatTimestamp(e.createdAt)}${e.failureReason == null ? '' : '\n${e.failureReason}'}'),
+              isThreeLine: e.failureReason != null,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/exchange_accounts/data/exchange_account_repository.dart
+
+```dart
+import '../../../core/logging/app_logger.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/json_read.dart';
+import '../domain/exchange_account_models.dart';
+
+/// Exchange accounts from the phone: list, connect, health-check, disable.
+///
+/// Not here on purpose: enabling LIVE trading, rotating or revoking keys and
+/// changing IP allow-lists. Those are console actions with step-up auth.
+/// Disabling is the one write a phone should have - it only ever reduces
+/// what the account can do.
+///
+/// Secrets: the connect payload is posted once and never stored, cached or
+/// logged (only the venue and environment are logged, never the request).
+class ExchangeAccountRepository {
+  ExchangeAccountRepository({required ApiClient apiClient, required AppLogger logger})
+      : _apiClient = apiClient,
+        _logger = logger;
+
+  final ApiClient _apiClient;
+  final AppLogger _logger;
+
+  Future<List<ExchangeAccountSummary>> fetchAccounts() {
+    return _apiClient.get<List<ExchangeAccountSummary>>(
+      ApiEndpoints.exchangeAccounts,
+      queryParameters: <String, Object?>{'page': 1, 'limit': 100},
+      parser: (Object? data) => JsonRead.rows(data).map(ExchangeAccountSummary.fromJson).toList(growable: false),
+    );
+  }
+
+  Future<ExchangeAccountSummary> connect(ConnectExchangeRequest request) async {
+    final ExchangeAccountSummary created = await _apiClient.post<ExchangeAccountSummary>(
+      ApiEndpoints.exchangeAccounts,
+      body: request.toJson(),
+      parser: (Object? data) => ExchangeAccountSummary.fromJson(JsonRead.map(data)),
+    );
+    _logger.debug('exchange.account_connected', context: <String, Object?>{'venue': request.venue, 'environment': request.environment});
+    return created;
+  }
+
+  /// Asks the API to probe the venue now. The API records the result on the
+  /// account; the caller refreshes the list to show it.
+  Future<void> runHealthCheck(String accountId) async {
+    await _apiClient.post<Object?>(ApiEndpoints.exchangeHealthCheck(accountId));
+  }
+
+  Future<void> disableAccount(String accountId, {String reason = 'Disabled from mobile'}) async {
+    await _apiClient.post<Object?>(
+      ApiEndpoints.exchangeAccountDisable(accountId),
+      body: <String, Object?>{'reason': reason},
+    );
+    _logger.debug('exchange.account_disabled');
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/exchange_accounts/domain/exchange_account_models.dart
+
+```dart
+import 'package:equatable/equatable.dart';
+
+import '../../../core/network/json_read.dart';
+
+/// Venues and environments the API accepts on connect (ExchangeVenue /
+/// ExchangeEnvironment on the server). Kept as plain strings so a server-side
+/// addition shows up as an unknown-but-rendered value rather than a crash.
+class ExchangeVenues {
+  const ExchangeVenues._();
+
+  static const List<String> all = <String>['BINANCE', 'BYBIT', 'OKX', 'KRAKEN', 'COINBASE'];
+
+  /// OKX and Coinbase Exchange sign with a passphrase as a third secret.
+  static bool needsPassphrase(String venue) => venue == 'OKX' || venue == 'COINBASE';
+}
+
+class ExchangeEnvironments {
+  const ExchangeEnvironments._();
+
+  static const List<String> all = <String>['TESTNET', 'SANDBOX', 'LIVE'];
+}
+
+/// The safe reference the API returns for an exchange account. There is no
+/// secret in it by construction: the key is masked server-side and the
+/// secret is never returned by any route.
+class ExchangeAccountSummary extends Equatable {
+  const ExchangeAccountSummary({
+    required this.id,
+    required this.venue,
+    required this.environment,
+    required this.label,
+    required this.maskedApiKey,
+    required this.status,
+    this.connectionState,
+    this.healthState,
+    this.capabilities = const <String>[],
+    this.isSandbox = false,
+    this.liveTradingEnabled = false,
+    this.lastVerifiedAt,
+    this.lastErrorCode,
+  });
+
+  factory ExchangeAccountSummary.fromJson(Map<String, Object?> json) {
+    return ExchangeAccountSummary(
+      id: JsonRead.str(json, 'accountId') ?? JsonRead.strOr(json, 'id', ''),
+      venue: JsonRead.strOr(json, 'venue', 'UNKNOWN'),
+      environment: JsonRead.strOr(json, 'environment', 'UNKNOWN'),
+      label: JsonRead.strOr(json, 'label', ''),
+      maskedApiKey: JsonRead.strOr(json, 'maskedApiKey', '****'),
+      status: JsonRead.strOr(json, 'status', 'UNKNOWN'),
+      connectionState: JsonRead.str(json, 'connectionState'),
+      healthState: JsonRead.str(json, 'healthState'),
+      capabilities: JsonRead.strings(json, 'capabilities'),
+      isSandbox: JsonRead.boolean(json, 'isSandbox'),
+      liveTradingEnabled: JsonRead.boolean(json, 'liveTradingEnabled'),
+      lastVerifiedAt: JsonRead.date(json, 'lastVerifiedAt'),
+      lastErrorCode: JsonRead.str(json, 'lastErrorCode'),
+    );
+  }
+
+  final String id;
+  final String venue;
+  final String environment;
+  final String label;
+  final String maskedApiKey;
+  final String status;
+  final String? connectionState;
+  final String? healthState;
+  final List<String> capabilities;
+  final bool isSandbox;
+  final bool liveTradingEnabled;
+  final DateTime? lastVerifiedAt;
+  final String? lastErrorCode;
+
+  bool get isLive => environment == 'LIVE' && !isSandbox;
+  bool get isDisabled => status == 'DISABLED' || status == 'REVOKED';
+  bool get isHealthy => healthState == 'HEALTHY';
+
+  @override
+  List<Object?> get props => <Object?>[id, venue, environment, label, maskedApiKey, status, connectionState, healthState, capabilities, isSandbox, liveTradingEnabled, lastVerifiedAt, lastErrorCode];
+}
+
+/// What the connect form sends. Held only for the duration of the request;
+/// [toJson] is the single place the secret leaves the form, and [toString]
+/// is overridden so it can never be logged by accident.
+class ConnectExchangeRequest {
+  const ConnectExchangeRequest({
+    required this.venue,
+    required this.environment,
+    required this.label,
+    required this.apiKey,
+    required this.apiSecret,
+    this.passphrase,
+  });
+
+  final String venue;
+  final String environment;
+  final String label;
+  final String apiKey;
+  final String apiSecret;
+  final String? passphrase;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'venue': venue,
+        'environment': environment,
+        'label': label,
+        'apiKey': apiKey,
+        'apiSecret': apiSecret,
+        if (passphrase != null && passphrase!.isNotEmpty) 'passphrase': passphrase,
+        'credentialSource': 'ENVELOPE_DB',
+      };
+
+  @override
+  String toString() => 'ConnectExchangeRequest(venue: $venue, environment: $environment, label: $label, apiKey: <redacted>, apiSecret: <redacted>)';
+}
+```
+
+FILE: apps/mobile/lib/features/exchange_accounts/presentation/exchange_accounts_screen.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/di/feature_providers.dart';
+import '../../../core/widgets/async_body.dart';
+import '../../../l10n/app_localizations.dart';
+import '../domain/exchange_account_models.dart';
+
+/// Exchange accounts: status, health check, disable, and connecting a new
+/// account with API keys (sent once, never stored on the device).
+class ExchangeAccountsScreen extends ConsumerWidget {
+  const ExchangeAccountsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final AsyncValue<List<ExchangeAccountSummary>> accounts = ref.watch(exchangeAccountsProvider);
+
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.exchangeAccountsTitle)),
+      floatingActionButton: FloatingActionButton.extended(
+        icon: const Icon(Icons.add_link),
+        label: Text(l10n.connectExchange),
+        onPressed: () async {
+          final bool? connected = await showModalBottomSheet<bool>(
+            context: context,
+            isScrollControlled: true,
+            builder: (BuildContext context) => const ConnectExchangeSheet(),
+          );
+          if (connected == true) {
+            ref.invalidate(exchangeAccountsProvider);
+          }
+        },
+      ),
+      body: RefreshIndicator(
+        onRefresh: () => ref.refresh(exchangeAccountsProvider.future),
+        child: AsyncBody<List<ExchangeAccountSummary>>(
+          value: accounts,
+          onRetry: () => ref.invalidate(exchangeAccountsProvider),
+          isEmpty: (List<ExchangeAccountSummary> rows) => rows.isEmpty,
+          emptyText: l10n.noExchangeAccounts,
+          builder: (List<ExchangeAccountSummary> rows) => ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+            itemCount: rows.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (BuildContext context, int index) => _AccountCard(account: rows[index]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountCard extends ConsumerWidget {
+  const _AccountCard({required this.account});
+
+  final ExchangeAccountSummary account;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    account.label.isEmpty ? account.venue : '${account.label} · ${account.venue}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Chip(
+                  label: Text(account.environment),
+                  backgroundColor: account.isLive ? colors.errorContainer : colors.secondaryContainer,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text('${l10n.apiKeyLabel}: ${account.maskedApiKey}'),
+            Text('${l10n.statusLabel}: ${account.status}${account.healthState == null ? '' : ' · ${account.healthState}'}'),
+            if (account.lastErrorCode != null)
+              Text('${l10n.lastErrorLabel}: ${account.lastErrorCode}', style: TextStyle(color: colors.error)),
+            Text('${l10n.lastVerifiedLabel}: ${formatTimestamp(account.lastVerifiedAt)}'),
+            if (account.isLive && !account.liveTradingEnabled)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(l10n.liveTradingOffNotice, style: Theme.of(context).textTheme.bodySmall),
+              ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: <Widget>[
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.monitor_heart_outlined),
+                  label: Text(l10n.checkHealth),
+                  onPressed: () async {
+                    await runAction(context, () => ref.read(exchangeAccountRepositoryProvider).runHealthCheck(account.id), success: l10n.healthCheckDone);
+                    ref.invalidate(exchangeAccountsProvider);
+                  },
+                ),
+                if (!account.isDisabled)
+                  TextButton.icon(
+                    icon: const Icon(Icons.block),
+                    label: Text(l10n.disable),
+                    onPressed: () async {
+                      if (!await confirm(context, title: l10n.disableAccountTitle, message: l10n.disableAccountMessage)) {
+                        return;
+                      }
+                      if (!context.mounted) {
+                        return;
+                      }
+                      await runAction(context, () => ref.read(exchangeAccountRepositoryProvider).disableAccount(account.id), success: l10n.accountDisabled);
+                      ref.invalidate(exchangeAccountsProvider);
+                    },
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The connect form. Secret controllers are cleared in [dispose]; nothing is
+/// persisted and fields are obscured with autocorrect/suggestions off.
+class ConnectExchangeSheet extends ConsumerStatefulWidget {
+  const ConnectExchangeSheet({super.key});
+
+  @override
+  ConsumerState<ConnectExchangeSheet> createState() => _ConnectExchangeSheetState();
+}
+
+class _ConnectExchangeSheetState extends ConsumerState<ConnectExchangeSheet> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _label = TextEditingController();
+  final TextEditingController _apiKey = TextEditingController();
+  final TextEditingController _apiSecret = TextEditingController();
+  final TextEditingController _passphrase = TextEditingController();
+  String _venue = ExchangeVenues.all.first;
+  String _environment = ExchangeEnvironments.all.first;
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    for (final TextEditingController c in <TextEditingController>[_apiKey, _apiSecret, _passphrase]) {
+      c.clear();
+    }
+    _label.dispose();
+    _apiKey.dispose();
+    _apiSecret.dispose();
+    _passphrase.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    setState(() => _submitting = true);
+    final bool ok = await runAction(
+      context,
+      () => ref.read(exchangeAccountRepositoryProvider).connect(
+            ConnectExchangeRequest(
+              venue: _venue,
+              environment: _environment,
+              label: _label.text.trim(),
+              apiKey: _apiKey.text.trim(),
+              apiSecret: _apiSecret.text.trim(),
+              passphrase: ExchangeVenues.needsPassphrase(_venue) ? _passphrase.text.trim() : null,
+            ),
+          ),
+      success: l10n.exchangeConnected,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() => _submitting = false);
+    if (ok) {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    String? required(String? v) => (v == null || v.trim().isEmpty) ? l10n.fieldRequired : null;
+    InputDecoration deco(String label) => InputDecoration(labelText: label, border: const OutlineInputBorder());
+
+    return Padding(
+      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(l10n.connectExchange, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _venue,
+                decoration: deco(l10n.venueLabel),
+                items: ExchangeVenues.all.map((String v) => DropdownMenuItem<String>(value: v, child: Text(v))).toList(),
+                onChanged: (String? v) => setState(() => _venue = v ?? _venue),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _environment,
+                decoration: deco(l10n.environmentLabel),
+                items: ExchangeEnvironments.all.map((String v) => DropdownMenuItem<String>(value: v, child: Text(v))).toList(),
+                onChanged: (String? v) => setState(() => _environment = v ?? _environment),
+              ),
+              if (_environment == 'LIVE')
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(l10n.liveKeyWarning, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ),
+              const SizedBox(height: 12),
+              TextFormField(controller: _label, decoration: deco(l10n.accountLabel), validator: required, maxLength: 80),
+              TextFormField(
+                controller: _apiKey,
+                decoration: deco(l10n.apiKeyLabel),
+                validator: required,
+                autocorrect: false,
+                enableSuggestions: false,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _apiSecret,
+                decoration: deco(l10n.apiSecretLabel),
+                validator: required,
+                obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+              ),
+              if (ExchangeVenues.needsPassphrase(_venue)) ...<Widget>[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _passphrase,
+                  decoration: deco(l10n.passphraseLabel),
+                  validator: required,
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                ),
+              ],
+              const SizedBox(height: 8),
+              Text(l10n.tradeOnlyKeysNotice, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _submitting ? null : _submit,
+                child: _submitting ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(l10n.connect),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/funding/data/funding_repository.dart
+
+```dart
+import '../../../core/logging/app_logger.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/json_read.dart';
+import '../domain/funding_models.dart';
+
+/// Funding from the phone: list the customer's own accounts, request a
+/// deposit against one of them, and follow deposit/withdrawal requests.
+///
+/// Everything goes through client-lifecycle funding requests, which the API
+/// scopes to the caller's own accounts. Custody wallets and deposit-address
+/// issuance are an operator surface (403 for customers) and are not called.
+/// There is intentionally no withdrawal-creation method (destination checks,
+/// approvals and step-up auth live in the web app); withdrawals are read-only
+/// history here.
+class FundingRepository {
+  FundingRepository({required ApiClient apiClient, required AppLogger logger})
+      : _apiClient = apiClient,
+        _logger = logger;
+
+  final ApiClient _apiClient;
+  final AppLogger _logger;
+
+  Future<List<FundingAccountSummary>> fetchAccounts() {
+    return _apiClient.get<List<FundingAccountSummary>>(
+      ApiEndpoints.fundingAccounts,
+      queryParameters: <String, Object?>{'page': 1, 'limit': 100},
+      parser: (Object? data) => JsonRead.rows(data).map(FundingAccountSummary.fromJson).toList(growable: false),
+    );
+  }
+
+  Future<List<FundingRequestSummary>> fetchHistory({int limit = 50}) async {
+    final Map<String, Object?> query = <String, Object?>{'page': 1, 'limit': limit};
+    final List<List<FundingRequestSummary>> pages = await Future.wait(<Future<List<FundingRequestSummary>>>[
+      _apiClient.get<List<FundingRequestSummary>>(
+        ApiEndpoints.fundingRequests,
+        queryParameters: query,
+        parser: (Object? data) =>
+            JsonRead.rows(data).map((Map<String, Object?> row) => FundingRequestSummary.fromJson(row, FundingDirection.deposit)).toList(growable: false),
+      ),
+      _apiClient.get<List<FundingRequestSummary>>(
+        ApiEndpoints.withdrawalRequests,
+        queryParameters: query,
+        parser: (Object? data) =>
+            JsonRead.rows(data).map((Map<String, Object?> row) => FundingRequestSummary.fromJson(row, FundingDirection.withdrawal)).toList(growable: false),
+      ),
+    ]);
+    return mergeFundingHistory(pages[0], pages[1], limit: limit);
+  }
+
+  Future<FundingRequestSummary> requestDeposit({
+    required FundingAccountSummary account,
+    required String amount,
+    required String currency,
+    String? externalReference,
+  }) async {
+    if (!account.canDeposit) {
+      throw ArgumentError('This account does not accept deposits');
+    }
+    final String cleanAmount = amount.trim();
+    final String cleanCurrency = currency.trim().toUpperCase();
+    if (!FundingInput.isPositiveAmount(cleanAmount)) {
+      throw ArgumentError('The amount must be greater than zero');
+    }
+    if (!FundingInput.isCurrencyCode(cleanCurrency)) {
+      throw ArgumentError('Unsupported currency code');
+    }
+    final String reference = (externalReference ?? '').trim();
+    final FundingRequestSummary request = await _apiClient.post<FundingRequestSummary>(
+      ApiEndpoints.fundingRequests,
+      body: <String, Object?>{
+        'accountId': account.id,
+        'requestedAmount': cleanAmount,
+        'currency': cleanCurrency,
+        if (reference.isNotEmpty) 'externalReference': reference,
+      },
+      parser: (Object? data) => FundingRequestSummary.fromJson(JsonRead.map(data), FundingDirection.deposit),
+    );
+    _logger.debug('funding.deposit_requested', context: <String, Object?>{'currency': cleanCurrency, 'state': request.state});
+    return request;
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/funding/domain/funding_models.dart
+
+```dart
+import 'package:equatable/equatable.dart';
+
+import '../../../core/network/json_read.dart';
+
+/// An account the signed-in customer owns (client-lifecycle `accounts`).
+///
+/// The API filters the list to the caller's own accounts; the flags below are
+/// the backend's, the app never infers a capability itself.
+class FundingAccountSummary extends Equatable {
+  const FundingAccountSummary({
+    required this.id,
+    required this.accountType,
+    required this.state,
+    required this.isFundingEnabled,
+    required this.isWithdrawalEnabled,
+    this.displayName,
+  });
+
+  factory FundingAccountSummary.fromJson(Map<String, Object?> json) => FundingAccountSummary(
+        id: JsonRead.strOr(json, 'id', ''),
+        accountType: JsonRead.strOr(json, 'accountType', 'ACCOUNT'),
+        state: JsonRead.strOr(json, 'state', 'UNKNOWN'),
+        isFundingEnabled: JsonRead.boolean(json, 'isFundingEnabled'),
+        isWithdrawalEnabled: JsonRead.boolean(json, 'isWithdrawalEnabled'),
+        displayName: JsonRead.str(json, 'displayName'),
+      );
+
+  final String id;
+  final String accountType;
+  final String state;
+  final bool isFundingEnabled;
+  final bool isWithdrawalEnabled;
+  final String? displayName;
+
+  String get label {
+    final String name = displayName ?? '';
+    if (name.isNotEmpty) {
+      return name;
+    }
+    final String shortId = id.length > 8 ? id.substring(0, 8) : id;
+    return '${accountType.replaceAll('_', ' ').toLowerCase()} $shortId';
+  }
+
+  /// Only an active account with deposits enabled accepts a deposit request.
+  bool get canDeposit => state == 'ACTIVE' && isFundingEnabled;
+
+  @override
+  List<Object?> get props => <Object?>[id, accountType, state, isFundingEnabled, isWithdrawalEnabled, displayName];
+}
+
+enum FundingDirection { deposit, withdrawal }
+
+/// A deposit (`funding`) or withdrawal request as the backend holds it.
+///
+/// `requestedAmount` is what the customer asked for; only `confirmedAmount`
+/// with state CONFIRMED means money moved. Amounts stay decimal strings.
+class FundingRequestSummary extends Equatable {
+  const FundingRequestSummary({
+    required this.id,
+    required this.direction,
+    required this.accountId,
+    required this.state,
+    required this.requestedAmount,
+    required this.currency,
+    this.confirmedAmount,
+    this.failureReason,
+    this.requestedAt,
+  });
+
+  factory FundingRequestSummary.fromJson(Map<String, Object?> json, FundingDirection direction) => FundingRequestSummary(
+        id: JsonRead.strOr(json, 'id', ''),
+        direction: direction,
+        accountId: JsonRead.strOr(json, 'accountId', ''),
+        state: JsonRead.strOr(json, 'state', 'UNKNOWN'),
+        requestedAmount: JsonRead.strOr(json, 'requestedAmount', '0'),
+        currency: JsonRead.strOr(json, 'currency', ''),
+        confirmedAmount: JsonRead.str(json, 'confirmedAmount'),
+        failureReason: JsonRead.str(json, 'failureReason'),
+        requestedAt: JsonRead.date(json, 'requestedAt') ?? JsonRead.date(json, 'createdAt'),
+      );
+
+  static const Set<String> openStates = <String>{'REQUESTED', 'UNDER_REVIEW', 'APPROVED', 'SUBMITTED'};
+
+  final String id;
+  final FundingDirection direction;
+  final String accountId;
+  final String state;
+  final String requestedAmount;
+  final String currency;
+  final String? confirmedAmount;
+  final String? failureReason;
+  final DateTime? requestedAt;
+
+  /// Still in review/processing: pending does not mean completed.
+  bool get isOpen => openStates.contains(state);
+
+  bool get isConfirmed => state == 'CONFIRMED';
+
+  @override
+  List<Object?> get props => <Object?>[id, direction, accountId, state, requestedAmount, currency, confirmedAmount, failureReason, requestedAt];
+}
+
+/// Client-side pre-checks mirroring the API contract (the API stays authoritative).
+class FundingInput {
+  const FundingInput._();
+
+  static final RegExp _decimal = RegExp(r'^\d+(\.\d+)?$');
+  static final RegExp _nonZeroDigit = RegExp(r'[1-9]');
+  static final RegExp _currency = RegExp(r'^[A-Z0-9]{2,10}$');
+
+  /// A plain decimal string greater than zero (no sign, exponent or grouping).
+  static bool isPositiveAmount(String value) => _decimal.hasMatch(value) && _nonZeroDigit.hasMatch(value);
+
+  static bool isCurrencyCode(String value) => _currency.hasMatch(value);
+}
+
+/// Deposits and withdrawals interleaved newest first.
+List<FundingRequestSummary> mergeFundingHistory(List<FundingRequestSummary> deposits, List<FundingRequestSummary> withdrawals, {int limit = 50}) {
+  final List<FundingRequestSummary> all = <FundingRequestSummary>[...deposits, ...withdrawals];
+  all.sort((FundingRequestSummary a, FundingRequestSummary b) {
+    final DateTime? at = a.requestedAt;
+    final DateTime? bt = b.requestedAt;
+    if (at == null && bt == null) return 0;
+    if (at == null) return 1;
+    if (bt == null) return -1;
+    return bt.compareTo(at);
+  });
+  return all.length > limit ? all.sublist(0, limit) : all;
+}
+```
+
+FILE: apps/mobile/lib/features/funding/presentation/funding_screen.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/di/feature_providers.dart';
+import '../../../core/widgets/async_body.dart';
+import '../../../l10n/app_localizations.dart';
+import '../domain/funding_models.dart';
+
+/// Funding: the customer's accounts with "request deposit", and the history of
+/// deposit and withdrawal requests. No withdraw action on mobile, by design.
+class FundingScreen extends ConsumerWidget {
+  const FundingScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(l10n.fundingTitle),
+          bottom: TabBar(tabs: <Widget>[Tab(text: l10n.accountsTab), Tab(text: l10n.transactionsTab)]),
+        ),
+        body: TabBarView(
+          children: <Widget>[
+            RefreshIndicator(
+              onRefresh: () => ref.refresh(fundingAccountsProvider.future),
+              child: AsyncBody<List<FundingAccountSummary>>(
+                value: ref.watch(fundingAccountsProvider),
+                onRetry: () => ref.invalidate(fundingAccountsProvider),
+                isEmpty: (List<FundingAccountSummary> rows) => rows.isEmpty,
+                emptyText: l10n.noFundingAccounts,
+                builder: (List<FundingAccountSummary> rows) => ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: <Widget>[
+                    for (final FundingAccountSummary a in rows)
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.account_balance_outlined),
+                          title: Text(a.label),
+                          subtitle: Text(a.canDeposit ? a.state : '${a.state} · ${l10n.depositsUnavailable}'),
+                          trailing: a.canDeposit
+                              ? FilledButton.tonal(onPressed: () => _requestDeposit(context, ref, a), child: Text(l10n.depositLabel))
+                              : null,
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(l10n.withdrawOnWebNotice, style: Theme.of(context).textTheme.bodySmall),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            RefreshIndicator(
+              onRefresh: () => ref.refresh(fundingHistoryProvider.future),
+              child: AsyncBody<List<FundingRequestSummary>>(
+                value: ref.watch(fundingHistoryProvider),
+                onRetry: () => ref.invalidate(fundingHistoryProvider),
+                isEmpty: (List<FundingRequestSummary> rows) => rows.isEmpty,
+                emptyText: l10n.noTransactions,
+                builder: (List<FundingRequestSummary> rows) => ListView.separated(
+                  itemCount: rows.length + 1,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (BuildContext context, int i) {
+                    if (i == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(l10n.pendingNotCompleted, style: Theme.of(context).textTheme.bodySmall),
+                      );
+                    }
+                    final FundingRequestSummary t = rows[i - 1];
+                    final bool deposit = t.direction == FundingDirection.deposit;
+                    final String confirmed = t.confirmedAmount == null ? '' : ' · ${l10n.confirmedAmountLabel} ${t.confirmedAmount} ${t.currency}';
+                    return ListTile(
+                      leading: Icon(deposit ? Icons.south_west : Icons.north_east),
+                      title: Text('${deposit ? l10n.depositLabel : l10n.withdrawalLabel} · ${t.requestedAmount} ${t.currency}'),
+                      subtitle: Text(
+                        '${t.state.replaceAll('_', ' ')}$confirmed · ${formatTimestamp(t.requestedAt)}'
+                        '${t.failureReason == null ? '' : '\n${t.failureReason}'}',
+                      ),
+                      isThreeLine: t.failureReason != null,
+                      trailing: t.isConfirmed
+                          ? const Icon(Icons.check_circle_outline)
+                          : t.isOpen
+                              ? const Icon(Icons.hourglass_empty)
+                              : const Icon(Icons.block_outlined),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _requestDeposit(BuildContext context, WidgetRef ref, FundingAccountSummary account) async {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final _DepositDraft? draft = await showDialog<_DepositDraft>(
+      context: context,
+      builder: (BuildContext context) => _DepositDialog(account: account),
+    );
+    if (draft == null || !context.mounted) {
+      return;
+    }
+    final bool ok = await runAction(
+      context,
+      () async {
+        await ref.read(fundingRepositoryProvider).requestDeposit(
+              account: account,
+              amount: draft.amount,
+              currency: draft.currency,
+              externalReference: draft.reference,
+            );
+      },
+      success: l10n.depositRequested,
+    );
+    if (ok) {
+      ref.invalidate(fundingHistoryProvider);
+    }
+  }
+}
+
+class _DepositDraft {
+  const _DepositDraft({required this.amount, required this.currency, required this.reference});
+
+  final String amount;
+  final String currency;
+  final String reference;
+}
+
+class _DepositDialog extends StatefulWidget {
+  const _DepositDialog({required this.account});
+
+  final FundingAccountSummary account;
+
+  @override
+  State<_DepositDialog> createState() => _DepositDialogState();
+}
+
+class _DepositDialogState extends State<_DepositDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _amount = TextEditingController();
+  final TextEditingController _currency = TextEditingController(text: 'USDT');
+  final TextEditingController _reference = TextEditingController();
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _currency.dispose();
+    _reference.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_formKey.currentState?.validate() ?? false) {
+      Navigator.of(context).pop(
+        _DepositDraft(amount: _amount.text.trim(), currency: _currency.text.trim().toUpperCase(), reference: _reference.text.trim()),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return AlertDialog(
+      title: Text('${l10n.requestDeposit} · ${widget.account.label}'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              TextFormField(
+                controller: _amount,
+                decoration: InputDecoration(labelText: l10n.amountLabel),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: (String? v) => FundingInput.isPositiveAmount((v ?? '').trim()) ? null : l10n.invalidAmount,
+              ),
+              TextFormField(
+                controller: _currency,
+                decoration: InputDecoration(labelText: l10n.currencyLabel),
+                textCapitalization: TextCapitalization.characters,
+                validator: (String? v) => FundingInput.isCurrencyCode((v ?? '').trim().toUpperCase()) ? null : l10n.invalidCurrency,
+              ),
+              TextFormField(
+                controller: _reference,
+                decoration: InputDecoration(labelText: l10n.transferReferenceLabel),
+                maxLength: 120,
+              ),
+              const SizedBox(height: 8),
+              Text(l10n.depositRequestNotice, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.cancel)),
+        FilledButton(onPressed: _submit, child: Text(l10n.requestDeposit)),
+      ],
+    );
+  }
+}
+```
+
 FILE: apps/mobile/lib/features/home/home_screen.dart
 
 ```dart
@@ -2865,6 +7501,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/di/feature_providers.dart';
 import '../../core/di/providers.dart';
 import '../../core/router/route_paths.dart';
 import '../../l10n/app_localizations.dart';
@@ -2873,8 +7510,9 @@ import '../auth/presentation/auth_state.dart';
 
 /// Authenticated landing screen.
 ///
-/// Part 1 deliberately shows account state rather than trading data: there is
-/// no trading data yet, and inventing some would be worse than showing none.
+/// Shows account state plus entry tiles for every feature the API would
+/// answer for this user. Tiles are a usability filter, never access control:
+/// each endpoint re-checks permissions on every request.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -2888,6 +7526,7 @@ class HomeScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(l10n.homeTitle),
         actions: <Widget>[
+          _NotificationBell(onTap: () => context.push(RoutePaths.notifications)),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.push(RoutePaths.settings),
@@ -2984,6 +7623,12 @@ class HomeScreen extends ConsumerWidget {
                     ),
                   ),
                 if (user.can('risk:read')) const SizedBox(height: 16),
+                if (user.can('exchange_account:read'))
+                  _FeatureTile(icon: Icons.link, title: l10n.exchangeAccountsTitle, subtitle: l10n.exchangeAccountsSubtitle, path: RoutePaths.exchangeAccounts),
+                _FeatureTile(icon: Icons.groups_outlined, title: l10n.copyTradingTitle, subtitle: l10n.copyTradingSubtitle, path: RoutePaths.copyTrading),
+                if (user.can('portfolio:read'))
+                  _FeatureTile(icon: Icons.pie_chart_outline, title: l10n.portfolioTitle, subtitle: l10n.portfolioSubtitle, path: RoutePaths.portfolio),
+                _FeatureTile(icon: Icons.account_balance_wallet_outlined, title: l10n.fundingTitle, subtitle: l10n.fundingSubtitle, path: RoutePaths.funding),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(18),
@@ -2998,6 +7643,580 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _FeatureTile extends StatelessWidget {
+  const _FeatureTile({required this.icon, required this.title, required this.subtitle, required this.path});
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        child: ListTile(
+          leading: Icon(icon),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.push(path),
+        ),
+      ),
+    );
+  }
+}
+
+/// Unread badge. A failed count renders as a plain bell - never a made-up 0.
+class _NotificationBell extends ConsumerWidget {
+  const _NotificationBell({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final int? unread = ref.watch(unreadNotificationCountProvider).valueOrNull;
+    return IconButton(
+      tooltip: l10n.notificationsTitle,
+      onPressed: onTap,
+      icon: Badge(
+        isLabelVisible: unread != null && unread > 0,
+        label: Text(unread == null ? '' : (unread > 99 ? '99+' : '$unread')),
+        child: const Icon(Icons.notifications_outlined),
+      ),
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/notifications/data/notification_repository.dart
+
+```dart
+import '../../../core/logging/app_logger.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/json_read.dart';
+import '../domain/notification_models.dart';
+
+/// In-app notifications: list, unread count, mark read, mark all read and
+/// channel preferences. Titles/bodies are never logged (they can carry
+/// account detail); only ids and counts are.
+class NotificationRepository {
+  NotificationRepository({required ApiClient apiClient, required AppLogger logger})
+      : _apiClient = apiClient,
+        _logger = logger;
+
+  final ApiClient _apiClient;
+  final AppLogger _logger;
+
+  Future<List<AppNotification>> fetchNotifications({bool unreadOnly = false, int limit = 50}) {
+    return _apiClient.get<List<AppNotification>>(
+      ApiEndpoints.notifications,
+      queryParameters: <String, Object?>{'page': 1, 'limit': limit, if (unreadOnly) 'unreadOnly': true},
+      parser: (Object? data) => JsonRead.rows(data).map(AppNotification.fromJson).toList(growable: false),
+    );
+  }
+
+  Future<int> fetchUnreadCount() {
+    return _apiClient.get<int>(
+      ApiEndpoints.notificationUnreadCount,
+      parser: (Object? data) => JsonRead.integer(JsonRead.map(data), 'unread'),
+    );
+  }
+
+  Future<void> markRead(String id) async {
+    await _apiClient.patch<Object?>(ApiEndpoints.markNotificationRead(id));
+  }
+
+  Future<void> markAllRead() async {
+    await _apiClient.post<Object?>(ApiEndpoints.notificationsReadAll);
+    _logger.debug('notifications.all_read');
+  }
+
+  Future<List<NotificationPreference>> fetchPreferences() {
+    return _apiClient.get<List<NotificationPreference>>(
+      ApiEndpoints.notificationPreferences,
+      parser: (Object? data) {
+        final Object? rows = data is Map ? (data['preferences'] ?? data) : data;
+        return JsonRead.rows(rows).map(NotificationPreference.fromJson).toList(growable: false);
+      },
+    );
+  }
+
+  Future<void> updatePreferences(List<NotificationPreference> preferences) async {
+    await _apiClient.patch<Object?>(
+      ApiEndpoints.notificationPreferences,
+      body: <String, Object?>{'preferences': preferences.map((NotificationPreference p) => p.toJson()).toList()},
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/notifications/domain/notification_models.dart
+
+```dart
+import 'package:equatable/equatable.dart';
+
+import '../../../core/network/json_read.dart';
+
+class AppNotification extends Equatable {
+  const AppNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.channel,
+    this.readAt,
+    this.createdAt,
+  });
+
+  factory AppNotification.fromJson(Map<String, Object?> json) => AppNotification(
+        id: JsonRead.strOr(json, 'id', ''),
+        type: JsonRead.strOr(json, 'type', ''),
+        title: JsonRead.strOr(json, 'title', ''),
+        body: JsonRead.strOr(json, 'body', ''),
+        channel: JsonRead.strOr(json, 'channel', 'IN_APP'),
+        readAt: JsonRead.date(json, 'readAt'),
+        createdAt: JsonRead.date(json, 'createdAt'),
+      );
+
+  final String id;
+  final String type;
+  final String title;
+  final String body;
+  final String channel;
+  final DateTime? readAt;
+  final DateTime? createdAt;
+
+  bool get isRead => readAt != null;
+
+  AppNotification markedRead(DateTime at) => AppNotification(id: id, type: type, title: title, body: body, channel: channel, readAt: at, createdAt: createdAt);
+
+  @override
+  List<Object?> get props => <Object?>[id, type, title, body, channel, readAt, createdAt];
+}
+
+class NotificationPreference extends Equatable {
+  const NotificationPreference({required this.category, required this.channel, required this.enabled});
+
+  factory NotificationPreference.fromJson(Map<String, Object?> json) => NotificationPreference(
+        category: JsonRead.strOr(json, 'category', ''),
+        channel: JsonRead.strOr(json, 'channel', ''),
+        enabled: JsonRead.boolean(json, 'enabled'),
+      );
+
+  final String category;
+  final String channel;
+  final bool enabled;
+
+  NotificationPreference withEnabled(bool value) => NotificationPreference(category: category, channel: channel, enabled: value);
+
+  Map<String, Object?> toJson() => <String, Object?>{'category': category, 'channel': channel, 'enabled': enabled};
+
+  @override
+  List<Object?> get props => <Object?>[category, channel, enabled];
+}
+```
+
+FILE: apps/mobile/lib/features/notifications/presentation/notifications_screen.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/di/feature_providers.dart';
+import '../../../core/widgets/async_body.dart';
+import '../../../l10n/app_localizations.dart';
+import '../domain/notification_models.dart';
+
+/// Notification inbox plus channel preferences.
+class NotificationsScreen extends ConsumerWidget {
+  const NotificationsScreen({super.key});
+
+  void _refreshAll(WidgetRef ref) {
+    ref.invalidate(notificationsProvider);
+    ref.invalidate(unreadNotificationCountProvider);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(l10n.notificationsTitle),
+          actions: <Widget>[
+            IconButton(
+              tooltip: l10n.markAllRead,
+              icon: const Icon(Icons.done_all),
+              onPressed: () async {
+                await runAction(context, () => ref.read(notificationRepositoryProvider).markAllRead(), success: l10n.allMarkedRead);
+                _refreshAll(ref);
+              },
+            ),
+          ],
+          bottom: TabBar(tabs: <Widget>[Tab(text: l10n.inboxTab), Tab(text: l10n.preferencesTab)]),
+        ),
+        body: TabBarView(children: <Widget>[
+          RefreshIndicator(
+            onRefresh: () async {
+              _refreshAll(ref);
+              await ref.read(notificationsProvider.future);
+            },
+            child: AsyncBody<List<AppNotification>>(
+              value: ref.watch(notificationsProvider),
+              onRetry: () => _refreshAll(ref),
+              isEmpty: (List<AppNotification> rows) => rows.isEmpty,
+              emptyText: l10n.noNotifications,
+              builder: (List<AppNotification> rows) => ListView.separated(
+                itemCount: rows.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (BuildContext context, int i) {
+                  final AppNotification n = rows[i];
+                  return ListTile(
+                    leading: Icon(n.isRead ? Icons.notifications_none : Icons.notifications_active, color: n.isRead ? null : Theme.of(context).colorScheme.primary),
+                    title: Text(n.title, style: TextStyle(fontWeight: n.isRead ? FontWeight.normal : FontWeight.w600)),
+                    subtitle: Text('${n.body}\n${formatTimestamp(n.createdAt)}'),
+                    isThreeLine: true,
+                    onTap: n.isRead
+                        ? null
+                        : () async {
+                            await runAction(context, () => ref.read(notificationRepositoryProvider).markRead(n.id), success: l10n.markedRead);
+                            _refreshAll(ref);
+                          },
+                  );
+                },
+              ),
+            ),
+          ),
+          const _PreferencesTab(),
+        ],),
+      ),
+    );
+  }
+}
+
+class _PreferencesTab extends ConsumerWidget {
+  const _PreferencesTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return AsyncBody<List<NotificationPreference>>(
+      value: ref.watch(notificationPreferencesProvider),
+      onRetry: () => ref.invalidate(notificationPreferencesProvider),
+      isEmpty: (List<NotificationPreference> rows) => rows.isEmpty,
+      builder: (List<NotificationPreference> prefs) => ListView(
+        children: <Widget>[
+          for (final NotificationPreference p in prefs)
+            SwitchListTile(
+              title: Text(p.category),
+              subtitle: Text(p.channel),
+              value: p.enabled,
+              onChanged: (bool value) async {
+                await runAction(
+                  context,
+                  () => ref.read(notificationRepositoryProvider).updatePreferences(<NotificationPreference>[p.withEnabled(value)]),
+                  success: l10n.preferencesSaved,
+                );
+                ref.invalidate(notificationPreferencesProvider);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/portfolio/data/portfolio_repository.dart
+
+```dart
+import '../../../core/error/app_exception.dart';
+import '../../../core/logging/app_logger.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/json_read.dart';
+import '../domain/portfolio_models.dart';
+
+/// Read-only portfolio accounting: profiles, holdings, NAV, PnL. GETs only.
+class PortfolioRepository {
+  PortfolioRepository({required ApiClient apiClient, required AppLogger logger})
+      : _apiClient = apiClient,
+        _logger = logger;
+
+  final ApiClient _apiClient;
+  final AppLogger _logger;
+
+  Future<List<PortfolioProfile>> fetchProfiles() {
+    return _apiClient.get<List<PortfolioProfile>>(
+      ApiEndpoints.portfolioProfiles,
+      parser: (Object? data) => JsonRead.rows(data).map(PortfolioProfile.fromJson).toList(growable: false),
+    );
+  }
+
+  Future<PortfolioOverview> fetchOverview(PortfolioProfile profile) async {
+    final Map<String, Object?> query = <String, Object?>{'profileId': profile.id};
+    final List<String> degraded = <String>[];
+
+    Future<T> attempt<T>(String panel, Future<T> Function() op, T fallback) async {
+      try {
+        return await op();
+      } on AppException catch (error) {
+        degraded.add(panel);
+        _logger.warning('portfolio.panel_failed', context: <String, Object?>{'panel': panel, 'code': error.code.name});
+        return fallback;
+      }
+    }
+
+    final List<Object?> results = await Future.wait<Object?>(<Future<Object?>>[
+      attempt<List<Holding>>(
+        'holdings',
+        () => _apiClient.get<List<Holding>>(
+          ApiEndpoints.portfolioHoldings,
+          queryParameters: query,
+          parser: (Object? data) {
+            final Object? holdings = data is Map ? (data['holdings'] ?? data) : data;
+            return JsonRead.rows(holdings).map(Holding.fromJson).toList(growable: false);
+          },
+        ),
+        const <Holding>[],
+      ),
+      attempt<PortfolioFacts>('nav', () => _apiClient.get<PortfolioFacts>(ApiEndpoints.portfolioNav, queryParameters: query, parser: PortfolioFacts.fromJson), const PortfolioFacts(<MapEntry<String, String>>[])),
+      attempt<PortfolioFacts>('pnl', () => _apiClient.get<PortfolioFacts>(ApiEndpoints.portfolioPnl, queryParameters: query, parser: PortfolioFacts.fromJson), const PortfolioFacts(<MapEntry<String, String>>[])),
+    ]);
+
+    if (degraded.length == 3) {
+      throw const AppException(code: AppErrorCode.server, message: 'Portfolio data is unavailable right now.');
+    }
+
+    return PortfolioOverview(
+      profile: profile,
+      holdings: results[0]! as List<Holding>,
+      nav: results[1]! as PortfolioFacts,
+      pnl: results[2]! as PortfolioFacts,
+      degraded: List<String>.unmodifiable(degraded),
+    );
+  }
+}
+```
+
+FILE: apps/mobile/lib/features/portfolio/domain/portfolio_models.dart
+
+```dart
+import 'package:equatable/equatable.dart';
+
+import '../../../core/network/json_read.dart';
+
+class PortfolioProfile extends Equatable {
+  const PortfolioProfile({required this.id, required this.scope, required this.baseCurrency, this.portfolioType});
+
+  factory PortfolioProfile.fromJson(Map<String, Object?> json) => PortfolioProfile(
+        id: JsonRead.strOr(json, 'id', ''),
+        scope: JsonRead.strOr(json, 'scope', 'UNKNOWN'),
+        baseCurrency: JsonRead.strOr(json, 'baseCurrency', 'USD'),
+        portfolioType: JsonRead.str(json, 'portfolioType'),
+      );
+
+  final String id;
+  final String scope;
+  final String baseCurrency;
+  final String? portfolioType;
+
+  @override
+  List<Object?> get props => <Object?>[id, scope, baseCurrency, portfolioType];
+}
+
+class Holding extends Equatable {
+  const Holding({required this.asset, required this.quantity, this.costBasis, this.classification});
+
+  factory Holding.fromJson(Map<String, Object?> json) => Holding(
+        asset: JsonRead.strOr(json, 'asset', '—'),
+        quantity: JsonRead.strOr(json, 'quantity', '0'),
+        costBasis: JsonRead.str(json, 'costBasis'),
+        classification: JsonRead.str(json, 'classification'),
+      );
+
+  final String asset;
+  final String quantity;
+  final String? costBasis;
+  final String? classification;
+
+  @override
+  List<Object?> get props => <Object?>[asset, quantity, costBasis, classification];
+}
+
+/// NAV / PnL answers are shown as the scalar facts the API returned, labelled
+/// by their field names. Nothing is recomputed on the device (the ledger is
+/// authoritative) and nested structures are not flattened into guesses.
+class PortfolioFacts extends Equatable {
+  const PortfolioFacts(this.entries);
+
+  factory PortfolioFacts.fromJson(Object? data) {
+    final Map<String, Object?> json = JsonRead.map(data);
+    final List<MapEntry<String, String>> entries = <MapEntry<String, String>>[];
+    json.forEach((String key, Object? value) {
+      if (value == null || value is Map || value is List) {
+        return;
+      }
+      if (key == 'tenantId' || key == 'profileId' || key.endsWith('Id')) {
+        return;
+      }
+      entries.add(MapEntry<String, String>(key, value.toString()));
+    });
+    return PortfolioFacts(List<MapEntry<String, String>>.unmodifiable(entries));
+  }
+
+  final List<MapEntry<String, String>> entries;
+
+  bool get isEmpty => entries.isEmpty;
+
+  @override
+  List<Object?> get props => <Object?>[entries.map((MapEntry<String, String> e) => '${e.key}=${e.value}').join('|')];
+}
+
+class PortfolioOverview extends Equatable {
+  const PortfolioOverview({required this.profile, required this.holdings, required this.nav, required this.pnl, this.degraded = const <String>[]});
+
+  final PortfolioProfile profile;
+  final List<Holding> holdings;
+  final PortfolioFacts nav;
+  final PortfolioFacts pnl;
+
+  /// Panels that failed while others loaded.
+  final List<String> degraded;
+
+  @override
+  List<Object?> get props => <Object?>[profile, holdings, nav, pnl, degraded];
+}
+```
+
+FILE: apps/mobile/lib/features/portfolio/presentation/portfolio_screen.dart
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/di/feature_providers.dart';
+import '../../../core/widgets/async_body.dart';
+import '../../../l10n/app_localizations.dart';
+import '../domain/portfolio_models.dart';
+
+/// Read-only portfolio: holdings, NAV and PnL from the accounting ledger.
+class PortfolioScreen extends ConsumerStatefulWidget {
+  const PortfolioScreen({super.key});
+
+  @override
+  ConsumerState<PortfolioScreen> createState() => _PortfolioScreenState();
+}
+
+class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
+  PortfolioProfile? _selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.portfolioTitle)),
+      body: AsyncBody<List<PortfolioProfile>>(
+        value: ref.watch(portfolioProfilesProvider),
+        onRetry: () => ref.invalidate(portfolioProfilesProvider),
+        isEmpty: (List<PortfolioProfile> rows) => rows.isEmpty,
+        emptyText: l10n.noPortfolio,
+        builder: (List<PortfolioProfile> profiles) {
+          final PortfolioProfile profile = profiles.contains(_selected) ? _selected! : profiles.first;
+          return Column(
+            children: <Widget>[
+              if (profiles.length > 1)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: DropdownButtonFormField<PortfolioProfile>(
+                    initialValue: profile,
+                    decoration: InputDecoration(labelText: l10n.portfolioLabel, border: const OutlineInputBorder()),
+                    items: profiles
+                        .map((PortfolioProfile p) => DropdownMenuItem<PortfolioProfile>(value: p, child: Text('${p.scope} · ${p.baseCurrency}')))
+                        .toList(),
+                    onChanged: (PortfolioProfile? p) => setState(() => _selected = p),
+                  ),
+                ),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () => ref.refresh(portfolioOverviewProvider(profile).future),
+                  child: AsyncBody<PortfolioOverview>(
+                    value: ref.watch(portfolioOverviewProvider(profile)),
+                    onRetry: () => ref.invalidate(portfolioOverviewProvider(profile)),
+                    builder: (PortfolioOverview o) => ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: <Widget>[
+                        if (o.degraded.isNotEmpty)
+                          Card(
+                            color: Theme.of(context).colorScheme.errorContainer,
+                            child: Padding(padding: const EdgeInsets.all(12), child: Text('${l10n.partialDataNotice}: ${o.degraded.join(', ')}')),
+                          ),
+                        _FactsCard(title: l10n.navLabel, facts: o.nav),
+                        _FactsCard(title: l10n.pnlLabel, facts: o.pnl),
+                        Card(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Padding(padding: const EdgeInsets.all(12), child: Text(l10n.holdingsLabel, style: Theme.of(context).textTheme.titleMedium)),
+                              if (o.holdings.isEmpty) Padding(padding: const EdgeInsets.all(12), child: Text(l10n.nothingHereYet)),
+                              for (final Holding h in o.holdings)
+                                ListTile(
+                                  dense: true,
+                                  title: Text(h.asset),
+                                  subtitle: h.classification == null ? null : Text(h.classification!),
+                                  trailing: Text('${h.quantity}${h.costBasis == null ? '' : '\n${l10n.costBasisLabel}: ${h.costBasis}'}', textAlign: TextAlign.end),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Text('${l10n.baseCurrencyLabel}: ${o.profile.baseCurrency}', style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FactsCard extends StatelessWidget {
+  const _FactsCard({required this.title, required this.facts});
+
+  final String title;
+  final PortfolioFacts facts;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            if (facts.isEmpty) const Text('—'),
+            for (final MapEntry<String, String> e in facts.entries)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(children: <Widget>[Expanded(child: Text(e.key)), Text(e.value)]),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -3061,7 +8280,7 @@ class RiskRepository {
         return data
             .whereType<Map<Object?, Object?>>()
             .map((Map<Object?, Object?> row) =>
-                RiskSwitchInfo.fromJson(_asMap(row)))
+                RiskSwitchInfo.fromJson(_asMap(row)),)
             .toList(growable: false);
       },
     );
@@ -3085,7 +8304,7 @@ class RiskRepository {
         return items
             .whereType<Map<Object?, Object?>>()
             .map((Map<Object?, Object?> row) =>
-                RiskEventInfo.fromJson(_asMap(row)))
+                RiskEventInfo.fromJson(_asMap(row)),)
             .toList(growable: false);
       },
     );
@@ -3209,7 +8428,7 @@ class RiskMirrorStatus extends Equatable {
       staleAccountIds: _stringList(json['staleAccounts']),
       mirrors: mirrors
           .map((Map<String, Object?> row) =>
-              RiskAccountMirror.fromJson(row, staleIds: staleIds))
+              RiskAccountMirror.fromJson(row, staleIds: staleIds),)
           .toList(growable: false),
       criticalEvents24h:
           _intOrZero(severity['CRITICAL']) + _intOrZero(severity['HIGH']),
@@ -4215,7 +9434,7 @@ String _titleCase(String value) {
       .toLowerCase()
       .split('_')
       .map((String word) =>
-          word.isEmpty ? word : word[0].toUpperCase() + word.substring(1))
+          word.isEmpty ? word : word[0].toUpperCase() + word.substring(1),)
       .join(' ');
 }
 
@@ -6169,7 +11388,103 @@ FILE: apps/mobile/lib/l10n/app_bn.arb
   "riskEngagedManualLabel": "ম্যানুয়াল হাল্ট",
   "riskExplicitClearNotice": "এই সুরক্ষা ইঞ্জিন ট্রিগার করেছে। এই অ্যাপ থেকে এটি খোলা যাবে না; acknowledge-and-clear অ্যাডমিন কনসোলে আছে, টাইপ-করা নিশ্চিতকরণের আড়ালে।",
   "riskDisclaimer": "ঝুঁকি নিয়ন্ত্রণ অপারেশনগত ঝুঁকি কমায়, কিন্তু সব ক্ষতি থেকে রক্ষার নিশ্চয়তা দিতে পারে না।",
-  "retry": "আবার চেষ্টা করুন"
+  "retry": "আবার চেষ্টা করুন",
+  "accountDisabled": "অ্যাকাউন্ট নিষ্ক্রিয় করা হয়েছে",
+  "accountLabel": "অ্যাকাউন্টের নাম",
+  "activityTab": "কার্যকলাপ",
+  "allMarkedRead": "সব নোটিফিকেশন পড়া হয়েছে হিসেবে চিহ্নিত",
+  "allocationLabel": "বরাদ্দ (পরিমাণ বা %)",
+  "apiKeyLabel": "API কী",
+  "apiSecretLabel": "API সিক্রেট",
+  "baseCurrencyLabel": "ভিত্তি মুদ্রা",
+  "checkHealth": "সংযোগ পরীক্ষা",
+  "confirm": "নিশ্চিত করুন",
+  "connect": "সংযুক্ত করুন",
+  "connectExchange": "এক্সচেঞ্জ সংযুক্ত করুন",
+  "connectExchangeFirst": "ট্রেড কপি করতে আগে একটি এক্সচেঞ্জ অ্যাকাউন্ট সংযুক্ত করুন।",
+  "copiesLabel": "কপি",
+  "copyAction": "কপি করুন",
+  "copyRiskAcknowledgement": "আমি বুঝি কপি করা ট্রেডে লোকসান হতে পারে, অতীতের পারফরম্যান্স ভবিষ্যতের নিশ্চয়তা নয়, এবং কপি বন্ধ করলে খোলা পজিশন বন্ধ হয় না।",
+  "copyTradingSubtitle": "ট্রেডার খুঁজুন, আপনার কপি পরিচালনা করুন ও কপি করা ট্রেড দেখুন।",
+  "copyTradingTitle": "কপি ট্রেডিং",
+  "copyingAccountLabel": "যে এক্সচেঞ্জ অ্যাকাউন্টে কপি হবে",
+  "costBasisLabel": "ক্রয়মূল্য",
+  "disable": "নিষ্ক্রিয় করুন",
+  "disableAccountMessage": "ওয়েব কনসোল থেকে আবার চালু না করা পর্যন্ত এই অ্যাকাউন্টে কপি ও ট্রেডিং বন্ধ থাকবে।",
+  "disableAccountTitle": "এই অ্যাকাউন্ট নিষ্ক্রিয় করবেন?",
+  "drawdownLabel": "সর্বোচ্চ ড্রডাউন",
+  "environmentLabel": "পরিবেশ",
+  "exchangeAccountsSubtitle": "সংযুক্ত এক্সচেঞ্জ, কী-এর অবস্থা ও স্বাস্থ্য।",
+  "exchangeAccountsTitle": "এক্সচেঞ্জ অ্যাকাউন্ট",
+  "exchangeConnected": "এক্সচেঞ্জ সংযুক্ত হয়েছে",
+  "failedLabel": "ব্যর্থ",
+  "fieldRequired": "আবশ্যক",
+  "followersLabel": "অনুসারী",
+  "fundingSubtitle": "ওয়ালেট, জমার ঠিকানা ও লেনদেন।",
+  "fundingTitle": "ফান্ডিং",
+  "healthCheckDone": "সংযোগ পরীক্ষা শেষ",
+  "holdingsLabel": "হোল্ডিং",
+  "inboxTab": "ইনবক্স",
+  "lastErrorLabel": "সর্বশেষ ত্রুটি",
+  "lastVerifiedLabel": "সর্বশেষ যাচাই",
+  "liveKeyWarning": "LIVE কী দিয়ে আসল অর্থে ট্রেড হয়। উইথড্রয়াল বন্ধ রাখা শুধু-ট্রেড কী ব্যবহার করুন।",
+  "liveTradingOffNotice": "এই অ্যাকাউন্টে লাইভ ট্রেডিং চালু নেই।",
+  "markAllRead": "সব পড়া হয়েছে",
+  "markedRead": "পড়া হয়েছে হিসেবে চিহ্নিত",
+  "maxAllocationLabel": "সর্বোচ্চ বরাদ্দ (ঐচ্ছিক)",
+  "myCopiesTab": "আমার কপি",
+  "navLabel": "নিট সম্পদ মূল্য",
+  "noCopyActivity": "এখনও কোনো কপি করা ট্রেড নেই।",
+  "noCopyableStrategies": "এই ট্রেডারের কোনো কৌশল কপির জন্য খোলা নেই।",
+  "noExchangeAccounts": "এখনও কোনো এক্সচেঞ্জ অ্যাকাউন্ট নেই। শুরু করতে একটি সংযুক্ত করুন।",
+  "noNotifications": "কোনো নোটিফিকেশন নেই।",
+  "noPortfolio": "আপনার অ্যাকাউন্টের জন্য এখনও কোনো পোর্টফোলিও তৈরি হয়নি।",
+  "noSubscriptions": "আপনি এখনও কাউকে কপি করছেন না।",
+  "noTraders": "কোনো ট্রেডার পাওয়া যায়নি।",
+  "noTransactions": "এখনও কোনো লেনদেন নেই।",
+  "nothingHereYet": "এখানে এখনও কিছু নেই।",
+  "notificationsTitle": "নোটিফিকেশন",
+  "partialDataNotice": "কিছু তথ্য লোড করা যায়নি",
+  "passphraseLabel": "API পাসফ্রেজ",
+  "pastPerformanceNotice": "অতীতের পারফরম্যান্স ভবিষ্যতের ফলের নিশ্চয়তা নয়।",
+  "pause": "বিরতি",
+  "paused": "কপি বিরতিতে",
+  "pnlLabel": "লাভ/ক্ষতি",
+  "portfolioLabel": "পোর্টফোলিও",
+  "portfolioSubtitle": "হোল্ডিং, নিট সম্পদ মূল্য ও লাভ-ক্ষতি।",
+  "portfolioTitle": "পোর্টফোলিও",
+  "preferencesSaved": "পছন্দ সংরক্ষিত",
+  "preferencesTab": "পছন্দ",
+  "resume": "আবার শুরু",
+  "resumed": "কপি আবার শুরু হয়েছে",
+  "sizingModeLabel": "আকার নির্ধারণ পদ্ধতি",
+  "startCopying": "কপি শুরু করুন",
+  "startedLabel": "শুরু",
+  "stop": "বন্ধ",
+  "stopCopyingMessage": "নতুন ট্রেড আর কপি হবে না। ইতিমধ্যে খোলা পজিশন আপনি বন্ধ না করা পর্যন্ত খোলা থাকবে।",
+  "stopCopyingTitle": "কপি বন্ধ করবেন?",
+  "stopped": "কপি বন্ধ হয়েছে",
+  "subscribed": "আপনি এখন এই কৌশল কপি করছেন",
+  "tradeOnlyKeysNotice": "আপনার কী একবার এনক্রিপ্টেড সংযোগে পাঠানো হয় এবং এই ডিভাইসে কখনও সংরক্ষিত হয় না।",
+  "tradersTab": "ট্রেডার",
+  "transactionsTab": "লেনদেন",
+  "venueLabel": "এক্সচেঞ্জ",
+  "withdrawOnWebNotice": "উইথড্রয়ালের জন্য নীতি যাচাই ও অনুমোদন প্রয়োজন; এটি ওয়েব কনসোলে পাওয়া যায়।",
+  "accountsTab": "অ্যাকাউন্ট",
+  "noFundingAccounts": "এখনও কোনো অ্যাকাউন্ট নেই। অ্যাকাউন্ট খুলতে অনবোর্ডিং সম্পূর্ণ করুন।",
+  "requestDeposit": "জমার অনুরোধ",
+  "depositRequested": "জমার অনুরোধ জমা হয়েছে",
+  "amountLabel": "পরিমাণ",
+  "currencyLabel": "মুদ্রা",
+  "transferReferenceLabel": "ট্রান্সফার রেফারেন্স (ঐচ্ছিক)",
+  "depositRequestNotice": "জমার অনুরোধ আপনার পরিকল্পিত ট্রান্সফারটি নথিভুক্ত করে। অপারেশনস টিম অর্থ প্রাপ্তি নিশ্চিত করার পরেই আপনার ব্যালান্সে জমা হয়।",
+  "invalidAmount": "শূন্যের চেয়ে বড় পরিমাণ লিখুন।",
+  "invalidCurrency": "USDT-এর মতো একটি মুদ্রা কোড লিখুন।",
+  "depositsUnavailable": "জমা বন্ধ",
+  "depositLabel": "জমা",
+  "withdrawalLabel": "উত্তোলন",
+  "confirmedAmountLabel": "নিশ্চিত",
+  "pendingNotCompleted": "অপেক্ষমাণ অনুরোধ মানে সম্পন্ন ট্রান্সফার নয়।"
 }
 ```
 
@@ -6291,7 +11606,103 @@ FILE: apps/mobile/lib/l10n/app_en.arb
   "riskEngagedManualLabel": "manual halt",
   "riskExplicitClearNotice": "This protection was triggered by the engine. It cannot be cleared from this app; acknowledge-and-clear lives in the admin console, behind a typed confirmation.",
   "riskDisclaimer": "Risk controls reduce operational risk but cannot guarantee against all losses.",
-  "retry": "Try again"
+  "retry": "Try again",
+  "accountDisabled": "Account disabled",
+  "accountLabel": "Account name",
+  "activityTab": "Activity",
+  "allMarkedRead": "All notifications marked as read",
+  "allocationLabel": "Allocation (amount or %)",
+  "apiKeyLabel": "API key",
+  "apiSecretLabel": "API secret",
+  "baseCurrencyLabel": "Base currency",
+  "checkHealth": "Check connection",
+  "confirm": "Confirm",
+  "connect": "Connect",
+  "connectExchange": "Connect exchange",
+  "connectExchangeFirst": "Connect an exchange account first to copy trades.",
+  "copiesLabel": "Copies",
+  "copyAction": "Copy",
+  "copyRiskAcknowledgement": "I understand copied trades can lose money, past performance does not predict results, and stopping a copy does not close open positions.",
+  "copyTradingSubtitle": "Find traders, manage your copies and see copied trades.",
+  "copyTradingTitle": "Copy trading",
+  "copyingAccountLabel": "Exchange account that copies",
+  "costBasisLabel": "Cost basis",
+  "disable": "Disable",
+  "disableAccountMessage": "Copying and trading on this account stop until it is re-enabled from the web console.",
+  "disableAccountTitle": "Disable this account?",
+  "drawdownLabel": "Max drawdown",
+  "environmentLabel": "Environment",
+  "exchangeAccountsSubtitle": "Connected exchanges, key status and health.",
+  "exchangeAccountsTitle": "Exchange accounts",
+  "exchangeConnected": "Exchange connected",
+  "failedLabel": "Failed",
+  "fieldRequired": "Required",
+  "followersLabel": "Followers",
+  "fundingSubtitle": "Wallets, deposit addresses and transfers.",
+  "fundingTitle": "Funding",
+  "healthCheckDone": "Connection check finished",
+  "holdingsLabel": "Holdings",
+  "inboxTab": "Inbox",
+  "lastErrorLabel": "Last error",
+  "lastVerifiedLabel": "Last verified",
+  "liveKeyWarning": "LIVE keys trade real funds. Use trade-only keys with withdrawals disabled.",
+  "liveTradingOffNotice": "Live trading is not enabled for this account.",
+  "markAllRead": "Mark all as read",
+  "markedRead": "Marked as read",
+  "maxAllocationLabel": "Maximum allocation (optional)",
+  "myCopiesTab": "My copies",
+  "navLabel": "Net asset value",
+  "noCopyActivity": "No copied trades yet.",
+  "noCopyableStrategies": "This trader has no strategy open for copying.",
+  "noExchangeAccounts": "No exchange accounts yet. Connect one to start.",
+  "noNotifications": "No notifications.",
+  "noPortfolio": "No portfolio has been set up for your account yet.",
+  "noSubscriptions": "You are not copying anyone yet.",
+  "noTraders": "No traders available.",
+  "noTransactions": "No transactions yet.",
+  "nothingHereYet": "Nothing here yet.",
+  "notificationsTitle": "Notifications",
+  "partialDataNotice": "Some data could not be loaded",
+  "passphraseLabel": "API passphrase",
+  "pastPerformanceNotice": "Past performance is not a guarantee of future results.",
+  "pause": "Pause",
+  "paused": "Copying paused",
+  "pnlLabel": "PnL",
+  "portfolioLabel": "Portfolio",
+  "portfolioSubtitle": "Holdings, net asset value and profit and loss.",
+  "portfolioTitle": "Portfolio",
+  "preferencesSaved": "Preferences saved",
+  "preferencesTab": "Preferences",
+  "resume": "Resume",
+  "resumed": "Copying resumed",
+  "sizingModeLabel": "Sizing mode",
+  "startCopying": "Start copying",
+  "startedLabel": "Started",
+  "stop": "Stop",
+  "stopCopyingMessage": "New trades will no longer be copied. Positions already open stay open until you close them.",
+  "stopCopyingTitle": "Stop copying?",
+  "stopped": "Copying stopped",
+  "subscribed": "You are now copying this strategy",
+  "tradeOnlyKeysNotice": "Your keys are sent once over an encrypted connection and are never stored on this device.",
+  "tradersTab": "Traders",
+  "transactionsTab": "Transactions",
+  "venueLabel": "Exchange",
+  "withdrawOnWebNotice": "Withdrawals require policy checks and approval and are available in the web console.",
+  "accountsTab": "Accounts",
+  "noFundingAccounts": "No account yet. Complete onboarding to open one.",
+  "requestDeposit": "Request deposit",
+  "depositRequested": "Deposit request submitted",
+  "amountLabel": "Amount",
+  "currencyLabel": "Currency",
+  "transferReferenceLabel": "Transfer reference (optional)",
+  "depositRequestNotice": "A deposit request records the transfer you intend to make. Your balance is credited only after operations confirm the funds were received.",
+  "invalidAmount": "Enter an amount greater than zero.",
+  "invalidCurrency": "Enter a currency code such as USDT.",
+  "depositsUnavailable": "Deposits unavailable",
+  "depositLabel": "Deposit",
+  "withdrawalLabel": "Withdrawal",
+  "confirmedAmountLabel": "Confirmed",
+  "pendingNotCompleted": "Pending requests are not completed transfers."
 }
 ```
 
@@ -6362,7 +11773,8 @@ import 'app_localizations_en.dart';
 /// be consistent with the languages listed in the AppLocalizations.supportedLocales
 /// property.
 abstract class AppLocalizations {
-  AppLocalizations(String locale) : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+  AppLocalizations(String locale)
+      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
   final String localeName;
 
@@ -6370,7 +11782,8 @@ abstract class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations)!;
   }
 
-  static const LocalizationsDelegate<AppLocalizations> delegate = _AppLocalizationsDelegate();
+  static const LocalizationsDelegate<AppLocalizations> delegate =
+      _AppLocalizationsDelegate();
 
   /// A list of this localizations delegate along with the default localizations
   /// delegates.
@@ -6382,7 +11795,8 @@ abstract class AppLocalizations {
   /// Additional delegates can be added by appending to this list in
   /// MaterialApp. This list does not have to be used at all if a custom list
   /// of delegates is preferred or required.
-  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates = <LocalizationsDelegate<dynamic>>[
+  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
+      <LocalizationsDelegate<dynamic>>[
     delegate,
     GlobalMaterialLocalizations.delegate,
     GlobalCupertinoLocalizations.delegate,
@@ -6887,12 +12301,6 @@ abstract class AppLocalizations {
   /// **'Risk-adjusted figures are withheld when there were too few observations. Insufficient data is not zero.'**
   String get insufficientDataDisclaimer;
 
-  /// No description provided for @retry.
-  ///
-  /// In en, this message translates to:
-  /// **'Try again'**
-  String get retry;
-
   /// No description provided for @riskTitle.
   ///
   /// In en, this message translates to:
@@ -7078,9 +12486,592 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Risk controls reduce operational risk but cannot guarantee against all losses.'**
   String get riskDisclaimer;
+
+  /// No description provided for @retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get retry;
+
+  /// No description provided for @accountDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Account disabled'**
+  String get accountDisabled;
+
+  /// No description provided for @accountLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Account name'**
+  String get accountLabel;
+
+  /// No description provided for @activityTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Activity'**
+  String get activityTab;
+
+  /// No description provided for @allMarkedRead.
+  ///
+  /// In en, this message translates to:
+  /// **'All notifications marked as read'**
+  String get allMarkedRead;
+
+  /// No description provided for @allocationLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Allocation (amount or %)'**
+  String get allocationLabel;
+
+  /// No description provided for @apiKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'API key'**
+  String get apiKeyLabel;
+
+  /// No description provided for @apiSecretLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'API secret'**
+  String get apiSecretLabel;
+
+  /// No description provided for @baseCurrencyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Base currency'**
+  String get baseCurrencyLabel;
+
+  /// No description provided for @checkHealth.
+  ///
+  /// In en, this message translates to:
+  /// **'Check connection'**
+  String get checkHealth;
+
+  /// No description provided for @confirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get confirm;
+
+  /// No description provided for @connect.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get connect;
+
+  /// No description provided for @connectExchange.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect exchange'**
+  String get connectExchange;
+
+  /// No description provided for @connectExchangeFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect an exchange account first to copy trades.'**
+  String get connectExchangeFirst;
+
+  /// No description provided for @copiesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Copies'**
+  String get copiesLabel;
+
+  /// No description provided for @copyAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get copyAction;
+
+  /// No description provided for @copyRiskAcknowledgement.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand copied trades can lose money, past performance does not predict results, and stopping a copy does not close open positions.'**
+  String get copyRiskAcknowledgement;
+
+  /// No description provided for @copyTradingSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Find traders, manage your copies and see copied trades.'**
+  String get copyTradingSubtitle;
+
+  /// No description provided for @copyTradingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy trading'**
+  String get copyTradingTitle;
+
+  /// No description provided for @copyingAccountLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Exchange account that copies'**
+  String get copyingAccountLabel;
+
+  /// No description provided for @costBasisLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cost basis'**
+  String get costBasisLabel;
+
+  /// No description provided for @disable.
+  ///
+  /// In en, this message translates to:
+  /// **'Disable'**
+  String get disable;
+
+  /// No description provided for @disableAccountMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying and trading on this account stop until it is re-enabled from the web console.'**
+  String get disableAccountMessage;
+
+  /// No description provided for @disableAccountTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Disable this account?'**
+  String get disableAccountTitle;
+
+  /// No description provided for @drawdownLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Max drawdown'**
+  String get drawdownLabel;
+
+  /// No description provided for @environmentLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Environment'**
+  String get environmentLabel;
+
+  /// No description provided for @exchangeAccountsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected exchanges, key status and health.'**
+  String get exchangeAccountsSubtitle;
+
+  /// No description provided for @exchangeAccountsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Exchange accounts'**
+  String get exchangeAccountsTitle;
+
+  /// No description provided for @exchangeConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Exchange connected'**
+  String get exchangeConnected;
+
+  /// No description provided for @failedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get failedLabel;
+
+  /// No description provided for @fieldRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Required'**
+  String get fieldRequired;
+
+  /// No description provided for @followersLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Followers'**
+  String get followersLabel;
+
+  /// No description provided for @fundingSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Wallets, deposit addresses and transfers.'**
+  String get fundingSubtitle;
+
+  /// No description provided for @fundingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Funding'**
+  String get fundingTitle;
+
+  /// No description provided for @healthCheckDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection check finished'**
+  String get healthCheckDone;
+
+  /// No description provided for @holdingsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Holdings'**
+  String get holdingsLabel;
+
+  /// No description provided for @inboxTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Inbox'**
+  String get inboxTab;
+
+  /// No description provided for @lastErrorLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Last error'**
+  String get lastErrorLabel;
+
+  /// No description provided for @lastVerifiedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Last verified'**
+  String get lastVerifiedLabel;
+
+  /// No description provided for @liveKeyWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'LIVE keys trade real funds. Use trade-only keys with withdrawals disabled.'**
+  String get liveKeyWarning;
+
+  /// No description provided for @liveTradingOffNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Live trading is not enabled for this account.'**
+  String get liveTradingOffNotice;
+
+  /// No description provided for @markAllRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark all as read'**
+  String get markAllRead;
+
+  /// No description provided for @markedRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Marked as read'**
+  String get markedRead;
+
+  /// No description provided for @maxAllocationLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum allocation (optional)'**
+  String get maxAllocationLabel;
+
+  /// No description provided for @myCopiesTab.
+  ///
+  /// In en, this message translates to:
+  /// **'My copies'**
+  String get myCopiesTab;
+
+  /// No description provided for @navLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Net asset value'**
+  String get navLabel;
+
+  /// No description provided for @noCopyActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'No copied trades yet.'**
+  String get noCopyActivity;
+
+  /// No description provided for @noCopyableStrategies.
+  ///
+  /// In en, this message translates to:
+  /// **'This trader has no strategy open for copying.'**
+  String get noCopyableStrategies;
+
+  /// No description provided for @noExchangeAccounts.
+  ///
+  /// In en, this message translates to:
+  /// **'No exchange accounts yet. Connect one to start.'**
+  String get noExchangeAccounts;
+
+  /// No description provided for @noNotifications.
+  ///
+  /// In en, this message translates to:
+  /// **'No notifications.'**
+  String get noNotifications;
+
+  /// No description provided for @noPortfolio.
+  ///
+  /// In en, this message translates to:
+  /// **'No portfolio has been set up for your account yet.'**
+  String get noPortfolio;
+
+  /// No description provided for @noSubscriptions.
+  ///
+  /// In en, this message translates to:
+  /// **'You are not copying anyone yet.'**
+  String get noSubscriptions;
+
+  /// No description provided for @noTraders.
+  ///
+  /// In en, this message translates to:
+  /// **'No traders available.'**
+  String get noTraders;
+
+  /// No description provided for @noTransactions.
+  ///
+  /// In en, this message translates to:
+  /// **'No transactions yet.'**
+  String get noTransactions;
+
+  /// No description provided for @nothingHereYet.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing here yet.'**
+  String get nothingHereYet;
+
+  /// No description provided for @notificationsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get notificationsTitle;
+
+  /// No description provided for @partialDataNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Some data could not be loaded'**
+  String get partialDataNotice;
+
+  /// No description provided for @passphraseLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'API passphrase'**
+  String get passphraseLabel;
+
+  /// No description provided for @pastPerformanceNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Past performance is not a guarantee of future results.'**
+  String get pastPerformanceNotice;
+
+  /// No description provided for @pause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get pause;
+
+  /// No description provided for @paused.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying paused'**
+  String get paused;
+
+  /// No description provided for @pnlLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'PnL'**
+  String get pnlLabel;
+
+  /// No description provided for @portfolioLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Portfolio'**
+  String get portfolioLabel;
+
+  /// No description provided for @portfolioSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Holdings, net asset value and profit and loss.'**
+  String get portfolioSubtitle;
+
+  /// No description provided for @portfolioTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Portfolio'**
+  String get portfolioTitle;
+
+  /// No description provided for @preferencesSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Preferences saved'**
+  String get preferencesSaved;
+
+  /// No description provided for @preferencesTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Preferences'**
+  String get preferencesTab;
+
+  /// No description provided for @resume.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get resume;
+
+  /// No description provided for @resumed.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying resumed'**
+  String get resumed;
+
+  /// No description provided for @sizingModeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Sizing mode'**
+  String get sizingModeLabel;
+
+  /// No description provided for @startCopying.
+  ///
+  /// In en, this message translates to:
+  /// **'Start copying'**
+  String get startCopying;
+
+  /// No description provided for @startedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Started'**
+  String get startedLabel;
+
+  /// No description provided for @stop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get stop;
+
+  /// No description provided for @stopCopyingMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'New trades will no longer be copied. Positions already open stay open until you close them.'**
+  String get stopCopyingMessage;
+
+  /// No description provided for @stopCopyingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop copying?'**
+  String get stopCopyingTitle;
+
+  /// No description provided for @stopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying stopped'**
+  String get stopped;
+
+  /// No description provided for @subscribed.
+  ///
+  /// In en, this message translates to:
+  /// **'You are now copying this strategy'**
+  String get subscribed;
+
+  /// No description provided for @tradeOnlyKeysNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Your keys are sent once over an encrypted connection and are never stored on this device.'**
+  String get tradeOnlyKeysNotice;
+
+  /// No description provided for @tradersTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Traders'**
+  String get tradersTab;
+
+  /// No description provided for @transactionsTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Transactions'**
+  String get transactionsTab;
+
+  /// No description provided for @venueLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Exchange'**
+  String get venueLabel;
+
+  /// No description provided for @withdrawOnWebNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Withdrawals require policy checks and approval and are available in the web console.'**
+  String get withdrawOnWebNotice;
+
+  /// No description provided for @accountsTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Accounts'**
+  String get accountsTab;
+
+  /// No description provided for @noFundingAccounts.
+  ///
+  /// In en, this message translates to:
+  /// **'No account yet. Complete onboarding to open one.'**
+  String get noFundingAccounts;
+
+  /// No description provided for @requestDeposit.
+  ///
+  /// In en, this message translates to:
+  /// **'Request deposit'**
+  String get requestDeposit;
+
+  /// No description provided for @depositRequested.
+  ///
+  /// In en, this message translates to:
+  /// **'Deposit request submitted'**
+  String get depositRequested;
+
+  /// No description provided for @amountLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Amount'**
+  String get amountLabel;
+
+  /// No description provided for @currencyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Currency'**
+  String get currencyLabel;
+
+  /// No description provided for @transferReferenceLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer reference (optional)'**
+  String get transferReferenceLabel;
+
+  /// No description provided for @depositRequestNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'A deposit request records the transfer you intend to make. Your balance is credited only after operations confirm the funds were received.'**
+  String get depositRequestNotice;
+
+  /// No description provided for @invalidAmount.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter an amount greater than zero.'**
+  String get invalidAmount;
+
+  /// No description provided for @invalidCurrency.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a currency code such as USDT.'**
+  String get invalidCurrency;
+
+  /// No description provided for @depositsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Deposits unavailable'**
+  String get depositsUnavailable;
+
+  /// No description provided for @depositLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Deposit'**
+  String get depositLabel;
+
+  /// No description provided for @withdrawalLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Withdrawal'**
+  String get withdrawalLabel;
+
+  /// No description provided for @confirmedAmountLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed'**
+  String get confirmedAmountLabel;
+
+  /// No description provided for @pendingNotCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending requests are not completed transfers.'**
+  String get pendingNotCompleted;
 }
 
-class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
+class _AppLocalizationsDelegate
+    extends LocalizationsDelegate<AppLocalizations> {
   const _AppLocalizationsDelegate();
 
   @override
@@ -7089,33 +13080,35 @@ class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> 
   }
 
   @override
-  bool isSupported(Locale locale) => <String>['bn', 'en'].contains(locale.languageCode);
+  bool isSupported(Locale locale) =>
+      <String>['bn', 'en'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }
 
 AppLocalizations lookupAppLocalizations(Locale locale) {
-
-
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
-    case 'bn': return AppLocalizationsBn();
-    case 'en': return AppLocalizationsEn();
+    case 'bn':
+      return AppLocalizationsBn();
+    case 'en':
+      return AppLocalizationsEn();
   }
 
   throw FlutterError(
-    'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
-    'an issue with the localizations generation tool. Please file an issue '
-    'on GitHub with a reproducible sample app and the gen-l10n configuration '
-    'that was used.'
-  );
+      'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
+      'an issue with the localizations generation tool. Please file an issue '
+      'on GitHub with a reproducible sample app and the gen-l10n configuration '
+      'that was used.');
 }
 ```
 
 FILE: apps/mobile/lib/l10n/app_localizations_bn.dart
 
 ```dart
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -7146,7 +13139,8 @@ class AppLocalizationsBn extends AppLocalizations {
   String get twoFactorTitle => 'দুই-ধাপ যাচাইকরণ';
 
   @override
-  String get twoFactorSubtitle => 'আপনার অথেন্টিকেটর অ্যাপ থেকে ছয় সংখ্যার কোডটি লিখুন।';
+  String get twoFactorSubtitle =>
+      'আপনার অথেন্টিকেটর অ্যাপ থেকে ছয় সংখ্যার কোডটি লিখুন।';
 
   @override
   String get twoFactorCodeLabel => 'যাচাইকরণ কোড';
@@ -7194,7 +13188,8 @@ class AppLocalizationsBn extends AppLocalizations {
   String get genericError => 'কিছু একটা সমস্যা হয়েছে। আবার চেষ্টা করুন।';
 
   @override
-  String get sessionExpired => 'আপনার সেশনের মেয়াদ শেষ হয়েছে। আবার সাইন ইন করুন।';
+  String get sessionExpired =>
+      'আপনার সেশনের মেয়াদ শেষ হয়েছে। আবার সাইন ইন করুন।';
 
   @override
   String get welcomeBack => 'স্বাগতম';
@@ -7218,25 +13213,31 @@ class AppLocalizationsBn extends AppLocalizations {
   String get changePassword => 'পাসওয়ার্ড পরিবর্তন করুন';
 
   @override
-  String get executionDisabledNotice => 'এই বিল্ডে লাইভ অর্ডার এক্সিকিউশন বন্ধ রাখা হয়েছে।';
+  String get executionDisabledNotice =>
+      'এই বিল্ডে লাইভ অর্ডার এক্সিকিউশন বন্ধ রাখা হয়েছে।';
 
   @override
   String get strategiesTitle => 'স্ট্র্যাটেজি';
 
   @override
-  String get strategiesSubtitle => 'স্ট্র্যাটেজির স্বাস্থ্য ও সিমুলেটেড ফলাফল দেখুন।';
+  String get strategiesSubtitle =>
+      'স্ট্র্যাটেজির স্বাস্থ্য ও সিমুলেটেড ফলাফল দেখুন।';
 
   @override
-  String get strategyReadOnlyNotice => 'এই স্ক্রিনটি শুধু দেখার জন্য। স্ট্র্যাটেজি চালু, বন্ধ ও কনফিগার করা হয় অ্যাডমিন কনসোল থেকে।';
+  String get strategyReadOnlyNotice =>
+      'এই স্ক্রিনটি শুধু দেখার জন্য। স্ট্র্যাটেজি চালু, বন্ধ ও কনফিগার করা হয় অ্যাডমিন কনসোল থেকে।';
 
   @override
-  String get strategyPanelsDegraded => 'কিছু অংশ লোড করা যায়নি। আবার চেষ্টা করতে নিচে টানুন।';
+  String get strategyPanelsDegraded =>
+      'কিছু অংশ লোড করা যায়নি। আবার চেষ্টা করতে নিচে টানুন।';
 
   @override
-  String get liveExecutionReachable => 'এই ডিপ্লয়মেন্টে লাইভ এক্সিকিউশনে পৌঁছানো সম্ভব';
+  String get liveExecutionReachable =>
+      'এই ডিপ্লয়মেন্টে লাইভ এক্সিকিউশনে পৌঁছানো সম্ভব';
 
   @override
-  String get liveExecutionNotReachable => 'এই ডিপ্লয়মেন্টে লাইভ এক্সিকিউশনে পৌঁছানো সম্ভব নয়';
+  String get liveExecutionNotReachable =>
+      'এই ডিপ্লয়মেন্টে লাইভ এক্সিকিউশনে পৌঁছানো সম্ভব নয়';
 
   @override
   String get strategyEngineLabel => 'স্ট্র্যাটেজি ইঞ্জিন';
@@ -7260,7 +13261,8 @@ class AppLocalizationsBn extends AppLocalizations {
   String get backtestsSection => 'ব্যাকটেস্ট';
 
   @override
-  String get strategyNoInstances => 'কোনো স্ট্র্যাটেজি ইনস্ট্যান্স তৈরি করা হয়নি।';
+  String get strategyNoInstances =>
+      'কোনো স্ট্র্যাটেজি ইনস্ট্যান্স তৈরি করা হয়নি।';
 
   @override
   String get strategyNoPaperSessions => 'কোনো পেপার সেশন চালানো হয়নি।';
@@ -7353,25 +13355,27 @@ class AppLocalizationsBn extends AppLocalizations {
   String get statusCancelled => 'বাতিল';
 
   @override
-  String get backtestNotReproducible => 'এই রানের ডেটাসেট চেকসাম নেই, তাই হুবহু পুনরায় তৈরি করা যাবে না।';
+  String get backtestNotReproducible =>
+      'এই রানের ডেটাসেট চেকসাম নেই, তাই হুবহু পুনরায় তৈরি করা যাবে না।';
 
   @override
   String get simulationDisclaimerTitle => 'এই সংখ্যাগুলো সম্পর্কে';
 
   @override
-  String get backtestDisclaimer => 'ব্যাকটেস্ট পারফরম্যান্স ভবিষ্যৎ পারফরম্যান্সের নির্দেশক নয়।';
+  String get backtestDisclaimer =>
+      'ব্যাকটেস্ট পারফরম্যান্স ভবিষ্যৎ পারফরম্যান্সের নির্দেশক নয়।';
 
   @override
-  String get paperDisclaimer => 'পেপার পারফরম্যান্স লাইভ পারফরম্যান্সের নির্দেশক নয়।';
+  String get paperDisclaimer =>
+      'পেপার পারফরম্যান্স লাইভ পারফরম্যান্সের নির্দেশক নয়।';
 
   @override
-  String get executionQualityDisclaimer => 'সিমুলেশন প্রকৃত এক্সিকিউশন মান নিশ্চিত করে না।';
+  String get executionQualityDisclaimer =>
+      'সিমুলেশন প্রকৃত এক্সিকিউশন মান নিশ্চিত করে না।';
 
   @override
-  String get insufficientDataDisclaimer => 'পর্যবেক্ষণ কম হলে ঝুঁকি-সমন্বিত পরিসংখ্যান দেখানো হয় না। পর্যাপ্ত তথ্য না থাকা মানে শূন্য নয়।';
-
-  @override
-  String get retry => 'আবার চেষ্টা করুন';
+  String get insufficientDataDisclaimer =>
+      'পর্যবেক্ষণ কম হলে ঝুঁকি-সমন্বিত পরিসংখ্যান দেখানো হয় না। পর্যাপ্ত তথ্য না থাকা মানে শূন্য নয়।';
 
   @override
   String get riskTitle => 'ঝুঁকি';
@@ -7392,13 +13396,16 @@ class AppLocalizationsBn extends AppLocalizations {
   String get riskCadenceLabel => 'রিফ্রেশ / স্টেলনেস বাজেট';
 
   @override
-  String get riskCadenceWarn => 'স্ন্যাপশট রিফ্রেশ স্টেলনেস বাজেটকে ছাড়িয়ে যায় না; সাম্প্রতিকতার ভিত্তিতে প্রত্যাখ্যানের প্রত্যাশা করুন।';
+  String get riskCadenceWarn =>
+      'স্ন্যাপশট রিফ্রেশ স্টেলনেস বাজেটকে ছাড়িয়ে যায় না; সাম্প্রতিকতার ভিত্তিতে প্রত্যাখ্যানের প্রত্যাশা করুন।';
 
   @override
-  String get riskReadOnlyNotice => 'ডিজাইনেই শুধু-পড়া। সুইচ চালু বা বন্ধ করা অ্যাডমিন কনসোলে থাকে — লিখিত কারণ ও টাইপ-করা নিশ্চিতকরণের আড়ালে।';
+  String get riskReadOnlyNotice =>
+      'ডিজাইনেই শুধু-পড়া। সুইচ চালু বা বন্ধ করা অ্যাডমিন কনসোলে থাকে — লিখিত কারণ ও টাইপ-করা নিশ্চিতকরণের আড়ালে।';
 
   @override
-  String get riskPanelsDegraded => 'কিছু ঝুঁকি প্যানেল লোড করা যায়নি। আবার চেষ্টায় নিচের দিকে টানুন।';
+  String get riskPanelsDegraded =>
+      'কিছু ঝুঁকি প্যানেল লোড করা যায়নি। আবার চেষ্টায় নিচের দিকে টানুন।';
 
   @override
   String get riskMirrorSection => 'অ্যাকাউন্ট অনুযায়ী সর্বশেষ মিরর';
@@ -7410,10 +13417,12 @@ class AppLocalizationsBn extends AppLocalizations {
   String get riskEventsSection => 'সাম্প্রতিক ঝুঁকি ইভেন্ট';
 
   @override
-  String get riskNoMirror => 'এখনো কোনো অ্যাকাউন্ট মিরর নেই। ঝুঁকি-অবস্থা ওয়ার্কার সিঙ্ক না করা পর্যন্ত ইঞ্জিন নতুন অর্ডার প্রত্যাখ্যান করবে — এটি ফেল-ক্লোজড কাজ করছে, ফাঁকা স্ক্রিনের ত্রুটি নয়।';
+  String get riskNoMirror =>
+      'এখনো কোনো অ্যাকাউন্ট মিরর নেই। ঝুঁকি-অবস্থা ওয়ার্কার সিঙ্ক না করা পর্যন্ত ইঞ্জিন নতুন অর্ডার প্রত্যাখ্যান করবে — এটি ফেল-ক্লোজড কাজ করছে, ফাঁকা স্ক্রিনের ত্রুটি নয়।';
 
   @override
-  String get riskNoSwitches => 'কিছুই হাল্ট করা নেই। এখানে সারির অভাবই সুস্বাস্থ্যের লক্ষণ।';
+  String get riskNoSwitches =>
+      'কিছুই হাল্ট করা নেই। এখানে সারির অভাবই সুস্বাস্থ্যের লক্ষণ।';
 
   @override
   String get riskNoEvents => 'কোনো ঝুঁকি ইভেন্ট রেকর্ড হয়নি।';
@@ -7461,16 +13470,327 @@ class AppLocalizationsBn extends AppLocalizations {
   String get riskEngagedManualLabel => 'ম্যানুয়াল হাল্ট';
 
   @override
-  String get riskExplicitClearNotice => 'এই সুরক্ষা ইঞ্জিন ট্রিগার করেছে। এই অ্যাপ থেকে এটি খোলা যাবে না; acknowledge-and-clear অ্যাডমিন কনসোলে আছে, টাইপ-করা নিশ্চিতকরণের আড়ালে।';
+  String get riskExplicitClearNotice =>
+      'এই সুরক্ষা ইঞ্জিন ট্রিগার করেছে। এই অ্যাপ থেকে এটি খোলা যাবে না; acknowledge-and-clear অ্যাডমিন কনসোলে আছে, টাইপ-করা নিশ্চিতকরণের আড়ালে।';
 
   @override
-  String get riskDisclaimer => 'ঝুঁকি নিয়ন্ত্রণ অপারেশনগত ঝুঁকি কমায়, কিন্তু সব ক্ষতি থেকে রক্ষার নিশ্চয়তা দিতে পারে না।';
+  String get riskDisclaimer =>
+      'ঝুঁকি নিয়ন্ত্রণ অপারেশনগত ঝুঁকি কমায়, কিন্তু সব ক্ষতি থেকে রক্ষার নিশ্চয়তা দিতে পারে না।';
+
+  @override
+  String get retry => 'আবার চেষ্টা করুন';
+
+  @override
+  String get accountDisabled => 'অ্যাকাউন্ট নিষ্ক্রিয় করা হয়েছে';
+
+  @override
+  String get accountLabel => 'অ্যাকাউন্টের নাম';
+
+  @override
+  String get activityTab => 'কার্যকলাপ';
+
+  @override
+  String get allMarkedRead => 'সব নোটিফিকেশন পড়া হয়েছে হিসেবে চিহ্নিত';
+
+  @override
+  String get allocationLabel => 'বরাদ্দ (পরিমাণ বা %)';
+
+  @override
+  String get apiKeyLabel => 'API কী';
+
+  @override
+  String get apiSecretLabel => 'API সিক্রেট';
+
+  @override
+  String get baseCurrencyLabel => 'ভিত্তি মুদ্রা';
+
+  @override
+  String get checkHealth => 'সংযোগ পরীক্ষা';
+
+  @override
+  String get confirm => 'নিশ্চিত করুন';
+
+  @override
+  String get connect => 'সংযুক্ত করুন';
+
+  @override
+  String get connectExchange => 'এক্সচেঞ্জ সংযুক্ত করুন';
+
+  @override
+  String get connectExchangeFirst =>
+      'ট্রেড কপি করতে আগে একটি এক্সচেঞ্জ অ্যাকাউন্ট সংযুক্ত করুন।';
+
+  @override
+  String get copiesLabel => 'কপি';
+
+  @override
+  String get copyAction => 'কপি করুন';
+
+  @override
+  String get copyRiskAcknowledgement =>
+      'আমি বুঝি কপি করা ট্রেডে লোকসান হতে পারে, অতীতের পারফরম্যান্স ভবিষ্যতের নিশ্চয়তা নয়, এবং কপি বন্ধ করলে খোলা পজিশন বন্ধ হয় না।';
+
+  @override
+  String get copyTradingSubtitle =>
+      'ট্রেডার খুঁজুন, আপনার কপি পরিচালনা করুন ও কপি করা ট্রেড দেখুন।';
+
+  @override
+  String get copyTradingTitle => 'কপি ট্রেডিং';
+
+  @override
+  String get copyingAccountLabel => 'যে এক্সচেঞ্জ অ্যাকাউন্টে কপি হবে';
+
+  @override
+  String get costBasisLabel => 'ক্রয়মূল্য';
+
+  @override
+  String get disable => 'নিষ্ক্রিয় করুন';
+
+  @override
+  String get disableAccountMessage =>
+      'ওয়েব কনসোল থেকে আবার চালু না করা পর্যন্ত এই অ্যাকাউন্টে কপি ও ট্রেডিং বন্ধ থাকবে।';
+
+  @override
+  String get disableAccountTitle => 'এই অ্যাকাউন্ট নিষ্ক্রিয় করবেন?';
+
+  @override
+  String get drawdownLabel => 'সর্বোচ্চ ড্রডাউন';
+
+  @override
+  String get environmentLabel => 'পরিবেশ';
+
+  @override
+  String get exchangeAccountsSubtitle =>
+      'সংযুক্ত এক্সচেঞ্জ, কী-এর অবস্থা ও স্বাস্থ্য।';
+
+  @override
+  String get exchangeAccountsTitle => 'এক্সচেঞ্জ অ্যাকাউন্ট';
+
+  @override
+  String get exchangeConnected => 'এক্সচেঞ্জ সংযুক্ত হয়েছে';
+
+  @override
+  String get failedLabel => 'ব্যর্থ';
+
+  @override
+  String get fieldRequired => 'আবশ্যক';
+
+  @override
+  String get followersLabel => 'অনুসারী';
+
+  @override
+  String get fundingSubtitle => 'ওয়ালেট, জমার ঠিকানা ও লেনদেন।';
+
+  @override
+  String get fundingTitle => 'ফান্ডিং';
+
+  @override
+  String get healthCheckDone => 'সংযোগ পরীক্ষা শেষ';
+
+  @override
+  String get holdingsLabel => 'হোল্ডিং';
+
+  @override
+  String get inboxTab => 'ইনবক্স';
+
+  @override
+  String get lastErrorLabel => 'সর্বশেষ ত্রুটি';
+
+  @override
+  String get lastVerifiedLabel => 'সর্বশেষ যাচাই';
+
+  @override
+  String get liveKeyWarning =>
+      'LIVE কী দিয়ে আসল অর্থে ট্রেড হয়। উইথড্রয়াল বন্ধ রাখা শুধু-ট্রেড কী ব্যবহার করুন।';
+
+  @override
+  String get liveTradingOffNotice => 'এই অ্যাকাউন্টে লাইভ ট্রেডিং চালু নেই।';
+
+  @override
+  String get markAllRead => 'সব পড়া হয়েছে';
+
+  @override
+  String get markedRead => 'পড়া হয়েছে হিসেবে চিহ্নিত';
+
+  @override
+  String get maxAllocationLabel => 'সর্বোচ্চ বরাদ্দ (ঐচ্ছিক)';
+
+  @override
+  String get myCopiesTab => 'আমার কপি';
+
+  @override
+  String get navLabel => 'নিট সম্পদ মূল্য';
+
+  @override
+  String get noCopyActivity => 'এখনও কোনো কপি করা ট্রেড নেই।';
+
+  @override
+  String get noCopyableStrategies =>
+      'এই ট্রেডারের কোনো কৌশল কপির জন্য খোলা নেই।';
+
+  @override
+  String get noExchangeAccounts =>
+      'এখনও কোনো এক্সচেঞ্জ অ্যাকাউন্ট নেই। শুরু করতে একটি সংযুক্ত করুন।';
+
+  @override
+  String get noNotifications => 'কোনো নোটিফিকেশন নেই।';
+
+  @override
+  String get noPortfolio =>
+      'আপনার অ্যাকাউন্টের জন্য এখনও কোনো পোর্টফোলিও তৈরি হয়নি।';
+
+  @override
+  String get noSubscriptions => 'আপনি এখনও কাউকে কপি করছেন না।';
+
+  @override
+  String get noTraders => 'কোনো ট্রেডার পাওয়া যায়নি।';
+
+  @override
+  String get noTransactions => 'এখনও কোনো লেনদেন নেই।';
+
+  @override
+  String get nothingHereYet => 'এখানে এখনও কিছু নেই।';
+
+  @override
+  String get notificationsTitle => 'নোটিফিকেশন';
+
+  @override
+  String get partialDataNotice => 'কিছু তথ্য লোড করা যায়নি';
+
+  @override
+  String get passphraseLabel => 'API পাসফ্রেজ';
+
+  @override
+  String get pastPerformanceNotice =>
+      'অতীতের পারফরম্যান্স ভবিষ্যতের ফলের নিশ্চয়তা নয়।';
+
+  @override
+  String get pause => 'বিরতি';
+
+  @override
+  String get paused => 'কপি বিরতিতে';
+
+  @override
+  String get pnlLabel => 'লাভ/ক্ষতি';
+
+  @override
+  String get portfolioLabel => 'পোর্টফোলিও';
+
+  @override
+  String get portfolioSubtitle => 'হোল্ডিং, নিট সম্পদ মূল্য ও লাভ-ক্ষতি।';
+
+  @override
+  String get portfolioTitle => 'পোর্টফোলিও';
+
+  @override
+  String get preferencesSaved => 'পছন্দ সংরক্ষিত';
+
+  @override
+  String get preferencesTab => 'পছন্দ';
+
+  @override
+  String get resume => 'আবার শুরু';
+
+  @override
+  String get resumed => 'কপি আবার শুরু হয়েছে';
+
+  @override
+  String get sizingModeLabel => 'আকার নির্ধারণ পদ্ধতি';
+
+  @override
+  String get startCopying => 'কপি শুরু করুন';
+
+  @override
+  String get startedLabel => 'শুরু';
+
+  @override
+  String get stop => 'বন্ধ';
+
+  @override
+  String get stopCopyingMessage =>
+      'নতুন ট্রেড আর কপি হবে না। ইতিমধ্যে খোলা পজিশন আপনি বন্ধ না করা পর্যন্ত খোলা থাকবে।';
+
+  @override
+  String get stopCopyingTitle => 'কপি বন্ধ করবেন?';
+
+  @override
+  String get stopped => 'কপি বন্ধ হয়েছে';
+
+  @override
+  String get subscribed => 'আপনি এখন এই কৌশল কপি করছেন';
+
+  @override
+  String get tradeOnlyKeysNotice =>
+      'আপনার কী একবার এনক্রিপ্টেড সংযোগে পাঠানো হয় এবং এই ডিভাইসে কখনও সংরক্ষিত হয় না।';
+
+  @override
+  String get tradersTab => 'ট্রেডার';
+
+  @override
+  String get transactionsTab => 'লেনদেন';
+
+  @override
+  String get venueLabel => 'এক্সচেঞ্জ';
+
+  @override
+  String get withdrawOnWebNotice =>
+      'উইথড্রয়ালের জন্য নীতি যাচাই ও অনুমোদন প্রয়োজন; এটি ওয়েব কনসোলে পাওয়া যায়।';
+
+  @override
+  String get accountsTab => 'অ্যাকাউন্ট';
+
+  @override
+  String get noFundingAccounts =>
+      'এখনও কোনো অ্যাকাউন্ট নেই। অ্যাকাউন্ট খুলতে অনবোর্ডিং সম্পূর্ণ করুন।';
+
+  @override
+  String get requestDeposit => 'জমার অনুরোধ';
+
+  @override
+  String get depositRequested => 'জমার অনুরোধ জমা হয়েছে';
+
+  @override
+  String get amountLabel => 'পরিমাণ';
+
+  @override
+  String get currencyLabel => 'মুদ্রা';
+
+  @override
+  String get transferReferenceLabel => 'ট্রান্সফার রেফারেন্স (ঐচ্ছিক)';
+
+  @override
+  String get depositRequestNotice =>
+      'জমার অনুরোধ আপনার পরিকল্পিত ট্রান্সফারটি নথিভুক্ত করে। অপারেশনস টিম অর্থ প্রাপ্তি নিশ্চিত করার পরেই আপনার ব্যালান্সে জমা হয়।';
+
+  @override
+  String get invalidAmount => 'শূন্যের চেয়ে বড় পরিমাণ লিখুন।';
+
+  @override
+  String get invalidCurrency => 'USDT-এর মতো একটি মুদ্রা কোড লিখুন।';
+
+  @override
+  String get depositsUnavailable => 'জমা বন্ধ';
+
+  @override
+  String get depositLabel => 'জমা';
+
+  @override
+  String get withdrawalLabel => 'উত্তোলন';
+
+  @override
+  String get confirmedAmountLabel => 'নিশ্চিত';
+
+  @override
+  String get pendingNotCompleted =>
+      'অপেক্ষমাণ অনুরোধ মানে সম্পন্ন ট্রান্সফার নয়।';
 }
 ```
 
 FILE: apps/mobile/lib/l10n/app_localizations_en.dart
 
 ```dart
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -7501,7 +13821,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get twoFactorTitle => 'Two-factor authentication';
 
   @override
-  String get twoFactorSubtitle => 'Enter the six-digit code from your authenticator app.';
+  String get twoFactorSubtitle =>
+      'Enter the six-digit code from your authenticator app.';
 
   @override
   String get twoFactorCodeLabel => 'Authentication code';
@@ -7549,7 +13870,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get genericError => 'Something went wrong. Please try again.';
 
   @override
-  String get sessionExpired => 'Your session has expired. Please sign in again.';
+  String get sessionExpired =>
+      'Your session has expired. Please sign in again.';
 
   @override
   String get welcomeBack => 'Welcome back';
@@ -7573,25 +13895,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String get changePassword => 'Change password';
 
   @override
-  String get executionDisabledNotice => 'Live order execution is disabled on this build.';
+  String get executionDisabledNotice =>
+      'Live order execution is disabled on this build.';
 
   @override
   String get strategiesTitle => 'Strategies';
 
   @override
-  String get strategiesSubtitle => 'View strategy health and simulated results.';
+  String get strategiesSubtitle =>
+      'View strategy health and simulated results.';
 
   @override
-  String get strategyReadOnlyNotice => 'This screen is read-only. Strategies are started, stopped and configured from the admin console.';
+  String get strategyReadOnlyNotice =>
+      'This screen is read-only. Strategies are started, stopped and configured from the admin console.';
 
   @override
-  String get strategyPanelsDegraded => 'Some panels could not be loaded. Pull down to try again.';
+  String get strategyPanelsDegraded =>
+      'Some panels could not be loaded. Pull down to try again.';
 
   @override
-  String get liveExecutionReachable => 'Live execution is reachable in this deployment';
+  String get liveExecutionReachable =>
+      'Live execution is reachable in this deployment';
 
   @override
-  String get liveExecutionNotReachable => 'Live execution is not reachable in this deployment';
+  String get liveExecutionNotReachable =>
+      'Live execution is not reachable in this deployment';
 
   @override
   String get strategyEngineLabel => 'Strategy engine';
@@ -7708,31 +14036,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get statusCancelled => 'Cancelled';
 
   @override
-  String get backtestNotReproducible => 'This run has no dataset checksum and cannot be reproduced exactly.';
+  String get backtestNotReproducible =>
+      'This run has no dataset checksum and cannot be reproduced exactly.';
 
   @override
   String get simulationDisclaimerTitle => 'About these numbers';
 
   @override
-  String get backtestDisclaimer => 'Backtest performance is not indicative of future performance.';
+  String get backtestDisclaimer =>
+      'Backtest performance is not indicative of future performance.';
 
   @override
-  String get paperDisclaimer => 'Paper performance is not indicative of live performance.';
+  String get paperDisclaimer =>
+      'Paper performance is not indicative of live performance.';
 
   @override
-  String get executionQualityDisclaimer => 'Simulation does not guarantee real execution quality.';
+  String get executionQualityDisclaimer =>
+      'Simulation does not guarantee real execution quality.';
 
   @override
-  String get insufficientDataDisclaimer => 'Risk-adjusted figures are withheld when there were too few observations. Insufficient data is not zero.';
-
-  @override
-  String get retry => 'Try again';
+  String get insufficientDataDisclaimer =>
+      'Risk-adjusted figures are withheld when there were too few observations. Insufficient data is not zero.';
 
   @override
   String get riskTitle => 'Risk';
 
   @override
-  String get riskSubtitle => 'Halt status and mirror freshness for your organisation.';
+  String get riskSubtitle =>
+      'Halt status and mirror freshness for your organisation.';
 
   @override
   String get riskEngineOn => 'Risk engine is in the order path';
@@ -7747,13 +14078,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get riskCadenceLabel => 'Refresh / staleness budget';
 
   @override
-  String get riskCadenceWarn => 'Snapshot refresh does not outpace the staleness budget; expect denials on freshness.';
+  String get riskCadenceWarn =>
+      'Snapshot refresh does not outpace the staleness budget; expect denials on freshness.';
 
   @override
-  String get riskReadOnlyNotice => 'Read-only by design. Engaging or clearing a switch lives in the admin console, behind reasons and typed confirmations.';
+  String get riskReadOnlyNotice =>
+      'Read-only by design. Engaging or clearing a switch lives in the admin console, behind reasons and typed confirmations.';
 
   @override
-  String get riskPanelsDegraded => 'Some risk panels could not be loaded. Pull down to try again.';
+  String get riskPanelsDegraded =>
+      'Some risk panels could not be loaded. Pull down to try again.';
 
   @override
   String get riskMirrorSection => 'Latest mirror by account';
@@ -7765,10 +14099,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get riskEventsSection => 'Recent risk events';
 
   @override
-  String get riskNoMirror => 'No mirrored account state yet. Until the risk-state worker syncs, the engine denies new orders - that is fail-closed working, not a blank-screen bug.';
+  String get riskNoMirror =>
+      'No mirrored account state yet. Until the risk-state worker syncs, the engine denies new orders - that is fail-closed working, not a blank-screen bug.';
 
   @override
-  String get riskNoSwitches => 'Nothing is halted. The absence of rows is health here.';
+  String get riskNoSwitches =>
+      'Nothing is halted. The absence of rows is health here.';
 
   @override
   String get riskNoEvents => 'No risk events recorded.';
@@ -7816,10 +14152,321 @@ class AppLocalizationsEn extends AppLocalizations {
   String get riskEngagedManualLabel => 'manual halt';
 
   @override
-  String get riskExplicitClearNotice => 'This protection was triggered by the engine. It cannot be cleared from this app; acknowledge-and-clear lives in the admin console, behind a typed confirmation.';
+  String get riskExplicitClearNotice =>
+      'This protection was triggered by the engine. It cannot be cleared from this app; acknowledge-and-clear lives in the admin console, behind a typed confirmation.';
 
   @override
-  String get riskDisclaimer => 'Risk controls reduce operational risk but cannot guarantee against all losses.';
+  String get riskDisclaimer =>
+      'Risk controls reduce operational risk but cannot guarantee against all losses.';
+
+  @override
+  String get retry => 'Try again';
+
+  @override
+  String get accountDisabled => 'Account disabled';
+
+  @override
+  String get accountLabel => 'Account name';
+
+  @override
+  String get activityTab => 'Activity';
+
+  @override
+  String get allMarkedRead => 'All notifications marked as read';
+
+  @override
+  String get allocationLabel => 'Allocation (amount or %)';
+
+  @override
+  String get apiKeyLabel => 'API key';
+
+  @override
+  String get apiSecretLabel => 'API secret';
+
+  @override
+  String get baseCurrencyLabel => 'Base currency';
+
+  @override
+  String get checkHealth => 'Check connection';
+
+  @override
+  String get confirm => 'Confirm';
+
+  @override
+  String get connect => 'Connect';
+
+  @override
+  String get connectExchange => 'Connect exchange';
+
+  @override
+  String get connectExchangeFirst =>
+      'Connect an exchange account first to copy trades.';
+
+  @override
+  String get copiesLabel => 'Copies';
+
+  @override
+  String get copyAction => 'Copy';
+
+  @override
+  String get copyRiskAcknowledgement =>
+      'I understand copied trades can lose money, past performance does not predict results, and stopping a copy does not close open positions.';
+
+  @override
+  String get copyTradingSubtitle =>
+      'Find traders, manage your copies and see copied trades.';
+
+  @override
+  String get copyTradingTitle => 'Copy trading';
+
+  @override
+  String get copyingAccountLabel => 'Exchange account that copies';
+
+  @override
+  String get costBasisLabel => 'Cost basis';
+
+  @override
+  String get disable => 'Disable';
+
+  @override
+  String get disableAccountMessage =>
+      'Copying and trading on this account stop until it is re-enabled from the web console.';
+
+  @override
+  String get disableAccountTitle => 'Disable this account?';
+
+  @override
+  String get drawdownLabel => 'Max drawdown';
+
+  @override
+  String get environmentLabel => 'Environment';
+
+  @override
+  String get exchangeAccountsSubtitle =>
+      'Connected exchanges, key status and health.';
+
+  @override
+  String get exchangeAccountsTitle => 'Exchange accounts';
+
+  @override
+  String get exchangeConnected => 'Exchange connected';
+
+  @override
+  String get failedLabel => 'Failed';
+
+  @override
+  String get fieldRequired => 'Required';
+
+  @override
+  String get followersLabel => 'Followers';
+
+  @override
+  String get fundingSubtitle => 'Wallets, deposit addresses and transfers.';
+
+  @override
+  String get fundingTitle => 'Funding';
+
+  @override
+  String get healthCheckDone => 'Connection check finished';
+
+  @override
+  String get holdingsLabel => 'Holdings';
+
+  @override
+  String get inboxTab => 'Inbox';
+
+  @override
+  String get lastErrorLabel => 'Last error';
+
+  @override
+  String get lastVerifiedLabel => 'Last verified';
+
+  @override
+  String get liveKeyWarning =>
+      'LIVE keys trade real funds. Use trade-only keys with withdrawals disabled.';
+
+  @override
+  String get liveTradingOffNotice =>
+      'Live trading is not enabled for this account.';
+
+  @override
+  String get markAllRead => 'Mark all as read';
+
+  @override
+  String get markedRead => 'Marked as read';
+
+  @override
+  String get maxAllocationLabel => 'Maximum allocation (optional)';
+
+  @override
+  String get myCopiesTab => 'My copies';
+
+  @override
+  String get navLabel => 'Net asset value';
+
+  @override
+  String get noCopyActivity => 'No copied trades yet.';
+
+  @override
+  String get noCopyableStrategies =>
+      'This trader has no strategy open for copying.';
+
+  @override
+  String get noExchangeAccounts =>
+      'No exchange accounts yet. Connect one to start.';
+
+  @override
+  String get noNotifications => 'No notifications.';
+
+  @override
+  String get noPortfolio =>
+      'No portfolio has been set up for your account yet.';
+
+  @override
+  String get noSubscriptions => 'You are not copying anyone yet.';
+
+  @override
+  String get noTraders => 'No traders available.';
+
+  @override
+  String get noTransactions => 'No transactions yet.';
+
+  @override
+  String get nothingHereYet => 'Nothing here yet.';
+
+  @override
+  String get notificationsTitle => 'Notifications';
+
+  @override
+  String get partialDataNotice => 'Some data could not be loaded';
+
+  @override
+  String get passphraseLabel => 'API passphrase';
+
+  @override
+  String get pastPerformanceNotice =>
+      'Past performance is not a guarantee of future results.';
+
+  @override
+  String get pause => 'Pause';
+
+  @override
+  String get paused => 'Copying paused';
+
+  @override
+  String get pnlLabel => 'PnL';
+
+  @override
+  String get portfolioLabel => 'Portfolio';
+
+  @override
+  String get portfolioSubtitle =>
+      'Holdings, net asset value and profit and loss.';
+
+  @override
+  String get portfolioTitle => 'Portfolio';
+
+  @override
+  String get preferencesSaved => 'Preferences saved';
+
+  @override
+  String get preferencesTab => 'Preferences';
+
+  @override
+  String get resume => 'Resume';
+
+  @override
+  String get resumed => 'Copying resumed';
+
+  @override
+  String get sizingModeLabel => 'Sizing mode';
+
+  @override
+  String get startCopying => 'Start copying';
+
+  @override
+  String get startedLabel => 'Started';
+
+  @override
+  String get stop => 'Stop';
+
+  @override
+  String get stopCopyingMessage =>
+      'New trades will no longer be copied. Positions already open stay open until you close them.';
+
+  @override
+  String get stopCopyingTitle => 'Stop copying?';
+
+  @override
+  String get stopped => 'Copying stopped';
+
+  @override
+  String get subscribed => 'You are now copying this strategy';
+
+  @override
+  String get tradeOnlyKeysNotice =>
+      'Your keys are sent once over an encrypted connection and are never stored on this device.';
+
+  @override
+  String get tradersTab => 'Traders';
+
+  @override
+  String get transactionsTab => 'Transactions';
+
+  @override
+  String get venueLabel => 'Exchange';
+
+  @override
+  String get withdrawOnWebNotice =>
+      'Withdrawals require policy checks and approval and are available in the web console.';
+
+  @override
+  String get accountsTab => 'Accounts';
+
+  @override
+  String get noFundingAccounts =>
+      'No account yet. Complete onboarding to open one.';
+
+  @override
+  String get requestDeposit => 'Request deposit';
+
+  @override
+  String get depositRequested => 'Deposit request submitted';
+
+  @override
+  String get amountLabel => 'Amount';
+
+  @override
+  String get currencyLabel => 'Currency';
+
+  @override
+  String get transferReferenceLabel => 'Transfer reference (optional)';
+
+  @override
+  String get depositRequestNotice =>
+      'A deposit request records the transfer you intend to make. Your balance is credited only after operations confirm the funds were received.';
+
+  @override
+  String get invalidAmount => 'Enter an amount greater than zero.';
+
+  @override
+  String get invalidCurrency => 'Enter a currency code such as USDT.';
+
+  @override
+  String get depositsUnavailable => 'Deposits unavailable';
+
+  @override
+  String get depositLabel => 'Deposit';
+
+  @override
+  String get withdrawalLabel => 'Withdrawal';
+
+  @override
+  String get confirmedAmountLabel => 'Confirmed';
+
+  @override
+  String get pendingNotCompleted =>
+      'Pending requests are not completed transfers.';
 }
 ```
 
@@ -7896,7 +14543,7 @@ FILE: apps/mobile/pubspec.yaml
 
 ```yaml
 name: wlct_mobile
-description: White-label copy trading mobile client. Part 1 foundation.
+description: White-label copy trading mobile client.
 publish_to: "none"
 version: 1.0.0+1
 
@@ -7929,8 +14576,10 @@ dependencies:
 
   # Value equality for immutable models and states.
   equatable: ^2.0.5
-  intl: ^0.19.0
+  intl: ^0.20.2
   uuid: ^4.5.1
+  # Used directly by the (orphan) billing plan/entitlement services.
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:
@@ -8053,6 +14702,218 @@ void main() {
     test('falls back to the status code', () {
       expect(AppErrorCode.fromApiCode(null, 503), AppErrorCode.server);
       expect(AppErrorCode.fromApiCode('SOMETHING_NEW', 403), AppErrorCode.forbidden);
+    });
+  });
+}
+```
+
+FILE: apps/mobile/test/feature_parity_test.dart
+
+```dart
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:wlct_mobile/core/network/json_read.dart';
+import 'package:wlct_mobile/features/copy_trading/domain/copy_models.dart';
+import 'package:wlct_mobile/features/exchange_accounts/domain/exchange_account_models.dart';
+import 'package:wlct_mobile/features/funding/domain/funding_models.dart';
+import 'package:wlct_mobile/features/notifications/domain/notification_models.dart';
+import 'package:wlct_mobile/features/portfolio/domain/portfolio_models.dart';
+
+/// Phase 3 mobile parity: exchange accounts, copy trading, funding,
+/// portfolio and notifications. Parsing is tolerant (no crash on a shape
+/// difference, no invented values) and the safety properties of each
+/// repository are asserted from source, the way strategy_view_test does.
+void main() {
+  group('JsonRead', () {
+    test('reads rows from a bare list, {data} and {items}', () {
+      final List<Object?> list = <Object?>[<String, Object?>{'id': 'a'}];
+      expect(JsonRead.rows(list), hasLength(1));
+      expect(JsonRead.rows(<String, Object?>{'data': list}), hasLength(1));
+      expect(JsonRead.rows(<String, Object?>{'items': list}), hasLength(1));
+      expect(JsonRead.rows('nonsense'), isEmpty);
+    });
+
+    test('absent stays absent', () {
+      expect(JsonRead.str(<String, Object?>{}, 'x'), isNull);
+      expect(JsonRead.str(<String, Object?>{'x': ''}, 'x'), isNull);
+      expect(JsonRead.integer(<String, Object?>{'x': '7'}, 'x'), 7);
+    });
+  });
+
+  group('exchange accounts', () {
+    test('parses the safe reference and flags LIVE', () {
+      final ExchangeAccountSummary a = ExchangeAccountSummary.fromJson(const <String, Object?>{
+        'accountId': 'acc-1',
+        'venue': 'BINANCE',
+        'environment': 'LIVE',
+        'label': 'Main',
+        'maskedApiKey': '****ABCD',
+        'status': 'ACTIVE',
+        'healthState': 'HEALTHY',
+        'isSandbox': false,
+        'liveTradingEnabled': false,
+      });
+      expect(a.id, 'acc-1');
+      expect(a.isLive, isTrue);
+      expect(a.isHealthy, isTrue);
+      expect(a.isDisabled, isFalse);
+    });
+
+    test('the connect request never prints its secrets', () {
+      const ConnectExchangeRequest r = ConnectExchangeRequest(
+        venue: 'OKX',
+        environment: 'TESTNET',
+        label: 'x',
+        apiKey: 'KEY-SHOULD-NOT-PRINT',
+        apiSecret: 'SECRET-SHOULD-NOT-PRINT',
+        passphrase: 'PASS',
+      );
+      expect(r.toString(), isNot(contains('SHOULD-NOT-PRINT')));
+      expect(r.toJson()['passphrase'], 'PASS');
+      expect(r.toJson()['credentialSource'], 'ENVELOPE_DB');
+      expect(ExchangeVenues.needsPassphrase('OKX'), isTrue);
+      expect(ExchangeVenues.needsPassphrase('BINANCE'), isFalse);
+    });
+
+    test('the repository has no live-enable, rotate or revoke path', () {
+      final String source = File('lib/features/exchange_accounts/data/exchange_account_repository.dart').readAsStringSync();
+      for (final String forbidden in <String>['/enable', '/rotate', '/revoke', 'liveTradingEnabled']) {
+        expect(source.contains(forbidden), isFalse, reason: forbidden);
+      }
+      expect(source.contains('_logger.debug(\'exchange.account_connected\', context: <String, Object?>{\'venue\''), isTrue);
+      expect(source.contains('apiSecret'), isFalse, reason: 'the secret must not be referenced (e.g. logged) in the repository');
+    });
+  });
+
+  group('copy trading', () {
+    test('parses rankings with performance as strings, unmeasured as null', () {
+      final RankedTrader t = RankedTrader.fromJson(const <String, Object?>{
+        'traderId': 't1',
+        'displayName': 'Alice',
+        'verificationState': 'VERIFIED',
+        'followerCount': 12,
+        'score': 81.5,
+        'rank': 1,
+        'performance': <String, Object?>{'realizedPnl': '1234.50'},
+      });
+      expect(t.isVerified, isTrue);
+      expect(t.realizedPnl, '1234.50');
+      expect(t.maxDrawdown, isNull);
+    });
+
+    test('subscribe validation mirrors the API DTO', () {
+      SubscribeRequest make(String mode, String amount, String account) => SubscribeRequest(
+            traderId: 't',
+            strategyId: 's',
+            allocationMode: mode,
+            allocationAmount: amount,
+            followerAccountId: account,
+            idempotencyKey: 'k',
+          );
+      expect(make('FIXED', '100', 'acc').validate(), isNull);
+      expect(make('FIXED', '1e3', 'acc').validate(), isNotNull);
+      expect(make('FIXED', '0', 'acc').validate(), isNotNull);
+      expect(make('PERCENTAGE_BALANCE', '150', 'acc').validate(), isNotNull);
+      expect(make('FIXED', '100', '').validate(), isNotNull);
+      expect(make('MARTINGALE', '100', 'acc').validate(), isNotNull);
+      expect(make('FIXED', '100', 'acc').toJson()['idempotencyKey'], 'k');
+    });
+
+    test('subscription actions follow the state', () {
+      final CopySubscriptionSummary active = CopySubscriptionSummary.fromJson(const <String, Object?>{'id': 's', 'state': 'ACTIVE'});
+      final CopySubscriptionSummary paused = CopySubscriptionSummary.fromJson(const <String, Object?>{'id': 's', 'state': 'PAUSED'});
+      final CopySubscriptionSummary stopped = CopySubscriptionSummary.fromJson(const <String, Object?>{'id': 's', 'state': 'STOPPED'});
+      expect(active.canPause && !active.canResume && active.canStop, isTrue);
+      expect(!paused.canPause && paused.canResume && paused.canStop, isTrue);
+      expect(stopped.canPause || stopped.canResume || stopped.canStop, isFalse);
+    });
+
+    test('the repository never submits orders or leader events', () {
+      final String source = File('lib/features/copy_trading/data/copy_trading_repository.dart').readAsStringSync();
+      expect(source.contains('leader-event'), isFalse);
+      expect(source.contains('/orders'), isFalse);
+    });
+  });
+
+  group('funding', () {
+    test('only an active account with deposits enabled can take a deposit request', () {
+      expect(FundingAccountSummary.fromJson(const <String, Object?>{'id': 'a', 'state': 'ACTIVE', 'isFundingEnabled': true}).canDeposit, isTrue);
+      expect(FundingAccountSummary.fromJson(const <String, Object?>{'id': 'a', 'state': 'SUSPENDED', 'isFundingEnabled': true}).canDeposit, isFalse);
+      expect(FundingAccountSummary.fromJson(const <String, Object?>{'id': 'a', 'state': 'ACTIVE'}).canDeposit, isFalse);
+      expect(FundingAccountSummary.fromJson(const <String, Object?>{'id': '12345678-ffff', 'accountType': 'INDIVIDUAL_TRADING', 'state': 'ACTIVE'}).label, 'individual trading 12345678');
+    });
+
+    test('confirmation comes only from the backend state', () {
+      final FundingRequestSummary open = FundingRequestSummary.fromJson(const <String, Object?>{'id': 'x', 'state': 'UNDER_REVIEW', 'requestedAmount': '50', 'currency': 'USDT'}, FundingDirection.deposit);
+      expect(open.isOpen, isTrue);
+      expect(open.isConfirmed, isFalse);
+      final FundingRequestSummary done = FundingRequestSummary.fromJson(const <String, Object?>{'id': 'y', 'state': 'CONFIRMED', 'requestedAmount': '50', 'confirmedAmount': '49.5', 'currency': 'USDT'}, FundingDirection.deposit);
+      expect(done.isConfirmed, isTrue);
+      expect(done.confirmedAmount, '49.5');
+    });
+
+    test('amount and currency pre-checks match the API contract', () {
+      for (final String ok in <String>['1', '0.5', '100.25']) {
+        expect(FundingInput.isPositiveAmount(ok), isTrue, reason: ok);
+      }
+      for (final String bad in <String>['', '0', '0.00', '-1', '1e3', '1,000', 'abc']) {
+        expect(FundingInput.isPositiveAmount(bad), isFalse, reason: bad);
+      }
+      expect(FundingInput.isCurrencyCode('USDT'), isTrue);
+      expect(FundingInput.isCurrencyCode('usdt'), isFalse);
+    });
+
+    test('history interleaves deposits and withdrawals newest first', () {
+      FundingRequestSummary row(String id, String at, FundingDirection d) =>
+          FundingRequestSummary.fromJson(<String, Object?>{'id': id, 'state': 'REQUESTED', 'requestedAmount': '1', 'currency': 'USD', 'requestedAt': at}, d);
+      final List<FundingRequestSummary> merged = mergeFundingHistory(
+        <FundingRequestSummary>[row('d1', '2026-09-01T00:00:00Z', FundingDirection.deposit), row('d2', '2026-09-03T00:00:00Z', FundingDirection.deposit)],
+        <FundingRequestSummary>[row('w1', '2026-09-02T00:00:00Z', FundingDirection.withdrawal)],
+        limit: 2,
+      );
+      expect(merged.map((FundingRequestSummary r) => r.id), <String>['d2', 'w1']);
+    });
+
+    test('customer funding never calls custody and never creates withdrawals', () {
+      final String source = File('lib/features/funding/data/funding_repository.dart').readAsStringSync();
+      expect(source.toLowerCase().contains('withdrawals/submit'), isFalse);
+      expect(source.contains('ApiEndpoints.custody'), isFalse);
+      expect(source.contains('sha256'), isFalse);
+      expect(source.contains('ApiEndpoints.fundingRequests'), isTrue);
+      expect(RegExp(r'post<[^>]*>\(\s*ApiEndpoints\.withdrawalRequests').hasMatch(source), isFalse);
+      final String endpoints = File('lib/core/network/api_endpoints.dart').readAsStringSync();
+      expect(endpoints.contains("'/custody/"), isFalse);
+    });
+  });
+
+  group('portfolio', () {
+    test('facts keep scalars only and drop ids', () {
+      final PortfolioFacts f = PortfolioFacts.fromJson(const <String, Object?>{
+        'tenantId': 't',
+        'profileId': 'p',
+        'nav': '1000.00',
+        'currency': 'USD',
+        'breakdown': <String, Object?>{'a': 1},
+      });
+      expect(f.entries.map((MapEntry<String, String> e) => e.key), <String>['nav', 'currency']);
+    });
+
+    test('the repository is read-only', () {
+      final String source = File('lib/features/portfolio/data/portfolio_repository.dart').readAsStringSync();
+      expect(source.contains('_apiClient.post'), isFalse);
+      expect(source.contains('_apiClient.patch'), isFalse);
+      expect(source.contains('_apiClient.delete'), isFalse);
+    });
+  });
+
+  group('notifications', () {
+    test('parses and marks read', () {
+      final AppNotification n = AppNotification.fromJson(const <String, Object?>{'id': 'n1', 'title': 'Hi', 'body': 'B', 'type': 'x', 'readAt': null});
+      expect(n.isRead, isFalse);
+      expect(n.markedRead(DateTime(2026)).isRead, isTrue);
+      final NotificationPreference p = NotificationPreference.fromJson(const <String, Object?>{'category': 'billing', 'channel': 'EMAIL', 'enabled': true});
+      expect(p.withEnabled(false).toJson(), <String, Object?>{'category': 'billing', 'channel': 'EMAIL', 'enabled': false});
     });
   });
 }

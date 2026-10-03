@@ -15,6 +15,8 @@ export interface BlockchainProviderCapabilities {
   canGetBlock: boolean;
   canEstimateFee: boolean;
   canObserveConfirmations: boolean;
+  /** Phase 3: provider can mint a deposit address it controls. Absent = false. */
+  canGenerateAddress?: boolean;
   supportedNetworks: string[];
   supportedAssets: string[];
 }
@@ -82,6 +84,22 @@ export interface BlockchainProvider {
   getConfirmations?(params: GetTransactionParams): Promise<{ confirmationCount: number; blockNumber?: string | null; blockHash?: string | null; isFinal: boolean }>;
 
   isHealthy?(): Promise<{ healthy: boolean; reason?: string }>;
+
+  /**
+   * Phase 3: a deposit address the provider controls (and therefore can
+   * observe and sweep). Only providers declaring canGenerateAddress implement
+   * it; callers must never derive an address locally instead.
+   */
+  generateDepositAddress?(params: GenerateDepositAddressParams): Promise<{ address: string; providerReference: string; memo?: string | null }>;
+}
+
+export interface GenerateDepositAddressParams {
+  assetId: string;
+  networkId: string;
+  walletId: string;
+  tenantId: string;
+  idempotencyKey: string;
+  label?: string | null;
 }
 
 export interface ProviderResult<T> {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'billing_portal_api.dart';
-import '../../../core/network/api_client.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/di/providers.dart';
 
 /// Mobile dynamic plan comparison.
 /// Displays available plans, pricing, currency, billing interval,
@@ -25,7 +26,9 @@ class _PlanComparisonPageState extends State<PlanComparisonPage> {
   @override
   void initState() {
     super.initState();
-    _api = BillingPortalApi(ApiClient());
+    // The app-wide ApiClient (auth, base URL, envelope unwrapping) - never a
+    // second, unconfigured client.
+    _api = BillingPortalApi(ProviderScope.containerOf(context, listen: false).read(apiClientProvider));
     _fetchComparison();
   }
 
@@ -67,7 +70,7 @@ class _PlanComparisonPageState extends State<PlanComparisonPage> {
         }
       } else {
         setState(() {
-          _message = result['message'] ?? 'Plan change successful';
+          _message = (result['message'] as String?) ?? 'Plan change successful';
         });
         await _fetchComparison();
       }
@@ -169,19 +172,19 @@ class _PlanComparisonPageState extends State<PlanComparisonPage> {
                             child: const Text('Current Plan', style: TextStyle(fontSize: 10, color: Colors.blue)),
                           ),
                         const SizedBox(height: 8),
-                        Text(plan['name'] ?? 'Plan', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        Text(plan['description'] ?? '', style: const TextStyle(fontSize: 12, color: Colors.grey), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        Text('${plan['name'] ?? 'Plan'}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        Text('${plan['description'] ?? ''}', style: const TextStyle(fontSize: 12, color: Colors.grey), maxLines: 2, overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 12),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text('${plan['price']}', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                             const SizedBox(width: 4),
-                            Text(plan['currency'] ?? 'USD', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            Text('${plan['currency'] ?? 'USD'}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                           ],
                         ),
                         Text('/ ${plan['interval']}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                        if ((plan['trialDays'] ?? 0) > 0) Text('${plan['trialDays']} day trial', style: const TextStyle(fontSize: 11, color: Colors.green)),
+                        if (((plan['trialDays'] as num?) ?? 0) > 0) Text('${plan['trialDays']} day trial', style: const TextStyle(fontSize: 11, color: Colors.green)),
 
                         const SizedBox(height: 12),
                         const Text('Limits:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
@@ -206,7 +209,7 @@ class _PlanComparisonPageState extends State<PlanComparisonPage> {
                           child: isCurrent
                               ? const ElevatedButton(onPressed: null, child: Text('Current'))
                               : ElevatedButton(
-                                  onPressed: _actionLoading == plan['id'] ? null : () => _selectPlan(plan['id']),
+                                  onPressed: _actionLoading == plan['id'] ? null : () => _selectPlan('${plan['id']}'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: plan['upgradeEligible'] == true ? Colors.blue : Colors.grey[800],
                                   ),
@@ -216,7 +219,7 @@ class _PlanComparisonPageState extends State<PlanComparisonPage> {
                                           ? 'Upgrade'
                                           : plan['downgradeEligible'] == true
                                               ? 'Downgrade'
-                                              : 'Select'),
+                                              : 'Select',),
                                 ),
                         ),
                       ],
@@ -238,19 +241,19 @@ class _PlanComparisonPageState extends State<PlanComparisonPage> {
                   child: DataTable(
                     columns: [
                       const DataColumn(label: Text('Feature')),
-                      ...plans.map((p) => DataColumn(label: Text((p as Map)['name'], style: const TextStyle(fontSize: 12)))),
+                      ...plans.map((p) => DataColumn(label: Text('${(p as Map)['name']}', style: const TextStyle(fontSize: 12)))),
                     ],
                     rows: featuresMatrix.map<DataRow>((row) {
                       final r = row as Map<String, dynamic>;
                       final plansMap = r['plans'] as Map<String, dynamic>;
                       return DataRow(cells: [
-                        DataCell(Text(r['label'] ?? r['featureKey'], style: const TextStyle(fontSize: 12))),
+                        DataCell(Text('${r['label'] ?? r['featureKey']}', style: const TextStyle(fontSize: 12))),
                         ...plans.map((p) {
                           final pid = (p as Map)['id'] as String;
                           final included = plansMap[pid] == true;
                           return DataCell(Center(child: Text(included ? '✓' : '—', style: TextStyle(color: included ? Colors.green : Colors.grey))));
                         }),
-                      ]);
+                      ],);
                     }).toList(),
                   ),
                 ),
@@ -268,19 +271,19 @@ class _PlanComparisonPageState extends State<PlanComparisonPage> {
                   child: DataTable(
                     columns: [
                       const DataColumn(label: Text('Limit')),
-                      ...plans.map((p) => DataColumn(label: Text((p as Map)['name'], style: const TextStyle(fontSize: 12)))),
+                      ...plans.map((p) => DataColumn(label: Text('${(p as Map)['name']}', style: const TextStyle(fontSize: 12)))),
                     ],
                     rows: limitsMatrix.map<DataRow>((row) {
                       final r = row as Map<String, dynamic>;
                       final plansMap = r['plans'] as Map<String, dynamic>;
                       return DataRow(cells: [
-                        DataCell(Text(r['label'] ?? r['limitKey'], style: const TextStyle(fontSize: 12))),
+                        DataCell(Text('${r['label'] ?? r['limitKey']}', style: const TextStyle(fontSize: 12))),
                         ...plans.map((p) {
                           final pid = (p as Map)['id'] as String;
                           final val = plansMap[pid];
                           return DataCell(Center(child: Text(val == null ? 'Unlimited' : val.toString(), style: const TextStyle(fontSize: 12))));
                         }),
-                      ]);
+                      ],);
                     }).toList(),
                   ),
                 ),

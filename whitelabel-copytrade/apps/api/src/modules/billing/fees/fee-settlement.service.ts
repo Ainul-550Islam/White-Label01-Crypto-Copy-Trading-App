@@ -106,7 +106,7 @@ export class FeeSettlementService {
     const idempotencyKey = params.idempotencyKey || `settlement_${params.tenantId}_${params.currency || 'USD'}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
     // Idempotency check
-    const existingByKey = await this.settlementRepository.findByIdempotencyKey(idempotencyKey);
+    const existingByKey = await this.settlementRepository.findByIdempotencyKey(idempotencyKey, params.tenantId);
     if (existingByKey) {
       this.logger.log(`Idempotent settlement return by key: ${idempotencyKey}`);
       return existingByKey;

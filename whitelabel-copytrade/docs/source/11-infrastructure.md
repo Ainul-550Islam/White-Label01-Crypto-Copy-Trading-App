@@ -2,7 +2,7 @@
 
 Dockerfiles, database bootstrap SQL, the helper scripts and the written documentation.
 
-100 files. Part of the complete Part 1 source dump - see `docs/source/README.md`.
+118 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -1135,13 +1135,22 @@ Two things about these commands are worth knowing:
 
 The seed is idempotent - running it twice changes nothing. It creates:
 
-* the 7 system roles with their permission sets
+* the permission catalogue and the 7 system roles with their permission sets
 * the platform tenant and its branding
+* the feature flag definitions
 * the three platform plans (`starter`, `growth`, `enterprise`)
-* a super-admin from `SEED_SUPER_ADMIN_*`
-* a demo tenant and its admin from `SEED_TENANT_ADMIN_*`
+* a super-admin from `SEED_SUPER_ADMIN_EMAIL` / `SEED_SUPER_ADMIN_PASSWORD`
 
-Change those passwords in `.env` before seeding anything you will keep.
+It does not create a demo tenant: `SEED_TENANT_ADMIN_*` in `.env.example` are
+not read by the seed. Create tenants through the API or the admin console.
+
+`SEED_SUPER_ADMIN_PASSWORD` must satisfy the same password policy the API
+enforces everywhere else (at least `PASSWORD_MIN_LENGTH` characters, default 12,
+with upper- and lower-case letters, a digit and a symbol, no common password,
+no part of the email address). The seed checks it before writing anything and
+stops with the reasons if it fails. Wrap the value in double quotes when it
+contains `#` - unquoted, dotenv cuts it off at the `#`. Leave the variable unset
+and the seed generates a strong password and prints it once.
 
 ### 5. Run
 
@@ -49974,7 +49983,7 @@ A client-supplied tenant id is only ever a hint for unauthenticated flows
 
 ```ts
 // Simplified: the real factory lives in
-// apps/api/src/infrastructure/database/tenant-scoped-prisma.factory.ts
+// apps/api/src/infrastructure/prisma/tenant-scoped-prisma.factory.ts
 const scoped = prisma.$extends({
   query: {
     $allModels: {
@@ -50416,8 +50425,8 @@ those two.
 
 | Control | Where |
 | --- | --- |
-| Query-level tenant predicate | `apps/api/src/infrastructure/database/tenant-scoped-prisma.factory.ts` |
-| Tenant resolution and override | `apps/api/src/common/guards/tenant.guard.ts` |
+| Query-level tenant predicate | `apps/api/src/infrastructure/prisma/tenant-scoped-prisma.factory.ts` |
+| Tenant resolution and override | `apps/api/src/modules/tenants/guards/tenant.guard.ts` |
 | Non-null `tenantId` + scoped uniqueness | `apps/api/prisma/schema.prisma` |
 
 * A client-supplied tenant identifier is **never** an authorisation input. For
@@ -50984,6 +50993,113 @@ Four independent gates prevent Part 1 from placing an order:
 
 *End of Part 11 handover. Every file above is complete as written; line counts in the contents list match the blocks. The sweep that certifies 'no elisions, no added suppressions' runs on every generation - rerun `python3 scripts/gen_part11_handover.py` after any change.*
 `````
+
+FILE: docs/PART11_ROW_LEVEL_SECURITY.md
+
+````markdown
+# Part 11 - Row-level security (index)
+
+This document is an index. Row-level security was never given a document of
+its own: the policies shipped inside the Part 11 worker-scaling document, and
+the enablement checklist moved to Part 15 when enablement became an audited
+surface. Older material (the comment at the top of the Part 13 execution-store
+migration, and the Part 13 and Part 14 handover snapshots) still points here,
+and an applied migration cannot be edited without changing its checksum, so
+this page exists to send those readers to the real sources.
+
+## Where each part lives
+
+| Topic | Source of truth |
+| --- | --- |
+| Why tenant isolation needs a database layer, and the policy design | `docs/PART11_WORKER_SCALING.md`, section 16 "Row-level security" |
+| Tenant model, query-level tenant predicate, tenant resolution | `docs/MULTI_TENANCY.md` |
+| Enablement as a verifiable, audited operation (probe, CLI, evidence ledger) | `docs/PART15_RLS_ENABLEMENT.md` |
+| Policy migration (function `wlct_current_tenant_id()` and one `tenant_isolation` policy per covered table) | `apps/api/prisma/migrations/20260923090000_part11_row_level_security/migration.sql` |
+| Operator scripts: enable (with the pre-flight checklist), disable, grants | `apps/api/prisma/rls/enable.sql`, `apps/api/prisma/rls/disable.sql`, `apps/api/prisma/rls/grant.sql` |
+| Machine-readable coverage (covered and excluded tables) | `apps/api/prisma/rls/rls_coverage.json` |
+| Generator for all of the above, from `schema.prisma` | `scripts/gen_part11_rls.py` |
+| Platform-scoped (excluded) table set used by the engine probe | `libs/trading-core/wlct_trading/enablement.py` |
+| Operator CLI that records and ages enablement evidence | `scripts/rls-enablement.mjs` |
+
+## Coverage rule
+
+The generator classifies syntactically from `schema.prisma`:
+
+- a model with a required `tenantId String` column is **covered**: it gets a
+  `tenant_isolation` policy (`USING` and `WITH CHECK` on
+  `tenant_id = wlct_current_tenant_id()`), and `enable.sql` turns on
+  `ENABLE` plus `FORCE ROW LEVEL SECURITY` for it;
+- a model whose `tenantId` is nullable is **excluded** (platform-scoped):
+  rows with no tenant, such as platform-wide legal holds or partner records
+  that span tenants, cannot be expressed by a single tenant predicate.
+
+The request-scoped tenant is carried in the transaction-local setting
+`app.tenant_id` (see `apps/api/src/infrastructure/prisma/tenant-scoped-prisma.factory.ts`).
+
+## Current numbers
+
+After the Part 11 production-SSO migration
+(`20260923089000_sso_authorization_code_flow`) the artifacts cover **186**
+tables and exclude **30** (182 after `20260923085000_domain_persistence_tables`,
+plus `sso_auth_transactions`, `sso_identities`, `sso_assertion_replays` and
+`sso_audit_events`). The numbers are pinned in
+`services/execution-engine/tests/test_part15_drift_parity.py` and derived in
+`apps/api/src/infrastructure/prisma/rls-coverage.spec.ts`, so `enable.sql`,
+`disable.sql`, `rls_coverage.json` and the migration cannot silently disagree.
+
+## Regenerating
+
+Always pass the migration's stamp; the generator's default stamp is older:
+
+```sh
+python3 scripts/gen_part11_rls.py --stamp 20260923090000
+```
+
+## Existing databases
+
+Policies are created by the migration, but RLS is only switched on by the
+operator step in `enable.sql`.
+
+`prisma migrate deploy` never re-runs a migration that is already recorded, and
+`20260923090000_part11_row_level_security` is regenerated whenever tenant
+tables are added. A database that applied an older version of it (153 or 182
+policies) receives the new tables but **not** their `tenant_isolation` policies.
+Bring it up to date in this order:
+
+1. `prisma migrate deploy` creates the new tables.
+2. Apply the upgrade files that match the database, oldest first. Each is
+   copied from the generated migration, idempotent (`DROP POLICY IF EXISTS`
+   before each `CREATE POLICY`) and runs as one transaction:
+
+   - `apps/api/prisma/upgrades/rls_policies_153_to_182.sql` (29 policies) for a
+     database that applied the 153-policy version;
+   - `apps/api/prisma/upgrades/rls_policies_182_to_186.sql` (4 SSO policies)
+     for every database that applied the 153- or 182-policy version.
+
+   ```sh
+   npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/upgrades/rls_policies_153_to_182.sql
+   npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/upgrades/rls_policies_182_to_186.sql
+   ```
+
+   Afterwards `SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';`
+   returns 186.
+3. Only if the database already ran `enable.sql`: run it again (it is
+   idempotent) so the new tables are enabled and forced as well:
+
+   ```sh
+   npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/rls/enable.sql
+   ```
+
+Do not swap steps 2 and 3. A table with RLS forced and no policy returns zero
+rows to every role, so the new billing, governance, developer and SSO tables
+would look empty to the API.
+
+Fresh databases need none of this: the current migration creates all 186
+policies.
+
+Then record the audit with `scripts/rls-enablement.mjs` as described in
+`docs/PART15_RLS_ENABLEMENT.md`.
+````
 
 FILE: docs/PART11_WORKER_SCALING.md
 
@@ -66192,8 +66308,8 @@ those two.
 
 | Control | Where |
 | --- | --- |
-| Query-level tenant predicate | `apps/api/src/infrastructure/database/tenant-scoped-prisma.factory.ts` |
-| Tenant resolution and override | `apps/api/src/common/guards/tenant.guard.ts` |
+| Query-level tenant predicate | `apps/api/src/infrastructure/prisma/tenant-scoped-prisma.factory.ts` |
+| Tenant resolution and override | `apps/api/src/modules/tenants/guards/tenant.guard.ts` |
 | Non-null `tenantId` + scoped uniqueness | `apps/api/prisma/schema.prisma` |
 
 * A client-supplied tenant identifier is **never** an authorisation input. For
@@ -80440,8 +80556,8 @@ those two.
 
 | Control | Where |
 | --- | --- |
-| Query-level tenant predicate | `apps/api/src/infrastructure/database/tenant-scoped-prisma.factory.ts` |
-| Tenant resolution and override | `apps/api/src/common/guards/tenant.guard.ts` |
+| Query-level tenant predicate | `apps/api/src/infrastructure/prisma/tenant-scoped-prisma.factory.ts` |
+| Tenant resolution and override | `apps/api/src/modules/tenants/guards/tenant.guard.ts` |
 | Non-null `tenantId` + scoped uniqueness | `apps/api/prisma/schema.prisma` |
 
 * A client-supplied tenant identifier is **never** an authorisation input. For
@@ -93207,8 +93323,8 @@ those two.
 
 | Control | Where |
 | --- | --- |
-| Query-level tenant predicate | `apps/api/src/infrastructure/database/tenant-scoped-prisma.factory.ts` |
-| Tenant resolution and override | `apps/api/src/common/guards/tenant.guard.ts` |
+| Query-level tenant predicate | `apps/api/src/infrastructure/prisma/tenant-scoped-prisma.factory.ts` |
+| Tenant resolution and override | `apps/api/src/modules/tenants/guards/tenant.guard.ts` |
 | Non-null `tenantId` + scoped uniqueness | `apps/api/prisma/schema.prisma` |
 
 * A client-supplied tenant identifier is **never** an authorisation input. For
@@ -102677,8 +102793,8 @@ those two.
 
 | Control | Where |
 | --- | --- |
-| Query-level tenant predicate | `apps/api/src/infrastructure/database/tenant-scoped-prisma.factory.ts` |
-| Tenant resolution and override | `apps/api/src/common/guards/tenant.guard.ts` |
+| Query-level tenant predicate | `apps/api/src/infrastructure/prisma/tenant-scoped-prisma.factory.ts` |
+| Tenant resolution and override | `apps/api/src/modules/tenants/guards/tenant.guard.ts` |
 | Non-null `tenantId` + scoped uniqueness | `apps/api/prisma/schema.prisma` |
 
 * A client-supplied tenant identifier is **never** an authorisation input. For
@@ -367258,6 +367374,266 @@ fixture truth table; alert lifecycle/dedupe/storm -
 configuration enforcement - jest env-validation block.
 ````
 
+FILE: docs/PHASE3_HANDOVER.md
+
+```markdown
+# Phase 3 handover: gap-audit remediation (2026-09-28)
+
+This document records what the gap-audit pass changed, how each change was
+verified, what is still not production-ready, and what a buyer or operator must
+do before real money flows. It is the current source of truth for readiness;
+older `PART*` documents describe history.
+
+---
+
+## 1. Audit items and their status
+
+| # | Audit item | Status | Where |
+| --- | --- | --- | --- |
+| 1 | Wire CopyExecution to real execution, prove end to end in sandbox | **Done (paper)**: leader event -> sizing -> risk -> OMS intent -> BullMQ `SUBMIT_ORDER` -> worker -> engine `POST /internal/v1/orders/submit` -> result listener updates Order and CopyExecution | `apps/api/src/modules/copy-trading/copy-execution.service.ts`, `apps/api/src/modules/oms/order-routing.service.ts`, `apps/api/src/modules/oms/order-submission-result.service.ts`, `apps/api/src/modules/worker/trade-execution.processor.ts`, `services/execution-engine/app/submission.py` |
+| 2 | Full Bybit / OKX / Kraken / Coinbase adapters | **Done** (REST: auth/signing, balances, positions, orders, cancel, symbol rules, health) | `apps/api/src/modules/exchanges/venues/` |
+| 3 | Activate orphan modules | **Done** in Phase 1-2 (module imports, DI, migrations); Phase 3 removed remaining fake paths (custody sha256 addresses, recovery "success" stubs, billing single-tenant placeholders) | `apps/api/src/modules/custody/`, `apps/api/src/modules/operations/recovery-plan.service.ts`, `apps/api/src/modules/billing/finance/tenant-iteration.ts` |
+| 4 | Binance `isAvailable` and capability declarations | **Done** | `apps/api/src/modules/exchanges/base-exchange-provider.ts` |
+| 5 | Risk calculations + deterministic tests | **Done** | `apps/api/src/modules/risk-management/day-start-equity.ts`, `apps/api/src/modules/risk-management/risk-calculations.spec.ts` |
+| 6 | Leader-event ingestion + missing-copy reconciliation | **Done** | `apps/api/src/modules/copy-trading/leader-event-source.service.ts`, `apps/api/src/modules/copy-trading/leader-event-ingestion.service.ts`, `apps/api/src/modules/copy-trading/copy-reconciliation.service.ts` |
+| 7 | Secret-manager integration | **Done** (Vault KV v2, AWS Secrets Manager) | `apps/api/src/modules/exchanges/secret-store.ts` |
+| 8 | Flutter parity: exchange / copy / funding / portfolio / notifications | **Done** | `apps/mobile/lib/features/` |
+| 9 | CI, reproducible build, LICENSE / handover docs, README state | **Done** | `../.github/workflows/ci.yml`, `LICENSE`, `README.md`, this file |
+
+---
+
+## 2. Verification performed
+
+| Suite | Result |
+| --- | --- |
+| API jest (all 50 suites) | 1079 passed, 0 failed |
+| New/changed API specs, `tsc --noEmit` per spec | clean (copy-trading specs checked with a Prisma type stub because the full graph exceeds the build box's memory; CI runs the real type-checked jest) |
+| execution-engine pytest incl. live Postgres under a NOSUPERUSER role | 534 passed |
+| trading-core / market-data / trading-engine / sdk-python pytest | 1767 / 19 / 43 / 6 passed |
+| Flutter 3.47.5 `flutter analyze` | 0 errors, 0 warnings |
+| Flutter `flutter test` | 35 passed |
+| GitHub workflows (actionlint) | clean |
+| `packages/sdk-rust` `cargo test --locked` | 3 passed |
+| Terraform 1.8.5 `fmt -check` + `validate` (no backend) | valid |
+| `scripts/check-terraform-api-env.mjs` (Terraform API task env through the production env schema) | valid: 12 plain + 13 secret variables |
+| DR manifest, ops 50/60/50/50 checks, web 50 checks | all pass |
+| AWS SigV4 signer vs botocore reference vectors | identical signatures (with and without session token) |
+
+---
+
+## 3. Behaviour a buyer must know
+
+### Execution
+
+* Submission is **PAPER only**. The engine route returns 409 for any adapter
+  that is not simulated; `EXECUTION_ENABLED=false` remains the platform-wide
+  gate. Going live is a deliberate, reviewed change per
+  `docs/PART19_LIVE_ENABLEMENT.md`, not a flag flip.
+* Copy environment: a follower account with `isSandbox === false` resolves to
+  LIVE and is refused downstream; everything else is PAPER.
+* OMS `clientOrderId` format is `oms` + 32 hex chars (engine limit 36 chars,
+  BullMQ job ids cannot contain `:`); job id `oms-submit-<clientOrderId>`.
+* Worker treats engine 401/403/404/409/422/501 as terminal (no retry).
+
+### Leader events
+
+* Source: FILL rows on the strategy owner's exchange accounts (or
+  `strategyConfig.leaderAccountId`), event id `fill:<fillId>`, MARKET follow.
+  Copy fills, dry-run fills and unsupported symbols/venues are excluded.
+* Poll every `COPY_LEADER_INGESTION_INTERVAL_MS` (5 s); fills older than
+  `COPY_LEADER_EVENT_MAX_AGE_MS` (30 s) expire and are never replayed.
+* Idempotent on (tenant, leaderEventId, subscription).
+* Trader gate before any copy: the strategy's TraderProfile must exist in the
+  tenant and not be SUSPENDED/REJECTED, and no BLOCK compliance case may be
+  open on the trader's *user*; a failed lookup blocks too. The manual
+  `POST /copy-trading/executions/leader-event` endpoint takes the trader from
+  the strategy and rejects a mismatching `traderId`.
+* Reconciliation: MISSING_COPY is HIGH after a 60 s grace; SKIPPED and FAILED
+  copies are flagged.
+
+### Risk
+
+* Daily loss and intraday drawdown are UNKNOWN until the first day-start
+  equity snapshot exists; UNKNOWN is never reported as zero.
+* Stress model: market/gap/correlated shocks on signed net exposure;
+  spread/slippage on gross; liquidity = gross x impact x multiplier;
+  vol-expansion needs `initialMarginRatePercent`; outage reports venue gross
+  with PnL null.
+
+### Credentials
+
+* `ENVELOPE_DB` (default) or `SECRET_MANAGER` (Vault KV v2 path
+  `secret/data/wlct/{tenant}/{account}/{exchange}`, the same path the
+  execution engine reads; or AWS Secrets Manager with static/env credentials,
+  no IRSA). Path segments reject `.`/`..`. An UNKNOWN environment is accepted
+  only for non-LIVE accounts. Secret deletion on account removal is
+  best-effort.
+
+### Billing
+
+* Platform jobs iterate ACTIVE and SUSPENDED tenants (default 1000, max
+  10000); a failing tenant is reported, not fatal.
+* Platform analytics are single currency (USD, minor units).
+* TRADER payouts require a same-tenant TraderProfile and refuse non-UUID,
+  SUSPENDED or REJECTED beneficiaries.
+* No billing path reports a success it did not get
+  (`apps/api/src/modules/billing/billing-no-fake-success.spec.ts`):
+  * payment records: a missing Payment table or delegate throws
+    (`payments/payment.repository.ts`); no unpersisted "fallback" record.
+  * push: real FCM send through `firebase-admin` when `PUSH_ENABLED=true`,
+    a device token is present and a Firebase app can be initialised;
+    otherwise an explicit failure code. `firebase-admin` (^13.10, Node 18+)
+    is an `apps/api` optionalDependency, loaded lazily; credentials come from
+    `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` /
+    `FIREBASE_PRIVATE_KEY_BASE64` when all three are set, otherwise
+    application default credentials.
+  * SMS: `SMS_PROVIDER=twilio` selects the Twilio REST adapter
+    (`notifications/twilio-sms.provider.ts`), returned only when account SID,
+    auth token or API key, and Messaging Service or E.164 From number are all
+    set. The recipient must be E.164 (`recipient.phone` / `userPhone`);
+    "accepted" means Twilio queued it (message sid), 429/5xx are retryable,
+    other 4xx permanent. Anything else fails closed. The outbound webhook
+    channel reports unavailable here (webhook jobs are routed by the delivery
+    service itself).
+  * in-app notifications are persisted and published over the realtime
+    gateway (`notification.created`); a realtime failure does not lose the row.
+  * payouts: `STRIPE` = Stripe Connect Transfers
+    (`fees/stripe-connect-payout.provider.ts`) to the beneficiary's connected
+    account (`stripe_account` destination, `acct_...`), with the payout
+    idempotency key as Stripe's `Idempotency-Key` and exact decimal-to-minor
+    unit conversion (zero- and three-decimal currencies included). Without an
+    `sk_`/`rk_` key it fails closed. A transfer is SUCCEEDED once Stripe
+    returns it (REVERSED if reversed); the connected account's own payout to
+    its bank is Stripe's schedule. `INTERNAL` remains a ledger-only provider
+    that marks the payout settled by the operator. Bank and crypto payouts
+    have no adapter and fail closed.
+  * usage export status is not tracked: the endpoint helper returns 404
+    rather than a fabricated COMPLETED.
+  * churn: gross revenue retention = 100 - revenue churn %; net revenue
+    retention is `null` because expansion MRR is not measured.
+  * plan delete is scoped to the caller's tenant.
+* Tax rates: built-in defaults overlaid by `TAX_RATES_JSON` (`"CC"` or
+  `"CC-REGION"` keys, basis points; invalid JSON fails the boot), and
+  `TAX_UNKNOWN_COUNTRY=reject` makes a country without a rate fail the invoice
+  instead of charging 0% (`finance/tax-rates.config.ts`).
+* Invoices use the tenant's tax profile (`countryCode`, and `metadata`
+  billingRegion / vatNumber / taxId / isBusinessCustomer / isTaxExempt).
+  Previously the country was read from a query that never selected it, so
+  every invoice was taxed as `US` (0%) and exemptions / reverse charge never
+  applied (`finance/tax-reverse-charge.spec.ts`).
+* EU B2B reverse charge needs evidence for the VAT number
+  (`finance/vies-vat.client.ts`): `TAX_VAT_VALIDATION=format` (default,
+  per-member-state format), `vies` (confirmed by the EU VIES REST service;
+  if VIES cannot answer, VAT is charged) or `none`. `TAX_SUPPLIER_COUNTRY`
+  keeps same-country customers on domestic VAT; `TAX_VIES_REQUESTER_VAT`
+  makes VIES return a consultation number, stored in the invoice metadata
+  (`vatCheck`) with the result. Rates and rules are still the operator's
+  responsibility: have `TAX_RATES_JSON` reviewed by an accountant.
+* Plans, entitlements and limits (root `tests/billing`, `npm run
+  test:billing-lib`, 181 tests, in CI): plan update and limit get/update/delete
+  are tenant-scoped; the entitlement resolver refuses another tenant's data;
+  unlimited entitlements are checked before reset windows; downgrade checks
+  count only limits in use; RATE/BURST limits are enforced (they never were);
+  zero thresholds are honoured (`??` instead of `||`). The `billing/catalog`
+  plan templates differ from `FEATURE_DEFINITIONS` (e.g. basic has
+  `real_time_data`, lacks `market_data` / `two_factor_auth`); the catalog is
+  not used by application code, the differences are pinned in
+  `plan_catalog.spec.ts` for a product decision.
+
+### Tenancy
+
+* Tenant scope comes only from the verified JWT (`tid`); platform-wide access
+  only from the server-side `isPlatformUser` flag
+  (`apps/api/src/common/guards/request-principal.ts`). No controller reads an
+  `x-tenant-id` header any more; a token without a tenant gets 403.
+
+### Custody
+
+* Only the `internal-ledger` evidence provider ships. It reads recorded
+  transactions, reports `isHealthy=false` and cannot issue addresses, so
+  deposit-address generation and sweeps **fail closed** until a real
+  custodian/chain adapter is added in
+  `apps/api/src/modules/custody/blockchain-provider.factory.ts`.
+* The custody controller takes tenant and scope only from the authenticated
+  user (cross-tenant access is 403; header-supplied scope is ignored).
+
+### Recovery
+
+* Recovery checks are real read-only checks (Redis ping, `SELECT 1`, unsynced
+  orders, filled-without-fills, open discrepancies, kill switches, compliance
+  blocks, credentials) and fail when unclean. Queue retry, execution reconnect
+  and compliance review raise `RECOVERY_MANUAL_ACTION_REQUIRED`.
+
+### Mobile
+
+* Not on mobile by design: enabling LIVE trading, key rotation/revocation, IP
+  allow-lists, withdrawals.
+* Exchange secrets are sent once, never stored or logged; subscribe requires
+  a risk acknowledgement and uses a per-form idempotency key; portfolio shows
+  API facts only with partial-panel degradation.
+* `intl` was raised to `^0.20.2` and `http` declared explicitly so the
+  client resolves on current Flutter stable; the previously uncompilable
+  `lib/features/billing/` module (not routed) now compiles against the real
+  `ApiClient` and the versioned base path.
+
+---
+
+## 4. Known limits and open items
+
+1. **Live trading is not wired.** Adapters exist, but the engine's submit path
+   is paper-only by design until a venue passes live review.
+2. **No external custody adapter.** Deposits and sweeps fail closed.
+3. **Terraform** now matches the API env schema (checked in CI by
+   `scripts/check-terraform-api-env.mjs` and `terraform validate`), but it has
+   never been applied: the operator must populate the Secrets Manager JSON
+   keys (`encryption`: masterKeyBase64 / keyId / blindIndexKeyBase64;
+   `service`: internalServiceToken / exchangeWebhookSigningSecret /
+   metricsToken) and review sizing before the first `plan`.
+4. **Billing providers still not included:** bank and crypto payouts and an
+   external tax engine (Avalara, Stripe Tax, …). Payouts fail closed; tax
+   uses the configurable internal rules (section 3, Billing).
+5. The whole-program API `tsc` cannot finish on the 2 GB build box (killed at
+   1.7 GB heap after 26 min); CI's `npm run typecheck` is the authority. Every
+   changed file was type-checked on its own.
+6. The existing TypeScript sources are not Prettier-formatted to
+   `apps/api/.prettierrc`, and lint is not a CI gate; new files are formatted.
+   Reformatting everything is one mechanical commit the owner should schedule
+   (it touches most files and would bury real changes in review).
+
+Resolved in this phase (previously listed here): `x-tenant-id` header
+fallbacks removed; Terraform env names aligned (plus REDIS_HOST, dataset
+roots, Swagger off, and an invalid `deployment_configuration` block that made
+`terraform validate` fail); billing placeholders that faked success fixed;
+`packages/sdk-rust` tested in CI; operations dependency-health checks the
+variables the API really requires. Later: root `tests/` rewritten against the
+current billing library (181 tests, in CI, 7 source bugs fixed); `isAdmin` in
+copy-trading/research now matches the real `SUPER_ADMIN`/`TENANT_ADMIN` keys
+(admins were locked out of trader verification, reconciliation and promotion
+approval); leader-event compliance now checks the trader's *user* (it queried
+the profile id, so a compliance-blocked trader was still copied), blocks
+unknown / SUSPENDED / REJECTED traders, and the endpoint takes the trader from
+the strategy (a caller-supplied `traderId` could name a clean trader);
+Stripe Connect payouts, Twilio SMS, `firebase-admin`, `TAX_RATES_JSON`,
+invoice tax profile (every invoice was 0%), VIES / VAT-format evidence for
+reverse charge; Redis
+AUTH token in Terraform (`REDIS_PASSWORD` from the `redis-auth` secret), so
+the `ops/production` policy and the deployed topology agree.
+
+---
+
+## 5. Buyer / operator checklist before production
+
+- [ ] Run CI green on the target commit (node, database, python, mobile, rust, terraform jobs).
+- [ ] Generate per-environment keys: `node scripts/generate-keys.mjs --write <file>`.
+- [ ] Choose a credential store; for Vault/AWS set the variables documented in `.env.example`.
+- [ ] Populate the Terraform-managed secrets (section 4, item 3). The `redis` secret's `url` must carry the generated AUTH token from `<prefix>/redis-auth` (`rediss://:<password>@<endpoint>:6379`).
+- [ ] Billing providers: `PAYOUT_PROVIDER=stripe` + `STRIPE_SECRET_KEY` (connected accounts onboarded), `SMS_PROVIDER=twilio` + `TWILIO_*`, Firebase service account for push, `TAX_RATES_JSON` reviewed by an accountant.
+- [ ] Decide custody: keep fail-closed, or implement a real adapter.
+- [ ] Exercise the copy chain end to end against exchange testnets (PAPER).
+- [ ] Complete the live-enablement review per venue before any LIVE key.
+- [ ] Legal: licences for copy trading / custody in the operating jurisdiction; replace the copyright line in `LICENSE` on assignment.
+```
+
 FILE: docs/ROADMAP.md
 
 ```markdown
@@ -368036,8 +368412,11 @@ Four independent gates prevent Part 1 from placing an order:
 * Multi-stage builds; runtime images contain no compiler, no source, no `.env`.
 * Every container runs as a non-root user.
 * Postgres and Redis publish to `127.0.0.1` only.
-* Redis requires a password and uses `volatile-lru`, so queue jobs and sessions
-  are never silently evicted.
+* Redis requires a password and uses `noeviction` (compose, staging and the
+  production ElastiCache parameter group): nothing is silently evicted, and at
+  the memory limit writes fail loudly. `volatile-lru`, used before round 8,
+  could evict keys with a TTL, which include BullMQ's job locks, so a running
+  job could be processed twice; BullMQ itself warns about it.
 
 ## 13. Incident response starting points
 
@@ -368244,7 +368623,624 @@ the boundary is stated as rules instead:
   schedule installer writes nothing but a marked block in a user crontab and preserves every
   unmanaged entry byte for byte, so a DR check cannot become the cause of the outage it exists to
   detect.
+
+## 17. Enterprise single sign-on (Part 11)
+
+Tenant SSO (OIDC authorization-code flow with PKCE, and SAML 2.0) is documented in
+[`SSO.md`](SSO.md). The essentials:
+
+* **One session system.** An SSO login ends in the same `establishSession` call as a password login:
+  the same revocable session, hashed refresh token, risk evaluation and 2FA challenge. Cookies are set
+  only by the web BFF; no token ever appears in a URL.
+* **Real verification only.** ID tokens are verified with `jose` against the IdP's JWKS, and SAML
+  responses with `@node-saml/node-saml` against the configured certificates. The hand-rolled JWS
+  verifier (`jws-verify.ts`) was removed. State, nonce and PKCE are generated by the server, stored
+  hashed or encrypted, and used once.
+* **SAML is off by default** (`SSO_SAML_ENABLED`) and fails closed on incomplete configuration.
+* **Identity is the verified subject**, never the email alone; cross-tenant, ambiguous, suspended and
+  deleted matches are refused, all with the same generic error.
+* **Evidence.** Every outcome lands in `sso_audit_events` (RLS-covered); no secrets are recorded.
+  Mutation tests (removing the nonce, state, issuer, audience, tenant and replay checks; accepting
+  unsigned SAML; string-matching SAML) each make the test suite fail.
+* **Enforcement and administration (round 7).** An `ENFORCED` configuration refuses password login
+  with `403 SSO_REQUIRED` (platform staff exempt as the break-glass path; a failed policy lookup fails
+  the login). Tenant administrators configure their own tenant's SSO (`sso:manage` +
+  `security:policy:write`), behind a lock-out guard that refuses to enforce SSO for a caller who has
+  not signed in through that configuration. SAML assertions may be required to be encrypted (opt-in,
+  per configuration); OIDC sessions get RP-initiated logout.
+* **SAML Single Logout (round 8).** HTTP-Redirect binding, SP- and IdP-initiated, only for a
+  configuration with the IdP SLO URL, our SLO URL and an SP signing pair (key write-only and sealed
+  with the tenant as AAD; RSA >= 2048; the certificate must belong to the key). The local session is
+  revoked before the IdP is involved. Every logout message must carry a valid RSA-SHA256/512
+  redirect signature by a configured IdP certificate; the API checks it itself, with exact query
+  tokens, before node-saml (which alone would accept unsigned messages, SHA-1 and a missing
+  `InResponseTo`). A LogoutResponse must match a `LOGOUT_PENDING` transaction of the same tenant and
+  its persisted request ID, and is consumed once; an IdP-initiated LogoutRequest must be fresh and
+  is recorded against replay, and revokes only the named subject's sessions from that configuration
+  (only the named SessionIndexes, when given). A forged message revokes nothing. NameID and
+  SessionIndex are stored sealed, with keyed hashes for lookup, never in clear. Mutation tests
+  (removing the Destination, `InResponseTo`, signature, replay, freshness, SessionIndex, subject,
+  configuration and tenant checks) each make the suite fail.
+* **SSO with 2FA keeps its origin (round 8).** The origin comes from the consumed transaction of the
+  same tenant and user and is resolved before the 2FA challenge is issued or spent; an unresolvable
+  origin is refused without consuming the code. Before round 8 such sessions were recorded as
+  `PASSWORD`.
+* **The web login button no longer hardcodes OIDC (round 8).** Without a `providerType` the API picks
+  the tenant's enabled provider (an `ENFORCED` one wins, otherwise OIDC, otherwise SAML), so
+  SAML-only tenants can start SSO from the web.
+* **Not supported:** IdP-initiated SAML **login** (refused by design) and the SOAP / HTTP-POST
+  logout bindings; interoperability against a real IdP is the operator's to test (see `SSO.md`
+  section 9).
 ```
+
+FILE: docs/SSO.md
+
+````markdown
+# Enterprise single sign-on (OIDC and SAML)
+
+This document describes how tenant single sign-on works, what an operator has to
+configure, and how to switch it off in an emergency. It covers the API
+(`apps/api/src/modules/auth/sso`, `apps/api/src/modules/security`) and the web
+backend-for-frontend (`apps/web/src/app/api/auth/sso`).
+
+SSO extends the existing login system; it is not a second one. A successful SSO
+login ends in the same `AuthService.establishSession` call a password login
+uses. That call creates the same revocable `Session` row and the same hashed
+refresh token, runs the same risk evaluation, and enforces the same two-factor
+challenge.
+
+## 1. Summary of guarantees
+
+| Area | Guarantee |
+|---|---|
+| Flow | OIDC authorization-code flow only (no implicit or hybrid flow); SAML 2.0 Web Browser SSO, SP-initiated only; SAML Single Logout over the HTTP-Redirect binding, SP- and IdP-initiated (round 8) |
+| State | 256-bit `state` generated by the server, stored only as a SHA-256 hash, one-time use, expires after 600 s |
+| Nonce | Generated by the server, stored only as a hash, compared in constant time with the ID token's `nonce` |
+| PKCE | `S256`; verifier generated by the server and stored envelope-encrypted; mandatory for public clients and on by default for all |
+| Code redemption | Server-side, at the token endpoint taken from the issuer's discovery document; uses the configured `redirect_uri`, never one from the request |
+| ID token | Verified with `jose` (`jwtVerify` against the IdP's JWKS, key selected by `kid`); asymmetric algorithms only; checks `iss`, `aud`, `azp`, `nonce`, `exp`, `iat` (max age 900 s), `nbf`, `auth_time` (when `maxAuthAgeSec` is set), with clock skew of at most 300 s |
+| SAML | Verified with `@node-saml/node-saml` (XML-DSig through `xml-crypto`); the assertion must be signed, and optionally the whole Response too; checks issuer, audience, Destination, Recipient, InResponseTo, NotBefore/NotOnOrAfter, NameID; rejects DTD/entities (no XXE), multiple assertions, wrapping, and certificates supplied in the request; assertion IDs are stored for replay protection |
+| SAML default | Off. Accepted only when `SSO_SAML_ENABLED=true` **and** the tenant's SAML configuration is complete |
+| Identity | Mapped by (tenant, provider, issuer, subject), never by email alone. Ambiguous, duplicate, suspended, deleted, cross-tenant and platform-staff matches are refused |
+| Session | Existing session system: revocable, hashed refresh token; HttpOnly + Secure + SameSite cookies set by the web BFF; tokens never appear in a URL |
+| Login CSRF | The transaction is bound to the starting browser by a binding token (HttpOnly cookie, stored server-side as a hash) and the device id |
+| Errors | Every refusal returns the same generic `401 SSO login failed`, except too many pending logins (`429`), so responses do not reveal whether a tenant or user exists |
+| Audit | Durable rows in `sso_audit_events` for every outcome: tenant, provider, correlation id, event, reason code, outcome, timestamp, IP hash. No codes, tokens, assertions, nonces, verifiers or secrets are recorded |
+| Metrics | `wlct_sso_logins_total{result}` and `wlct_sso_failures_total{stage}`; label values come from fixed allow-lists |
+
+## 2. OIDC authorization-code flow with PKCE
+
+```
+Browser            Web BFF (Next.js)                 API                          IdP
+   | POST /api/auth/sso/start {providerType:'OIDC'}  |                              |
+   |------------------>| POST /v1/auth/sso/start      |                              |
+   |                   |  {providerType, deviceId}    |                              |
+   |                   |----------------------------->| create SsoAuthTransaction:   |
+   |                   |                              |  state, nonce, PKCE verifier,|
+   |                   |                              |  binding token (hashed/enc.) |
+   |                   |<-----------------------------| {authorizationUrl,           |
+   |                   |                              |  bindingToken, expiresIn}    |
+   |<------------------| Set-Cookie wlct_sso_bind,    |                              |
+   |  {authorizationUrl}  wlct_sso_did (HttpOnly,     |                              |
+   |                      SameSite=Lax, path=/api/auth/sso, 600 s)                 |
+   |------------------------------------------------------------------------------>|
+   |                                authenticate at the IdP                         |
+   |<------------------------------------------------------------------------------|
+   | GET /api/auth/sso/callback?state&code            |                              |
+   |------------------>| delete binding cookies       |                              |
+   |                   | POST /v1/auth/sso/callback   |                              |
+   |                   |  {state, code, bindingToken, |                              |
+   |                   |   deviceId, platform:'web'}  |                              |
+   |                   |----------------------------->| look up transaction by       |
+   |                   |                              |  sha256(state); check tenant,|
+   |                   |                              |  provider, expiry, binding,  |
+   |                   |                              |  device; atomically claim it |
+   |                   |                              |----------------------------->|
+   |                   |                              | POST token_endpoint          |
+   |                   |                              |  code + code_verifier +      |
+   |                   |                              |  configured redirect_uri     |
+   |                   |                              |<-----------------------------|
+   |                   |                              | verify ID token (jose, JWKS) |
+   |                   |                              | map subject -> user          |
+   |                   |                              | establishSession()           |
+   |                   |<-----------------------------| tokens | 2FA challenge       |
+   |<------------------| 303 + session cookies        |                              |
+```
+
+Details:
+
+1. **Start** (`POST /v1/auth/sso/start`, public, rate-limited). The tenant comes
+   from the request host, the same way it does for password login; a tenant id
+   in the request body is not accepted. The API checks that the provider is
+   active and its configuration complete. It then fetches the discovery
+   document (`<issuer>/.well-known/openid-configuration`, or `discoveryUrl`)
+   and requires its `issuer` to equal the configured issuer exactly. Finally it
+   stores a transaction holding `sha256(state)`, `sha256(nonce)`, the
+   envelope-encrypted PKCE verifier, `sha256(bindingToken)`, the device id, the
+   IP hash, the redirect URI and an expiry 600 s ahead.
+2. **Authorization request.** It carries `response_type=code`,
+   `code_challenge_method=S256`, the state, the nonce, the configured
+   `redirect_uri`, `scope` (always including `openid`), and `max_age` when
+   `maxAuthAgeSec` is set.
+3. **Callback** (`POST /v1/auth/sso/callback`, public, rate-limited). The state
+   is looked up by its hash. The transaction must belong to the same tenant and
+   provider, be unexpired and unconsumed, and match both the binding token and
+   the device id. A state from another tenant is refused without consuming that
+   tenant's transaction. The transaction is then claimed with one conditional
+   `UPDATE ... WHERE status='PENDING' AND consumed_at IS NULL AND expires_at > now()`,
+   so of several concurrent callbacks exactly one proceeds. The IdP code is
+   used once, at that point.
+4. **Code redemption.** The code is redeemed at the token endpoint from
+   discovery (HTTPS required), using `client_secret_basic`,
+   `client_secret_post` or `none` (public client, PKCE then mandatory). The
+   `redirect_uri` sent is the one stored on the transaction. If the
+   configuration's redirect URI changed during the login, the callback is
+   refused before any redemption.
+5. **ID token validation** with `jose` (`jwtVerify` over `createLocalJWKSet`).
+   Keys come from the JWKS URL in discovery (or the configured `jwksUrl`),
+   selected by `kid`, and are cached for 10 minutes per URL. Key rotation: when
+   a token carries an unknown `kid`, the JWKS is refetched once and the token
+   verified again. Forced refetches are limited to one per 30 s per URL, so a
+   forged `kid` cannot be used to hammer the IdP. Symmetric (`HS*`) and `none`
+   algorithms are always refused. Then `iss` must equal the configured issuer
+   and `aud` must contain the client id. When there are several audiences,
+   `azp` must be present and equal the client id. The nonce hash must match,
+   `iat` may be at most 900 s old, and `exp` and `nbf` are checked with the
+   configured clock skew (default 60 s, capped at 300 s). `auth_time` is
+   required and checked when `maxAuthAgeSec` is set.
+6. **Identity mapping** (`SsoIdentityService`). The rules are applied in order:
+   - an existing `sso_identities` link for (tenant, provider, issuer, subject)
+     resolves the user directly;
+   - otherwise an existing account is linked only when all of these hold:
+     - the IdP vouches for the email (`email_verified=true`);
+     - the email's domain is in the configuration's non-empty `allowedDomains`;
+     - the account is not platform staff;
+     - the account is not already linked to another subject;
+   - otherwise an account is created only when JIT provisioning is enabled, and
+     only with the role FOLLOWER or TRADER.
+
+   Suspended, locked or deleted users and users of another tenant are refused.
+7. **Session.** `AuthService.completeSsoLogin` calls the existing
+   `establishSession`. If the user has two-factor authentication enabled, the
+   result is the normal 2FA challenge, not a session.
+
+## 3. SAML flow
+
+SAML is **disabled by default**. It runs only when **both** of these hold:
+
+- the environment variable `SSO_SAML_ENABLED` is exactly `true`;
+- the tenant has an active SAML configuration with an issuer, an IdP SSO URL,
+  at least one usable signing certificate, an SP entity id / audience, an ACS
+  URL and a redirect URI.
+
+Anything missing fails closed (`SAML_DISABLED` / `CONFIG_INVALID`).
+
+Flow:
+
+1. `POST /v1/auth/sso/start {providerType:'SAML'}` creates the transaction (as
+   above, plus an AuthnRequest ID). It returns the IdP URL carrying a deflated
+   AuthnRequest and `RelayState` = state. `providerType` is optional (round 8):
+   without it the API picks the tenant's enabled provider: an `ENFORCED`
+   configuration wins, otherwise OIDC, otherwise SAML; with none,
+   `PROVIDER_NOT_CONFIGURED`. The web login page sends no `providerType`, so a
+   SAML-only tenant can start SSO from it (before round 8 the button always
+   asked for OIDC and SAML-only tenants could not sign in from the web).
+2. The IdP posts `SAMLResponse` and `RelayState` to `POST /v1/auth/sso/saml/acs`
+   (public, rate-limited). The API runs these checks in order:
+   1. Rejects any document containing a DTD or entity declaration, before parsing.
+      When the configuration opts in to **encrypted assertions**
+      (`wantAssertionsEncrypted`, see below), it also refuses any response that
+      carries a plaintext `<saml:Assertion>` or not exactly one
+      `<saml:EncryptedAssertion>` (`SAML_ASSERTION_NOT_ENCRYPTED`), and unseals
+      the tenant's SP decryption key for node-saml.
+   2. Verifies the XML signature with node-saml against the **configured**
+      certificates only. A certificate embedded in the response is never
+      trusted, and expired configured certificates are skipped.
+   3. Requires the assertion to be signed. A signature only on the Response is
+      not enough; with `wantResponseSigned` the Response must be signed as well.
+   4. Requires exactly one assertion, so wrapping attacks fail.
+   5. Requires `InResponseTo` to equal this transaction's request ID, so
+      IdP-initiated and cross-login responses are refused.
+   6. Checks issuer, audience, Destination, Recipient, NotBefore/NotOnOrAfter
+      and SubjectConfirmationData NotOnOrAfter (with clock skew), and requires a
+      NameID.
+   7. Records the assertion ID in `sso_assertion_replays`, which has a unique
+      key, so a replayed assertion is refused.
+
+   With encryption, steps 2-7 run on the **decrypted** assertion: the
+   signature must be inside the encrypted assertion (encryption never replaces
+   the signature; an unsigned encrypted assertion is refused with
+   `SAML_SIGNATURE_INVALID`), and an assertion that cannot be decrypted with the
+   configured key is refused (`SAML_MALFORMED`). A configuration that opts in
+   without a stored key, or whose key cannot be unsealed, fails closed with
+   `CONFIG_INVALID`. Without the opt-in no decryption key is loaded, so an
+   encrypted assertion is refused (`SAML_MALFORMED`).
+3. The API marks the transaction verified and redirects the browser to the
+   configured redirect URI with the state and a **one-time hand-off code**,
+   valid for 120 s. The hand-off code is not a session token.
+4. The web BFF callback redeems it at `POST /v1/auth/sso/callback` together with
+   the binding cookie. Only the browser that started the login receives the
+   session.
+
+### SAML Single Logout (round 8)
+
+Single Logout uses the **HTTP-Redirect binding** in both directions. It is
+available only for a SAML configuration that has all of: the IdP's
+SingleLogoutService URL (`sloUrl`), our own SingleLogoutService URL
+(`logoutCallbackUrl`, i.e. `https://<api-host>/v1/auth/sso/saml/slo`) and an SP
+signing key pair (`spSigningPrivateKey`, `spSigningCertificate`). Otherwise
+logout stays local (`SAML_SLO_NOT_CONFIGURED`).
+
+What the assertion carries for logout (NameID, NameID format, qualifiers and
+SessionIndex) is sealed at the ACS with AAD bound to tenant + configuration,
+carried through the transaction (and the 2FA step) and stored on the session,
+with keyed hashes (HMAC) of configuration + NameID and configuration +
+SessionIndex for lookup. The NameID is never stored in clear. Sessions created
+before round 8 hold no such context and are logged out locally only
+(`SAML_SLO_CONTEXT_MISSING`).
+
+**SP-initiated** (`POST /api/auth/logout` on the web):
+
+1. `POST /v1/auth/sso/logout-url` (authenticated, while the access token is
+   still valid) checks that the configuration that issued the session is still
+   active and SLO-capable, unseals the context and creates a `LOGOUT_PENDING`
+   transaction (RelayState stored as a hash, the LogoutRequest ID persisted,
+   600 s). It returns the IdP SLO URL with a LogoutRequest signed with the SP
+   key (RSA-SHA256).
+2. The BFF revokes the local session **first**, then sends the browser to that
+   URL. Whatever happens at the IdP, the session is already gone.
+3. The IdP answers with a LogoutResponse at `GET /v1/auth/sso/saml/slo`. It is
+   accepted only when: the RelayState names a `LOGOUT_PENDING`, unexpired
+   transaction **of this tenant** (another tenant's host gets `400` and the
+   transaction is left untouched); our own exact-token redirect-signature check
+   passes against the configured IdP certificate (RSA-SHA256 / RSA-SHA512
+   only); node-saml then verifies it; issuer, Destination
+   (= `logoutCallbackUrl`), `InResponseTo` (= the persisted request ID, never
+   missing) and status `Success` all match. The transaction is consumed exactly
+   once and the browser goes to `/login`. Any refusal closes the transaction
+   (`REJECTED`) and sends the browser to `/login?sso=logout_unconfirmed`.
+
+**IdP-initiated** (`GET /v1/auth/sso/saml/slo?SAMLRequest=...`): the request
+must pass the same signature checks, issuer, Destination, freshness (the API
+requires `IssueInstant` within the transaction lifetime plus clock skew and not
+in the future; node-saml checks `NotBefore` / `NotOnOrAfter` when present) and
+replay protection (its ID is recorded once per tenant and issuer
+in `sso_assertion_replays`). Then the subject's SAML sessions **from this
+configuration** are revoked (only those with the named SessionIndexes, when the
+request names any), together with their refresh tokens, in one database
+transaction, with reason `saml_idp_logout`. Password sessions and sessions from
+another configuration are never touched. The browser is sent back to the IdP
+with our signed `Success` LogoutResponse. A request that does not verify
+revokes nothing and gets `400` with no LogoutResponse.
+
+Where node-saml 5.1.0 alone is weaker, the API refuses explicitly: node-saml
+accepts an unsigned redirect message, a LogoutResponse without
+`InResponseTo` and SHA-1 signatures, checks a LogoutResponse's status, issuer
+and `InResponseTo` before its signature, and finds the redirect tokens by
+substring; the API requires the signature, verifies it first, matches the
+query tokens exactly, requires `InResponseTo` and allows only SHA-256/512.
+
+Every outcome is audited: `SSO_SAML_LOGOUT_REQUESTED`,
+`SSO_SAML_LOGOUT_COMPLETED`, `SSO_SAML_IDP_LOGOUT_COMPLETED` and
+`SSO_SAML_LOGOUT_REJECTED` (with its reason code).
+
+### SAML prerequisites for the operator
+
+Exchange the following with the customer's IdP:
+
+- **From us to the IdP:** the SP entity id (`entityId`/`audience`), the ACS URL
+  (`https://<api-host>/v1/auth/sso/saml/acs`), NameID format, and the request
+  that **assertions be signed** (RSA-SHA256 or stronger).
+- **From the IdP to us:** the IdP entity id (`issuer`), the SSO URL (HTTP-Redirect
+  binding), and the signing certificate(s) in PEM format. During a certificate
+  rollover, configure both the old and the new certificate; either verifies.
+- The IdP must send `InResponseTo`. IdP-initiated SSO is deliberately not
+  supported: an unsolicited response has no RelayState of a started login
+  (`STATE_MISSING` / `STATE_UNKNOWN`) and no matching `InResponseTo`, and is
+  refused before any session exists. This is a security decision (unsolicited
+  responses cannot be bound to the browser that started a login, which is what
+  stops login CSRF and response injection), not a missing feature.
+- **Encrypted assertions (optional).** Generate an RSA key pair of at least
+  2048 bits and a certificate for it, store the private key as
+  `spDecryptionPrivateKey` and the certificate as `spEncryptionCertificate`,
+  set `wantAssertionsEncrypted: true`, and give the certificate to the IdP as the
+  SP encryption certificate. The key is envelope-encrypted with the tenant bound
+  as AAD and is never returned (only `hasSpDecryptionKey`). The API refuses the
+  opt-in unless the key is RSA >= 2048 bits, the certificate is currently valid
+  and the certificate belongs to the key; when only the certificate is replaced,
+  it is checked against the stored key.
+- **Single Logout (optional).** Generate an RSA signing key pair of at least
+  2048 bits and a certificate for it; store them as `spSigningPrivateKey`
+  (write-only, envelope-encrypted with the tenant bound as AAD, never returned;
+  only `hasSpSigningKey` is reported) and `spSigningCertificate`; set `sloUrl`
+  to the IdP's SingleLogoutService URL (HTTP-Redirect) and
+  `logoutCallbackUrl` to `https://<api-host>/v1/auth/sso/saml/slo`. Register
+  that URL and the signing certificate at the IdP, and ask the IdP to **sign**
+  its LogoutRequests and LogoutResponses with RSA-SHA256 or stronger. The API
+  refuses `sloUrl` unless `logoutCallbackUrl`, the key and a currently valid
+  certificate belonging to the key are all present (SAML configurations only).
+- An `email` attribute is needed only when existing accounts are to be linked
+  by verified email or JIT accounts created.
+
+## 4. Web BFF and cookies
+
+| Cookie | Set by | Attributes | Purpose |
+|---|---|---|---|
+| `wlct_sso_bind` | `POST /api/auth/sso/start` | HttpOnly, Secure in production, SameSite=Lax, Path=/api/auth/sso, Max-Age 600 | Binding token; proves the callback comes from the browser that started the login |
+| `wlct_sso_did` | same | same | Web device id of that login |
+| session cookies | callback, via `persistSession` | existing session cookie attributes | The same cookies a password login sets |
+| `wlct_2fa*` | callback when 2FA is required | existing 2FA cookie attributes | The 2FA challenge continues on `/login?sso=mfa` |
+
+The binding cookies use **SameSite=Lax** by necessity: the IdP redirect back to
+`/api/auth/sso/callback` is a cross-site top-level navigation, and
+`SameSite=Strict` cookies are not sent on it. The cookies are HttpOnly, scoped
+to `/api/auth/sso`, and deleted on the first callback, whatever its outcome.
+
+Other properties of the BFF:
+
+- It returns only `authorizationUrl` to the browser. The binding token never
+  reaches JavaScript.
+- It accepts an authorization URL only when it uses https; plain http is
+  allowed on loopback hosts outside production.
+- The callback answers with `303`, `Cache-Control: no-store` and
+  `Referrer-Policy: no-referrer`, so the code and state never leak through a
+  Referer header.
+- On any failure it redirects to `/login?sso=failed`, with no details.
+- `returnTo` must be a same-origin relative path; anything else becomes
+  `/dashboard`.
+
+**Register `https://<web-host>/api/auth/sso/callback` as the redirect URI at
+the IdP**, and put the same value in the tenant configuration's `redirectUri`.
+
+### Logout and the IdP session
+
+Every session records how its latest login was made (`user_sessions.auth_method`:
+`PASSWORD`, `SSO_OIDC` or `SSO_SAML`, plus `sso_configuration_id`). Sessions are
+reused per device, so a later password login on the same device resets the
+session to `PASSWORD`.
+
+`POST /api/auth/logout` (BFF) first calls the authenticated
+`POST /v1/auth/sso/logout-url` while the access token is still valid, then
+revokes the local session (always), clears the cookies and returns `redirectTo`:
+
+- **OIDC session:** the OP's `end_session_endpoint` with `client_id` and
+  `post_logout_redirect_uri=https://<web-host>/login` (OpenID Connect
+  RP-Initiated Logout 1.0). Only when the configuration that issued the session
+  is still the tenant's active one and the OP publishes an end-session endpoint.
+  The id_token is not kept after login, so no `id_token_hint` is sent; the OP may
+  ask the user to confirm. The BFF follows only an absolute `https:` URL.
+  **Register `https://<web-host>/login` as a post-logout redirect URI at the OP.**
+- **Password session:** `/login` (`NOT_SSO_SESSION`).
+- **SAML session:** the IdP's SingleLogoutService URL with a signed
+  LogoutRequest (Single Logout, section 3), when the configuration that issued
+  the session is still active and SLO-capable. Otherwise `/login` with the
+  reason (`SAML_SLO_NOT_CONFIGURED`, `SAML_SLO_CONTEXT_MISSING`,
+  `PROVIDER_NOT_CONFIGURED`).
+- A failed lookup never blocks the local logout.
+
+A session created by SSO for an account with 2FA is completed through the
+standard 2FA step and is recorded with its SSO origin (round 8; before, it was
+recorded as `PASSWORD` and its logout was local only). The 2FA challenge carries
+the transaction id; the origin is taken from the **consumed** transaction of the
+same tenant and user, and is resolved before the 2FA challenge is issued or
+spent, so a challenge whose origin cannot be resolved is refused
+(`TOKEN_INVALID`) without consuming the code.
+
+## 5. Operator configuration
+
+### Environment
+
+| Variable | Default | Effect |
+|---|---|---|
+| `SSO_SAML_ENABLED` | `false` | SAML is accepted only when this is exactly `true` |
+| `SSO_ALLOW_INSECURE_HTTP` | `false` | Development only: accept plain-http IdP / redirect URLs on loopback hosts. Ignored when `NODE_ENV=production` |
+| `ENCRYPTION_MASTER_KEY_BASE64` | (required) | Envelope encryption of OIDC client secrets, PKCE verifiers, SAML SP decryption and signing keys and the SAML logout context |
+| `BLIND_INDEX_KEY_BASE64` | (required) | Blind index used to look up an account by verified email |
+
+All IdP settings are stored **per tenant** in `sso_configurations`. The former
+global variables `OIDC_CLOCK_TOLERANCE_SEC`, `SAML_CLOCK_TOLERANCE_SEC`,
+`SAML_ACS_URL`, `SAML_AUDIENCE` and `EMAIL_INDEX_KEY` are no longer read.
+
+### Tenant configuration API
+
+The configuration routes require **both** `sso:manage` and
+`security:policy:write`, which in the shipped role matrix the tenant
+administrator holds (round 7; previously `platform:manage` was also required).
+Tenant administrators configure their own tenant's SSO; the tenant is always
+the caller's. `GET /v1/security/sso/providers` requires `sso:read`.
+
+**Lock-out guard.** When a change results in an ENFORCED, active configuration
+and the caller is not platform staff, the caller must already hold an SSO
+identity linked to that configuration under the issuer it will have after the
+change. Enforcement therefore cannot be switched on in the same step that
+creates a configuration: save it, sign in with SSO once, then enforce. Turning
+enforcement off is never blocked.
+
+| Route | Purpose |
+|---|---|
+| `POST /v1/security/sso/oidc/config` | Create or replace the OIDC configuration: `issuer`, `clientId`, `clientSecret` (write-only; envelope-encrypted with the tenant bound as AAD, and never returned; only `hasClientSecret` is reported), `redirectUri`, `tokenEndpointAuthMethod`, `pkceRequired`, `clockSkewSec` (≤ 300), `maxAuthAgeSec`, `allowedAlgorithms`, `scopes`, `allowedDomains`, `jitEnabled`, `defaultRole`, `enforced` |
+| `POST /v1/security/sso/saml/config` | Create or replace the SAML configuration: `issuer`, `entityId`, `audience`, `ssoUrl`, `acsUrl`, `certificate` (PEM; several may be concatenated for a rollover), `redirectUri`, `wantResponseSigned`, `wantAssertionsEncrypted`, `spDecryptionPrivateKey` (write-only, PEM, RSA >= 2048; envelope-encrypted, never returned; only `hasSpDecryptionKey` is reported), `spEncryptionCertificate` (PEM, returned so it can be handed to the IdP), `sloUrl`, `logoutCallbackUrl`, `spSigningPrivateKey` (write-only, PEM, RSA >= 2048; never returned; only `hasSpSigningKey` is reported), `spSigningCertificate` (PEM, returned), `clockSkewSec`, `allowedDomains`, `jitEnabled`, `defaultRole`, `enforced` |
+| `PUT /v1/security/sso/:providerType/config` | Partial update |
+| `DELETE /v1/security/sso/:providerType/config` | Disable the provider (`state=DISABLED`, `is_active=false`) |
+| `GET /v1/security/sso/status` | Whether SSO is enabled or enforced |
+| `GET /v1/security/sso/providers` | The tenant's providers (`sso:read`) |
+| `POST /v1/auth/sso/logout-url` | (any authenticated user, self-service) The IdP logout URL of the caller's current session; see section 4 |
+| `GET /v1/auth/sso/saml/slo` | (public, rate-limited, tenant from the host) SAML SingleLogoutService, HTTP-Redirect binding: LogoutResponses to our LogoutRequests and IdP-initiated LogoutRequests; see section 3 |
+
+Every configuration change writes an audit row naming the changed fields; secret
+values are never recorded.
+
+### Limits and abuse protection
+
+| Control | Value |
+|---|---|
+| Rate limit on start, callback, ACS and SAML SLO | 20 requests per 5 minutes per client (the `auth` throttler) |
+| Pending transactions per tenant + client IP | 10 (an 11th start returns `429`) |
+| Transaction lifetime | 600 s |
+| SAML hand-off code lifetime | 120 s |
+| Maximum clock skew | 300 s (default 60 s) |
+| Maximum ID-token age (`iat`) | 900 s |
+
+## 6. Emergency disable
+
+| Situation | Action | Effect |
+|---|---|---|
+| Disable SAML on the whole deployment | Set `SSO_SAML_ENABLED` to anything other than `true` and restart the API | Every SAML start and ACS request is refused with `SAML_DISABLED` |
+| Disable one tenant's provider | `DELETE /v1/security/sso/:providerType/config` | New starts are refused, and **in-flight logins are refused at the callback** (`PROVIDER_DISABLED`) because the provider state is checked again there |
+| Disable all SSO for one tenant | Disable each of its providers as above | Password login is unaffected |
+| Revoke sessions created by SSO | The existing session revocation (`DELETE /v1/auth/sessions/:id`, `POST /v1/auth/sessions/revoke-others`, logout). Sessions created by SSO are ordinary sessions | Revoked access tokens are refused at once (`TOKEN_REVOKED`); refresh tokens are revoked |
+| Compromised IdP signing key or client secret | Replace `certificate` / `clientSecret` with `PUT`, or disable the provider first | Assertions signed with the old key stop verifying immediately |
+
+## 7. Audit and metrics
+
+`sso_audit_events` (tenant-scoped, covered by RLS) receives one row per outcome:
+
+- `SSO_AUTHORIZATION_STARTED`, `SSO_CALLBACK_RECEIVED`;
+- `SSO_STATE_REJECTED`, `SSO_NONCE_REJECTED`, `SSO_PKCE_FAILURE`,
+  `SSO_TOKEN_VALIDATION_FAILED`, `SSO_ISSUER_REJECTED`, `SSO_AUDIENCE_REJECTED`,
+  `SSO_SIGNATURE_REJECTED`;
+- `SSO_IDENTITY_MAPPING_FAILED`, `SSO_TENANT_MISMATCH`, `SSO_PROVIDER_UNAVAILABLE`;
+- `SSO_SAML_ASSERTION_VERIFIED`, `SSO_SAML_ASSERTION_REJECTED`, `SSO_REPLAY_REJECTED`;
+- `SSO_MFA_CHALLENGE_ISSUED`, `SSO_SESSION_CREATED`, `SSO_LOGIN_SUCCEEDED`,
+  `SSO_LOGIN_REJECTED`;
+- `SSO_SAML_LOGOUT_REQUESTED`, `SSO_SAML_LOGOUT_COMPLETED`,
+  `SSO_SAML_IDP_LOGOUT_COMPLETED`, `SSO_SAML_LOGOUT_REJECTED` (round 8).
+
+Each row carries the tenant, provider, transaction / correlation id, request id,
+reason code, outcome, IP hash and timestamp. These are fixed columns. Free-form
+metadata is filtered: any key matching token, code, nonce, assertion, saml,
+secret, verifier, state, password, session, cookie, binding, handoff or key is
+dropped, only scalar values are kept, and strings are cut to 200 characters.
+Tests assert that responses, audit rows and logs contain no code, token, state,
+nonce, verifier, secret or password hash.
+
+Metrics:
+
+- `wlct_sso_logins_total{result=started|succeeded|denied}`. A login that ends in
+  a 2FA challenge counts as `succeeded`, because SSO itself succeeded.
+- `wlct_sso_failures_total{stage=state|nonce|pkce|token_validation|saml_verification|replay|identity_mapping|session_issuance|provider_outage|config}`.
+
+A refused SAML logout message also counts in `wlct_sso_failures_total` under
+the stage of its reason (`saml_verification`, `replay`, `state`, `config`).
+
+Reason codes stay in the audit table, not in metric labels.
+
+## 8. Database
+
+Migration `20260923089000_sso_authorization_code_flow` adds:
+
+- the tables `sso_auth_transactions`, `sso_identities`, `sso_assertion_replays`
+  and `sso_audit_events`;
+- the new `sso_configurations` columns;
+- unique keys on the state hash, the SAML request id, the hand-off hash,
+  (tenant, provider, issuer, subject), (tenant, configuration, user) and
+  (tenant, issuer, assertion id);
+- the supporting indexes.
+
+The RLS policy migration (`20260923090000`) covers the new tables. Existing
+databases receive the policies through
+`prisma/upgrades/rls_policies_182_to_186.sql` (see `PART11_ROW_LEVEL_SECURITY.md`).
+
+Round 7 adds two column-only migrations (no table, policy or index changes):
+
+- `20261002000000_saml_encrypted_assertions`: `sso_configurations.want_assertions_encrypted`
+  (boolean, default `false`), `sp_decryption_key_ciphertext` (sealed JSON) and
+  `sp_encryption_certificate` (text);
+- `20261002010000_session_auth_method`: `user_sessions.auth_method`
+  (varchar(16), default `'PASSWORD'`, so existing rows are password sessions)
+  and `sso_configuration_id` (uuid).
+
+Round 8 adds `20261002020000_saml_single_logout` (the latest migration; no table
+or policy changes, so the RLS policies still cover every row):
+
+- `sso_configurations.slo_url`, `logout_callback_url` (varchar(2048)),
+  `sp_signing_key_ciphertext` (sealed JSON) and `sp_signing_certificate` (text);
+- `sso_auth_transactions.saml_logout_context` (sealed JSON);
+- `user_sessions.sso_logout_context` (sealed JSON), `sso_subject_hash` and
+  `sso_session_index_hash` (varchar(128)), plus the index
+  (`sso_configuration_id`, `sso_subject_hash`);
+- the `sso_auth_transactions_status_check` constraint is replaced so the closed
+  status set also admits `LOGOUT_PENDING` (the constraint of
+  `20260923089000` is dropped and recreated by the new migration; the historical
+  migration is unchanged). A spec checks that every status the transaction
+  service writes is allowed by the newest constraint.
+
+All columns are nullable: existing configurations keep working for login and
+report Single Logout as not configured.
+
+## 9. Known limits
+
+- **Enforcement (round 7).** An active configuration that is `enforced` and in
+  state `ENFORCED` refuses password login with `403 SSO_REQUIRED` (after the
+  password has verified, so the refusal reveals nothing to someone without the
+  password; a `USER_LOGIN_FAILED` audit row with result DENIED is written). Its
+  `allowedDomains`, when set, limit enforcement to accounts in those domains
+  (case-insensitive); an empty list enforces for every account of the tenant.
+  Platform staff are exempt (the break-glass path). If the policy lookup fails,
+  the login fails. The web login page shows the SSO_REQUIRED message; the
+  mobile app has no SSO sign-in and shows its generic forbidden message.
+- **SAML Single Logout is supported since round 8** (section 3), over the
+  HTTP-Redirect binding only; the SOAP and HTTP-POST bindings are not offered
+  (a configuration names one IdP SLO URL, used as a redirect target). It needs
+  the operator to configure `sloUrl`, `logoutCallbackUrl` and the SP signing
+  pair. Sessions created before round 8 hold no logout context and are logged
+  out locally only. IdP-initiated logout revokes our sessions but cannot reach
+  other service providers of the same IdP session; that propagation is the
+  IdP's job. Logout always revokes the local session first.
+- **Our redirect-signature check runs first.** The API checks the HTTP-Redirect
+  signature itself (exact query tokens, RSA-SHA256/512, configured certificates
+  only) before node-saml does, because node-saml 5.1.0 accepts unsigned
+  redirect messages, a missing `InResponseTo` and SHA-1, and checks status,
+  issuer and `InResponseTo` before the signature. The signature covers the
+  query string as received; a `RelayState` that an IdP encodes differently from
+  Node's `querystring` would not verify (base64 tokens and the algorithm URI
+  are unaffected).
+- **IdP-initiated SSO is refused by design** (section 3).
+- The IdP-side registration (client, redirect URI, post-logout redirect URI,
+  certificates, SP encryption and signing certificates, SLO URL) and real IdP
+  interoperability testing
+  are the deploying operator's responsibility. The tests use freshly generated
+  local keys (section 10) and a local test IdP.
+
+## 10. Tests and the generated SAML test keys
+
+The SAML specs verify real XML-DSig signatures, so they need RSA key pairs and
+certificates. **No private key is committed to the repository or included in a
+release archive, not even a test one.** Instead:
+
+- `scripts/generate-test-sso-keys.mjs` creates a fresh, TEST-ONLY set:
+  - `idp.key.pem` / `idp.cert.pem`: the configured IdP pair;
+  - `attacker.key.pem` / `attacker.cert.pem`: an unknown signer;
+  - `expired.key.pem` / `expired.cert.pem`: valid only during 2020;
+  - `spenc.key.pem` / `spenc.cert.pem`: the SP encryption pair (round 7), to
+    which the test IdP encrypts assertions.
+
+  They are written to `apps/api/.generated/sso-test-keys/`, which is listed in
+  `.gitignore`. The script builds the set in a temp directory, checks that each
+  key matches its certificate and that the dates are right, and only then swaps
+  it into place. It never prints key material, and it replaces only a directory
+  carrying its own marker file.
+- The API jest configuration runs `apps/api/test/sso-test-keys.global-setup.js`
+  as `globalSetup`, which calls the script before every test run. A plain
+  `npm test --workspace @wlct/api` needs no manual step, and every run verifies
+  against new keys.
+- Specs read the set through
+  `src/modules/security/__fixtures__/saml-test-keys.fixture-spec.ts`:
+  `saml-provider.service.spec.ts`, `saml-encrypted-assertion.spec.ts`,
+  `saml-slo-configuration.spec.ts`, `saml-single-logout.spec.ts`,
+  `sso-login.service.spec.ts` and `sso-token-verification.spec.ts`.
+  `saml-single-logout.spec.ts` runs both directions against an independent
+  node-saml IdP that verifies our signatures and signs its own messages; the
+  SP signing pair is the generated `spenc` pair. The
+  encrypted-assertion spec encrypts with `xml-encryption` (AES-256-GCM,
+  RSA-OAEP), the library node-saml decrypts with.
+- **OpenSSL is required** (`openssl` on `PATH`). Linux distributions and macOS
+  ship it, and on Windows Git for Windows does. Without it the jest run stops at
+  `globalSetup` with an explanation; the SAML tests are never skipped. To
+  generate the keys by hand: `node scripts/generate-test-sso-keys.mjs`.
+- `node --test scripts/` covers the generator itself (`generate-test-sso-keys.test.mjs`)
+  and fails if any committed `.pem`/`.key` file contains a private key.
+````
 
 FILE: docs/dr/manifest.json
 
@@ -368268,17 +369264,18 @@ FILE: docs/dr/manifest.json
       "restoreOrder": 1,
       "title": "Application key material",
       "kind": "sealed-secrets",
-      "purpose": "Field-level encryption master key and blind-index key (apps/api field encryption). Losing these does not lose the plaintext of orders; it loses credential recoverability and indexed lookup forever.",
+      "purpose": "Field-level encryption master key and blind-index key (apps/api field encryption), plus the developer-platform HMAC key behind developer client-secret and webhook-secret digests. Losing the first two does not lose the plaintext of orders; it loses credential recoverability and indexed lookup forever. Losing the developer HMAC key invalidates every issued developer credential and webhook signing secret, and the API refuses to boot without it.",
       "backupMethod": "The secret-store export (sealed or KMS-wrapped) is under the organization's escrow policy; this manifest verifies only the escrow's existence and the drill record, never the material.",
       "envRefs": [
         "ENCRYPTION_PROVIDER",
         "ENCRYPTION_MASTER_KEY_BASE64",
-        "BLIND_INDEX_KEY_BASE64"
+        "BLIND_INDEX_KEY_BASE64",
+        "DEVELOPER_SECRET_HMAC_KEY"
       ],
       "paths": [
         ".env.example"
       ],
-      "verification": "Decode the restored master key and assert exactly 32 bytes; decode the blind-index key and assert at least 32 bytes; run one encrypt/decrypt round-trip probe (scripts smoke, no DB writes). Any mismatch stops the restore: a partially-restored app that cannot read its own stored secrets is worse than a down app.",
+      "verification": "Decode the restored master key and assert exactly 32 bytes; decode the blind-index key and assert at least 32 bytes; run one encrypt/decrypt round-trip probe (scripts smoke, no DB writes); assert the restored developer HMAC key is at least 16 characters and that the API boots past the developer-platform module. Any mismatch stops the restore: a partially-restored app that cannot read its own stored secrets is worse than a down app.",
       "cadenceHours": 720
     },
     {
@@ -378429,6 +379426,95 @@ FILE: docs/fixtures/risk_digest_fixtures.json
 }
 ```
 
+FILE: infrastructure/.env.staging.example
+
+```text
+# =============================================================================
+# Staging environment template (Part 28/29 live-readiness).
+#
+# Usage:
+#   cp infrastructure/.env.staging.example .env.staging     # repo root
+#   # edit .env.staging - NEVER commit it
+#   docker compose -f docker-compose.yml \
+#     -f infrastructure/staging/docker-compose.staging.yml up
+#   # or, for the rehearsal without docker:
+#   python3 scripts/staging/staging_rehearsal.py --staging
+#
+# Every default here is FAIL-CLOSED: simulated mode, dry-run, no credentials,
+# IP allowlist required. Nothing in this file can enable live trading - the
+# composition root refuses EXECUTION_MODE=live by code, and this template does
+# not try. Production must never inherit staging values; the "staging" label
+# appears in the instance id so a mixed-up environment file is visible in the
+# first status surface that renders one.
+#
+# The rehearsal treats SKIPPED as NOT ready on required infrastructure. A
+# staging run therefore needs the postgres and redis blocks actually set -
+# leaving them commented is a dev-profile run, and the rehearsal will say so.
+# =============================================================================
+
+# --- Compose infrastructure credentials (required by the staging overlay) ----
+# The overlay refuses to start without these two: `:?` interpolation errors
+# are the intended behaviour, not a bug.
+POSTGRES_USER=wlct_staging
+POSTGRES_PASSWORD=change-me-staging-postgres
+POSTGRES_DB=wlct_staging
+REDIS_PASSWORD=change-me-staging-redis
+
+# --- Engine identity and mode ------------------------------------------------
+NODE_ENV=staging
+EXECUTION_INSTANCE_ID=execution-engine-staging
+# Simulated with dry-run on. EXECUTION_MODE=live is refused by code in this
+# build regardless of what a template says; the line states the intent.
+EXECUTION_MODE=simulated
+EXECUTION_DRY_RUN=true
+EXECUTION_PAPER_BALANCES=USDT=100000,BTC=2
+EXECUTION_SIMULATED_MID=50000
+
+# The internal token gates every /internal/v1 route. Generate fresh per
+# environment (>= 32 chars; the service refuses to boot without one):
+#   python3 -c "import secrets; print(secrets.token_hex(32))"
+EXECUTION_INTERNAL_TOKEN=replace-me-with-64-hex-characters-generated-fresh
+
+# --- Durable store (required prerequisite: DURABLE_STORE_WIRED) --------------
+# Staging runs against real PostgreSQL so the rehearsal can prove persistence
+# recovery: write a probe row through one pool, read it through a second.
+EXECUTION_STORE_BACKEND=postgres
+EXECUTION_POSTGRES_DSN=postgresql://wlct_staging:change-me-staging-postgres@postgres:5432/wlct_staging
+
+# --- Distributed locks (required prerequisite: DISTRIBUTED_LOCKS_WIRED) ------
+# Real Redis so the rehearsal can verify acquire, second-owner rejection and
+# fencing-token advancement against an actual server.
+EXECUTION_DISTRIBUTED_LOCKS=true
+EXECUTION_REDIS_URL=redis://:change-me-staging-redis@redis:6379/0
+EXECUTION_LOCK_TTL_MS=15000
+EXECUTION_LOCK_ACQUISITION_TIMEOUT_MS=5000
+EXECUTION_LOCK_RENEWAL_RATIO=0.3333
+
+# --- Signed transport and placement policy (required prerequisites) ----------
+# The key registry, signed client and verifier are constructed by the
+# composition root; the IP allowlist is policy, not hope.
+EXECUTION_PLACEMENT_REQUIRE_IP_ALLOWLIST=true
+
+# --- Credentials (credential-conditional: may stay none) ---------------------
+# none is the safe default: the four credential-conditional prerequisites then
+# report SKIPPED, which staging tolerates for credentials ONLY. A rehearsal
+# that must prove the credential path names a source and provides its secrets
+# out of band - never in this file.
+EXECUTION_CREDENTIAL_SOURCE=none
+EXECUTION_CREDENTIAL_FETCHER=none
+
+# --- Operator confirmation ----------------------------------------------------
+# Off in staging: the confirmation ceremony is a production live-readiness
+# step, and a staging key would let a rehearsal "verify" a ceremony it cannot
+# meaningfully perform.
+EXECUTION_REQUIRE_OPERATOR_CONFIRMATION=false
+
+# --- Venue attestation (credential-conditional) ------------------------------
+EXECUTION_VENUE_ATTESTATION_TESTNET=true
+EXECUTION_VENUE_ATTESTATION_CACHE_TTL_MS=300000
+EXECUTION_VENUE_ATTESTATION_INCLUDE_ACCOUNT=false
+```
+
 FILE: infrastructure/database/README.md
 
 ````markdown
@@ -378690,6 +379776,16 @@ FROM deps AS build
 ENV NODE_ENV=development
 WORKDIR /app
 
+# The API compile (`nest build`: about 880 files, the swagger plugin and a
+# generated Prisma client of roughly 30 MB) needs more heap than Node's default
+# on most hosts and aborts with "JavaScript heap out of memory" without it. CI
+# type-checks the same code with the same ceiling (.github/workflows/ci.yml).
+# It is a ceiling, not a reservation; override it with
+# `--build-arg NODE_BUILD_HEAP_MB=<MiB>`. Only this stage (and the one-shot
+# migrate job that runs it) sees it: the runtime stage starts from `base`.
+ARG NODE_BUILD_HEAP_MB=6144
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_BUILD_HEAP_MB}
+
 COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY apps/api ./apps/api
@@ -378702,7 +379798,12 @@ RUN npm run build --workspace @wlct/shared-types \
     && npm run build --workspace @wlct/api
 
 # Strip development dependencies from the tree that will be copied forward.
-RUN npm prune --omit=dev --workspace @wlct/api --include-workspace-root
+# npm workspaces hoist every package to /app/node_modules and create
+# apps/api/node_modules only when a version conflict forces a nested copy, so
+# the directory is made to exist: the runtime COPY below then carries any
+# nested packages and is never a "not found" build failure without them.
+RUN npm prune --omit=dev --workspace @wlct/api --include-workspace-root \
+    && mkdir -p apps/api/node_modules
 
 # ---------------------------------------------------------------------------
 FROM base AS runtime
@@ -378716,6 +379817,11 @@ COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=node:node /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build --chown=node:node /app/apps/api/prisma ./apps/api/prisma
 COPY --from=build --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
+
+# Dataset store and its staging area. Production requires both as absolute
+# paths on the same filesystem (finalisation is a rename) and disjoint from
+# each other; /app itself is root-owned, so create them for the runtime user.
+RUN mkdir -p /app/data/datasets /app/data/staging && chown -R node:node /app/data
 
 USER node
 EXPOSE 4000
@@ -378764,7 +379870,10 @@ RUN apt-get update \
 RUN python -m venv "$VIRTUAL_ENV"
 
 COPY services/execution-engine/requirements.txt ./requirements.txt
-RUN pip install --require-hashes=false -r requirements.txt
+# Exact `==` pins, no hashes in the file, so pip runs in its normal mode.
+# (`--require-hashes` is an on-switch that takes no value; the former
+# `--require-hashes=false` made pip exit with a usage error.)
+RUN pip install -r requirements.txt
 
 # The whole point of this image: the execution plane lives in the shared
 # library, and the service wires it. Runtime `import wlct_trading...`
@@ -378991,7 +380100,10 @@ RUN apt-get update \
 RUN python -m venv "$VIRTUAL_ENV"
 
 COPY services/trading-engine/requirements.txt ./requirements.txt
-RUN pip install --require-hashes=false -r requirements.txt
+# Exact `==` pins, no hashes in the file, so pip runs in its normal mode.
+# (`--require-hashes` is an on-switch that takes no value; the former
+# `--require-hashes=false` made pip exit with a usage error.)
+RUN pip install -r requirements.txt
 
 # Part 9: the service publishes observability through the shared pure-Python
 # library (zero runtime dependencies, so this adds no transitive surface).
@@ -379032,6 +380144,97 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # --proxy-headers so the correlation id and client address survive the reverse
 # proxy. No --reload: that is a development-only convenience.
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${TRADING_ENGINE_PORT:-8001} --proxy-headers --no-access-log --log-config ./log-config.json"]
+```
+
+FILE: infrastructure/docker/web.Dockerfile
+
+```dockerfile
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# Customer web app (Next.js, apps/web).
+#
+# Same shape as admin-web.Dockerfile: standalone output so the runtime image
+# carries only the server bundle and its traced dependencies. NEXT_PUBLIC_*
+# values are baked in at build time, which is why nothing secret may ever
+# carry that prefix. Server-only values (API_BASE_URL, SESSION_COOKIE_SECRET)
+# are injected at runtime by Compose.
+# ---------------------------------------------------------------------------
+FROM node:20.11.0-bookworm-slim AS base
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    NEXT_TELEMETRY_DISABLED=1
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates dumb-init \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+FROM base AS deps
+
+COPY package.json package-lock.json ./
+COPY packages/shared-types/package.json packages/shared-types/
+COPY packages/config/package.json packages/config/
+COPY packages/validation/package.json packages/validation/
+COPY packages/utils/package.json packages/utils/
+COPY apps/web/package.json apps/web/
+
+RUN npm ci --workspace @wlct/web --include-workspace-root
+
+# ---------------------------------------------------------------------------
+FROM deps AS build
+WORKDIR /app
+
+ARG NEXT_PUBLIC_APP_NAME="Copy Trading"
+ARG NEXT_PUBLIC_API_VERSION=v1
+ARG NEXT_PUBLIC_WS_URL=""
+ARG NEXT_PUBLIC_WS_PATH=/socket.io
+ARG NEXT_PUBLIC_PLATFORM_DOMAIN=localhost
+ARG NEXT_PUBLIC_SUPPORT_EMAIL=support@example.com
+ARG NEXT_PUBLIC_SUPPORT_URL=/support
+ARG NEXT_PUBLIC_ENVIRONMENT=production
+ARG NEXT_PUBLIC_ENABLE_TELEMETRY=false
+ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME \
+    NEXT_PUBLIC_API_VERSION=$NEXT_PUBLIC_API_VERSION \
+    NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL \
+    NEXT_PUBLIC_WS_PATH=$NEXT_PUBLIC_WS_PATH \
+    NEXT_PUBLIC_PLATFORM_DOMAIN=$NEXT_PUBLIC_PLATFORM_DOMAIN \
+    NEXT_PUBLIC_SUPPORT_EMAIL=$NEXT_PUBLIC_SUPPORT_EMAIL \
+    NEXT_PUBLIC_SUPPORT_URL=$NEXT_PUBLIC_SUPPORT_URL \
+    NEXT_PUBLIC_ENVIRONMENT=$NEXT_PUBLIC_ENVIRONMENT \
+    NEXT_PUBLIC_ENABLE_TELEMETRY=$NEXT_PUBLIC_ENABLE_TELEMETRY
+
+COPY tsconfig.base.json ./
+COPY packages ./packages
+COPY apps/web ./apps/web
+
+# Server-side variables are only needed so the build can typecheck and
+# pre-render; real values are injected at runtime by Compose.
+ENV API_BASE_URL=http://api:4000/api \
+    SESSION_COOKIE_SECRET=build_time_placeholder_not_used_at_runtime \
+    NODE_ENV=production
+
+RUN npm run build --workspace @wlct/web
+
+# ---------------------------------------------------------------------------
+FROM base AS runtime
+ENV NODE_ENV=production \
+    PORT=3001 \
+    HOSTNAME=0.0.0.0
+WORKDIR /app
+
+COPY --from=build --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=build --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=node:node /app/apps/web/public ./apps/web/public
+
+USER node
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/login').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "apps/web/server.js"]
 ```
 
 FILE: infrastructure/observability/README.md
@@ -379087,7 +380290,7 @@ having.
 
 | service | port | path | note |
 | --- | --- | --- | --- |
-| `api` | 4000 | `${PROMETHEUS_PATH}` | token expanded from the deployment environment (28 `wlct_*` names in its source) |
+| `api` | 4000 | `${PROMETHEUS_PATH}` | token expanded from the deployment environment (30 `wlct_*` names in its source) |
 | `trading-engine` | 8001 | `/metrics` | unauthenticated on the internal network (30 `wlct_*` names in its source) |
 | `execution-engine` | 8093 | `/metrics` | unauthenticated on the internal network (23 `wlct_*` names in its source) |
 | `market-data` | 8002 | `/metrics` | unauthenticated on the internal network (27 `wlct_*` names in its source) |
@@ -379214,6 +380417,8 @@ FILE: infrastructure/observability/metrics-catalog.json
       "wlct_slo_burn_rate_ppm",
       "wlct_slo_error_budget_remaining_ppm",
       "wlct_slo_state",
+      "wlct_sso_failures_total",
+      "wlct_sso_logins_total",
       "wlct_tracing_export_consecutive_failures",
       "wlct_tracing_export_outcomes_total",
       "wlct_tracing_spans_total",
@@ -379538,7 +380743,7 @@ FILE: infrastructure/observability/metrics-catalog.json
     {
       "authHeader": "x-metrics-token",
       "composeService": "api",
-      "familiesNamedInSource": 28,
+      "familiesNamedInSource": 30,
       "metricsPath": "${PROMETHEUS_PATH}",
       "metricsPathIsExpansion": true,
       "pathEvidence": "apps/api/src/config/app-config.service.ts reads PROMETHEUS_PATH (.env.example)",
@@ -379774,6 +380979,297 @@ groups:
             bundle claims to know why the target is down, and nothing here can page anybody.
 ```
 
+FILE: infrastructure/staging/README.md
+
+````markdown
+# Staging Live-Readiness Environment
+
+## Purpose
+
+This directory contains the staging infrastructure profile for verifying all 8 execution-engine prerequisites from actual runtime objects, **without submitting orders, enabling live execution, or changing production configuration**.
+
+## Two Verification Tools
+
+### 1. Development Preflight (`scripts/staging/live_readiness.py`)
+
+Quick verification for development environments. SKIPPED prerequisites count as success.
+
+### 2. Staging Rehearsal (`scripts/staging/staging_rehearsal.py`)
+
+**Strict** verification for staging environments. SKIPPED and UNVERIFIED prerequisites on required infrastructure **block** staging readiness. Includes persistence recovery and Redis lock/fencing verification.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Staging Profile (docker-compose.staging.yml)               │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │  PostgreSQL   │  │    Redis     │  │ Execution Engine │  │
+│  │  (real DB)    │  │ (real locks) │  │ (simulated mode) │  │
+│  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │
+│         │                 │                    │            │
+│         └─────────────────┴────────────────────┘            │
+│                                                             │
+│  All 8 prerequisites verified from runtime objects:         │
+│  ✓ SIGNED_TRANSPORT_WIRED                                   │
+│  ✓ IP_ALLOWLIST_ENFORCED                                    │
+│  ✓ DURABLE_STORE_WIRED                                      │
+│  ✓ DISTRIBUTED_LOCKS_WIRED                                  │
+│  ✓ CREDENTIAL_SOURCE_CONFIGURED                             │
+│  ✓ CREDENTIAL_FETCHER_WIRED                                 │
+│  ✓ VENUE_ATTESTOR_WIRED                                     │
+│  ✓ OPERATOR_CONFIRMATION_ACCEPTED                           │
+│                                                             │
+│  SAFETY: EXECUTION_MODE=live is REFUSED by code             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Quick Start
+
+```bash
+# 1. Copy the staging environment template
+cp .env.staging.example .env.staging
+
+# 2. Edit with your staging values
+#    NEVER commit .env.staging
+
+# 3. Run the development preflight (quick check)
+python3 scripts/staging/live_readiness.py --staging --json
+
+# 4. Run the staging rehearsal (strict check)
+python3 scripts/staging/staging_rehearsal.py --staging --json
+
+# 5. Or run with docker-compose
+docker compose -f docker-compose.yml -f infrastructure/staging/docker-compose.staging.yml up
+```
+
+## Staging Rehearsal Commands
+
+```bash
+# Full strict rehearsal (dependencies + runtime + recovery)
+python3 scripts/staging/staging_rehearsal.py
+
+# Dependency-only verification (PostgreSQL, Redis)
+python3 scripts/staging/staging_rehearsal.py --check-dependencies
+
+# Runtime-only verification (prerequisites)
+python3 scripts/staging/staging_rehearsal.py --check-runtime
+
+# JSON output for CI
+python3 scripts/staging/staging_rehearsal.py --json
+
+# Load staging environment
+python3 scripts/staging/staging_rehearsal.py --staging
+```
+
+## Strict Readiness Semantics
+
+The staging rehearsal uses **strict** semantics:
+
+| Status | Meaning | Counts as Ready? |
+|---|---|---|
+| PASS | Verified from runtime objects | ✅ Yes |
+| FAIL | Check failed | ❌ No |
+| BLOCKED | Infrastructure not available | ❌ No |
+| UNVERIFIED | Cannot verify (e.g., no credentials) | ❌ No |
+| SKIPPED | Not configured (acceptable for credentials) | ⚠️ Conditional |
+
+**Required prerequisites** (DURABLE_STORE_WIRED, DISTRIBUTED_LOCKS_WIRED, SIGNED_TRANSPORT_WIRED, IP_ALLOWLIST_ENFORCED) must be PASS. SKIPPED or UNVERIFIED blocks staging readiness.
+
+**Credential-conditional prerequisites** (CREDENTIAL_SOURCE_CONFIGURED, CREDENTIAL_FETCHER_WIRED, VENUE_ATTESTOR_WIRED, OPERATOR_CONFIRMATION_ACCEPTED) may be SKIPPED if no credentials are configured.
+
+## What the Rehearsal Verifies
+
+### Dependencies (PostgreSQL + Redis)
+- PostgreSQL connectivity and schema (engine_orders, engine_order_events, engine_order_fills)
+- Redis connectivity and lock acquire/release
+- Persistence recovery (write → new store instance → read back)
+- Lock fencing token advancement
+- Stale ownership rejection
+
+### Runtime Prerequisites
+- Signed transport (key registry, client, verifier)
+- IP allowlist policy enforcement
+- Credential source/fetcher wiring
+- Venue attestation wiring
+- Operator confirmation assessment
+- Live enablement grading
+- Live mode gate (always refuses)
+
+## Safety Guarantees
+
+1. **Never submits an order** — Only reads from runtime objects
+2. **Never enables live execution** — `EXECUTION_MODE=live` is refused by code
+3. **Never changes production config** — No writes to any persistent store
+4. **Never prints secrets** — All output uses redacted summaries
+5. **Uses runtime evidence** — Config flags alone cannot produce a PASS
+6. **Production guard** — Refuses to run against production without explicit opt-in
+7. **Strict semantics** — SKIPPED ≠ PASS for staging readiness
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `docker-compose.staging.yml` | Staging compose overlay with real PostgreSQL/Redis |
+| `../.env.staging.example` | Staging environment template |
+| `scripts/staging/live_readiness.py` | Development preflight CLI |
+| `scripts/staging/staging_rehearsal.py` | Staging rehearsal CLI (strict) |
+| `services/execution-engine/tests/test_part28_staging_preflight.py` | 27 preflight tests |
+| `services/execution-engine/tests/test_part29_staging_rehearsal.py` | 51 rehearsal tests |
+
+## Exit Codes
+
+| Code | Meaning |
+|---|---|
+| 0 | All checks PASS (or SKIPPED for credentials) |
+| 1 | One or more checks FAIL |
+| 2 | BLOCKED (infrastructure not available) |
+
+## Integration with CI/CD
+
+```yaml
+# Example CI step
+staging-rehearsal:
+  script:
+    - cp .env.staging.example .env.staging
+    - docker compose -f docker-compose.yml -f infrastructure/staging/docker-compose.staging.yml up -d
+    - sleep 10  # Wait for health checks
+    - python3 scripts/staging/staging_rehearsal.py --staging --json > rehearsal-report.json
+    - python3 -c "import json, sys; r=json.load(open('rehearsal-report.json')); sys.exit(0 if r['stagingReady'] else 1)"
+```
+
+## Design Notes
+
+- The rehearsal constructs the **actual runtime** using `build_runtime(settings)`
+- Every check inspects **runtime objects**, not configuration flags
+- PostgreSQL checks verify **table existence** and **persistence recovery**
+- Redis checks perform **actual lock acquire/release** and **fencing verification**
+- The confirmation check runs **assess_deployment()**, the same function used by the placement pipeline
+- The live mode gate verifies that the enablement report **blocks live execution**
+- **SKIPPED ≠ PASS** — staging readiness requires real infrastructure
+````
+
+FILE: infrastructure/staging/docker-compose.staging.yml
+
+```yaml
+# =============================================================================
+# Staging profile for live-readiness verification.
+#
+# This overlay adds:
+#   - PostgreSQL with the execution-engine tables
+#   - Redis with authentication
+#   - Execution engine with staging-specific configuration
+#   - Staging-specific environment variables
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f infrastructure/staging/docker-compose.staging.yml up
+#
+# Design notes:
+#   - All staging defaults are FAIL-CLOSED: nothing here enables live trading
+#   - The execution engine starts in simulated mode with real infrastructure
+#   - Credentials are NOT included — they must be provided separately
+#   - The profile is clearly identified as "staging" in all health surfaces
+#   - Production must never inherit staging defaults
+# =============================================================================
+
+name: wlct-staging
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — staging instance with execution-engine tables
+  # ---------------------------------------------------------------------------
+  postgres:
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wlct_staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-wlct_staging}
+    # Staging uses the same init scripts as production
+    volumes:
+      - postgres-data-staging:/var/lib/postgresql/data
+      - ./infrastructure/database/init:/docker-entrypoint-initdb.d:ro
+
+  # ---------------------------------------------------------------------------
+  # Redis — staging instance with authentication
+  # ---------------------------------------------------------------------------
+  redis:
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      # noeviction, as in the base compose file: BullMQ job locks carry a TTL
+      # and must never be evicted early (a job would be processed twice).
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data-staging:/data
+
+  # ---------------------------------------------------------------------------
+  # Migrations — run against staging database
+  # ---------------------------------------------------------------------------
+  migrate:
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public
+      # The base file points prisma's directUrl at the compose database; the
+      # staging database name must follow DATABASE_URL here, or `prisma migrate`
+      # would migrate a different database than the one the API reads.
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public
+
+  # ---------------------------------------------------------------------------
+  # API — staging instance
+  # ---------------------------------------------------------------------------
+  api:
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public&connection_limit=20&pool_timeout=20
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public
+
+  # ---------------------------------------------------------------------------
+  # Execution engine — staging with real infrastructure
+  # ---------------------------------------------------------------------------
+  execution-engine:
+    environment:
+      NODE_ENV: staging
+      # Staging uses simulated mode — live mode still refuses
+      EXECUTION_MODE: simulated
+      EXECUTION_DRY_RUN: "true"
+      # Real PostgreSQL for durable store verification
+      EXECUTION_STORE_BACKEND: ${EXECUTION_STORE_BACKEND:-postgres}
+      EXECUTION_POSTGRES_DSN: ${EXECUTION_POSTGRES_DSN:-postgresql://wlct_staging:${POSTGRES_PASSWORD}@postgres:5432/wlct_staging}
+      # Real Redis for distributed lock verification
+      EXECUTION_DISTRIBUTED_LOCKS: ${EXECUTION_DISTRIBUTED_LOCKS:-true}
+      EXECUTION_REDIS_URL: ${EXECUTION_REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
+      # Credential source — defaults to none for safety
+      EXECUTION_CREDENTIAL_SOURCE: ${EXECUTION_CREDENTIAL_SOURCE:-none}
+      EXECUTION_CREDENTIAL_FETCHER: ${EXECUTION_CREDENTIAL_FETCHER:-none}
+      # Operator confirmation — defaults to not required
+      EXECUTION_REQUIRE_OPERATOR_CONFIRMATION: ${EXECUTION_REQUIRE_OPERATOR_CONFIRMATION:-false}
+      # IP allowlist required by default
+      EXECUTION_PLACEMENT_REQUIRE_IP_ALLOWLIST: "true"
+      # Instance ID for staging
+      EXECUTION_INSTANCE_ID: ${EXECUTION_INSTANCE_ID:-execution-engine-staging}
+
+  # ---------------------------------------------------------------------------
+  # Worker — staging instance
+  # ---------------------------------------------------------------------------
+  worker:
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public&connection_limit=10&pool_timeout=20
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-wlct_staging}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct_staging}?schema=public
+
+volumes:
+  postgres-data-staging:
+    driver: local
+  redis-data-staging:
+    driver: local
+```
+
 FILE: scripts/bootstrap.sh
 
 ```bash
@@ -379859,6 +381355,709 @@ still reads "change_me" must be replaced.
 DONE
 ```
 
+FILE: scripts/check-api-di.mjs
+
+```javascript
+#!/usr/bin/env node
+/**
+ * API dependency-injection check: do the Nest application graphs resolve?
+ *
+ *     node scripts/check-api-di.mjs
+ *
+ * Two roots are checked, because the API image starts two processes:
+ * `AppModule` (src/main.ts, the HTTP API) and `WorkerModule` (src/worker.ts,
+ * the compose `worker` service). Round 8 added the second one after the worker
+ * container was found unable to boot (a provider of RedisModule needed the
+ * named Pino logger that only AppModule registered) - a failure no check saw.
+ *
+ * Type-checking cannot catch a provider that is missing from a module's
+ * `providers`/`exports`, an import cycle that leaves a token undefined, or a
+ * constructor that throws. Any of those stops `node dist/main.js` at boot.
+ * This script finds them without a database, Redis or a full `nest build`:
+ *
+ *   1. every non-spec file under apps/api/src is transpiled (no type-check,
+ *      decorator metadata on, exactly like the compiler's emit) into a
+ *      temporary directory;
+ *   2. a child process per root runs `NestFactory.create(<root>)`. That
+ *      instantiates every provider of every module (the whole graph) but does
+ *      not run onModuleInit or open a port, so nothing connects anywhere.
+ *      (`createApplicationContext`, which src/worker.ts uses, builds the same
+ *      graph but also runs the lifecycle hooks, which would connect to Redis.)
+ *
+ * Environment: values come from the real environment first, then from
+ * .env.example. The three secrets that .env.example deliberately leaves empty
+ * and the API refuses to start without get throw-away random values for this
+ * run only; they are never printed or written anywhere.
+ *
+ * Needs `prisma generate` and `npm run build:packages` first (CI runs both
+ * earlier in the same job). Exit 0 = graph resolves; 1 = it does not, with
+ * Nest's own message naming the provider and the module.
+ */
+import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const API_SRC = join(ROOT, "apps", "api", "src");
+const require = createRequire(join(ROOT, "apps", "api", "package.json"));
+const ts = require("typescript");
+
+/** Secrets .env.example leaves empty on purpose, with the shape the API validates. */
+const EPHEMERAL_SECRETS = {
+  ENCRYPTION_MASTER_KEY_BASE64: () => randomBytes(32).toString("base64"),
+  BLIND_INDEX_KEY_BASE64: () => randomBytes(32).toString("base64"),
+  DEVELOPER_SECRET_HMAC_KEY: () => randomBytes(24).toString("base64"),
+};
+
+function transpileTree(outRoot) {
+  let files = 0;
+  const problems = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const source = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(source);
+        continue;
+      }
+      if (entry.name.endsWith(".spec.ts")) continue;
+      const target = join(outRoot, "src", relative(API_SRC, source));
+      mkdirSync(dirname(target), { recursive: true });
+      if (!entry.name.endsWith(".ts")) {
+        copyFileSync(source, target);
+        continue;
+      }
+      const result = ts.transpileModule(readFileSync(source, "utf8"), {
+        fileName: source,
+        reportDiagnostics: true,
+        compilerOptions: {
+          target: ts.ScriptTarget.ES2022,
+          module: ts.ModuleKind.CommonJS,
+          experimentalDecorators: true,
+          emitDecoratorMetadata: true,
+          esModuleInterop: true,
+          allowSyntheticDefaultImports: true,
+          resolveJsonModule: true,
+        },
+      });
+      for (const diagnostic of result.diagnostics ?? []) {
+        problems.push(
+          `${relative(ROOT, source)}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`,
+        );
+      }
+      writeFileSync(target.replace(/\.ts$/, ".js"), result.outputText, "utf8");
+      files += 1;
+    }
+  };
+  walk(API_SRC);
+  return { files, problems };
+}
+
+function childEnvironment() {
+  const env = { ...process.env };
+  for (const line of readFileSync(join(ROOT, ".env.example"), "utf8").split(
+    "\n",
+  )) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (match && env[match[1]] === undefined)
+      env[match[1]] = match[2].replace(/^["']|["']$/g, "");
+  }
+  for (const [name, make] of Object.entries(EPHEMERAL_SECRETS)) {
+    if (!env[name]) env[name] = make();
+  }
+  env.NODE_ENV = "development";
+  return env;
+}
+
+/**
+ * The roots to resolve, with the environment their process really runs with
+ * (the worker values mirror the compose `worker` service).
+ */
+const ROOTS = [
+  { name: "AppModule", file: join("src", "app.module.js"), env: {} },
+  {
+    name: "WorkerModule",
+    file: join("src", "modules", "worker", "worker.module.js"),
+    env: {
+      QUEUE_RUN_INLINE_WORKERS: "true",
+      WORKER_ENABLED: "true",
+      EXECUTION_ENGINE_URL: "http://execution-engine:8093",
+      EXECUTION_ENGINE_TOKEN: () => randomBytes(32).toString("hex"),
+    },
+  },
+];
+
+const BOOT = `
+require('reflect-metadata');
+const { NestFactory, ModulesContainer } = require('@nestjs/core');
+const Root = require(process.env.WLCT_DI_ROOT_FILE)[process.env.WLCT_DI_ROOT_NAME];
+if (typeof Root !== 'function') {
+  console.error('DI_FAIL ' + process.env.WLCT_DI_ROOT_NAME + ' is not exported by ' + process.env.WLCT_DI_ROOT_FILE);
+  process.exit(1);
+}
+NestFactory.create(Root, { abortOnError: false, logger: ['error'] })
+  .then((app) => {
+    const modules = app.get(ModulesContainer);
+    let providers = 0;
+    for (const m of modules.values()) providers += m.providers.size;
+    console.log('DI_OK ' + process.env.WLCT_DI_ROOT_NAME + ' modules=' + modules.size + ' providers=' + providers);
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error('DI_FAIL ' + (error && error.message ? error.message : String(error)));
+    process.exit(1);
+  });
+`;
+
+function main() {
+  const outRoot = mkdtempSync(join(tmpdir(), "wlct-api-di-"));
+  try {
+    const { files, problems } = transpileTree(outRoot);
+    if (problems.length > 0) {
+      for (const problem of problems) console.error(`TRANSPILE: ${problem}`);
+      return 1;
+    }
+    const bootFile = join(outRoot, "boot.cjs");
+    writeFileSync(bootFile, BOOT, "utf8");
+    let failed = 0;
+    for (const root of ROOTS) {
+      const env = childEnvironment();
+      for (const [name, value] of Object.entries(root.env)) {
+        env[name] = typeof value === "function" ? value() : value;
+      }
+      env.WLCT_DI_ROOT_FILE = join(outRoot, root.file);
+      env.WLCT_DI_ROOT_NAME = root.name;
+      // `src/*` is the API's tsconfig path alias; packages resolve from the workspace.
+      env.NODE_PATH = [
+        outRoot,
+        join(ROOT, "apps", "api", "node_modules"),
+        join(ROOT, "node_modules"),
+      ].join(process.platform === "win32" ? ";" : ":");
+      const child = spawnSync(process.execPath, [bootFile], {
+        cwd: outRoot,
+        env,
+        encoding: "utf8",
+        timeout: 180_000,
+      });
+      const output = `${child.stdout ?? ""}${child.stderr ?? ""}`;
+      const verdict = output
+        .split("\n")
+        .find((line) => line.startsWith("DI_OK") || line.startsWith("DI_FAIL"));
+      if (child.status === 0 && verdict?.startsWith("DI_OK")) {
+        console.log(`${verdict} (${files} files transpiled)`);
+        continue;
+      }
+      failed += 1;
+      console.error(
+        `${root.name}: ` +
+          (output.trim() ||
+            `boot process ended with status ${child.status} signal ${child.signal}`),
+      );
+    }
+    return failed === 0 ? 0 : 1;
+  } finally {
+    rmSync(outRoot, { recursive: true, force: true });
+  }
+}
+
+process.exit(main());
+```
+
+FILE: scripts/check-terraform-api-env.mjs
+
+```javascript
+#!/usr/bin/env node
+/**
+ * Terraform <-> API env-schema alignment check.
+ *
+ * Reads the `environment` and `secrets` lists of the API container in
+ * infra/production/terraform/main.tf, builds the environment the ECS task
+ * would start with (literal values as written, Terraform expressions and
+ * Secrets Manager references replaced by well-formed placeholders), and runs
+ * it through the API's own production env schema (@wlct/config).
+ *
+ * It fails when the production task would be refused at boot - a required
+ * variable Terraform never sets, a name spelled differently from the schema,
+ * a relative path, a production-only rule - which is exactly how the task
+ * definition drifted before (ENCRYPTION_KEY vs ENCRYPTION_MASTER_KEY_BASE64,
+ * no REDIS_HOST, missing METRICS_TOKEN / INTERNAL_SERVICE_TOKEN).
+ *
+ * It also checks that absolute dataset directories configured for the task
+ * are created in the API image (the runtime user cannot create them under
+ * the root-owned /app).
+ *
+ * Needs `npm run build:packages` first (imports packages/config/dist).
+ * Usage: node scripts/check-terraform-api-env.mjs
+ */
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
+
+const tfPath = join(root, "infra/production/terraform/main.tf");
+const dockerfilePath = join(root, "infrastructure/docker/api.Dockerfile");
+const tf = readFileSync(tfPath, "utf8");
+
+function fail(msg) {
+  console.error(`FAIL: ${msg}`);
+  process.exitCode = 1;
+}
+
+// --- locate the API container definition ------------------------------------
+const start = tf.indexOf('resource "aws_ecs_task_definition" "api"');
+if (start < 0) {
+  fail('aws_ecs_task_definition "api" not found in main.tf');
+  process.exit(1);
+}
+const next = tf.indexOf("\nresource ", start + 10);
+const block = tf.slice(start, next < 0 ? undefined : next);
+
+function listBody(name) {
+  const m = new RegExp(`\\b${name}\\s*=\\s*\\[`).exec(block);
+  if (!m) return "";
+  let depth = 0;
+  for (let i = m.index + m[0].length - 1; i < block.length; i += 1) {
+    if (block[i] === "[") depth += 1;
+    else if (block[i] === "]") {
+      depth -= 1;
+      if (depth === 0) return block.slice(m.index + m[0].length, i);
+    }
+  }
+  return "";
+}
+
+const envBody = listBody("environment");
+const secretsBody = listBody("secrets");
+if (!envBody || !secretsBody) {
+  fail("could not read the environment/secrets lists of the API container");
+  process.exit(1);
+}
+
+// { name = "X", value = "literal" }  or  { name = "X", value = expression }
+const envEntries = [
+  ...envBody.matchAll(
+    /\{\s*name\s*=\s*"([A-Z0-9_]+)"\s*,\s*value\s*=\s*([^}]+?)\s*\}/g,
+  ),
+].map(([, name, raw]) => {
+  const literal = /^"([^"$]*)"$/.exec(raw.trim());
+  return {
+    name,
+    literal: literal ? literal[1] : null,
+    expr: literal ? null : raw.trim(),
+  };
+});
+const secretNames = [
+  ...secretsBody.matchAll(
+    /\{\s*name\s*=\s*"([A-Z0-9_]+)"\s*,\s*valueFrom\s*=/g,
+  ),
+].map((m) => m[1]);
+
+// --- placeholders for values Terraform / Secrets Manager provide -------------
+const b64 = (seed) => Buffer.alloc(32, seed).toString("base64");
+function secretPlaceholder(name, i) {
+  if (name.endsWith("_BASE64")) return b64(i + 1);
+  if (/DATABASE_URL$/.test(name))
+    return "postgresql://app:placeholder@db.internal:5432/app?sslmode=require";
+  if (name === "REDIS_URL") return "rediss://redis.internal:6379";
+  if (name.endsWith("_KEY_ID")) return "key-placeholder-1";
+  return `${name.toLowerCase()}_`.padEnd(64, "x");
+}
+function exprPlaceholder(name, expr) {
+  if (name === "REDIS_HOST") return "redis.internal";
+  if (/bucket/i.test(expr) || /BUCKET$/.test(name)) return "bucket-placeholder";
+  if (/region/i.test(expr)) return "us-east-1";
+  return "placeholder";
+}
+
+const env = {};
+for (const e of envEntries)
+  env[e.name] =
+    e.literal !== null ? e.literal : exprPlaceholder(e.name, e.expr);
+secretNames.forEach((n, i) => {
+  env[n] = secretPlaceholder(n, i);
+});
+
+const dupes = [...envEntries.map((e) => e.name), ...secretNames].filter(
+  (n, i, a) => a.indexOf(n) !== i,
+);
+if (dupes.length)
+  fail(
+    `defined more than once in the API task: ${[...new Set(dupes)].join(", ")}`,
+  );
+if (env.NODE_ENV !== "production")
+  fail(`API task NODE_ENV is "${env.NODE_ENV}", expected "production"`);
+
+// --- run the real schema -------------------------------------------------------
+let config;
+try {
+  config = require(join(root, "packages/config/dist/env.schema.js"));
+} catch (e) {
+  console.error(
+    "packages/config is not built - run `npm run build:packages` first.",
+  );
+  process.exit(2);
+}
+const schema =
+  config.EnvSchema ??
+  config.envSchema ??
+  Object.values(config).find((v) => v && typeof v.safeParse === "function");
+const result = schema.safeParse(env);
+if (!result.success) {
+  for (const issue of result.error.issues)
+    fail(`${issue.path.join(".") || "(root)"}: ${issue.message}`);
+}
+
+// --- dataset directories must exist in the image ------------------------------
+const dockerfile = readFileSync(dockerfilePath, "utf8");
+for (const key of ["DATASET_LOCAL_ROOT", "DATASET_TEMP_ROOT"]) {
+  const p = env[key];
+  if (p && p.startsWith("/") && !dockerfile.includes(p)) {
+    fail(
+      `${key}=${p} is not created in infrastructure/docker/api.Dockerfile (runtime user cannot mkdir under /app)`,
+    );
+  }
+}
+
+if (!process.exitCode) {
+  console.log(
+    `terraform API task env valid for production: ${envEntries.length} plain + ${secretNames.length} secret variables`,
+  );
+}
+```
+
+FILE: scripts/check-web-api-contract.js
+
+```javascript
+#!/usr/bin/env node
+/**
+ * Web -> API contract check.
+ *
+ * Every `apiClient.<method>(path)` and `serverFetch(path)` call in apps/web
+ * and apps/admin-web must hit a route the API actually declares (same HTTP
+ * method, same path, `:param` segments matching anything). The round-4 audit found 17 of 76 web
+ * calls pointing at routes that never existed (the maintenance banner, the
+ * status page, the whole trading API module, onboarding, account pages, ...);
+ * each failed at runtime with a 404 the UI rendered as a generic error.
+ *
+ * API routes: `/v1/<@Controller prefix>/<@Get|@Post|... path>` from every
+ * *.controller.ts under apps/api/src. Web calls with a non-literal path are
+ * reported as "dynamic" and not checked.
+ *
+ * Path conventions:
+ *   apps/web        apiClient paths carry the version (`/v1/...`); serverFetch
+ *                   paths are relative to /api/v1.
+ *   apps/admin-web  apiClient goes through /api/proxy/* and serverFetch through
+ *                   lib/server-api.ts; both prepend the version. Module-level
+ *                   `fetchJson(`${API_BASE}...`)` browser calls are resolved
+ *                   with the file's `const API_BASE = '...'` and must go
+ *                   through `/api/proxy/`: any other `/api/...` URL is served
+ *                   by the admin Next.js app itself, which only has
+ *                   /api/auth/* and /api/proxy/*, so it always 404s.
+ *   apps/mobile     paths come from `ApiEndpoints` (core/network/
+ *                   api_endpoints.dart), relative to `<API_BASE_URL>/v1`.
+ *                   Each `_apiClient.<get|post|patch|delete>(ApiEndpoints.x)`
+ *                   call site is checked with its own HTTP method; Dart
+ *                   interpolation (`$id`, `${id}`) becomes `:param`.
+ *
+ * Query keys: see scripts/lib/api-query-contract.js. A key the route's
+ * `@Query()` DTO does not declare is a 422 (whitelist + forbidNonWhitelisted);
+ * a key a per-key handler does not read is silently ignored. Both fail.
+ *
+ * Usage: node scripts/check-web-api-contract.js [--list]
+ */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const qc = require('./lib/api-query-contract');
+
+const ROOT = path.resolve(__dirname, '..');
+const API_SRC = path.join(ROOT, 'apps', 'api', 'src');
+const WEB_SRC = path.join(ROOT, 'apps', 'web', 'src');
+const ADMIN_SRC = path.join(ROOT, 'apps', 'admin-web', 'src');
+const MOBILE_LIB = path.join(ROOT, 'apps', 'mobile', 'lib');
+const MOBILE_ENDPOINTS = path.join(MOBILE_LIB, 'core', 'network', 'api_endpoints.dart');
+
+function walk(dir, filter, out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(full, filter, out);
+    else if (filter(full)) out.push(full);
+  }
+  return out;
+}
+
+function joinPath(...parts) {
+  const segs = parts
+    .filter((p) => p !== undefined && p !== null)
+    .join('/')
+    .split('/')
+    .filter((s) => s.length > 0);
+  return '/' + segs.join('/');
+}
+
+/** Backend routes as { method, path } with path like /v1/copy-trading/traders/:id. */
+function apiRoutes() {
+  const routes = [];
+  for (const file of walk(API_SRC, (f) => f.endsWith('.controller.ts'))) {
+    const src = fs.readFileSync(file, 'utf8');
+    const ctrl =
+      /@Controller\(\s*\{[^}]*?path:\s*(['"`])([^'"`]*)\1[^}]*\}\s*\)/.exec(src) ||
+      /@Controller\(\s*(['"`])([^'"`]*)\1\s*\)/.exec(src) ||
+      (/@Controller\(\s*\)/.test(src) ? [null, null, ''] : null);
+    if (!ctrl) continue;
+    const prefix = ctrl[2];
+    const versionMatch = /@Controller\(\s*\{[^}]*?version:\s*(['"`])([^'"`]*)\1/.exec(src);
+    const version = versionMatch ? versionMatch[2] : '1';
+    const re = /@(Get|Post|Put|Patch|Delete)\(\s*(?:(['"`])([^'"`]*)\2)?\s*\)/g;
+    const found = [...src.matchAll(re)];
+    found.forEach((m, k) => {
+      const next = k + 1 < found.length ? found[k + 1].index : src.length;
+      routes.push({
+        method: m[1].toUpperCase(),
+        path: joinPath(`v${version}`, prefix, m[3] || ''),
+        file: path.relative(ROOT, file),
+        query: qc.routeQuery(src, m.index, next),
+      });
+    });
+  }
+  return routes;
+}
+
+/** Read a string/template literal starting at src[i] (a quote char). */
+function readLiteral(src, i) {
+  const quote = src[i];
+  let out = '';
+  let j = i + 1;
+  while (j < src.length) {
+    const c = src[j];
+    if (c === '\\') {
+      out += src[j + 1];
+      j += 2;
+      continue;
+    }
+    if (quote === '`' && c === '$' && src[j + 1] === '{') {
+      let depth = 1;
+      j += 2;
+      while (j < src.length && depth > 0) {
+        if (src[j] === '{') depth++;
+        else if (src[j] === '}') depth--;
+        j++;
+      }
+      out += '${}';
+      continue;
+    }
+    if (c === quote) return { value: out, end: j + 1 };
+    out += c;
+    j++;
+  }
+  return null;
+}
+
+function skipGeneric(src, i) {
+  if (src[i] !== '<') return i;
+  let depth = 0;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '<') depth++;
+    else if (src[j] === '>' && src[j - 1] !== '=') {
+      depth--;
+      if (depth === 0) return j + 1;
+    }
+  }
+  return i;
+}
+
+function lineOf(src, index) {
+  return src.slice(0, index).split('\n').length;
+}
+
+/** Normalise a web path: strip query strings and trailing template suffixes, params -> :param. */
+function normaliseWebPath(raw) {
+  let p = raw.split('?')[0];
+  const segs = p.split('/').map((seg) => {
+    if (seg === '${}') return ':param';
+    // `accounts${qs}` or `${base}` glued to text: a trailing template is a query/suffix builder.
+    return seg.replace(/\$\{\}$/, '').replace(/\$\{\}/g, ':param');
+  });
+  p = segs.join('/');
+  return joinPath(p);
+}
+
+function webCalls(srcDir, app) {
+  const calls = [];
+  if (!fs.existsSync(srcDir)) return calls;
+  const isAdmin = app === 'admin-web';
+  for (const file of walk(srcDir, (f) => /\.(ts|tsx)$/.test(f) && !/[\\/]tests?[\\/]/.test(f) && !/\.(test|spec)\.tsx?$/.test(f))) {
+    let src = fs.readFileSync(file, 'utf8');
+    // Resolve simple module constants used to build URLs, in dependency order.
+    for (const name of ['PROXY_PREFIX', 'API_BASE']) {
+      const def = new RegExp(`\\bconst\\s+${name}\\s*=\\s*(['"\`])([^'"\`]*)\\1`).exec(src);
+      if (def && !def[2].includes('${')) src = src.split('${' + name + '}').join(def[2]);
+    }
+    const re = isAdmin
+      ? /\bapiClient\.(get|post|put|patch|delete)\b|\bserverFetch\b|\bfetchJson\b/g
+      : /\bapiClient\.(get|post|put|patch|delete)\b|\bserverFetch\b/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      const isServer = m[0] === 'serverFetch';
+      const isFetchJson = m[0] === 'fetchJson';
+      // `function serverFetch<T>(path...` is the definition, not a call.
+      if (/\bfunction\s*$/.test(src.slice(Math.max(0, m.index - 20), m.index))) continue;
+      let i = skipGeneric(src, m.index + m[0].length);
+      while (/\s/.test(src[i])) i++;
+      if (src[i] !== '(') continue; // import or reference, not a call
+      const callOpen = i;
+      i++;
+      while (/\s/.test(src[i])) i++;
+      const rel = path.relative(ROOT, file);
+      const line = lineOf(src, m.index);
+      if (!['"', "'", '`'].includes(src[i])) {
+        calls.push({ file: rel, line, dynamic: true });
+        continue;
+      }
+      const lit = readLiteral(src, i);
+      if (!lit) continue;
+      let method = isServer || isFetchJson ? 'GET' : m[1].toUpperCase();
+      if (isServer || isFetchJson) {
+        const tail = src.slice(lit.end, lit.end + 400);
+        const mm = /method:\s*['"`](GET|POST|PUT|PATCH|DELETE)['"`]/i.exec(tail.split(/\)\s*;/)[0]);
+        if (mm) method = mm[1].toUpperCase();
+      }
+      let p = lit.value;
+      if (isFetchJson) {
+        if (!p.startsWith('/api/proxy/')) {
+          calls.push({ file: rel, line, method, raw: lit.value, path: normaliseWebPath(p), reason: 'not routed through /api/proxy (the admin app has no such route)' });
+          continue;
+        }
+        p = p.slice('/api/proxy'.length);
+      }
+      const prependVersion = isServer || (isAdmin && (m[1] !== undefined || isFetchJson));
+      if (prependVersion && !/^\/?v\d+\//.test(p)) p = joinPath('v1', p);
+      const callEnd = qc.balancedEnd(src, callOpen);
+      const args = callEnd > 0 ? src.slice(callOpen, callEnd) : '';
+      const query = mergeQuery(qc.inlineQueryKeys(lit.value), qc.queryKeysFromArgs(args, 'searchParams', src, m.index));
+      calls.push({ file: rel, line, method, raw: lit.value, path: normaliseWebPath(p), query });
+    }
+  }
+  return calls;
+}
+
+/** Flutter call sites: ApiEndpoints constants/functions resolved per HTTP verb. */
+function mobileCalls() {
+  const calls = [];
+  if (!fs.existsSync(MOBILE_ENDPOINTS)) return calls;
+  const table = {};
+  const defs = fs.readFileSync(MOBILE_ENDPOINTS, 'utf8');
+  for (const m of defs.matchAll(/static\s+(?:const\s+)?String\s+(\w+)\s*(?:=|\([^)]*\)\s*=>)\s*'([^']*)'/g)) {
+    table[m[1]] = m[2].replace(/\$\{[^}]*\}|\$\w+/g, '${}');
+  }
+  for (const file of walk(MOBILE_LIB, (f) => f.endsWith('.dart') && f !== MOBILE_ENDPOINTS)) {
+    const src = fs.readFileSync(file, 'utf8');
+    const rel = path.relative(ROOT, file);
+    for (const m of src.matchAll(/ApiEndpoints\.(\w+)/g)) {
+      const before = src.slice(Math.max(0, m.index - 300), m.index);
+      const verbs = [...before.matchAll(/\b_?apiClient\.(get|post|patch|put|delete)\b/gi)];
+      const line = lineOf(src, m.index);
+      if (verbs.length === 0 || !(m[1] in table)) {
+        calls.push({ file: rel, line, dynamic: true });
+        continue;
+      }
+      const verb = verbs[verbs.length - 1];
+      const method = verb[1].toUpperCase();
+      const raw = table[m[1]];
+      const verbAt = m.index - before.length + verb.index + verb[0].length;
+      const open = src.indexOf('(', verbAt);
+      const end = open > 0 ? qc.balancedEnd(src, open) : -1;
+      const query = end > 0 ? qc.queryKeysFromArgs(src.slice(open, end), 'queryParameters', src, m.index) : null;
+      calls.push({ file: rel, line, method, raw: `ApiEndpoints.${m[1]} = '${raw}'`, path: normaliseWebPath(joinPath('v1', raw)), query });
+    }
+  }
+  return calls;
+}
+
+function mergeQuery(a, b) {
+  if (!a && !b) return null;
+  return { keys: [...((a && a.keys) || []), ...((b && b.keys) || [])], partial: Boolean((a && a.partial) || (b && b.partial)) };
+}
+
+/** The most specific matching route (most literal segments equal). */
+function bestRoute(routes, call) {
+  let best = null;
+  let score = -1;
+  for (const r of routes) {
+    if (!matches(r, call)) continue;
+    const a = r.path.split('/');
+    const b = call.path.split('/');
+    const sc = a.filter((seg, k) => !seg.startsWith(':') && seg === b[k]).length;
+    if (sc > score) {
+      best = r;
+      score = sc;
+    }
+  }
+  return best;
+}
+
+function matches(route, call) {
+  if (route.method !== call.method) return false;
+  const a = route.path.split('/');
+  const b = call.path.split('/');
+  if (a.length !== b.length) return false;
+  for (let k = 0; k < a.length; k++) {
+    if (a[k].startsWith(':') || b[k] === ':param') continue;
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+function main() {
+  const list = process.argv.includes('--list');
+  const routes = apiRoutes();
+  const calls = [...webCalls(WEB_SRC, 'web'), ...webCalls(ADMIN_SRC, 'admin-web'), ...mobileCalls()];
+  const checked = calls.filter((c) => !c.dynamic);
+  const classes = qc.dtoIndex(walk, API_SRC);
+  for (const c of checked) {
+    if (c.reason) continue;
+    const r = bestRoute(routes, c);
+    if (!r) continue;
+    const problem = qc.queryProblem(c, r, classes);
+    if (problem) c.reason = problem;
+  }
+  const withQuery = checked.filter((c) => c.query && c.query.keys.length > 0).length;
+  const bad = checked.filter((c) => c.reason || !routes.some((r) => matches(r, c)));
+  if (list) {
+    for (const c of checked) console.log(`${bad.includes(c) ? 'BAD ' : 'ok  '} ${c.method.padEnd(6)} ${c.path.padEnd(60)} ${c.file}:${c.line}`);
+  }
+  const dynamic = calls.length - checked.length;
+  if (bad.length > 0) {
+    console.error(`Web API contract check FAILED: ${bad.length} of ${checked.length} client calls have no matching API route or send query keys the route does not accept`);
+    for (const c of bad) console.error(`  - ${c.method} ${c.raw}  (${c.file}:${c.line}) -> ${c.reason || c.path}`);
+    process.exit(1);
+  }
+  console.log(
+    `Web API contract check OK: ${checked.length} client calls match ${routes.length} API routes; query keys checked on ${withQuery}` +
+      (dynamic > 0 ? ` (${dynamic} dynamic paths not checked)` : ''),
+  );
+}
+
+main();
+```
+
 FILE: scripts/dr-manifest.mjs
 
 ```javascript
@@ -379939,6 +382138,7 @@ export function collectEnvNames(root) {
     'services/trading-engine/.env.example',
     'services/market-data/.env.example',
     'apps/admin-web/.env.example',
+    'apps/web/.env.example',
   ];
   const names = new Set();
   for (const rel of files) {
@@ -381082,7 +383282,7 @@ function usage() {
       '  node scripts/dr-manifest.mjs --due [--now ISO] [--ledger PATH]',
       '  node scripts/dr-manifest.mjs --record --component ID --outcome ok|failed [--note TEXT] [--at ISO] [--ledger PATH]',
       '  node scripts/dr-manifest.mjs --check-rls [--now ISO] [--ledger PATH]',
-      '  node scripts/dr-manifest.mjs --record-rls --grade pass|fail|unverified [--probed N] [--role NAME] [--note TEXT] [--at ISO] [--ledger PATH]',
+      '  node scripts/dr-manifest.mjs --record-rls --grade pass|fail|unverified [--probed N] [--role NAME] [--note TEXT] [--at ISO] [--now ISO] [--ledger PATH]',
       '  node scripts/dr-manifest.mjs --emit-schedule [--root PATH] [--out PATH] [--manifest PATH]',
       '  node scripts/dr-manifest.mjs --check-schedule [--out PATH] [--manifest PATH]',
       '  node scripts/dr-manifest.mjs --verify-rls [--now ISO] [--ledger PATH] [--manifest PATH] [--json]',
@@ -381383,6 +383583,14 @@ function main(argv) {
       console.error(`--record-rls: --at is not an ISO-8601 timestamp: ${JSON.stringify(overrides.at)}`);
       return 1;
     }
+    // The freshness verdict printed after recording is aged against --now when given, exactly as
+    // --check-rls does - otherwise a record of a past audit is graded against the wall clock, and
+    // the same command answers differently depending on the day it is run.
+    const reportNowMs = overrides.now === undefined ? Date.now() : Date.parse(overrides.now);
+    if (Number.isNaN(reportNowMs)) {
+      console.error(`--record-rls: --now is not an ISO-8601 timestamp: ${JSON.stringify(overrides.now)}`);
+      return 1;
+    }
     const entry = { at: new Date(atMs).toISOString(), grade };
     if (overrides.probed !== undefined) {
       const probed = Number(overrides.probed);
@@ -381418,7 +383626,7 @@ function main(argv) {
     }
     appendFileSync(evidencePath, `${line}\n`, 'utf8');
     console.log(`recorded: ${line}`);
-    const row = rlsEvidenceReport(evidence, [...parsed.entries, { ...entry, atMs }], Date.now());
+    const row = rlsEvidenceReport(evidence, [...parsed.entries, { ...entry, atMs }], reportNowMs);
     console.log(row.line);
     return row.state === 'ok' || row.state === 'waived' ? 0 : 1;
   }
@@ -382067,7 +384275,21 @@ test('CLI: record-rls appends one line, check-rls ages it, and neither touches t
   assert.equal(existsSync(ledger), false);
   run(['--check-rls', '--now', '2026-09-14T12:00:00Z', '--ledger', ledger], 1);
   const recorded = run(
-    ['--record-rls', '--grade', 'pass', '--probed', '42', '--role', 'wlct_app', '--at', '2026-09-14T06:00:00Z', '--ledger', ledger],
+    [
+      '--record-rls',
+      '--grade',
+      'pass',
+      '--probed',
+      '42',
+      '--role',
+      'wlct_app',
+      '--at',
+      '2026-09-14T06:00:00Z',
+      '--now',
+      '2026-09-14T12:00:00Z',
+      '--ledger',
+      ledger,
+    ],
     0,
   );
   assert.match(recorded, /recorded: \{"at":"2026-09-14T06:00:00\.000Z","grade":"pass"/);
@@ -382088,6 +384310,7 @@ test('CLI: record-rls appends one line, check-rls ages it, and neither touches t
   run(['--record-rls', '--grade', 'ok', '--ledger', ledger], 1);
   run(['--record-rls', '--grade', 'pass', '--probed', 'lots', '--ledger', ledger], 1);
   run(['--record-rls', '--grade', 'pass', '--at', 'last tuesday', '--ledger', ledger], 1);
+  run(['--record-rls', '--grade', 'pass', '--now', 'next week', '--ledger', ledger], 1);
   assert.equal(readFileSync(ledger, 'utf8').split('\n').filter((l) => l.trim() !== '').length, 1);
   // a corrupt line: --check-rls refuses rather than grading the fleet on it
   writeFileSync(ledger, 'not json\n', { flag: 'a' });
@@ -382404,9 +384627,9 @@ test('--verify-rls: the shipped artifacts agree on scope, and the answer is stil
   assert.equal(byName.get('scope:enable-vs-disable').grade, 'pass');
   assert.equal(byName.get('schema-stamp').grade, 'pass');
   // ...and the scan is pinned to a count, so a regex that matches nothing cannot pass as "empty scope".
-  assert.equal(document.scope.enabled, 43);
-  assert.equal(document.scope.covered, 43);
-  assert.equal(document.scope.disabled, 43);
+  assert.equal(document.scope.enabled, 186);
+  assert.equal(document.scope.covered, 186);
+  assert.equal(document.scope.disabled, 186);
   // The evidence ledger has never been written, which is the honest grade for a fresh deployment.
   assert.equal(byName.get('evidence-ledger').grade, 'unverified');
   assert.equal(document.grade, 'unverified');
@@ -395005,7 +397228,7 @@ FILE: scripts/generate-keys.mjs
  */
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
 
@@ -395017,6 +397240,11 @@ function secret(bytes = 48) {
 /** A raw key, base64 encoded, for AES and HMAC use. */
 function keyBase64(bytes = 32) {
   return randomBytes(bytes).toString('base64');
+}
+
+/** A hex string (2 characters per byte), the format the execution engine documents. */
+function hex(bytes = 32) {
+  return randomBytes(bytes).toString('hex');
 }
 
 const generated = {
@@ -395034,6 +397262,12 @@ const generated = {
   // --- Service-to-service ---------------------------------------------------
   INTERNAL_SERVICE_TOKEN: secret(32),
   EXCHANGE_WEBHOOK_SIGNING_SECRET: secret(32),
+  // Shared secret between the worker/API and the execution engine (64 hex
+  // chars; the engine refuses < 32 chars or a placeholder). docker-compose.yml
+  // marks it required (`:?`), so before round 7 a bootstrap-then-compose-up
+  // run stopped with "EXECUTION_INTERNAL_TOKEN is required": nothing
+  // generated it and .env.example had no line for --write to fill.
+  EXECUTION_INTERNAL_TOKEN: hex(32),
 
   // --- Datastores -----------------------------------------------------------
   POSTGRES_PASSWORD: secret(24),
@@ -395042,7 +397276,45 @@ const generated = {
 
   // --- Admin console --------------------------------------------------------
   SESSION_COOKIE_SECRET: keyBase64(32),
+
+  // --- Customer web app -----------------------------------------------------
+  // Separate from the console's on purpose: customer and operator sessions
+  // must never be signed with the same key.
+  WEB_SESSION_COOKIE_SECRET: keyBase64(32),
+
+  // --- Developer platform ---------------------------------------------------
+  // HMAC key behind developer credential and webhook-secret digests. The API
+  // refuses to boot without it (>= 16 chars), so it is generated with the rest.
+  DEVELOPER_SECRET_HMAC_KEY: secret(48),
 };
+
+/**
+ * Connection URLs that embed one of the generated passwords.
+ *
+ * Round 8 (Docker run): --write filled POSTGRES_PASSWORD and REDIS_PASSWORD but left
+ * DATABASE_URL / DIRECT_DATABASE_URL carrying .env.example's
+ * `change_me_postgres_password` and REDIS_URL carrying no password at all. The
+ * compose Postgres initialises its role from POSTGRES_PASSWORD and Redis starts with
+ * --requirepass REDIS_PASSWORD, so every host-side tool reading the URLs (npm run
+ * db:seed, a local `npm run dev` API, prisma studio) failed authentication against
+ * the stack bootstrap had just generated. Containers never noticed: compose builds
+ * their URLs from the passwords directly.
+ *
+ * The same rule as the keys above applies: only a placeholder is replaced. A URL
+ * whose password an operator has set (anything not empty / change_me) is left alone,
+ * and an empty Postgres password is left alone too, because that can be a deliberate
+ * trust or peer-auth setup; Redis has no username, so an empty password there just
+ * means "never filled".
+ */
+const URL_PASSWORDS = [
+  { key: 'DATABASE_URL', secretKey: 'POSTGRES_PASSWORD', replaceEmpty: false },
+  { key: 'DIRECT_DATABASE_URL', secretKey: 'POSTGRES_PASSWORD', replaceEmpty: false },
+  { key: 'REDIS_URL', secretKey: 'REDIS_PASSWORD', replaceEmpty: true },
+];
+
+function isPlaceholder(value) {
+  return value.startsWith('change_me') || value.startsWith('changeme');
+}
 
 const args = process.argv.slice(2);
 const wantsJson = args.includes('--json');
@@ -395081,8 +397353,7 @@ if (writeTarget) {
 
     // Never silently overwrite a value that already looks configured: that is
     // how a working environment gets destroyed by a careless command.
-    const looksPlaceholder =
-      current === '' || current.startsWith('change_me') || current.startsWith('changeme');
+    const looksPlaceholder = current === '' || isPlaceholder(current);
 
     if (!looksPlaceholder) {
       skipped.push(key);
@@ -395093,10 +397364,41 @@ if (writeTarget) {
     applied.push(key);
   }
 
+  const urlsUpdated = [];
+  for (const { key, secretKey, replaceEmpty } of URL_PASSWORDS) {
+    // Only follow a password this run actually wrote; a password that was
+    // already configured is the operator's, and so is the URL built from it.
+    if (!applied.includes(secretKey)) continue;
+    const pattern = new RegExp(`^${key}=(.*)$`, 'm');
+    const match = pattern.exec(updated);
+    if (match === null) continue;
+    let url;
+    try {
+      url = new URL(match[1].trim());
+    } catch {
+      continue;
+    }
+    const currentPassword = decodeURIComponent(url.password);
+    const replace = isPlaceholder(currentPassword) || (replaceEmpty && currentPassword === '');
+    if (!replace) continue;
+    // The URL setter percent-encodes; the generated secrets are base64url, so
+    // this is belt and braces rather than a transformation.
+    url.password = generated[secretKey];
+    updated = updated.replace(pattern, () => `${key}=${url.toString()}`);
+    urlsUpdated.push(key);
+  }
+
   writeFileSync(path, updated, { mode: 0o600 });
+  // writeFileSync's `mode` only applies when it creates the file, and --write
+  // always targets an existing one, so without this an existing 0644 .env full
+  // of fresh secrets stayed world-readable while the message below claimed 600.
+  chmodSync(path, 0o600);
 
   console.log(`Updated ${writeTarget} (file mode set to 600).`);
   console.log(`  filled: ${applied.length > 0 ? applied.join(', ') : 'none'}`);
+  if (urlsUpdated.length > 0) {
+    console.log(`  connection URLs now carry the generated password: ${urlsUpdated.join(', ')}`);
+  }
 
   if (skipped.length > 0) {
     console.log(`  left alone (already set or absent): ${skipped.join(', ')}`);
@@ -395109,6 +397411,8 @@ const lines = [
   '# Generated cryptographic material.',
   '# Copy into your .env. Use a different set per environment.',
   '# Treat this output as sensitive: do not paste it into a chat, a ticket or a commit.',
+  '# DATABASE_URL and DIRECT_DATABASE_URL embed POSTGRES_PASSWORD, and REDIS_URL embeds',
+  '# REDIS_PASSWORD: update them to match (--write does this for placeholder URLs).',
   '',
   ...Object.entries(generated).map(([key, value]) => `${key}=${value}`),
   '',
@@ -395117,13 +397421,165 @@ const lines = [
 process.stdout.write(`${lines.join('\n')}`);
 ```
 
+FILE: scripts/generate-keys.test.mjs
+
+```javascript
+/**
+ * scripts/generate-keys.mjs is what scripts/bootstrap.sh uses to turn a copy of
+ * .env.example into a working .env. Its --write mode only fills a key that
+ * already has a `KEY=` line (it never invents lines, so comments and ordering
+ * survive), which means a generated key without such a line is silently never
+ * written. That is exactly how EXECUTION_INTERNAL_TOKEN - required by
+ * docker-compose.yml - went missing until round 7. These tests hold the two
+ * files together and check the --write contract end to end.
+ */
+
+import { strict as assert } from 'node:assert';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(HERE, '..');
+const SCRIPT = join(HERE, 'generate-keys.mjs');
+const EXAMPLE = readFileSync(join(ROOT, '.env.example'), 'utf8');
+
+function generated() {
+  return JSON.parse(execFileSync(process.execPath, [SCRIPT, '--json'], { encoding: 'utf8' }));
+}
+
+function assignment(text, key) {
+  const match = new RegExp(`^${key}=(.*)$`, 'm').exec(text);
+  return match ? match[1] : null;
+}
+
+test('every generated key has an active KEY= line in .env.example for --write to fill', () => {
+  const keys = Object.keys(generated());
+  assert.ok(keys.length >= 14, `expected at least 14 generated keys, got ${keys.length}`);
+  const missing = keys.filter((key) => assignment(EXAMPLE, key) === null);
+  assert.deepEqual(missing, []);
+});
+
+test('EXECUTION_INTERNAL_TOKEN is generated as 64 hex characters, fresh on every run', () => {
+  const first = generated().EXECUTION_INTERNAL_TOKEN;
+  const second = generated().EXECUTION_INTERNAL_TOKEN;
+  assert.match(first, /^[0-9a-f]{64}$/);
+  assert.notEqual(first, second);
+});
+
+test('docker-compose.yml requires the token that bootstrap now generates', () => {
+  const compose = readFileSync(join(ROOT, 'docker-compose.yml'), 'utf8');
+  assert.match(compose, /EXECUTION_INTERNAL_TOKEN: \$\{EXECUTION_INTERNAL_TOKEN:\?/);
+  assert.ok(Object.hasOwn(generated(), 'EXECUTION_INTERNAL_TOKEN'));
+});
+
+test('--write fills empty and change_me values, keeps configured ones, and sets mode 600', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wlct-keys-'));
+  try {
+    const target = join(dir, '.env');
+    const kept = 'an-operator-chosen-value-that-must-survive-0123456789';
+    const seeded = EXAMPLE.replace(/^JWT_ACCESS_SECRET=.*$/m, `JWT_ACCESS_SECRET=${kept}`).replace(
+      /^REDIS_PASSWORD=.*$/m,
+      'REDIS_PASSWORD=change_me_please',
+    );
+    writeFileSync(target, seeded, { mode: 0o644 });
+    execFileSync(process.execPath, [SCRIPT, '--write', target], { encoding: 'utf8' });
+    const written = readFileSync(target, 'utf8');
+
+    assert.equal(assignment(written, 'JWT_ACCESS_SECRET'), kept);
+    assert.match(assignment(written, 'EXECUTION_INTERNAL_TOKEN') ?? '', /^[0-9a-f]{64}$/);
+    const redis = assignment(written, 'REDIS_PASSWORD') ?? '';
+    assert.ok(redis.length >= 24 && !redis.startsWith('change_me'), 'change_me placeholder was not replaced');
+    for (const key of Object.keys(generated())) {
+      if (key === 'JWT_ACCESS_SECRET') continue;
+      assert.ok((assignment(written, key) ?? '') !== '', `${key} left empty after --write`);
+    }
+    assert.equal(statSync(target).mode & 0o777, 0o600);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function urlPassword(text, key) {
+  const value = assignment(text, key);
+  return value === null ? null : decodeURIComponent(new URL(value).password);
+}
+
+test('--write points the placeholder connection URLs at the passwords it generated', () => {
+  // Round 8: the Docker stack initialises Postgres and Redis from POSTGRES_PASSWORD and
+  // REDIS_PASSWORD, so a .env whose URLs kept change_me_postgres_password (or no Redis
+  // password) left every host-side tool - db:seed first - failing authentication.
+  const dir = mkdtempSync(join(tmpdir(), 'wlct-keys-'));
+  try {
+    const target = join(dir, '.env');
+    writeFileSync(target, EXAMPLE, { mode: 0o644 });
+    assert.ok(
+      (urlPassword(EXAMPLE, 'DATABASE_URL') ?? '').startsWith('change_me'),
+      '.env.example no longer ships a placeholder DATABASE_URL password - revisit this test',
+    );
+    execFileSync(process.execPath, [SCRIPT, '--write', target], { encoding: 'utf8' });
+    const written = readFileSync(target, 'utf8');
+    const postgres = assignment(written, 'POSTGRES_PASSWORD');
+    const redis = assignment(written, 'REDIS_PASSWORD');
+    assert.equal(urlPassword(written, 'DATABASE_URL'), postgres);
+    assert.equal(urlPassword(written, 'DIRECT_DATABASE_URL'), postgres);
+    assert.equal(urlPassword(written, 'REDIS_URL'), redis);
+    // Everything else about the URLs survives: user, host, database, query string.
+    const before = new URL(assignment(EXAMPLE, 'DATABASE_URL'));
+    const after = new URL(assignment(written, 'DATABASE_URL'));
+    assert.equal(after.username, before.username);
+    assert.equal(after.host, before.host);
+    assert.equal(after.pathname, before.pathname);
+    assert.equal(after.search, before.search);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--write leaves an operator-configured connection URL alone', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wlct-keys-'));
+  try {
+    const target = join(dir, '.env');
+    const configured = 'postgresql://copytrade:operator-set-password@db.internal:5432/copytrade?schema=public';
+    const seeded = EXAMPLE.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${configured}`);
+    writeFileSync(target, seeded, { mode: 0o644 });
+    execFileSync(process.execPath, [SCRIPT, '--write', target], { encoding: 'utf8' });
+    const written = readFileSync(target, 'utf8');
+    assert.equal(assignment(written, 'DATABASE_URL'), configured);
+    // The untouched placeholder sibling is still rewritten.
+    assert.equal(urlPassword(written, 'DIRECT_DATABASE_URL'), assignment(written, 'POSTGRES_PASSWORD'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--write does not rewrite URLs when the password itself was already configured', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wlct-keys-'));
+  try {
+    const target = join(dir, '.env');
+    const seeded = EXAMPLE.replace(/^POSTGRES_PASSWORD=.*$/m, 'POSTGRES_PASSWORD=operator-chosen-postgres-pw');
+    writeFileSync(target, seeded, { mode: 0o644 });
+    execFileSync(process.execPath, [SCRIPT, '--write', target], { encoding: 'utf8' });
+    const written = readFileSync(target, 'utf8');
+    assert.equal(assignment(written, 'POSTGRES_PASSWORD'), 'operator-chosen-postgres-pw');
+    assert.equal(assignment(written, 'DATABASE_URL'), assignment(EXAMPLE, 'DATABASE_URL'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+```
+
 FILE: scripts/generate-source-dump.mjs
 
 ```javascript
 #!/usr/bin/env node
 /**
- * Writes the complete Part 1 source of the monorepo into docs/source/ as a set
- * of Markdown files, every file rendered as
+ * Writes the complete source of the monorepo (every part, not only Part 1 -
+ * the name is historical) into docs/source/ as a set of Markdown files, every
+ * file rendered as
  *
  *     FILE: exact/path/to/file
  *     ```lang
@@ -395166,7 +397622,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 /** Files excluded: real secrets, lockfiles, binaries. */
-const SKIP_FILES = new Set(['.env', 'package-lock.json', 'pubspec.lock', '.DS_Store']);
+const SKIP_FILES = new Set(['.env', 'package-lock.json', 'pubspec.lock', '.terraform.lock.hcl', '.DS_Store']);
 
 const SKIP_EXTENSIONS = new Set([
   '.png',
@@ -395206,6 +397662,8 @@ const LANGUAGE_BY_EXTENSION = new Map([
   ['.properties', 'properties'],
   ['.txt', 'text'],
   ['.toml', 'toml'],
+  ['.tf', 'hcl'],
+  ['.hcl', 'hcl'],
   ['.plist', 'xml'],
   ['.pbxproj', 'text'],
   ['.podspec', 'ruby'],
@@ -395268,7 +397726,8 @@ const SECTIONS = [
     id: '07-services',
     title: 'Backing services',
     blurb:
-      'The Python trading-engine and market-data services, and the TypeScript notification worker. No execution logic in Part 1.',
+      'The Python trading-engine, market-data and execution-engine services, the low-latency gateway, and the TypeScript ' +
+      'notification worker. The execution engine runs simulated only; live mode is refused by code.',
     match: (path) => path.startsWith(`services${sep}`),
   },
   {
@@ -395299,6 +397758,33 @@ const SECTIONS = [
       path.startsWith(`infrastructure${sep}`) ||
       path.startsWith(`scripts${sep}`) ||
       path.startsWith(`docs${sep}`),
+  },
+  // Round 7: areas added after this generator was written. Without them the
+  // orphan check below refused to write a dump at all, so docs/source/ had
+  // silently stopped tracking the code. New sections are appended so the
+  // existing section file names stay stable.
+  {
+    id: '12-web',
+    title: 'End-user web app (Next.js)',
+    blurb:
+      'The tenant-branded web client: BFF auth routes (login, refresh, two-factor, SSO start/callback, logout), the API ' +
+      'proxy, and the copy-trading, portfolio, funding, strategies, billing and account screens, with their tests.',
+    match: (path) => path.startsWith(`apps${sep}web${sep}`),
+  },
+  {
+    id: '13-ops-and-deployment',
+    title: 'Production operations, deployment and evidence schemas',
+    blurb:
+      'The production operations module (preflight, gates, release manifest, backup/restore and rollback verification), ' +
+      'the validation check scripts, the Terraform root module and the JSON schemas for staging evidence.',
+    match: (path) =>
+      path.startsWith(`ops${sep}`) || path.startsWith(`infra${sep}`) || path.startsWith(`schemas${sep}`),
+  },
+  {
+    id: '14-root-tests',
+    title: 'Cross-package tests',
+    blurb: 'The repository-level jest project (billing entitlement resolver and guard specs) and its configuration.',
+    match: (path) => path.startsWith(`tests${sep}`),
   },
 ];
 
@@ -395375,7 +397861,7 @@ function main() {
       '',
       section.blurb,
       '',
-      `${members.length} files. Part of the complete Part 1 source dump - see \`docs/source/README.md\`.`,
+      `${members.length} files. Part of the complete source dump - see \`docs/source/README.md\`.`,
       '',
       '---',
       '',
@@ -395406,9 +397892,9 @@ function main() {
   }
 
   const readme = [
-    '# Complete Part 1 source',
+    '# Complete source',
     '',
-    'Every file of the Part 1 delivery, in full, with nothing elided. Generated by',
+    'Every tracked source file of the monorepo, in full, with nothing elided. Generated by',
     '`scripts/generate-source-dump.mjs`; regenerate it after any change with:',
     '',
     '```bash',
@@ -395419,7 +397905,7 @@ function main() {
     'content of that file, so a path can be located by searching for its `FILE:` line.',
     '',
     'Excluded on purpose: generated output (`node_modules`, `dist`, `.next`, Prisma',
-    'migrations, lockfiles), binary assets, and `.env` - which holds real secrets and',
+    'migrations, lockfiles including `.terraform.lock.hcl`), binary assets, and `.env` - which holds real secrets and',
     'must never be committed. `.env.example` documents every variable instead.',
     '',
     '| Section | Contents | Files | Lines |',
@@ -395438,6 +397924,1052 @@ function main() {
 }
 
 main();
+```
+
+FILE: scripts/generate-test-sso-keys.mjs
+
+```javascript
+#!/usr/bin/env node
+/**
+ * Generates the TEST-ONLY SAML signing material used by the API's SSO specs.
+ *
+ *   node scripts/generate-test-sso-keys.mjs            write apps/api/.generated/sso-test-keys/
+ *   node scripts/generate-test-sso-keys.mjs --out DIR  write DIR (its last segment must be
+ *                                                      "sso-test-keys")
+ *
+ * Why generated and not committed: the repository and its release archive must
+ * never contain a private key, not even a test one. Secret scanners cannot tell
+ * a test key from a real one, and an allowlist for one is a habit nobody should
+ * learn. The API's jest globalSetup (apps/api/test/sso-test-keys.global-setup.js)
+ * runs this script before every test run, so a plain `npm test` works without a
+ * manual step and every run verifies against freshly generated keys.
+ *
+ * What it writes (deterministic file names, fresh keys every run):
+ *
+ *   idp.key.pem / idp.cert.pem            the "configured" IdP signing pair
+ *                                         (self-signed, valid for 100 years)
+ *   attacker.key.pem / attacker.cert.pem  an unknown signer; the specs require every
+ *                                         response it signs to be rejected
+ *   spenc.key.pem / spenc.cert.pem        the service provider's encryption pair: the
+ *                                         IdP encrypts assertions to spenc.cert.pem and
+ *                                         the SP decrypts with spenc.key.pem (encrypted
+ *                                         assertion specs)
+ *   expired.key.pem / expired.cert.pem    a certificate valid only during 2020;
+ *                                         configuration validation must ignore it
+ *   .wlct-generated-test-keys             marker: this directory belongs to this script
+ *
+ * Safety rules, each one enforced below:
+ *   - OpenSSL must be on PATH; without it the script exits 2 with an explanation.
+ *     It never falls back to a hard-coded key and never lets a test skip.
+ *   - Private key material is never printed: OpenSSL output is captured, and only
+ *     file names are logged.
+ *   - Everything is generated in a sibling temp directory and verified (each key
+ *     matches its certificate, the expired certificate really is expired) before
+ *     it replaces the output directory, so a failed run leaves no half-written set.
+ *   - An existing output directory is replaced only when it carries the marker file.
+ *     Any other directory is refused (exit 3): the script deletes nothing it did not
+ *     create.
+ *   - Running it repeatedly is safe; each run replaces the previous set.
+ *
+ * Exit codes: 0 generated; 1 generation or verification failed; 2 OpenSSL missing;
+ * 3 refused to replace a directory this script does not own; 64 bad arguments.
+ */
+
+import { spawnSync } from "node:child_process";
+import { X509Certificate, createPrivateKey } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Where the API specs read the keys from (git-ignored, never packaged). */
+export const DEFAULT_OUT_DIR = join(
+  ROOT,
+  "apps",
+  "api",
+  ".generated",
+  "sso-test-keys",
+);
+/** The only directory name this script will write to or replace. */
+export const OUT_DIR_NAME = "sso-test-keys";
+/** Marker that proves a directory was created by this script. */
+export const MARKER_FILE = ".wlct-generated-test-keys";
+
+/** Self-signed pairs created with `openssl req -x509`. */
+const CURRENT_PAIRS = [
+  { name: "idp", subject: "/CN=wlct-test-idp/O=WLCT TEST ONLY" },
+  { name: "attacker", subject: "/CN=wlct-test-attacker/O=WLCT TEST ONLY" },
+  { name: "spenc", subject: "/CN=wlct-test-sp-encryption/O=WLCT TEST ONLY" },
+];
+
+/** The expired pair: validity fixed to calendar year 2020. */
+const EXPIRED_PAIR = {
+  name: "expired",
+  subject: "/CN=wlct-test-expired/O=WLCT TEST ONLY",
+  startDate: "20200101000000Z",
+  endDate: "20210101000000Z",
+};
+
+/** Every file a complete set contains (the specs read a subset of these). */
+export const GENERATED_FILES = Object.freeze([
+  "idp.key.pem",
+  "idp.cert.pem",
+  "attacker.key.pem",
+  "attacker.cert.pem",
+  "spenc.key.pem",
+  "spenc.cert.pem",
+  "expired.key.pem",
+  "expired.cert.pem",
+]);
+
+export class KeyGenerationError extends Error {
+  constructor(message, exitCode) {
+    super(message);
+    this.name = "KeyGenerationError";
+    this.exitCode = exitCode;
+  }
+}
+
+/**
+ * Runs openssl with captured output. stdout and stderr are never echoed: key
+ * generation can print progress, and nothing from this process may carry key
+ * material. On failure only the first lines of stderr are surfaced.
+ */
+function runOpenssl(args, cwd, opensslBin) {
+  const result = spawnSync(opensslBin, args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error) {
+    throw new KeyGenerationError(
+      `could not run ${opensslBin}: ${result.error.message}`,
+      1,
+    );
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || "")
+      .split("\n")
+      .filter((line) => line.trim() && !line.includes("PRIVATE KEY"))
+      .slice(0, 6)
+      .join("\n");
+    throw new KeyGenerationError(
+      `openssl ${args[0]} failed (exit ${result.status}):\n${detail}`,
+      1,
+    );
+  }
+}
+
+/** Returns the OpenSSL version line, or throws exit-code 2 when OpenSSL is unavailable. */
+export function checkOpenssl(opensslBin = "openssl") {
+  const result = spawnSync(opensslBin, ["version"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) {
+    throw new KeyGenerationError(
+      "OpenSSL is required to generate the test-only SAML keys used by the API SSO specs, " +
+        `but "${opensslBin} version" could not run` +
+        (result.error
+          ? ` (${result.error.code || result.error.message})`
+          : ` (exit ${result.status})`) +
+        ". Install OpenSSL (Linux: the openssl package; macOS: preinstalled or Homebrew; " +
+        "Windows: Git for Windows ships it) and make sure it is on PATH.",
+      2,
+    );
+  }
+  return String(result.stdout).trim();
+}
+
+/** Minimal `openssl ca` configuration: the portable way to issue a certificate with past dates. */
+function caConfig() {
+  return [
+    "[ ca ]",
+    "default_ca = test_ca",
+    "",
+    "[ test_ca ]",
+    "dir = .",
+    "database = ./index.txt",
+    "new_certs_dir = ./issued",
+    "serial = ./serial",
+    "default_md = sha256",
+    "policy = policy_any",
+    "unique_subject = no",
+    "copy_extensions = none",
+    "email_in_dn = no",
+    "",
+    "[ policy_any ]",
+    "commonName = supplied",
+    "organizationName = optional",
+    "",
+    "[ v3_test ]",
+    "basicConstraints = critical,CA:TRUE",
+    "subjectKeyIdentifier = hash",
+    "",
+  ].join("\n");
+}
+
+function generateCurrentPair(workDir, pair, opensslBin) {
+  runOpenssl(
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      `${pair.name}.key.pem`,
+      "-out",
+      `${pair.name}.cert.pem`,
+      "-days",
+      "36500",
+      "-subj",
+      pair.subject,
+      "-sha256",
+    ],
+    workDir,
+    opensslBin,
+  );
+}
+
+function generateExpiredPair(workDir, pair, opensslBin) {
+  const caDir = join(workDir, ".ca");
+  mkdirSync(join(caDir, "issued"), { recursive: true });
+  writeFileSync(join(caDir, "index.txt"), "");
+  writeFileSync(join(caDir, "serial"), "1000\n");
+  writeFileSync(join(caDir, "ca.cnf"), caConfig());
+  runOpenssl(
+    [
+      "req",
+      "-new",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      join(workDir, `${pair.name}.key.pem`),
+      "-out",
+      join(caDir, `${pair.name}.csr`),
+      "-subj",
+      pair.subject,
+      "-sha256",
+    ],
+    caDir,
+    opensslBin,
+  );
+  runOpenssl(
+    [
+      "ca",
+      "-batch",
+      "-selfsign",
+      "-config",
+      "ca.cnf",
+      "-keyfile",
+      join(workDir, `${pair.name}.key.pem`),
+      "-in",
+      `${pair.name}.csr`,
+      "-out",
+      join(workDir, `${pair.name}.cert.pem`),
+      "-startdate",
+      pair.startDate,
+      "-enddate",
+      pair.endDate,
+      "-extensions",
+      "v3_test",
+      "-notext",
+    ],
+    caDir,
+    opensslBin,
+  );
+  rmSync(caDir, { recursive: true, force: true });
+}
+
+/** Every key must match its certificate; the expired certificate must lie entirely in the past. */
+export function verifyGeneratedSet(dir, nowMs = Date.now()) {
+  for (const file of GENERATED_FILES) {
+    if (!existsSync(join(dir, file)) || statSync(join(dir, file)).size === 0) {
+      throw new KeyGenerationError(
+        `generated set is incomplete: ${file} is missing or empty`,
+        1,
+      );
+    }
+  }
+  for (const name of ["idp", "attacker", "spenc", "expired"]) {
+    const cert = new X509Certificate(
+      readFileSync(join(dir, `${name}.cert.pem`)),
+    );
+    const key = createPrivateKey(readFileSync(join(dir, `${name}.key.pem`)));
+    if (!cert.checkPrivateKey(key)) {
+      throw new KeyGenerationError(
+        `${name}.key.pem does not match ${name}.cert.pem`,
+        1,
+      );
+    }
+    const validTo = Date.parse(cert.validTo);
+    if (name === "expired") {
+      if (!(validTo < nowMs)) {
+        throw new KeyGenerationError("expired.cert.pem is not expired", 1);
+      }
+    } else if (!(Date.parse(cert.validFrom) <= nowMs && validTo > nowMs)) {
+      throw new KeyGenerationError(
+        `${name}.cert.pem is not currently valid`,
+        1,
+      );
+    }
+  }
+}
+
+/**
+ * Generates a fresh set into `outDir`, replacing a previous set this script created.
+ * Returns the list of files written (names only).
+ */
+export function generateTestSsoKeys({
+  outDir = DEFAULT_OUT_DIR,
+  opensslBin = "openssl",
+} = {}) {
+  const target = resolve(outDir);
+  if (basename(target) !== OUT_DIR_NAME) {
+    throw new KeyGenerationError(
+      `refusing to write to ${target}: the output directory must be named "${OUT_DIR_NAME}"`,
+      64,
+    );
+  }
+  if (existsSync(target) && !existsSync(join(target, MARKER_FILE))) {
+    throw new KeyGenerationError(
+      `refusing to replace ${target}: it exists but was not created by this script (no ${MARKER_FILE})`,
+      3,
+    );
+  }
+  checkOpenssl(opensslBin);
+
+  const parent = dirname(target);
+  mkdirSync(parent, { recursive: true });
+  const work = mkdtempSync(join(parent, `.${OUT_DIR_NAME}.tmp-`));
+  try {
+    for (const pair of CURRENT_PAIRS)
+      generateCurrentPair(work, pair, opensslBin);
+    generateExpiredPair(work, EXPIRED_PAIR, opensslBin);
+    writeFileSync(
+      join(work, MARKER_FILE),
+      "Generated by scripts/generate-test-sso-keys.mjs. TEST ONLY - never commit, never configure for a tenant.\n",
+    );
+    for (const file of GENERATED_FILES) {
+      if (file.endsWith(".key.pem")) chmodSync(join(work, file), 0o600);
+    }
+    verifyGeneratedSet(work);
+
+    if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+    renameSync(work, target);
+  } catch (error) {
+    rmSync(work, { recursive: true, force: true });
+    throw error;
+  }
+  return [...GENERATED_FILES];
+}
+
+function parseArgs(argv) {
+  const options = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--out") {
+      const value = argv[i + 1];
+      if (!value) throw new KeyGenerationError("--out needs a directory", 64);
+      options.outDir = value;
+      i += 1;
+    } else if (arg === "--help" || arg === "-h") {
+      options.help = true;
+    } else {
+      throw new KeyGenerationError(`unknown argument: ${arg}`, 64);
+    }
+  }
+  return options;
+}
+
+export function main(argv, log = console.log, logError = console.error) {
+  try {
+    const options = parseArgs(argv);
+    if (options.help) {
+      log(
+        "usage: node scripts/generate-test-sso-keys.mjs [--out <dir>/sso-test-keys]",
+      );
+      return 0;
+    }
+    const outDir = options.outDir ?? DEFAULT_OUT_DIR;
+    const files = generateTestSsoKeys({ outDir });
+    log(
+      `generated test-only SSO keys in ${resolve(outDir)}: ${files.join(", ")}`,
+    );
+    return 0;
+  } catch (error) {
+    const code = error instanceof KeyGenerationError ? error.exitCode : 1;
+    logError(`generate-test-sso-keys: ${error.message}`);
+    return code;
+  }
+}
+
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+if (invokedDirectly) {
+  process.exitCode = main(process.argv.slice(2));
+}
+```
+
+FILE: scripts/generate-test-sso-keys.test.mjs
+
+```javascript
+/**
+ * Tests for the test-only SAML key generator (run: `node --test scripts/`).
+ *
+ * The generator replaces committed fixture keys, so these tests pin the
+ * properties the SSO specs and the release rules depend on: a complete,
+ * matching, correctly dated set; no key material on stdout or stderr; no
+ * deletion of a directory the script did not create; a clear refusal without
+ * OpenSSL; and the generated directory staying out of version control.
+ */
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import { X509Certificate } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  DEFAULT_OUT_DIR,
+  GENERATED_FILES,
+  KeyGenerationError,
+  MARKER_FILE,
+  generateTestSsoKeys,
+  verifyGeneratedSet,
+} from "./generate-test-sso-keys.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const SCRIPT = join(ROOT, "scripts", "generate-test-sso-keys.mjs");
+const opensslAvailable =
+  spawnSync("openssl", ["version"], { stdio: "ignore" }).status === 0;
+
+function scratch() {
+  const base = mkdtempSync(join(tmpdir(), "wlct-sso-keys-"));
+  return { base, out: join(base, "sso-test-keys") };
+}
+
+test(
+  "generates a complete, matching, correctly dated set",
+  { skip: !opensslAvailable && "openssl not installed" },
+  () => {
+    const { base, out } = scratch();
+    try {
+      const files = generateTestSsoKeys({ outDir: out });
+      assert.deepEqual(files, [...GENERATED_FILES]);
+      for (const file of GENERATED_FILES)
+        assert.ok(existsSync(join(out, file)), `${file} exists`);
+      assert.ok(existsSync(join(out, MARKER_FILE)), "marker exists");
+      verifyGeneratedSet(out);
+
+      const idp = new X509Certificate(readFileSync(join(out, "idp.cert.pem")));
+      assert.match(idp.subject, /CN=wlct-test-idp/);
+      assert.ok(
+        Date.parse(idp.validTo) > Date.now() + 50 * 365 * 24 * 3600 * 1000,
+        "idp certificate is long-lived",
+      );
+      const expired = new X509Certificate(
+        readFileSync(join(out, "expired.cert.pem")),
+      );
+      assert.equal(
+        new Date(expired.validFrom).toISOString(),
+        "2020-01-01T00:00:00.000Z",
+      );
+      assert.equal(
+        new Date(expired.validTo).toISOString(),
+        "2021-01-01T00:00:00.000Z",
+      );
+      if (process.platform !== "win32") {
+        assert.equal(
+          statSync(join(out, "idp.key.pem")).mode & 0o077,
+          0,
+          "private keys are not group/world readable",
+        );
+      }
+      // Different signers really are different keys.
+      assert.notEqual(
+        readFileSync(join(out, "idp.cert.pem"), "utf8"),
+        readFileSync(join(out, "attacker.cert.pem"), "utf8"),
+      );
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "every run produces fresh keys and replaces only its own directory",
+  { skip: !opensslAvailable && "openssl not installed" },
+  () => {
+    const { base, out } = scratch();
+    try {
+      generateTestSsoKeys({ outDir: out });
+      const first = readFileSync(join(out, "idp.key.pem"), "utf8");
+      generateTestSsoKeys({ outDir: out });
+      const second = readFileSync(join(out, "idp.key.pem"), "utf8");
+      assert.notEqual(first, second, "a second run generates a new key");
+      // No temp directories are left behind next to the output.
+      const leftovers = readdirSync(base);
+      assert.deepEqual(leftovers, ["sso-test-keys"]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  },
+);
+
+test("refuses to replace a directory it did not create, and deletes nothing", () => {
+  const { base, out } = scratch();
+  try {
+    mkdirSync(out);
+    writeFileSync(join(out, "precious.txt"), "not yours");
+    assert.throws(
+      () => generateTestSsoKeys({ outDir: out }),
+      (error) => error instanceof KeyGenerationError && error.exitCode === 3,
+    );
+    assert.equal(readFileSync(join(out, "precious.txt"), "utf8"), "not yours");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("refuses an output directory with any other name", () => {
+  const base = mkdtempSync(join(tmpdir(), "wlct-sso-keys-"));
+  try {
+    assert.throws(
+      () => generateTestSsoKeys({ outDir: join(base, "fixtures") }),
+      (error) => error instanceof KeyGenerationError && error.exitCode === 64,
+    );
+    assert.equal(existsSync(join(base, "fixtures")), false);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("without OpenSSL it fails clearly (exit 2) and writes nothing", () => {
+  const { base, out } = scratch();
+  try {
+    const result = spawnSync(process.execPath, [SCRIPT, "--out", out], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: join(base, "no-such-bin") },
+    });
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /OpenSSL is required/);
+    assert.equal(existsSync(out), false);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test(
+  "the CLI never prints key material",
+  { skip: !opensslAvailable && "openssl not installed" },
+  () => {
+    const { base, out } = scratch();
+    try {
+      const result = spawnSync(process.execPath, [SCRIPT, "--out", out], {
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const printed = `${result.stdout}\n${result.stderr}`;
+      assert.doesNotMatch(
+        printed,
+        /BEGIN (RSA |EC )?PRIVATE KEY|BEGIN CERTIFICATE|MII[A-Za-z0-9+/]{20}/,
+      );
+      assert.match(result.stdout, /idp\.key\.pem/);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  },
+);
+
+test("the default output directory is git-ignored and outside every source tree", () => {
+  assert.equal(
+    DEFAULT_OUT_DIR,
+    join(ROOT, "apps", "api", ".generated", "sso-test-keys"),
+  );
+  const ignored = spawnSync(
+    "git",
+    ["check-ignore", "-q", join(DEFAULT_OUT_DIR, "idp.key.pem")],
+    { cwd: ROOT },
+  );
+  if (ignored.error || ignored.status === 128) return; // not a git checkout (e.g. extracted archive)
+  assert.equal(
+    ignored.status,
+    0,
+    "apps/api/.generated/ must be listed in .gitignore",
+  );
+  assert.doesNotMatch(DEFAULT_OUT_DIR, /[\\/]src[\\/]/);
+});
+
+test("no private key is committed anywhere in the repository", () => {
+  const listed = spawnSync("git", ["ls-files", "-z"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (listed.error || listed.status !== 0) return; // not a git checkout
+  const offenders = [];
+  for (const file of listed.stdout.split("\0").filter(Boolean)) {
+    if (!/\.(pem|key|p12|pfx)$/i.test(file)) continue;
+    const full = join(ROOT, file);
+    if (!existsSync(full)) continue;
+    if (/PRIVATE KEY/.test(readFileSync(full, "utf8"))) offenders.push(file);
+  }
+  assert.deepEqual(offenders, []);
+});
+```
+
+FILE: scripts/lib/api-query-contract.js
+
+```javascript
+'use strict';
+/**
+ * Query-parameter half of the web/admin/mobile -> API contract check.
+ *
+ * Matching paths is not enough: the API's global validation pipe runs with
+ * `whitelist` + `forbidNonWhitelisted`, so a client that sends a query key the
+ * handler's `@Query()` DTO does not declare gets a 422 even though the route
+ * exists (the customer strategies page sent `search` and failed this way).
+ * Handlers that read individual keys (`@Query('status')`) silently ignore
+ * anything else, which means a filter the UI shows has no effect.
+ *
+ * API side: each route's handler parameters are parsed for `@Query() x: Dto`
+ * (DTO properties resolved through `extends`, PartialType, PickType, OmitType
+ * and IntersectionType) or `@Query('key')`. Client side: literal keys of web
+ * `searchParams: {...}`, inline `?a=..&b=..` paths and mobile
+ * `queryParameters: {...}` maps, following one level of local variable.
+ * Anything that cannot be resolved statically is skipped, never guessed.
+ */
+const fs = require('fs');
+const path = require('path');
+
+/** Index of `src` just after the bracket that closes the one at `open`. */
+function balancedEnd(src, open) {
+  const pairs = { '(': ')', '{': '}', '[': ']', '<': '>' };
+  const stack = [];
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (c === "'" || c === '"' || c === '`') {
+      i = skipString(src, i);
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const nl = src.indexOf('\n', i);
+      i = nl < 0 ? src.length : nl;
+      continue;
+    }
+    if (c === '(' || c === '{' || c === '[') stack.push(pairs[c]);
+    else if (c === ')' || c === '}' || c === ']') {
+      if (stack.pop() !== c) return -1;
+      if (stack.length === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+function skipString(src, i) {
+  const q = src[i];
+  for (let j = i + 1; j < src.length; j++) {
+    if (src[j] === '\\') {
+      j++;
+      continue;
+    }
+    if (q === '`' && src[j] === '$' && src[j + 1] === '{') {
+      const end = balancedEnd(src, j + 1);
+      if (end < 0) return src.length;
+      j = end - 1;
+      continue;
+    }
+    if (src[j] === q) return j;
+  }
+  return src.length;
+}
+
+/** Split the inside of a bracketed literal into its top-level comma segments. */
+function topLevelSegments(src, open, close) {
+  const out = [];
+  let depth = 0;
+  let start = open + 1;
+  for (let i = open + 1; i < close - 1; i++) {
+    const c = src[i];
+    if (c === "'" || c === '"' || c === '`') {
+      i = skipString(src, i);
+      continue;
+    }
+    if (c === '(' || c === '{' || c === '[') depth++;
+    else if (c === ')' || c === '}' || c === ']') depth--;
+    else if (c === ',' && depth === 0) {
+      out.push(src.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(src.slice(start, close - 1));
+  return out.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/**
+ * Keys of an object/map literal whose `{` is at `open`.
+ * Returns { keys, partial } (partial = a spread or computed key was present).
+ */
+function literalKeys(src, open) {
+  const close = balancedEnd(src, open);
+  if (close < 0) return null;
+  const keys = [];
+  let partial = false;
+  for (let seg of topLevelSegments(src, open, close)) {
+    seg = seg.replace(/^(?:\/\/[^\n]*\n\s*)+/, '');
+    // Dart collection-if: `if (cond) 'key': value`
+    while (/^if\s*\(/.test(seg)) {
+      const end = balancedEnd(seg, seg.indexOf('('));
+      if (end < 0) break;
+      seg = seg.slice(end).trim();
+    }
+    if (seg.startsWith('...')) {
+      partial = true;
+      continue;
+    }
+    const kv = /^(['"]?)([A-Za-z_$][\w$-]*)\1\s*:/.exec(seg);
+    if (kv) {
+      keys.push(kv[2]);
+      continue;
+    }
+    const shorthand = /^([A-Za-z_$][\w$]*)$/.exec(seg);
+    if (shorthand) {
+      keys.push(shorthand[1]);
+      continue;
+    }
+    partial = true;
+  }
+  return { keys, partial };
+}
+
+/**
+ * Keys passed under `prop` (searchParams / queryParameters) in a call's
+ * argument text. `fileSrc` is used to follow `prop: someVariable`.
+ */
+function queryKeysFromArgs(args, prop, fileSrc, callIndex) {
+  const re = new RegExp(`\\b${prop}\\s*:\\s*`);
+  const m = re.exec(args);
+  if (!m) return null;
+  let rest = args.slice(m.index + m[0].length);
+  rest = rest.replace(/^(?:const\s+)?<[^>]*>\s*/, '');
+  if (rest.startsWith('{')) return literalKeys(rest, 0);
+  const ident = /^([A-Za-z_$][\w$]*)\s*[,)\n}]/.exec(rest + '\n');
+  if (!ident) return null;
+  // Nearest preceding `name = {` / `name = <K, V>{` definition in the file.
+  const defRe = new RegExp(`\\b${ident[1]}\\s*(?::[^=;\\n]+)?=\\s*(?:const\\s+)?(?:<[^>]*>\\s*)?\\{`, 'g');
+  let def = null;
+  let d;
+  while ((d = defRe.exec(fileSrc)) !== null && d.index < callIndex) def = d;
+  if (!def) return null;
+  const brace = def.index + def[0].length - 1;
+  const res = literalKeys(fileSrc, brace);
+  if (!res) return null;
+  // Keys added later with `name['key'] = ...` / `name.key = ...` / `name.set('key', ...)`.
+  const tail = fileSrc.slice(brace, callIndex);
+  for (const a of tail.matchAll(new RegExp(`\\b${ident[1]}(?:\\[['"]([\\w-]+)['"]\\]|\\.(?:set|append)\\(\\s*['"]([\\w-]+)['"])`, 'g'))) {
+    res.keys.push(a[1] || a[2]);
+  }
+  return res;
+}
+
+/** Keys of an inline query string in a raw client path (`/x?status=${}&page=1`). */
+function inlineQueryKeys(raw) {
+  const q = raw.indexOf('?');
+  if (q < 0) return null;
+  const keys = [];
+  let partial = false;
+  for (const part of raw.slice(q + 1).split('&')) {
+    const k = /^([A-Za-z_][\w-]*)=/.exec(part);
+    if (k) keys.push(k[1]);
+    else if (part.length > 0) partial = true;
+  }
+  return { keys, partial };
+}
+
+// ---------------------------------------------------------------- API side
+
+/** Class name -> { props:Set|null, ext: string|null } across apps/api/src. */
+function dtoIndex(walk, apiSrc) {
+  const classes = new Map();
+  for (const file of walk(apiSrc, (f) => f.endsWith('.ts') && !f.endsWith('.spec.ts'))) {
+    const src = fs.readFileSync(file, 'utf8');
+    const re = /\bclass\s+(\w+)\s*(?:<[^>{]*>)?\s*(extends\s+([^{]+?))?\s*(?:implements\s+[^{]+)?\{/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      const open = m.index + m[0].length - 1;
+      const close = balancedEnd(src, open);
+      if (close < 0) continue;
+      const props = new Set();
+      // Top-level text of the class body only (decorator arguments, method
+      // bodies and initialisers are nested and therefore skipped).
+      let depth = 0;
+      let line = '';
+      const lines = [];
+      for (let i = open + 1; i < close - 1; i++) {
+        const c = src[i];
+        if (c === "'" || c === '"' || c === '`') {
+          const end = skipString(src, i);
+          if (depth === 0) line += 'S';
+          i = end;
+          continue;
+        }
+        if (c === '(' || c === '{' || c === '[') {
+          if (depth === 0) line += c;
+          depth++;
+          continue;
+        }
+        if (c === ')' || c === '}' || c === ']') {
+          depth--;
+          if (depth === 0) line += c;
+          continue;
+        }
+        if (depth === 0) {
+          if (c === '\n') {
+            lines.push(line);
+            line = '';
+          } else line += c;
+        }
+      }
+      lines.push(line);
+      for (const l of lines) {
+        const p = /^\s*(?:@\w+\(\)\s*)*(?:(?:public|private|protected|readonly|declare)\s+)*([A-Za-z_$][\w$]*)\s*[?!]?\s*:/.exec(l);
+        if (p && !/^\s*(?:get|set|static|async|constructor)\b/.test(l)) props.add(p[1]);
+      }
+      classes.set(m[1], { props, ext: m[3] ? m[3].trim() : null, file });
+    }
+  }
+  return classes;
+}
+
+function resolveDto(classes, expr, seen = new Set()) {
+  expr = expr.trim();
+  const call = /^(PartialType|PickType|OmitType|IntersectionType)\s*\(([\s\S]*)\)$/.exec(expr);
+  if (call) {
+    const args = splitArgs(call[2]);
+    if (call[1] === 'PartialType') return resolveDto(classes, args[0] || '', seen);
+    if (call[1] === 'IntersectionType') {
+      const all = new Set();
+      for (const a of args) {
+        const r = resolveDto(classes, a, seen);
+        if (!r) return null;
+        r.forEach((k) => all.add(k));
+      }
+      return all;
+    }
+    const base = resolveDto(classes, args[0] || '', seen);
+    const listed = [...(args[1] || '').matchAll(/['"](\w+)['"]/g)].map((x) => x[1]);
+    if (!base) return null;
+    if (call[1] === 'PickType') return new Set(listed.filter((k) => base.has(k)));
+    return new Set([...base].filter((k) => !listed.includes(k)));
+  }
+  const name = /^([A-Za-z_$][\w$]*)/.exec(expr);
+  if (!name || seen.has(name[1])) return null;
+  const cls = classes.get(name[1]);
+  if (!cls) return null;
+  seen.add(name[1]);
+  const out = new Set(cls.props);
+  if (cls.ext) {
+    const parent = resolveDto(classes, cls.ext, seen);
+    if (!parent) return null;
+    parent.forEach((k) => out.add(k));
+  }
+  return out;
+}
+
+function splitArgs(text) {
+  const src = `(${text})`;
+  return topLevelSegments(src, 0, src.length);
+}
+
+/**
+ * Query contract for a route decorator found at `index` in a controller:
+ *   { mode: 'dto', dto } | { mode: 'keys', keys } | { mode: 'none' } | null
+ */
+function routeQuery(src, index, nextIndex) {
+  const seg = src.slice(index, nextIndex);
+  // First method header that is not a decorator line.
+  const header = /\n\s*(?:(?:public|private|protected)\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/g;
+  let h;
+  while ((h = header.exec(seg)) !== null) {
+    const lineStart = seg.lastIndexOf('\n', h.index + 1);
+    if (!/^\s*@/.test(seg.slice(lineStart + 1))) break;
+  }
+  if (!h) return null;
+  const open = h.index + h[0].length - 1;
+  const close = balancedEnd(seg, open);
+  if (close < 0) return null;
+  const params = seg.slice(open, close);
+  const dto = /@Query\(\s*(?:[A-Z]\w*(?:\([^)]*\))?\s*)?\)\s*(?:\w+\s+)?\w+\s*[?]?\s*:\s*([A-Za-z_$][\w$]*)/.exec(params);
+  if (dto) return { mode: 'dto', dto: dto[1] };
+  const keys = [...params.matchAll(/@Query\(\s*['"]([\w-]+)['"]/g)].map((x) => x[1]);
+  if (keys.length > 0) return { mode: 'keys', keys };
+  if (/@Query\(/.test(params)) return null; // something we do not understand
+  return { mode: 'none' };
+}
+
+/** Problems for one call against its matched route, or null when fine/unknown. */
+function queryProblem(call, route, classes) {
+  if (!call.query || call.query.keys.length === 0 || !route.query) return null;
+  const sent = [...new Set(call.query.keys)];
+  if (route.query.mode === 'dto') {
+    if (/^(Record|Object|any|unknown)$/.test(route.query.dto)) return null;
+    const props = resolveDto(classes, route.query.dto);
+    if (!props) return null;
+    const unknown = sent.filter((k) => !props.has(k));
+    if (unknown.length === 0) return null;
+    return `query ${unknown.map((k) => `'${k}'`).join(', ')} not declared by ${route.query.dto} -> 422 (accepts: ${[...props].sort().join(', ') || 'none'})`;
+  }
+  const accepted = route.query.mode === 'keys' ? route.query.keys : [];
+  const unknown = sent.filter((k) => !accepted.includes(k));
+  if (unknown.length === 0) return null;
+  return `query ${unknown.map((k) => `'${k}'`).join(', ')} silently ignored by the handler (reads: ${accepted.join(', ') || 'no query parameters'})`;
+}
+
+module.exports = {
+  balancedEnd,
+  dtoIndex,
+  inlineQueryKeys,
+  literalKeys,
+  queryKeysFromArgs,
+  queryProblem,
+  resolveDto,
+  routeQuery,
+};
+```
+
+FILE: scripts/lib/api-query-contract.test.mjs
+
+```javascript
+/**
+ * Tests for the query-parameter half of the client -> API contract check
+ * (run: `node --test scripts/`).
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const qc = require('./api-query-contract.js');
+
+function walk(dir, filter, out = []) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const f = path.join(dir, e.name);
+    if (e.isDirectory()) walk(f, filter, out);
+    else if (filter(f)) out.push(f);
+  }
+  return out;
+}
+
+test('object literal keys: plain, quoted, shorthand, spread, Dart collection-if', () => {
+  assert.deepEqual(qc.literalKeys(`{ page, limit: 20, "status": s }`, 0), { keys: ['page', 'limit', 'status'], partial: false });
+  assert.deepEqual(qc.literalKeys(`{ ...base, search }`, 0), { keys: ['search'], partial: true });
+  const dart = `{'sortBy': sortBy, 'page': 1, if (search != null && search.isNotEmpty) 'search': search}`;
+  assert.deepEqual(qc.literalKeys(dart, 0), { keys: ['sortBy', 'page', 'search'], partial: false });
+});
+
+test('query keys from call arguments, including a local variable and later assignments', () => {
+  const web = `apiClient.get("/v1/x", { searchParams: { page: 1, status } })`;
+  assert.deepEqual(qc.queryKeysFromArgs(web, 'searchParams', web, 0).keys, ['page', 'status']);
+
+  const file = [
+    `final Map<String, Object?> query = <String, Object?>{'profileId': id};`,
+    `query['from'] = from;`,
+    `await _apiClient.get(ApiEndpoints.pnl, queryParameters: query, parser: f);`,
+  ].join('\n');
+  const at = file.indexOf('_apiClient');
+  const args = file.slice(file.indexOf('(', at));
+  assert.deepEqual(qc.queryKeysFromArgs(args, 'queryParameters', file, at).keys, ['profileId', 'from']);
+  assert.equal(qc.queryKeysFromArgs(`(path, { body })`, 'searchParams', '', 0), null);
+});
+
+test('inline query strings', () => {
+  assert.deepEqual(qc.inlineQueryKeys('/v1/x?status=${}&page=1'), { keys: ['status', 'page'], partial: false });
+  assert.equal(qc.inlineQueryKeys('/v1/x'), null);
+});
+
+test('route query contract: DTO, individual keys, none', () => {
+  const src = [
+    `  @Get('a')`,
+    `  @ApiQuery({ name: 'x' })`,
+    `  async a(@Query() query: ListThingsDto) {}`,
+    `  @Get('b')`,
+    `  async b(@Query('status') status?: string, @Query('page') page?: string) {}`,
+    `  @Get('c')`,
+    `  async c(@Param('id', ParseUuidPipe) id: string) {}`,
+  ].join('\n');
+  const idx = [...src.matchAll(/@Get/g)].map((m) => m.index);
+  assert.deepEqual(qc.routeQuery(src, idx[0], idx[1]), { mode: 'dto', dto: 'ListThingsDto' });
+  assert.deepEqual(qc.routeQuery(src, idx[1], idx[2]), { mode: 'keys', keys: ['status', 'page'] });
+  assert.deepEqual(qc.routeQuery(src, idx[2], src.length), { mode: 'none' });
+});
+
+test('DTO resolution through extends and mapped types, and the problems reported', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'qc-'));
+  try {
+    mkdirSync(path.join(dir, 'dto'));
+    writeFileSync(
+      path.join(dir, 'dto', 'a.dto.ts'),
+      [
+        `export class PaginationQueryDto {`,
+        `  @IsOptional() @Max(100, { message: 'limit: max' }) limit?: number;`,
+        `  @IsOptional() page?: number;`,
+        `}`,
+        `export class ListThingsDto extends PaginationQueryDto {`,
+        `  @IsOptional() @IsEnum(S) status?: S;`,
+        `  get computed(): string { return ''; }`,
+        `}`,
+        `export class CreateThingDto { name!: string; secret!: string; }`,
+        `export class PatchThingDto extends PartialType(OmitType(CreateThingDto, ['secret'] as const)) {}`,
+      ].join('\n'),
+    );
+    const classes = qc.dtoIndex(walk, dir);
+    assert.deepEqual([...qc.resolveDto(classes, 'ListThingsDto')].sort(), ['limit', 'page', 'status']);
+    assert.deepEqual([...qc.resolveDto(classes, 'PatchThingDto')], ['name']);
+    assert.equal(qc.resolveDto(classes, 'Missing'), null);
+
+    const route = { query: { mode: 'dto', dto: 'ListThingsDto' } };
+    assert.equal(qc.queryProblem({ query: { keys: ['page', 'status'] } }, route, classes), null);
+    assert.match(qc.queryProblem({ query: { keys: ['search'] } }, route, classes), /'search' not declared by ListThingsDto -> 422/);
+
+    const keysRoute = { query: { mode: 'keys', keys: ['status'] } };
+    assert.match(qc.queryProblem({ query: { keys: ['status', 'sort'] } }, keysRoute, classes), /'sort' silently ignored/);
+    assert.match(qc.queryProblem({ query: { keys: ['q'] } }, { query: { mode: 'none' } }, classes), /no query parameters/);
+    // Untyped `@Query() q: any` handlers cannot be checked statically.
+    assert.equal(qc.queryProblem({ query: { keys: ['x'] } }, { query: { mode: 'dto', dto: 'any' } }, classes), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 ```
 
 FILE: scripts/live_execution_smoke_test.py
@@ -397402,6 +400934,151 @@ if (invokedDirectly) {
 }
 ```
 
+FILE: scripts/seed-password-policy.test.mjs
+
+```javascript
+/**
+ * apps/api/prisma/seed.ts creates the platform super administrator from
+ * SEED_SUPER_ADMIN_PASSWORD. Until round 8 it only rejected the .env.example
+ * placeholder, so any other non-empty value became the password - the Docker
+ * run found it accepting six characters. That value came from the trap
+ * .env.example warns about: an unquoted '#' makes dotenv-cli truncate the
+ * value, the seed hashed the truncated password without complaint, and the
+ * first login was a 401.
+ *
+ * The seed now applies the API's own password policy (evaluatePassword from
+ * @wlct/validation, minimum length from PASSWORD_MIN_LENGTH) and does it before
+ * the first database write. These tests run the real seed through ts-node
+ * against a database URL nothing listens on:
+ *   - a rejected password must fail with the policy message and must never
+ *     reach the database (no connection error in the output);
+ *   - an accepted password must get past the policy and fail only on the
+ *     unreachable database, which proves the check runs first rather than
+ *     being skipped.
+ *
+ * Prerequisites (the CI node job provides them before `node --test scripts/`):
+ * npm ci, `prisma generate`, and `npm run build:packages`.
+ */
+
+import { strict as assert } from 'node:assert';
+import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(HERE, '..');
+const API_DIR = join(ROOT, 'apps', 'api');
+const TS_NODE = join(ROOT, 'node_modules', 'ts-node', 'dist', 'bin.js');
+
+const POLICY_MESSAGE = 'does not meet the password policy the API enforces';
+const PLACEHOLDER_MESSAGE = 'still holds the placeholder value from .env.example';
+const QUOTING_HINT = 'wrap it in double quotes';
+
+/** Port 1 on loopback: nothing listens there, so any connection attempt fails fast. */
+const UNREACHABLE_DATABASE_URL = 'postgresql://seed_test:seed_test@127.0.0.1:1/seed_test?connect_timeout=2';
+
+function runSeed(overrides) {
+  assert.ok(
+    existsSync(TS_NODE),
+    `ts-node not found at ${TS_NODE}; run npm ci in whitelabel-copytrade/ first`,
+  );
+
+  const env = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    NODE_ENV: 'test',
+    DATABASE_URL: UNREACHABLE_DATABASE_URL,
+    DIRECT_DATABASE_URL: UNREACHABLE_DATABASE_URL,
+    BLIND_INDEX_KEY_BASE64: randomBytes(32).toString('base64'),
+    SEED_SUPER_ADMIN_EMAIL: 'operator@example.com',
+    ...overrides,
+  };
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) {
+      delete env[key];
+    }
+  }
+
+  const result = spawnSync(process.execPath, [TS_NODE, '--transpile-only', 'prisma/seed.ts'], {
+    cwd: API_DIR,
+    env,
+    encoding: 'utf8',
+    timeout: 120_000,
+  });
+
+  return {
+    status: result.status,
+    output: `${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+  };
+}
+
+function assertRejectedBeforeDatabase(result, expectedMessage) {
+  assert.equal(result.status, 1, `seed should exit 1, got ${result.status}\n${result.output}`);
+  assert.ok(result.output.includes('Seed failed:'), result.output);
+  assert.ok(result.output.includes(expectedMessage), result.output);
+  // The permission catalogue is the first write; it must not have started.
+  assert.ok(!result.output.includes('permissions ..'), result.output);
+  assert.ok(!/Can't reach database|P1001|ECONNREFUSED/.test(result.output), result.output);
+}
+
+test('a password truncated by an unquoted # is rejected before any database access', () => {
+  // `SEED_SUPER_ADMIN_PASSWORD=My_P4ss#2026` reaches the seed as "My_P4ss".
+  const result = runSeed({ SEED_SUPER_ADMIN_PASSWORD: 'My_P4ss' });
+  assertRejectedBeforeDatabase(result, POLICY_MESSAGE);
+  assert.ok(result.output.includes('at least 12 characters'), result.output);
+  assert.ok(result.output.includes(QUOTING_HINT), result.output);
+});
+
+test('a long password without the required character classes is rejected', () => {
+  const result = runSeed({ SEED_SUPER_ADMIN_PASSWORD: 'onlylowercaseletters' });
+  assertRejectedBeforeDatabase(result, POLICY_MESSAGE);
+  assert.ok(result.output.includes('uppercase'), result.output);
+  assert.ok(result.output.includes('digit'), result.output);
+  assert.ok(result.output.includes('symbol'), result.output);
+});
+
+test('a password containing the administrator email is rejected, as the API rejects it', () => {
+  const result = runSeed({
+    SEED_SUPER_ADMIN_EMAIL: 'founder@example.com',
+    SEED_SUPER_ADMIN_PASSWORD: 'Founder@Example.com-2026',
+  });
+  assertRejectedBeforeDatabase(result, POLICY_MESSAGE);
+});
+
+test('PASSWORD_MIN_LENGTH raises the minimum the seed enforces', () => {
+  const result = runSeed({
+    PASSWORD_MIN_LENGTH: '24',
+    SEED_SUPER_ADMIN_PASSWORD: 'Kq7#vRm2-Tx9!wLp',
+  });
+  assertRejectedBeforeDatabase(result, POLICY_MESSAGE);
+  assert.ok(result.output.includes('at least 24 characters'), result.output);
+});
+
+test('the .env.example placeholder is still rejected', () => {
+  const result = runSeed({ SEED_SUPER_ADMIN_PASSWORD: 'ChangeMe_Str0ng!Pass' });
+  assertRejectedBeforeDatabase(result, PLACEHOLDER_MESSAGE);
+});
+
+test('a password that satisfies the policy gets past the check and only then needs the database', () => {
+  const result = runSeed({ SEED_SUPER_ADMIN_PASSWORD: 'Kq7#vRm2-Tx9!wLp' });
+  assert.equal(result.status, 1, `seed should exit 1 on the unreachable database\n${result.output}`);
+  assert.ok(result.output.includes('Seed failed:'), result.output);
+  assert.ok(!result.output.includes(POLICY_MESSAGE), result.output);
+  assert.ok(!result.output.includes(PLACEHOLDER_MESSAGE), result.output);
+  assert.ok(/Can't reach database|P1001|ECONNREFUSED|connect/i.test(result.output), result.output);
+});
+
+test('an unset password skips the policy check (the seed generates one)', () => {
+  const result = runSeed({ SEED_SUPER_ADMIN_PASSWORD: undefined });
+  assert.equal(result.status, 1, `seed should exit 1 on the unreachable database\n${result.output}`);
+  assert.ok(!result.output.includes(POLICY_MESSAGE), result.output);
+  assert.ok(/Can't reach database|P1001|ECONNREFUSED|connect/i.test(result.output), result.output);
+});
+```
+
 FILE: scripts/smoke-test.sh
 
 ```bash
@@ -397839,6 +401516,1217 @@ if [[ "${FAILED}" -gt 0 ]]; then
 fi
 ```
 
+FILE: scripts/staging/live_readiness.py
+
+```python
+#!/usr/bin/env python3
+"""Development preflight for live-readiness prerequisites (Part 28).
+
+Quick verification for development environments: build the runtime the way
+the service would, grade the eight live prerequisites from the objects that
+were actually constructed, and print the answer. SKIPPED counts as success
+here - a developer box without a vault, Redis or Postgres is not wrong, it is
+just not staging.
+
+What this is NOT:
+
+* It is not the staging rehearsal (that is ``staging_rehearsal.py``, which is
+  strict: SKIPPED and UNVERIFIED on required infrastructure block readiness).
+* It never submits an order, never enables live execution, and never writes to
+  a persistent store. ``EXECUTION_MODE=live`` is refused by the composition
+  root before this script could do anything with it.
+* It never prints secret material. Everything it renders about credentials is
+  the source label the enablement report already publishes for audit.
+
+The grading is not re-implemented here. The script reads the same
+``LiveEnablementReport`` the composition root computed from the wiring it
+built, so a preflight line and the engine's own refusal sentence can never
+disagree about what is missing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+
+# The script lives in <repo>/scripts/staging; the engine it inspects lives in
+# <repo>/services/execution-engine, the library it speaks in
+# <repo>/libs/trading-core. Path-resolved rather than installed so the check
+# always grades the tree it is sitting in.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ENGINE_ROOT = REPO_ROOT / "services" / "execution-engine"
+for _candidate in (str(ENGINE_ROOT), str(REPO_ROOT / "libs" / "trading-core")):
+    if _candidate not in sys.path:
+        sys.path.insert(0, _candidate)
+
+from wlct_trading.execution.live_enablement import (  # noqa: E402
+    LiveEnablementReport,
+    LivePrerequisite,
+)
+
+__all__ = [
+    "PREREQUISITE_ORDER",
+    "CREDENTIAL_CONDITIONAL",
+    "PrerequisiteStatus",
+    "ReadinessResult",
+    "classify",
+    "run_preflight",
+    "load_staging_env",
+    "main",
+]
+
+#: Report order = declaration order of the enum, so a preflight line and the
+#: engine's own refusal sentence always list the same things in the same order.
+PREREQUISITE_ORDER: tuple[LivePrerequisite, ...] = (
+    LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,
+    LivePrerequisite.CREDENTIAL_FETCHER_WIRED,
+    LivePrerequisite.VENUE_ATTESTOR_WIRED,
+    LivePrerequisite.OPERATOR_CONFIRMATION_ACCEPTED,
+    LivePrerequisite.DURABLE_STORE_WIRED,
+    LivePrerequisite.DISTRIBUTED_LOCKS_WIRED,
+    LivePrerequisite.IP_ALLOWLIST_ENFORCED,
+    LivePrerequisite.SIGNED_TRANSPORT_WIRED,
+)
+
+#: Prerequisites whose absence a development environment tolerates. Their
+#: status degrades to SKIPPED when no credential source is configured, and
+#: SKIPPED is preflight success - the exact opposite of the rehearsal's rule,
+#: and the reason there are two tools instead of one with a flag.
+CREDENTIAL_CONDITIONAL: frozenset[LivePrerequisite] = frozenset(
+    {
+        LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,
+        LivePrerequisite.CREDENTIAL_FETCHER_WIRED,
+        LivePrerequisite.VENUE_ATTESTOR_WIRED,
+        LivePrerequisite.OPERATOR_CONFIRMATION_ACCEPTED,
+    }
+)
+
+
+class PrerequisiteStatus(str, Enum):
+    """The three preflight outcomes, and no fourth.
+
+    PASS - the runtime object proving it was constructed.
+    SKIPPED - not configured, which development tolerates.
+    FAIL - configured but not wired, or wired but graded missing: the only
+    preflight outcome that exits non-zero.
+    """
+
+    PASS = "PASS"  # noqa: S105 - a grading label, not a credential
+    SKIPPED = "SKIPPED"  # noqa: S105
+    FAIL = "FAIL"  # noqa: S105
+
+
+@dataclass(frozen=True)
+class ReadinessResult:
+    """One prerequisite's preflight answer, as data."""
+
+    prerequisite: LivePrerequisite
+    status: PrerequisiteStatus
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "prerequisite": self.prerequisite.value,
+            "status": self.status.value,
+            "detail": self.detail,
+        }
+
+
+def classify(
+    prerequisite: LivePrerequisite,
+    report: LiveEnablementReport,
+) -> PrerequisiteStatus:
+    """Grade one prerequisite the preflight way.
+
+    Satisfied is PASS. Anything else is SKIPPED for credential-conditional
+    items when no credential source is configured at all, and FAIL for
+    everything else - a configured-but-missing credential fetcher is exactly
+    the difference this repository has actually been bitten by, so it is
+    never smoothed into a skip. The report carries the credential source it
+    graded against, so the decision reads the grading's own input rather than
+    re-reading the environment.
+    """
+    if prerequisite in report.satisfied:
+        return PrerequisiteStatus.PASS
+    if prerequisite in CREDENTIAL_CONDITIONAL and report.credential_source == "none":
+        return PrerequisiteStatus.SKIPPED
+    return PrerequisiteStatus.FAIL
+
+
+def run_preflight(report: LiveEnablementReport) -> list[ReadinessResult]:
+    """Grade all eight prerequisites, in report order."""
+    return [
+        ReadinessResult(
+            prerequisite=prerequisite,
+            status=classify(prerequisite, report),
+            detail="graded from runtime objects",
+        )
+        for prerequisite in PREREQUISITE_ORDER
+    ]
+
+
+def load_staging_env(path: Path) -> int:
+    """Load ``name=value`` lines from a staging env file into the environment.
+
+    ``setdefault``, not assignment: an operator who exported a value on the
+    command line wins over the file. Returns the number of variables set.
+    """
+    loaded = 0
+    if not path.is_file():
+        return loaded
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        name = name.strip()
+        value = value.strip().strip('"').strip("'")
+        if not name:
+            continue
+        if name not in os.environ:
+            os.environ[name] = value
+            loaded += 1
+    return loaded
+
+
+def _looks_like_production(env: dict[str, str]) -> bool:
+    mode = (env.get("NODE_ENV") or "").strip().lower()
+    return mode == "production"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Development preflight for the eight live-readiness "
+        "prerequisites. Reads only; never submits an order; never enables "
+        "live execution."
+    )
+    parser.add_argument(
+        "--staging",
+        action="store_true",
+        help="load .env.staging from the repository root before building the "
+        "runtime (variables already set in the environment win)",
+    )
+    parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument(
+        "--allow-production",
+        action="store_true",
+        help="explicit opt-in required to run against NODE_ENV=production",
+    )
+    args = parser.parse_args(argv)
+
+    if args.staging:
+        load_staging_env(REPO_ROOT / ".env.staging")
+
+    if _looks_like_production(os.environ) and not args.allow_production:
+        print(
+            "refusing to run against NODE_ENV=production without --allow-production",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Imported after sys.path is set up and the staging values are loaded:
+    # Settings must be constructed from the environment the operator asked
+    # for, not the one the process happened to start with.
+    from app.composition import build_runtime  # noqa: E402
+    from app.config import Settings  # noqa: E402
+
+    try:
+        settings = Settings()
+    except Exception as error:
+        # The service's own fail-closed settings refusal (missing internal
+        # token, bad mode, ...) is an answer, not a crash: render it and
+        # exit BLOCKED.
+        first = str(error).splitlines()
+        detail = first[1].strip() if len(first) > 1 else str(error)
+        payload = {
+            "mode": None,
+            "ready": False,
+            "prerequisites": [],
+            "error": f"service configuration refused: {detail}",
+        }
+        if args.json:
+            print(json.dumps(payload))
+        else:
+            print(payload["error"])
+        return 2
+
+    try:
+        runtime = build_runtime(settings)
+    except Exception as error:  # a boot refusal IS the readiness answer
+        payload = {
+            "mode": settings.EXECUTION_MODE,
+            "ready": False,
+            "prerequisites": [],
+            "error": f"{type(error).__name__}: {error}",
+        }
+        if args.json:
+            print(json.dumps(payload))
+        else:
+            print(f"runtime construction refused: {payload['error']}")
+        return 1
+
+    report = runtime.live_enablement
+    if report is None:
+        print("runtime built without a live-enablement report", file=sys.stderr)
+        return 1
+
+    results = run_preflight(report)
+    ready = all(
+        result.status in (PrerequisiteStatus.PASS, PrerequisiteStatus.SKIPPED)
+        for result in results
+    )
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "mode": settings.EXECUTION_MODE,
+                    "ready": ready,
+                    "liveRefused": report.blocks_live,
+                    "credentialSource": report.credential_source,
+                    "prerequisites": [result.to_dict() for result in results],
+                }
+            )
+        )
+    else:
+        for result in results:
+            print(f"{result.status.value:8} {result.prerequisite.value}")
+        print()
+        print(f"ready (preflight semantics): {ready}")
+        print("live execution remains refused by code regardless of this answer.")
+    return 0 if ready else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+FILE: scripts/staging/staging_rehearsal.py
+
+```python
+#!/usr/bin/env python3
+"""Staging rehearsal for live-readiness (Part 29).
+
+The **strict** counterpart to ``live_readiness.py``. Where the preflight
+tolerates a developer box (SKIPPED counts as success), staging verifies all
+eight prerequisites from actual runtime objects, plus the infrastructure they
+sit on: PostgreSQL persistence (write, re-open, read back) and Redis locks
+(acquire, reject a second owner, advance a fencing token).
+
+Semantics, stated once because the whole tool is this table:
+
+* PASS   - verified from a runtime object or a real round-trip.
+* FAIL   - configured and reachable, but the check failed.
+* BLOCKED- infrastructure the check needs is configured but unreachable.
+* UNVERIFIED - configured, but this tool cannot verify it (credentials).
+* SKIPPED- not configured at all.
+
+Readiness is strict: the four required prerequisites
+(DURABLE_STORE_WIRED, DISTRIBUTED_LOCKS_WIRED, SIGNED_TRANSPORT_WIRED,
+IP_ALLOWLIST_ENFORCED) must be PASS, and a SKIPPED or UNVERIFIED on required
+infrastructure blocks staging readiness exactly as a FAIL would. The four
+credential-conditional prerequisites may be SKIPPED when no credential source
+is configured.
+
+Safety guarantees (the same seven the staging README lists):
+
+1. Never submits an order - the rehearsal reads and probes its own rows only.
+2. Never enables live execution - ``EXECUTION_MODE=live`` is refused by the
+   composition root before this script runs any check, and the gate check
+   asserts the refusal report says so.
+3. Never changes production configuration - the only writes are a clearly
+   named probe row (deleted in a ``finally``) and Redis keys under a
+   rehearsal-only prefix (deleted the same way).
+4. Never prints secrets - DSNs and Redis URLs are rendered as "configured",
+   never verbatim.
+5. Uses runtime evidence - configuration flags alone cannot produce a PASS;
+   the runtime grades come from the objects ``build_runtime`` built.
+6. Production guard - refuses to run against ``NODE_ENV=production`` without
+   an explicit ``--allow-production``.
+7. Strict semantics - SKIPPED is not PASS.
+
+Exit codes: 0 ready, 1 a check FAILed (or a required SKIPPED/UNVERIFIED),
+2 infrastructure BLOCKED (or the production guard fired).
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import secrets
+import ssl
+import sys
+import uuid
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from urllib.parse import urlsplit
+
+# Same layout assumption as the preflight: this script sits in
+# <repo>/scripts/staging and inspects the tree it ships in.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ENGINE_ROOT = REPO_ROOT / "services" / "execution-engine"
+for _candidate in (str(ENGINE_ROOT), str(REPO_ROOT / "libs" / "trading-core")):
+    if _candidate not in sys.path:
+        sys.path.insert(0, _candidate)
+
+from wlct_trading.clock import epoch_micros  # noqa: E402
+from wlct_trading.execution.live_enablement import (  # noqa: E402
+    LiveEnablementReport,
+    LivePrerequisite,
+)
+from wlct_trading.execution.locks import (  # noqa: E402
+    FencedLockManager,
+    LockNotAcquired,
+    RedisLockManager,
+)
+
+__all__ = [
+    "REQUIRED_PREREQUISITES",
+    "CREDENTIAL_CONDITIONAL_PREREQUISITES",
+    "CheckStatus",
+    "CheckResult",
+    "strict_ready",
+    "exit_code_for",
+    "main",
+]
+
+#: Prerequisites staging cannot open the doors without, verbatim from the
+#: README's table. Everything else on the enum is credential-conditional.
+REQUIRED_PREREQUISITES: frozenset[LivePrerequisite] = frozenset(
+    {
+        LivePrerequisite.DURABLE_STORE_WIRED,
+        LivePrerequisite.DISTRIBUTED_LOCKS_WIRED,
+        LivePrerequisite.SIGNED_TRANSPORT_WIRED,
+        LivePrerequisite.IP_ALLOWLIST_ENFORCED,
+    }
+)
+
+#: May be SKIPPED when the deployment named no credential source.
+CREDENTIAL_CONDITIONAL_PREREQUISITES: frozenset[LivePrerequisite] = frozenset(
+    {
+        LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,
+        LivePrerequisite.CREDENTIAL_FETCHER_WIRED,
+        LivePrerequisite.VENUE_ATTESTOR_WIRED,
+        LivePrerequisite.OPERATOR_CONFIRMATION_ACCEPTED,
+    }
+)
+
+#: The Postgres tables Part 13 promised. The rehearsal checks existence
+#: before it writes its probe row, so a missing migrations run is a BLOCKED
+#: with a name in it rather than a syntax error from an INSERT.
+_ENGINE_TABLES: tuple[str, ...] = (
+    "engine_orders",
+    "engine_order_events",
+    "engine_order_fills",
+)
+
+_PROBE_TENANT_ID = "00000000-0000-4000-8000-00000000beef"
+#: Every Redis key the rehearsal touches lives under this prefix, so a
+#: crashed run leaves at most a few expiring keys and never touches a
+#: production lock.
+_PROBE_LOCK_PREFIX = "staging-rehearsal:"
+
+#: Dependency connections get this long to prove themselves. A staging
+#: Postgres that takes half a minute to refuse a connection is down, not slow.
+_CONNECT_TIMEOUT_SECONDS = 10.0
+
+
+class CheckStatus(str, Enum):
+    """The five rehearsal outcomes - the README's table, as an enum."""
+
+    PASS = "PASS"  # noqa: S105 - a grading label, not a credential
+    FAIL = "FAIL"  # noqa: S105
+    BLOCKED = "BLOCKED"  # noqa: S105
+    UNVERIFIED = "UNVERIFIED"  # noqa: S105
+    SKIPPED = "SKIPPED"  # noqa: S105
+
+
+@dataclass(frozen=True)
+class CheckResult:
+    """One check's answer, as data: group, name, status, and why."""
+
+    group: str
+    name: str
+    status: CheckStatus
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "group": self.group,
+            "name": self.name,
+            "status": self.status.value,
+            "detail": self.detail,
+        }
+
+
+def strict_ready(checks: list[CheckResult]) -> bool:
+    """Whether staging may open the doors, under strict semantics.
+
+    Every check must be PASS, except credential-conditional prerequisites,
+    which may be SKIPPED when the deployment named no credential source. A
+    SKIPPED or UNVERIFIED anywhere on required infrastructure blocks, which
+    is the difference between this tool and the preflight.
+    """
+    for check in checks:
+        if check.status is CheckStatus.PASS:
+            continue
+        if check.status is CheckStatus.SKIPPED and check.group == "runtime":
+            name = check.name.removeprefix("runtime.")
+            try:
+                prerequisite = LivePrerequisite(name)
+            except ValueError:
+                return False
+            if (
+                prerequisite in CREDENTIAL_CONDITIONAL_PREREQUISITES
+                and check.detail.startswith("no credential source")
+            ):
+                continue
+        return False
+    return True
+
+
+def exit_code_for(checks: list[CheckResult]) -> int:
+    """0 ready, 2 any BLOCKED, 1 everything else that is not ready.
+
+    BLOCKED outranks FAIL on the exit code because the remedy is different:
+    a FAIL means fix the wiring, a BLOCKED means fix the infrastructure the
+    wiring points at. CI wiring both to "not ready" loses that distinction.
+    """
+    if strict_ready(checks):
+        return 0
+    if any(check.status is CheckStatus.BLOCKED for check in checks):
+        return 2
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# Minimal Redis client (RESP-2 over asyncio streams)
+# ---------------------------------------------------------------------------
+# The engine's RedisLockManager speaks a three-method protocol (set/get/eval)
+# and the service deliberately carries no redis package. Rather than add a
+# dependency for one rehearsal, this client speaks just enough RESP to satisfy
+# that protocol: AUTH/SELECT on connect, PING, SET-with-NX/PX, GET, EVAL.
+# Commands are one-in-flight; a rehearsal does not need pipelining.
+
+
+class StagingRedisClient:
+    """Just enough RESP for the lock checks, and honest about it."""
+
+    __slots__ = ("_reader", "_writer", "host", "port", "password", "db", "use_tls")
+
+    def __init__(self, url: str) -> None:
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("redis", "rediss"):
+            raise ValueError("EXECUTION_REDIS_URL must be redis:// or rediss://")
+        if not parsed.hostname:
+            raise ValueError("EXECUTION_REDIS_URL names no host")
+        self.host = parsed.hostname
+        self.port = parsed.port or 6379
+        # redis://:password@host puts the password in the password field;
+        # redis://user:pass@host puts it in the password too for this scheme.
+        self.password = parsed.password or ""
+        path = (parsed.path or "").strip("/")
+        self.db = int(path) if path.isdigit() else 0
+        self.use_tls = parsed.scheme == "rediss"
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+
+    async def connect(self) -> None:
+        tls = ssl.create_default_context() if self.use_tls else None
+        self._reader, self._writer = await asyncio.wait_for(
+            asyncio.open_connection(self.host, self.port, ssl=tls),
+            timeout=_CONNECT_TIMEOUT_SECONDS,
+        )
+        if self.password:
+            await self.command("AUTH", self.password)
+        if self.db:
+            await self.command("SELECT", str(self.db))
+
+    async def close(self) -> None:
+        if self._writer is not None:
+            self._writer.close()
+            try:
+                await self._writer.wait_closed()
+            except (ConnectionError, OSError):
+                pass
+            self._reader = None
+            self._writer = None
+
+    async def command(self, *parts: str | bytes) -> object:
+        if self._reader is None or self._writer is None:
+            raise RuntimeError("not connected")
+        payload = b"".join(
+            b"$"
+            + str(len(part)).encode()
+            + b"\r\n"
+            + (part if isinstance(part, bytes) else part.encode())
+            + b"\r\n"
+            for part in parts
+        )
+        request = b"*" + str(len(parts)).encode() + b"\r\n" + payload
+        self._writer.write(request)
+        await self._writer.drain()
+        return await self._read_reply()
+
+    async def _read_reply(self) -> object:
+        assert self._reader is not None
+        line = await asyncio.wait_for(self._reader.readline(), timeout=_CONNECT_TIMEOUT_SECONDS)
+        if not line:
+            raise RuntimeError("Redis closed the connection")
+        marker, body = line[:1], line[1:-2]
+        if marker == b"+":
+            return body.decode()
+        if marker == b"-":
+            raise RuntimeError(f"Redis error: {body.decode()}")
+        if marker == b":":
+            return int(body)
+        if marker == b"$":
+            length = int(body)
+            if length == -1:
+                return None
+            data = await asyncio.wait_for(
+                self._reader.readexactly(length + 2), timeout=_CONNECT_TIMEOUT_SECONDS
+            )
+            return data[:-2]
+        if marker == b"*":
+            count = int(body)
+            if count == -1:
+                return None
+            return [await self._read_reply() for _ in range(count)]
+        raise RuntimeError(f"unknown Redis reply marker {marker!r}")
+
+    # -- the RedisLockClient protocol ------------------------------------
+
+    async def set(
+        self, name: str, value: str, *, nx: bool = False, px: int | None = None
+    ) -> object:
+        parts: list[str | bytes] = ["SET", name, value]
+        if nx:
+            parts.append("NX")
+        if px is not None:
+            parts.extend(("PX", str(px)))
+        return await self.command(*parts)
+
+    async def get(self, name: str) -> bytes | str | None:
+        return await self.command("GET", name)
+
+    async def eval(self, script: str, numkeys: int, *args: str) -> object:
+        return await self.command("EVAL", script, str(numkeys), *args)
+
+    async def ping(self) -> object:
+        return await self.command("PING")
+
+    async def delete(self, *names: str) -> object:
+        return await self.command("DEL", *names)
+
+
+# ---------------------------------------------------------------------------
+# Dependency checks: PostgreSQL
+# ---------------------------------------------------------------------------
+
+
+async def check_postgres(settings: object) -> list[CheckResult]:
+    """PostgreSQL connectivity, schema, and persistence recovery.
+
+    The persistence check is the rehearsal's heart: write a probe row through
+    one pool, read it back through a *second, separately opened* pool, delete
+    it. A store that only works inside one connection was Part 13's whole
+    reason to exist, so the check re-opens rather than re-uses.
+    """
+    results: list[CheckResult] = []
+    dsn = getattr(settings, "EXECUTION_POSTGRES_DSN", None)
+    backend = getattr(settings, "EXECUTION_STORE_BACKEND", "memory")
+
+    if not dsn or backend != "postgres":
+        detail = (
+            f"EXECUTION_STORE_BACKEND={backend!r}"
+            + ("" if dsn else " and EXECUTION_POSTGRES_DSN is unset")
+            + "; staging sets both in .env.staging"
+        )
+        results.append(
+            CheckResult(
+                "dependency-postgresql", "postgres.connectivity", CheckStatus.SKIPPED, detail
+            )
+        )
+        results.append(
+            CheckResult("dependency-postgresql", "postgres.schema", CheckStatus.SKIPPED, detail)
+        )
+        results.append(
+            CheckResult(
+                "dependency-postgresql",
+                "postgres.persistence_recovery",
+                CheckStatus.SKIPPED,
+                detail,
+            )
+        )
+        return results
+
+    # The DSN is never rendered - "configured" is the most a log line needs.
+    configured = "configured (DSN not rendered)"
+
+    import asyncpg
+
+    conn = None
+    try:
+        conn = await asyncio.wait_for(asyncpg.connect(dsn), timeout=_CONNECT_TIMEOUT_SECONDS)
+    except Exception as error:
+        blocked = CheckResult(
+            "dependency-postgresql",
+            "postgres.connectivity",
+            CheckStatus.BLOCKED,
+            f"Postgres unreachable: {type(error).__name__}",
+        )
+        results.append(blocked)
+        results.append(
+            CheckResult(
+                "dependency-postgresql", "postgres.schema", CheckStatus.SKIPPED, "no connection"
+            )
+        )
+        results.append(
+            CheckResult(
+                "dependency-postgresql",
+                "postgres.persistence_recovery",
+                CheckStatus.SKIPPED,
+                "no connection",
+            )
+        )
+        return results
+
+    results.append(
+        CheckResult(
+            "dependency-postgresql", "postgres.connectivity", CheckStatus.PASS, configured
+        )
+    )
+
+    # -- schema ------------------------------------------------------------
+    missing: list[str] = []
+    for table in _ENGINE_TABLES:
+        row = await conn.fetchval("SELECT to_regclass($1::text)", f"public.{table}")
+        if row is None:
+            missing.append(table)
+    if missing:
+        results.append(
+            CheckResult(
+                "dependency-postgresql",
+                "postgres.schema",
+                CheckStatus.FAIL,
+                f"missing tables (run migrations): {', '.join(missing)}",
+            )
+        )
+        results.append(
+            CheckResult(
+                "dependency-postgresql",
+                "postgres.persistence_recovery",
+                CheckStatus.SKIPPED,
+                "schema incomplete",
+            )
+        )
+        await conn.close()
+        return results
+    results.append(
+        CheckResult(
+            "dependency-postgresql",
+            "postgres.schema",
+            CheckStatus.PASS,
+            f"all {len(_ENGINE_TABLES)} engine tables present",
+        )
+    )
+
+    # -- persistence recovery ------------------------------------------------
+    probe_order_id = "staging-rehearsal-" + secrets.token_hex(8)
+    probe_client_order_id = "staging-rehearsal-" + uuid.uuid4().hex
+    # Same clock the engine's own rows use.
+    now_micros = epoch_micros()
+    insert_sql = """
+        INSERT INTO engine_orders
+            (tenant_id, order_id, client_order_id, account_id, exchange, symbol,
+             side, order_type, time_in_force, is_simulated, status, quantity,
+             filled_quantity, cumulative_fee, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    """
+    probe_values = (
+        uuid.UUID(_PROBE_TENANT_ID),
+        probe_order_id,
+        probe_client_order_id,
+        "staging-rehearsal",
+        "BINANCE",
+        "BTCUSDT",
+        "BUY",
+        "LIMIT",
+        "GTC",
+        True,
+        "REJECTED",
+        "1",
+        "0",
+        "0",
+        now_micros,
+        now_micros,
+    )
+    pool_two = None
+    try:
+        await conn.execute(insert_sql, *probe_values)
+        # A NEW pool is the point: "the process restarted and opened the
+        # store again" is the failure mode durability exists for.
+        pool_two = await asyncio.wait_for(
+            asyncpg.create_pool(dsn, min_size=1, max_size=1),
+            timeout=_CONNECT_TIMEOUT_SECONDS,
+        )
+        async with pool_two.acquire() as second:
+            read_back = await second.fetchval(
+                "SELECT count(*) FROM engine_orders WHERE tenant_id = $1 AND client_order_id = $2",
+                uuid.UUID(_PROBE_TENANT_ID),
+                probe_client_order_id,
+            )
+        if int(read_back) == 1:
+            results.append(
+                CheckResult(
+                    "dependency-postgresql",
+                    "postgres.persistence_recovery",
+                    CheckStatus.PASS,
+                    "probe row written through one pool, read through a second",
+                )
+            )
+        else:
+            results.append(
+                CheckResult(
+                    "dependency-postgresql",
+                    "postgres.persistence_recovery",
+                    CheckStatus.FAIL,
+                    f"second pool read back {int(read_back)} rows, expected 1",
+                )
+            )
+    except Exception as error:
+        results.append(
+            CheckResult(
+                "dependency-postgresql",
+                "postgres.persistence_recovery",
+                CheckStatus.FAIL,
+                f"probe round-trip failed: {type(error).__name__}: {error}",
+            )
+        )
+    finally:
+        try:
+            await conn.execute(
+                "DELETE FROM engine_orders WHERE tenant_id = $1 AND order_id = $2",
+                uuid.UUID(_PROBE_TENANT_ID),
+                probe_order_id,
+            )
+        except Exception:  # noqa: S110 - probe cleanup is best-effort
+            pass
+        if pool_two is not None:
+            await pool_two.close()
+        await conn.close()
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Dependency checks: Redis (connectivity, lock round-trip, fencing)
+# ---------------------------------------------------------------------------
+
+
+async def check_redis(settings: object) -> list[CheckResult]:
+    """Redis connectivity plus a real lock round-trip with fencing.
+
+    Three facts in one probe: a lock can be acquired, a second owner is
+    rejected while it is held (stale-ownership rejection at the source), and
+    fencing tokens advance monotonically across acquisitions with the stale
+    handle refused. All keys live under the rehearsal prefix and are deleted
+    on the way out.
+    """
+    results: list[CheckResult] = []
+    redis_url = getattr(settings, "EXECUTION_REDIS_URL", None)
+    locks_enabled = getattr(settings, "EXECUTION_DISTRIBUTED_LOCKS", False)
+
+    if not locks_enabled or not redis_url:
+        detail = (
+            "EXECUTION_DISTRIBUTED_LOCKS is false"
+            + ("" if redis_url else " and EXECUTION_REDIS_URL is unset")
+            + "; staging sets both in .env.staging"
+        )
+        results.append(
+            CheckResult("dependency-redis", "redis.connectivity", CheckStatus.SKIPPED, detail)
+        )
+        results.append(
+            CheckResult("dependency-redis", "redis.lock_roundtrip", CheckStatus.SKIPPED, detail)
+        )
+        return results
+
+    client = StagingRedisClient(redis_url)
+    try:
+        await client.connect()
+    except Exception as error:
+        detail = f"Redis unreachable: {type(error).__name__}"
+        results.append(
+            CheckResult("dependency-redis", "redis.connectivity", CheckStatus.BLOCKED, detail)
+        )
+        results.append(
+            CheckResult(
+                "dependency-redis", "redis.lock_roundtrip", CheckStatus.SKIPPED, "no connection"
+            )
+        )
+        return results
+
+    pong = await client.ping()
+    if pong != "PONG":
+        await client.close()
+        results.append(
+            CheckResult(
+                "dependency-redis",
+                "redis.connectivity",
+                CheckStatus.FAIL,
+                f"PING answered {pong!r}, expected PONG",
+            )
+        )
+        results.append(
+            CheckResult(
+                "dependency-redis", "redis.lock_roundtrip", CheckStatus.SKIPPED, "PING failed"
+            )
+        )
+        return results
+    results.append(
+        CheckResult(
+            "dependency-redis", "redis.connectivity", CheckStatus.PASS, "PING answered PONG"
+        )
+    )
+
+    manager = RedisLockManager(client)
+    fenced = FencedLockManager(manager, fencing_client=client)
+    lock_key = _PROBE_LOCK_PREFIX + "lock-roundtrip:" + secrets.token_hex(4)
+    fencing_key = lock_key + ":fencing"
+    try:
+        handle = await manager.acquire(lock_key, ttl_millis=10_000)
+        # Stale ownership rejection: a second acquire while held, with no
+        # wait budget, must be refused rather than silently shared.
+        rejected = False
+        try:
+            await manager.acquire(lock_key, ttl_millis=10_000, wait_millis=0)
+        except LockNotAcquired:
+            rejected = True
+        await manager.release(handle)
+        if not rejected:
+            results.append(
+                CheckResult(
+                    "dependency-redis",
+                    "redis.lock_roundtrip",
+                    CheckStatus.FAIL,
+                    "second acquire while held succeeded; the lock is not exclusive",
+                )
+            )
+            return results
+        # Fencing advancement: two sequential acquisitions under the fenced
+        # wrapper must mint strictly increasing tokens (the counter is never
+        # reset), and the first handle must be refused as stale once the
+        # second exists.
+        first = await fenced.acquire(lock_key, ttl_millis=10_000)
+        await fenced.release(first)
+        second = await fenced.acquire(lock_key, ttl_millis=10_000)
+        stale_refused = False
+        try:
+            await fenced.validate_fencing(first)
+        except Exception:
+            stale_refused = True
+        await fenced.release(second)
+        if second.fencing_token <= first.fencing_token:
+            results.append(
+                CheckResult(
+                    "dependency-redis",
+                    "redis.lock_roundtrip",
+                    CheckStatus.FAIL,
+                    f"fencing token did not advance "
+                    f"({first.fencing_token} -> {second.fencing_token})",
+                )
+            )
+        elif not stale_refused:
+            results.append(
+                CheckResult(
+                    "dependency-redis",
+                    "redis.lock_roundtrip",
+                    CheckStatus.FAIL,
+                    "a stale fencing token validated; fencing is decorative",
+                )
+            )
+        else:
+            results.append(
+                CheckResult(
+                    "dependency-redis",
+                    "redis.lock_roundtrip",
+                    CheckStatus.PASS,
+                    f"acquire, second-owner rejection, and fencing advance "
+                    f"({first.fencing_token} -> {second.fencing_token}) all verified",
+                )
+            )
+    except Exception as error:
+        results.append(
+            CheckResult(
+                "dependency-redis",
+                "redis.lock_roundtrip",
+                CheckStatus.FAIL,
+                f"lock round-trip failed: {type(error).__name__}: {error}",
+            )
+        )
+    finally:
+        try:
+            await client.delete(lock_key, fencing_key)
+        except Exception:  # noqa: S110 - probe-key cleanup is best-effort
+            pass
+        await client.close()
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Runtime checks: the eight prerequisites, graded strictly
+# ---------------------------------------------------------------------------
+
+
+def grade_runtime_prerequisites(
+    report: LiveEnablementReport,
+) -> list[CheckResult]:
+    """Turn the enablement report into strict rehearsal statuses.
+
+    PASS from the report's satisfied set. A required prerequisite that is
+    missing is FAIL - staging has no tolerated absence. A credential-
+    conditional one is SKIPPED when no source is configured and UNVERIFIED
+    when a source is named but the runtime could not prove it (no fetcher, no
+    attestor), which blocks exactly like a FAIL.
+    """
+    results: list[CheckResult] = []
+    for prerequisite in (
+        LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,
+        LivePrerequisite.CREDENTIAL_FETCHER_WIRED,
+        LivePrerequisite.VENUE_ATTESTOR_WIRED,
+        LivePrerequisite.OPERATOR_CONFIRMATION_ACCEPTED,
+        LivePrerequisite.DURABLE_STORE_WIRED,
+        LivePrerequisite.DISTRIBUTED_LOCKS_WIRED,
+        LivePrerequisite.IP_ALLOWLIST_ENFORCED,
+        LivePrerequisite.SIGNED_TRANSPORT_WIRED,
+    ):
+        name = f"runtime.{prerequisite.value}"
+        if prerequisite in report.satisfied:
+            results.append(
+                CheckResult("runtime", name, CheckStatus.PASS, "graded from runtime objects")
+            )
+            continue
+        if prerequisite in CREDENTIAL_CONDITIONAL_PREREQUISITES:
+            if report.credential_source == "none":
+                results.append(
+                    CheckResult(
+                        "runtime",
+                        name,
+                        CheckStatus.SKIPPED,
+                        "no credential source configured (acceptable for credentials only)",
+                    )
+                )
+            else:
+                results.append(
+                    CheckResult(
+                        "runtime",
+                        name,
+                        CheckStatus.UNVERIFIED,
+                        f"credential source {report.credential_source!r} is configured but "
+                        "the runtime could not verify this prerequisite",
+                    )
+                )
+            continue
+        results.append(
+            CheckResult(
+                "runtime",
+                name,
+                CheckStatus.FAIL,
+                "required prerequisite missing from the runtime grading",
+            )
+        )
+    return results
+
+
+def check_live_mode_gate(report: LiveEnablementReport) -> CheckResult:
+    """The gate must refuse. A readiness tool that could green-light live
+    mode would be the one file in the repository that must never exist."""
+    if report.blocks_live:
+        return CheckResult(
+            "runtime",
+            "runtime.LIVE_MODE_GATE",
+            CheckStatus.PASS,
+            "live enablement report blocks live execution",
+        )
+    return CheckResult(
+        "runtime",
+        "runtime.LIVE_MODE_GATE",
+        CheckStatus.FAIL,
+        "live enablement report does not block live execution; staging must not run",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Orchestration
+# ---------------------------------------------------------------------------
+
+
+def _looks_like_production(env: dict[str, str]) -> bool:
+    mode = (env.get("NODE_ENV") or "").strip().lower()
+    return mode == "production"
+
+
+def _load_env_file(path: Path) -> int:
+    """Load ``name=value`` lines; environment variables already set win."""
+    loaded = 0
+    if not path.is_file():
+        return loaded
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        name = name.strip()
+        value = value.strip().strip('"').strip("'")
+        if not name:
+            continue
+        if name not in os.environ:
+            os.environ[name] = value
+            loaded += 1
+    return loaded
+
+
+async def _run_checks(args: argparse.Namespace) -> list[CheckResult]:
+    from app.config import Settings
+
+    try:
+        settings = Settings()
+    except Exception as error:
+        # The service's own fail-closed settings refusal, rendered as the
+        # BLOCKED answer it is rather than a traceback.
+        first = str(error).splitlines()
+        detail = first[1].strip() if len(first) > 1 else str(error)
+        return [
+            CheckResult(
+                "runtime",
+                "runtime.bootstrap",
+                CheckStatus.BLOCKED,
+                f"service configuration refused: {detail}",
+            )
+        ]
+
+    checks: list[CheckResult] = []
+
+    if not args.check_runtime:
+        checks.extend(await check_postgres(settings))
+        checks.extend(await check_redis(settings))
+
+    if not args.check_dependencies:
+        from app.composition import build_runtime
+
+        try:
+            runtime = build_runtime(settings)
+        except Exception as error:
+            # A boot refusal is an answer: live mode, or wiring that cannot
+            # stand up. Render the refusal as the FAIL it is.
+            checks.append(
+                CheckResult(
+                    "runtime",
+                    "runtime.bootstrap",
+                    CheckStatus.FAIL,
+                    f"runtime construction refused: {type(error).__name__}: {error}",
+                )
+            )
+            return checks
+        report = runtime.live_enablement
+        if report is None:
+            checks.append(
+                CheckResult(
+                    "runtime",
+                    "runtime.bootstrap",
+                    CheckStatus.FAIL,
+                    "runtime built without a live-enablement report",
+                )
+            )
+            return checks
+        checks.append(
+            CheckResult(
+                "runtime", "runtime.bootstrap", CheckStatus.PASS, "build_runtime succeeded"
+            )
+        )
+        checks.extend(grade_runtime_prerequisites(report))
+        checks.append(check_live_mode_gate(report))
+
+    return checks
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Strict staging rehearsal for the live-readiness "
+        "prerequisites. Reads the runtime, probes its own rows/keys only, "
+        "never submits an order, never enables live execution."
+    )
+    parser.add_argument(
+        "--staging",
+        action="store_true",
+        help="load .env.staging from the repository root first (already-set "
+        "environment variables win)",
+    )
+    parser.add_argument(
+        "--check-dependencies",
+        action="store_true",
+        help="verify PostgreSQL and Redis only",
+    )
+    parser.add_argument(
+        "--check-runtime",
+        action="store_true",
+        help="verify the eight prerequisites and the live gate only",
+    )
+    parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument(
+        "--allow-production",
+        action="store_true",
+        help="explicit opt-in required to run against NODE_ENV=production",
+    )
+    args = parser.parse_args(argv)
+
+    if args.check_dependencies and args.check_runtime:
+        parser.error("--check-dependencies and --check-runtime are mutually exclusive")
+
+    if args.staging:
+        _load_env_file(REPO_ROOT / ".env.staging")
+
+    if _looks_like_production(os.environ) and not args.allow_production:
+        print(
+            "refusing to run against NODE_ENV=production without --allow-production",
+            file=sys.stderr,
+        )
+        return 2
+
+    checks = asyncio.run(_run_checks(args))
+    ready = strict_ready(checks)
+    code = exit_code_for(checks)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "stagingReady": ready,
+                    "exitCode": code,
+                    "checks": [check.to_dict() for check in checks],
+                }
+            )
+        )
+    else:
+        for check in checks:
+            print(f"[{check.group}] {check.status.value:10} {check.name}: {check.detail}")
+        print()
+        print(f"staging ready (strict semantics): {ready}")
+        print("live execution remains refused by code regardless of this answer.")
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
 FILE: scripts/verify-part1.sh
 
 ```bash
@@ -397907,6 +402795,11 @@ else
 fi
 
 section 'Type checking'
+# The workspace tsc batch needs more heap than node's conservative default on
+# a modest runner (it aborted with FatalProcessOutOfMemory at the default on a
+# 2GB box). Raise the ceiling unless the operator already chose a value -
+# NODE_OPTIONS is honoured by every tsc child npm spawns below.
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=1536}"
 if npm run --silent typecheck >/tmp/wlct-typecheck.log 2>&1; then
   pass 'TypeScript typecheck (api + admin-web)'
 else

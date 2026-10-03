@@ -33,6 +33,14 @@
       "model": "BacktestTrade"
     },
     {
+      "table": "billing_customers",
+      "model": "BillingCustomer"
+    },
+    {
+      "table": "billing_ledger_entries",
+      "model": "BillingLedgerEntry"
+    },
+    {
       "table": "billing_notification_audit_logs",
       "model": "BillingNotificationAuditLog"
     },
@@ -77,12 +85,32 @@
       "model": "ComplianceEvidence"
     },
     {
+      "table": "compliance_report_certifications",
+      "model": "ComplianceReportCertification"
+    },
+    {
+      "table": "compliance_report_deliveries",
+      "model": "ComplianceReportDelivery"
+    },
+    {
+      "table": "compliance_report_validations",
+      "model": "ComplianceReportValidation"
+    },
+    {
+      "table": "compliance_reports",
+      "model": "ComplianceReport"
+    },
+    {
       "table": "compliance_reviews",
       "model": "ComplianceReview"
     },
     {
       "table": "compliance_screening_requests",
       "model": "ComplianceScreeningRequest"
+    },
+    {
+      "table": "consent_records",
+      "model": "ConsentRecord"
     },
     {
       "table": "copy_executions",
@@ -145,6 +173,38 @@
       "model": "CustodyWithdrawal"
     },
     {
+      "table": "developer_access_tokens",
+      "model": "DeveloperAccessToken"
+    },
+    {
+      "table": "developer_applications",
+      "model": "DeveloperApplication"
+    },
+    {
+      "table": "developer_audit",
+      "model": "DeveloperAudit"
+    },
+    {
+      "table": "developer_credentials",
+      "model": "DeveloperCredential"
+    },
+    {
+      "table": "developer_event_subscriptions",
+      "model": "DeveloperEventSubscription"
+    },
+    {
+      "table": "developer_oauth_grants",
+      "model": "DeveloperOAuthGrant"
+    },
+    {
+      "table": "developer_webhook_deliveries",
+      "model": "DeveloperWebhookDelivery"
+    },
+    {
+      "table": "developer_webhook_subscriptions",
+      "model": "DeveloperWebhookSubscription"
+    },
+    {
       "table": "device_trusts",
       "model": "DeviceTrust"
     },
@@ -177,6 +237,10 @@
       "model": "EnterpriseApiKey"
     },
     {
+      "table": "evidence_packages",
+      "model": "EvidencePackage"
+    },
+    {
       "table": "exchange_stream_sessions",
       "model": "ExchangeStreamSession"
     },
@@ -189,8 +253,20 @@
       "model": "FeeAccrual"
     },
     {
+      "table": "fee_audit_logs",
+      "model": "FeeAuditLog"
+    },
+    {
+      "table": "fee_settlement_items",
+      "model": "FeeSettlementItem"
+    },
+    {
       "table": "fee_settlements",
       "model": "FeeSettlement"
+    },
+    {
+      "table": "finance_audit_logs",
+      "model": "FinanceAuditLog"
     },
     {
       "table": "funding_approvals",
@@ -203,6 +279,26 @@
     {
       "table": "funding_requests",
       "model": "FundingRequest"
+    },
+    {
+      "table": "governance_actions",
+      "model": "GovernanceAction"
+    },
+    {
+      "table": "governance_audits",
+      "model": "GovernanceAudit"
+    },
+    {
+      "table": "governance_data_classifications",
+      "model": "GovernanceDataClassification"
+    },
+    {
+      "table": "governance_data_inventory",
+      "model": "GovernanceDataInventory"
+    },
+    {
+      "table": "governance_reconciliations",
+      "model": "GovernanceReconciliation"
     },
     {
       "table": "institutional_accounts",
@@ -393,6 +489,14 @@
       "model": "Position"
     },
     {
+      "table": "privacy_exports",
+      "model": "PrivacyExport"
+    },
+    {
+      "table": "privacy_requests",
+      "model": "PrivacyRequest"
+    },
+    {
       "table": "reconciliation_discrepancies",
       "model": "ReconciliationDiscrepancy"
     },
@@ -457,6 +561,10 @@
       "model": "ResearchStrategyVersion"
     },
     {
+      "table": "retention_candidates",
+      "model": "RetentionCandidate"
+    },
+    {
       "table": "risk_configuration_versions",
       "model": "RiskConfigurationVersion"
     },
@@ -493,6 +601,10 @@
       "model": "RiskSnapshotMetadata"
     },
     {
+      "table": "saas_audit_logs",
+      "model": "SaasAuditLog"
+    },
+    {
       "table": "security_audit_logs",
       "model": "SecurityAuditLog"
     },
@@ -501,8 +613,24 @@
       "model": "SecurityThreatSignal"
     },
     {
+      "table": "sso_assertion_replays",
+      "model": "SsoAssertionReplay"
+    },
+    {
+      "table": "sso_audit_events",
+      "model": "SsoAuditEvent"
+    },
+    {
+      "table": "sso_auth_transactions",
+      "model": "SsoAuthTransaction"
+    },
+    {
       "table": "sso_configurations",
       "model": "SsoConfiguration"
+    },
+    {
+      "table": "sso_identities",
+      "model": "SsoIdentity"
     },
     {
       "table": "sso_login_attempts",
@@ -581,6 +709,10 @@
       "model": "UsageAlertEvent"
     },
     {
+      "table": "usage_buckets",
+      "model": "UsageBucket"
+    },
+    {
       "table": "usage_events",
       "model": "UsageEvent"
     },
@@ -639,6 +771,10 @@
       "model": "KillSwitch"
     },
     {
+      "table": "legal_holds",
+      "model": "LegalHold"
+    },
+    {
       "table": "mobile_reconciliation_findings",
       "model": "MobileReconciliationFinding"
     },
@@ -695,6 +831,22 @@
       "model": "OpsIncident"
     },
     {
+      "table": "partner_attributions",
+      "model": "PartnerAttribution"
+    },
+    {
+      "table": "partner_audits",
+      "model": "PartnerAudit"
+    },
+    {
+      "table": "partner_commissions",
+      "model": "PartnerCommission"
+    },
+    {
+      "table": "partner_tenant_relationships",
+      "model": "PartnerTenantRelationship"
+    },
+    {
       "table": "plans",
       "model": "Plan"
     },
@@ -713,6 +865,10 @@
     {
       "table": "subscription_plans",
       "model": "SubscriptionPlan"
+    },
+    {
+      "table": "webhook_events",
+      "model": "WebhookEvent"
     }
   ]
 }

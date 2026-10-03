@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'billing_portal_api.dart';
-import '../../../core/network/api_client.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/di/providers.dart';
 
 /// Mobile billing dashboard.
@@ -26,7 +26,9 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
   @override
   void initState() {
     super.initState();
-    _api = BillingPortalApi(ApiClient());
+    // The app-wide ApiClient (auth, base URL, envelope unwrapping) - never a
+    // second, unconfigured client.
+    _api = BillingPortalApi(ProviderScope.containerOf(context, listen: false).read(apiClientProvider));
     _fetchData();
   }
 
@@ -42,7 +44,7 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
         _api.listPayments(limit: 3),
       ]);
       setState(() {
-        _overview = results[0] as Map<String, dynamic>;
+        _overview = results[0];
         _invoices = (results[1]['invoices'] as List?) ?? [];
         _payments = (results[2]['payments'] as List?) ?? [];
         _loading = false;
@@ -128,11 +130,11 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
                       else
                         Column(
                           children: [
-                            _buildInfoRow('Plan', currentPlan?['name'] ?? sub?['planName'] ?? 'Unknown'),
-                            _buildInfoRow('Code', sub?['planCode'] ?? '-'),
-                            _buildInfoRow('Status', sub?['status'] ?? '-', isBadge: true, badgeColor: sub?['isActive'] == true ? Colors.green : Colors.grey),
-                            _buildInfoRow('Interval', sub?['interval'] ?? currentPlan?['interval'] ?? '-'),
-                            _buildInfoRow('Renewal', sub?['renewalDate'] != null ? DateTime.parse(sub!['renewalDate']).toLocal().toString().split(' ')[0] : 'N/A'),
+                            _buildInfoRow('Plan', '${currentPlan?['name'] ?? sub?['planName'] ?? 'Unknown'}'),
+                            _buildInfoRow('Code', '${sub?['planCode'] ?? '-'}'),
+                            _buildInfoRow('Status', '${sub?['status'] ?? '-'}', isBadge: true, badgeColor: sub?['isActive'] == true ? Colors.green : Colors.grey),
+                            _buildInfoRow('Interval', '${sub?['interval'] ?? currentPlan?['interval'] ?? '-'}'),
+                            _buildInfoRow('Renewal', sub?['renewalDate'] != null ? DateTime.parse('${sub!['renewalDate']}').toLocal().toString().split(' ')[0] : 'N/A'),
                             if (sub?['willCancelAtPeriodEnd'] == true)
                               const Padding(
                                 padding: EdgeInsets.only(top: 8),
@@ -172,7 +174,7 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(map['label'] ?? map['key'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                                    Text('${map['label'] ?? map['key']}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                                     Text(
                                       map['unlimited'] == true ? 'Unlimited' : '${map['current']}/${map['limit']}',
                                       style: const TextStyle(fontSize: 12, color: Colors.grey),
@@ -182,9 +184,9 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
                                 const SizedBox(height: 4),
                                 if (map['unlimited'] != true)
                                   LinearProgressIndicator(
-                                    value: (map['percentageUsed'] ?? 0) / 100,
+                                    value: ((map['percentageUsed'] as num?) ?? 0) / 100,
                                     backgroundColor: Colors.grey[200],
-                                    valueColor: AlwaysStoppedAnimation<Color>((map['percentageUsed'] ?? 0) > 80 ? Colors.red : Colors.blue),
+                                    valueColor: AlwaysStoppedAnimation<Color>(((map['percentageUsed'] as num?) ?? 0) > 80 ? Colors.red : Colors.blue),
                                   ),
                                 if (map['remaining'] != null && map['unlimited'] != true)
                                   Text('${map['remaining']} remaining', style: const TextStyle(fontSize: 11, color: Colors.grey)),
@@ -280,7 +282,7 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
                           return ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            title: Text(m['invoiceNumber'] ?? m['id'], style: const TextStyle(fontSize: 13)),
+                            title: Text('${m['invoiceNumber'] ?? m['id']}', style: const TextStyle(fontSize: 13)),
                             subtitle: Text('${m['total']} ${m['currency']}', style: const TextStyle(fontSize: 11)),
                             trailing: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -288,7 +290,7 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
                                 color: m['status'] == 'PAID' ? Colors.green[100] : Colors.amber[100],
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: Text(m['status'], style: TextStyle(fontSize: 10, color: m['status'] == 'PAID' ? Colors.green[800] : Colors.amber[800])),
+                              child: Text('${m['status']}', style: TextStyle(fontSize: 10, color: m['status'] == 'PAID' ? Colors.green[800] : Colors.amber[800])),
                             ),
                           );
                         }),
@@ -315,14 +317,14 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
                             dense: true,
                             contentPadding: EdgeInsets.zero,
                             title: Text('${m['amount']} ${m['currency']}', style: const TextStyle(fontSize: 13)),
-                            subtitle: Text(m['provider'] ?? '', style: const TextStyle(fontSize: 11)),
+                            subtitle: Text('${m['provider'] ?? ''}', style: const TextStyle(fontSize: 11)),
                             trailing: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
                                 color: m['status'] == 'SUCCEEDED' ? Colors.green[100] : Colors.amber[100],
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: Text(m['status'], style: TextStyle(fontSize: 10, color: m['status'] == 'SUCCEEDED' ? Colors.green[800] : Colors.amber[800])),
+                              child: Text('${m['status']}', style: TextStyle(fontSize: 10, color: m['status'] == 'SUCCEEDED' ? Colors.green[800] : Colors.amber[800])),
                             ),
                           );
                         }),
@@ -361,7 +363,7 @@ class _BillingPortalPageState extends State<BillingPortalPage> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value, {bool isBadge = false, Color? badgeColor}) {
+  Widget _buildInfoRow(String label, String value, {bool isBadge = false, MaterialColor? badgeColor}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(

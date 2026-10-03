@@ -301,18 +301,14 @@ export class InvoicePdfService {
       return invoice;
     } catch {
       // Fallback: try without tenant check for development
-      try {
-        const invoice = await (this.prisma as any).invoice?.findUnique({
-          where: { id: invoiceId },
-          include: { lines: true },
-        });
-        if (invoice && invoice.tenantId === tenantId) {
-          return invoice;
-        }
-        return null;
-      } catch {
-        return null;
+      const invoice = await (this.prisma as any).invoice?.findUnique({
+        where: { id: invoiceId },
+        include: { lines: true },
+      });
+      if (invoice && invoice.tenantId === tenantId) {
+        return invoice;
       }
+      return null;
     }
   }
 
@@ -359,38 +355,30 @@ export class InvoicePdfService {
   }
 
   private async getTenantBranding(tenantId: string): Promise<any | null> {
-    try {
-      const branding = await this.prisma.tenantBranding.findUnique({
-        where: { tenantId },
-        select: {
-          appName: true,
-          logoUrl: true,
-          primaryColor: true,
-          supportEmail: true,
-        },
-      });
-      return branding;
-    } catch {
-      return null;
-    }
+    const branding = await this.prisma.tenantBranding.findUnique({
+      where: { tenantId },
+      select: {
+        appName: true,
+        logoUrl: true,
+        primaryColor: true,
+        supportEmail: true,
+      },
+    });
+    return branding;
   }
 
   private async getTenantInfo(tenantId: string): Promise<any | null> {
-    try {
-      const tenant = await this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          legalName: true,
-          contactEmail: true,
-        },
-      });
-      return tenant;
-    } catch {
-      return null;
-    }
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        legalName: true,
+        contactEmail: true,
+      },
+    });
+    return tenant;
   }
 
   private escapeHtml(text: string): string {

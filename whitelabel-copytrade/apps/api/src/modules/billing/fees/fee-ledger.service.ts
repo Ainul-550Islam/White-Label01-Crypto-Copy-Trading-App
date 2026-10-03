@@ -31,7 +31,7 @@ export class FeeLedgerService {
         this.logger.log(`Idempotent ledger return for accrual ${accrual.id}`);
         return existing;
       }
-      const byIdempotency = await this.ledgerRepository.findByIdempotencyKey(idempotencyKey);
+      const byIdempotency = await this.ledgerRepository.findByIdempotencyKey(idempotencyKey, accrual.tenantId);
       if (byIdempotency) {
         this.logger.log(`Idempotent ledger return by idempotencyKey ${idempotencyKey}`);
         const bySource = await this.ledgerRepository.findBySource(LedgerSourceType.FEE, accrual.id);
@@ -171,14 +171,10 @@ export class FeeLedgerService {
   }
 
   async getLedgerEntriesForAccrual(accrualId: string, tenantId?: string): Promise<any[]> {
-    try {
-      const entries = await this.ledgerRepository.findBySource(LedgerSourceType.FEE, accrualId);
-      if (tenantId) {
-        return entries.filter((e: any) => e.tenantId === tenantId);
-      }
-      return entries;
-    } catch {
-      return [];
+    const entries = await this.ledgerRepository.findBySource(LedgerSourceType.FEE, accrualId);
+    if (tenantId) {
+      return entries.filter((e: any) => e.tenantId === tenantId);
     }
+    return entries;
   }
 }

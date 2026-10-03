@@ -81,7 +81,7 @@ export class SaasAdminAuditService {
               id: record.id,
               tenantId: record.tenantId,
               action: record.operation,
-              resource: record.referenceType,
+              resourceType: record.referenceType,
               resourceId: record.referenceId,
               actorId: record.actorId,
               metadata: {

@@ -11,6 +11,13 @@ import {
   isValidDecimal,
 } from './portfolio-accounting.types';
 
+/** API view of a PortfolioAttributionRecord row: dimensionValue/pnl/percentage from dimensionId/pnlContribution/evidence. */
+export function toAttributionRecordView(row: any): any {
+  if (!row) return row;
+  const evidence = row.evidence && typeof row.evidence === 'object' ? row.evidence : {};
+  return { ...row, dimensionValue: row.dimensionId, pnl: row.pnlContribution, percentage: evidence.percentage ?? null };
+}
+
 /**
  * Produces deterministic attribution by strategy, trader, follower, symbol, asset, venue,
  * copy allocation, and fee, explaining total PnL without becoming a second PnL source.
@@ -213,29 +220,30 @@ export class AttributionService {
     });
 
     try {
-      const existing = await (this.prisma as any).portfolioAttributionRecord.findFirst({ where: { idempotencyKey } });
-      if (existing) return existing;
+      const existing = await (this.prisma as any).portfolioAttributionRecord.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
+      if (existing) return toAttributionRecordView(existing);
     } catch {}
 
     try {
-      return await (this.prisma as any).portfolioAttributionRecord.create({
+      // Columns: dimensionId (the dimension value) and pnlContribution; the percentage is kept in evidence.
+      const created = await (this.prisma as any).portfolioAttributionRecord.create({
         data: {
           tenantId: params.tenantId,
           profileId: params.profileId,
           periodId: params.periodId ?? null,
           dimension: params.dimension as any,
-          dimensionValue: params.dimensionValue,
-          pnl: params.pnl,
-          percentage: params.percentage,
+          dimensionId: params.dimensionValue,
+          pnlContribution: params.pnl,
           periodStart: params.periodStart,
           periodEnd: params.periodEnd,
           baseCurrency: params.baseCurrency,
           calculationVersion: params.calculationVersion,
           policyVersion: params.policyVersion,
-          evidence: redactSecrets(params.evidence) as any,
+          evidence: redactSecrets({ ...(params.evidence ?? {}), percentage: params.percentage }) as any,
           idempotencyKey,
         },
       });
+      return toAttributionRecordView(created);
     } catch (e) {
       this.logger.warn(`Failed to persist attribution: ${(e as Error).message}`);
       return null;

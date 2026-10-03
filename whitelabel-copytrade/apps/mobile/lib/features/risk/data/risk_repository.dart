@@ -53,7 +53,7 @@ class RiskRepository {
         return data
             .whereType<Map<Object?, Object?>>()
             .map((Map<Object?, Object?> row) =>
-                RiskSwitchInfo.fromJson(_asMap(row)))
+                RiskSwitchInfo.fromJson(_asMap(row)),)
             .toList(growable: false);
       },
     );
@@ -77,7 +77,7 @@ class RiskRepository {
         return items
             .whereType<Map<Object?, Object?>>()
             .map((Map<Object?, Object?> row) =>
-                RiskEventInfo.fromJson(_asMap(row)))
+                RiskEventInfo.fromJson(_asMap(row)),)
             .toList(growable: false);
       },
     );

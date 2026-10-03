@@ -101,9 +101,9 @@ export class FeePolicyService {
     // 3. Global platform policy fallback (if no plan)
     if (!plan && !tenantOverrideApplied) {
       // Try to get default platform policy from env or config
-      // For now, default to 0 platform fee, 2000 performance fee (20%) if not configured
-      // This is NOT hardcoded commercial rate per plan - it's global fallback default
-      // Actual rates come from plan catalog
+      // GLOBAL_PLATFORM_FEE_BPS / GLOBAL_PERFORMANCE_FEE_BPS, both defaulting to
+      // 0: with no plan, no tenant override and no global setting, no fee is
+      // charged. Commercial rates come from the plan catalog.
       const globalPlatformFee = parseInt(process.env.GLOBAL_PLATFORM_FEE_BPS || '0', 10);
       const globalPerformanceFee = parseInt(process.env.GLOBAL_PERFORMANCE_FEE_BPS || '0', 10);
       if (source === 'global_policy') {

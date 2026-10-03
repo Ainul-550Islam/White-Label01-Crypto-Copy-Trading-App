@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InvoiceRepository } from '../finance/invoice.repository';
 import { InvoicePdfService } from '../finance/invoice-pdf.service';
 import type { PortalInvoiceSummary } from './billing-portal.types';
@@ -39,12 +39,12 @@ export class BillingInvoiceQueryService {
   async getInvoiceDetail(tenantId: string, invoiceId: string): Promise<PortalInvoiceSummary & { lines?: any[]; taxSummary?: any[]; paymentReference?: any }> {
     const invoice = await this.invoiceRepository.findById(invoiceId, tenantId);
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new NotFoundException('Invoice not found');
     }
 
     // Ensure tenant isolation
     if (invoice.tenantId !== tenantId) {
-      throw new Error('Invoice not found');
+      throw new NotFoundException('Invoice not found');
     }
 
     const summary = this.mapToSummary(invoice);
@@ -74,11 +74,11 @@ export class BillingInvoiceQueryService {
   async getInvoicePdfMetadata(tenantId: string, invoiceId: string): Promise<{ available: boolean; invoiceNumber: string; generatedAt?: string }> {
     const invoice = await this.invoiceRepository.findById(invoiceId, tenantId);
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new NotFoundException('Invoice not found');
     }
 
     if (invoice.tenantId !== tenantId) {
-      throw new Error('Invoice not found');
+      throw new NotFoundException('Invoice not found');
     }
 
     // Check if invoice is finalized/paid - only those have PDF

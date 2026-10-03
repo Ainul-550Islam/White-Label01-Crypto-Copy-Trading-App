@@ -3,6 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ResearchRepository } from './research-repository';
 import { ResearchSignalState, ResearchSignalSide } from './signal.types';
 import { randomUUID, createHash } from 'crypto';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Creates, validates, deduplicates, stores, and publishes strategy signals to the existing strategy/copy-trading integration boundary.
@@ -67,7 +68,7 @@ export class SignalService {
 
     // Idempotency - deduplicate
     if (input.idempotencyKey) {
-      const existingByKey = await (this.prisma as any).researchSignal.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+      const existingByKey = await (this.prisma as any).researchSignal.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existingByKey) {
         this.logger.log(`Signal idempotent by key=${input.idempotencyKey}`);
         return existingByKey;
@@ -135,11 +136,11 @@ export class SignalService {
 
     // Check expiry
     if (signal.expiresAt && new Date(signal.expiresAt).getTime() < Date.now()) {
-      const updated = await (this.prisma as any).researchSignal.update({ where: { id: signalId }, data: { state: 'EXPIRED', updatedAt: new Date() } });
+      const updated = await (this.prisma as any).researchSignal.update({ where: { id: signalId, tenantId }, data: { state: 'EXPIRED', updatedAt: new Date() } });
       return updated;
     }
 
-    const updated = await (this.prisma as any).researchSignal.update({ where: { id: signalId }, data: { state: 'VALID', updatedAt: new Date() } });
+    const updated = await (this.prisma as any).researchSignal.update({ where: { id: signalId, tenantId }, data: { state: 'VALID', updatedAt: new Date() } });
 
     return updated;
   }
@@ -150,7 +151,7 @@ export class SignalService {
 
     if (signal.state !== 'VALID') throw new Error(`Only VALID signal can be published, current=${signal.state}`);
 
-    const updated = await (this.prisma as any).researchSignal.update({ where: { id: signalId }, data: { state: 'PUBLISHED', updatedAt: new Date() } });
+    const updated = await (this.prisma as any).researchSignal.update({ where: { id: signalId, tenantId }, data: { state: 'PUBLISHED', updatedAt: new Date() } });
 
     await this.researchRepo.createAuditLog({
       tenantId,
@@ -169,15 +170,18 @@ export class SignalService {
 
   async expireSignal(tenantId: string, signalId: string): Promise<any | null> {
     try {
-      return await (this.prisma as any).researchSignal.update({ where: { id: signalId }, data: { state: 'EXPIRED', updatedAt: new Date() } });
-    } catch { return null; }
+      return await (this.prisma as any).researchSignal.update({ where: { id: signalId, tenantId }, data: { state: 'EXPIRED', updatedAt: new Date() } });
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
+    }
   }
 
   async revokeSignal(tenantId: string, signalId: string, actorId: string, reason?: string): Promise<any | null> {
     const signal = await (this.prisma as any).researchSignal.findFirst({ where: { id: signalId, tenantId } });
     if (!signal) return null;
 
-    const updated = await (this.prisma as any).researchSignal.update({ where: { id: signalId }, data: { state: 'REVOKED', updatedAt: new Date() } });
+    const updated = await (this.prisma as any).researchSignal.update({ where: { id: signalId, tenantId }, data: { state: 'REVOKED', updatedAt: new Date() } });
 
     await this.researchRepo.createAuditLog({
       tenantId,

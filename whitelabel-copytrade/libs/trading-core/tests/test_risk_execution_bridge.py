@@ -65,10 +65,12 @@ def backtest_strategy():
         parameters={"use_limit_orders": False, "signal_cooldown_micros": 0},
     )
 
-# The engine path stamps decisions with the real clock; the fixtures must
-# age with it or freshness fails on every run. Tests that WANT staleness
-# pass an explicit created_at.
-NOW = epoch_micros()
+# The engine path stamps decisions with the real clock, so the fixtures read
+# the clock when they are BUILT, not when this module is imported. A
+# module-level timestamp aged with the whole suite: the baseline
+# MAX_STALE_DATA_AGE is 60 s, and once collection-to-execution took longer
+# than that (a slow or loaded machine), the engine tests below failed with
+# STALE_MARKET_DATA. Tests that WANT staleness pass an explicit created_at.
 BRIDGE_SYMBOL = "BTC/USDT"
 
 
@@ -84,10 +86,12 @@ def bridge_config(*overrides: RiskLimitEntry) -> RiskConfiguration:
 def bridge_state(
     config: RiskConfiguration | None = None,
     *,
-    created_at: int = NOW,
+    created_at: int | None = None,
     position: str = "0",
     available: str = "10000000",
 ):
+    if created_at is None:
+        created_at = epoch_micros()
     market = tg.market(
         bid="49995", ask="50005", quote_ts=created_at - 50_000, symbol=BRIDGE_SYMBOL
     )
@@ -137,10 +141,11 @@ def bridge_gate(
         events=events or InMemoryRiskEventSink(),
         reservations=reservations,
         kill_switches=kill or KillSwitchLedger(),
-        # The fixture timestamps are pinned at module import (shared with
-        # the rest of the suite); the engine tests below run against the
-        # wall clock, so the DEFAULT budget here is effectively unbounded and
-        # staleness is tested explicitly, by shrinking the budget.
+        # The engine tests below run against the wall clock, so the DEFAULT
+        # budget here is effectively unbounded and staleness is tested
+        # explicitly, by shrinking the budget. (The baseline
+        # MAX_STALE_DATA_AGE rule still applies; bridge_state() stamps its
+        # fixtures at build time so that rule sees fresh data.)
         freshness=(
             freshness
             if freshness is not None

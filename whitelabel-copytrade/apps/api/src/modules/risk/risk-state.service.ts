@@ -366,7 +366,10 @@ export class RiskStateService {
       select: { id: true, label: true },
     });
     const [configView, exposure, switches, protections, events] = await Promise.all([
-      this.policy.getConfig(tenantId, accountId).catch(() => null),
+      this.policy.getConfig(tenantId, accountId).catch((error: unknown) => {
+        if (error instanceof NotFoundException) return null;
+        throw error;
+      }),
       this.exposure(tenantId, accountId),
       this.prisma.killSwitch.findMany({
         where: {

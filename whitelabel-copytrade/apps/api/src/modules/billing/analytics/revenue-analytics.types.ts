@@ -168,8 +168,10 @@ export interface ChurnMetrics {
   logoChurnRate: string;
   revenueChurnAmount: MoneyAmount;
   revenueChurnRate: string;
-  netRevenueRetention: string;
-  grossRevenueRetention: string;
+  /** null: expansion revenue is not measured, so NRR is unknown. */
+  netRevenueRetention: string | null;
+  /** 100 - revenue churn % (floored at 0); null when there was no MRR at period start. */
+  grossRevenueRetention: string | null;
   totalCustomersStart: number;
   totalCustomersEnd: number;
   totalSubscriptionsStart: number;

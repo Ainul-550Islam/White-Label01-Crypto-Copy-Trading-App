@@ -30,7 +30,10 @@ RUN apt-get update \
 RUN python -m venv "$VIRTUAL_ENV"
 
 COPY services/execution-engine/requirements.txt ./requirements.txt
-RUN pip install --require-hashes=false -r requirements.txt
+# Exact `==` pins, no hashes in the file, so pip runs in its normal mode.
+# (`--require-hashes` is an on-switch that takes no value; the former
+# `--require-hashes=false` made pip exit with a usage error.)
+RUN pip install -r requirements.txt
 
 # The whole point of this image: the execution plane lives in the shared
 # library, and the service wires it. Runtime `import wlct_trading...`

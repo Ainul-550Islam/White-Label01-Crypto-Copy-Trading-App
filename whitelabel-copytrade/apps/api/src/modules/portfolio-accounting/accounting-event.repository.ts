@@ -50,7 +50,7 @@ export class AccountingEventRepository {
     // Idempotency mandatory — re-running same event must not double-count
     try {
       const existing = await (this.prisma as any).portfolioAccountingEvent.findFirst({
-        where: { idempotencyKey: params.idempotencyKey },
+        where: { tenantId: params.tenantId, idempotencyKey: params.idempotencyKey },
       });
       if (existing) {
         this.logger.log({ event: 'portfolio.event.idempotent_hit', idempotencyKey: params.idempotencyKey });
@@ -139,20 +139,16 @@ export class AccountingEventRepository {
       if (to) where.sourceTimestamp.lte = to;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).portfolioAccountingEvent.findMany({
-          where,
-          orderBy: { sourceTimestamp: 'asc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).portfolioAccountingEvent.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).portfolioAccountingEvent.findMany({
+        where,
+        orderBy: { sourceTimestamp: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).portfolioAccountingEvent.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async getEventsForPeriod(params: {
@@ -161,19 +157,15 @@ export class AccountingEventRepository {
     periodStart: Date;
     periodEnd: Date;
   }): Promise<any[]> {
-    try {
-      return await (this.prisma as any).portfolioAccountingEvent.findMany({
-        where: {
-          tenantId: params.tenantId,
-          profileId: params.profileId,
-          sourceTimestamp: { gte: params.periodStart, lte: params.periodEnd },
-          isReversed: false,
-        },
-        orderBy: { sourceTimestamp: 'asc' },
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).portfolioAccountingEvent.findMany({
+      where: {
+        tenantId: params.tenantId,
+        profileId: params.profileId,
+        sourceTimestamp: { gte: params.periodStart, lte: params.periodEnd },
+        isReversed: false,
+      },
+      orderBy: { sourceTimestamp: 'asc' },
+    });
   }
 
   async replayEvents(params: {
@@ -183,29 +175,21 @@ export class AccountingEventRepository {
     to?: Date;
   }): Promise<any[]> {
     // Deterministic replay for period reconstruction
-    try {
-      const where: any = { tenantId: params.tenantId, profileId: params.profileId, isReversed: false };
-      if (params.from || params.to) {
-        where.sourceTimestamp = {};
-        if (params.from) where.sourceTimestamp.gte = params.from;
-        if (params.to) where.sourceTimestamp.lte = params.to;
-      }
-      return await (this.prisma as any).portfolioAccountingEvent.findMany({
-        where,
-        orderBy: [{ sourceTimestamp: 'asc' }, { createdAt: 'asc' }],
-      });
-    } catch {
-      return [];
+    const where: any = { tenantId: params.tenantId, profileId: params.profileId, isReversed: false };
+    if (params.from || params.to) {
+      where.sourceTimestamp = {};
+      if (params.from) where.sourceTimestamp.gte = params.from;
+      if (params.to) where.sourceTimestamp.lte = params.to;
     }
+    return await (this.prisma as any).portfolioAccountingEvent.findMany({
+      where,
+      orderBy: [{ sourceTimestamp: 'asc' }, { createdAt: 'asc' }],
+    });
   }
 
   async findBySource(params: { tenantId: string; sourceType: string; sourceId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).portfolioAccountingEvent.findFirst({
-        where: { tenantId: params.tenantId, sourceType: params.sourceType, sourceId: params.sourceId },
-      });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).portfolioAccountingEvent.findFirst({
+      where: { tenantId: params.tenantId, sourceType: params.sourceType, sourceId: params.sourceId },
+    });
   }
 }

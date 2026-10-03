@@ -13,6 +13,8 @@ export enum ProviderDeliveryResultType {
 
 export interface SendNotificationInput {
   recipientEmail?: string;
+  /** E.164 phone number; required by the SMS channel. */
+  recipientPhone?: string;
   recipientUserId?: string;
   tenantId: string;
   subject: string;

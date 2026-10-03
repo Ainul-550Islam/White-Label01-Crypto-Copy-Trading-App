@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -101,6 +101,13 @@ SUPPORTED_COMMANDS: frozenset[str] = frozenset(
         "refresh-account-balances",
         "reconcile-trading-account",
         "cancel-order",
+        # Phase 3: the copy/OMS submission path. Served by
+        # ``POST /internal/v1/orders/submit`` against THIS runtime's adapter,
+        # which build_runtime only ever constructs as the paper simulator -
+        # EXECUTION_MODE=live still refuses to boot below, so adding the
+        # command widens what the worker may forward, never what reaches a
+        # venue.
+        "submit-order",
     }
 )
 
@@ -183,6 +190,17 @@ class EngineRuntime:
     #: and credential metadata. Carried on the runtime so /status can report
     #: the actual credential posture without recomputing it.
     credential_registry_wiring: CredentialRegistryWiring | None = None
+    #: Phase 3: the SAME book function the paper adapter prices against, so the
+    #: submission route's reference price and the simulator's fill price can
+    #: never disagree. ``None`` (or a provider returning ``None``) means "no
+    #: market data": the route then reports market data as down and the engine's
+    #: gate refuses the order instead of pricing it against an invented mid.
+    book_provider: Callable[[ExchangeId, str], BookTop | None] | None = None
+    #: Phase 3: per-(tenant, account) submission timestamps (epoch micros) for
+    #: the ``orders_in_last_minute`` risk input. Process-local by design: the
+    #: simulated runtime is a single instance, and a count that is too LOW could
+    #: only come from a restart - which also empties the in-memory store.
+    submission_windows: dict[tuple[str, str], list[int]] = field(default_factory=dict)
 
     def describe(self) -> dict[str, Any]:
         """Public, secret-free description of the wiring, for /status and
@@ -409,7 +427,8 @@ def build_runtime(
     lock_wiring = build_distributed_lock_manager(lock_config)
     locks = lock_wiring.manager
     durable_store = bool(getattr(store, "is_durable", False))
-    trading = PaperTradingAdapter(make_paper_book_provider(settings.simulated_mid))
+    book_provider = make_paper_book_provider(settings.simulated_mid)
+    trading = PaperTradingAdapter(book_provider)
     account = PaperAccountAdapter(settings.paper_balances)
     if incidents is None:
         # Part 17's pairing law, decided HERE rather than trusted to the caller:
@@ -646,4 +665,5 @@ def build_runtime(
         distributed_lock_wiring=lock_wiring,
         venue_attestation_wiring=venue_attestation_wiring,
         credential_registry_wiring=credential_registry_wiring,
+        book_provider=book_provider,
     )

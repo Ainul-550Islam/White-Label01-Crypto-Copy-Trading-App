@@ -53,7 +53,7 @@ export class RefundService {
     this.validateRefundInput(input);
 
     // Idempotency check
-    const existingByIdempotency = await this.findByIdempotencyKey(input.idempotencyKey);
+    const existingByIdempotency = await this.findByIdempotencyKey(input.idempotencyKey, input.tenantId);
     if (existingByIdempotency) {
       this.logger.log(`Idempotent refund return: ${input.idempotencyKey}`);
       return existingByIdempotency;
@@ -192,67 +192,55 @@ export class RefundService {
   }
 
   async getRefundById(id: string, tenantId?: string): Promise<RefundRecord | null> {
-    try {
-      const result = await (this.prisma as any).refund?.findFirst({
-        where: {
-          id,
-          ...(tenantId ? { tenantId } : {}),
-        },
-      });
+    const result = await (this.prisma as any).refund?.findFirst({
+      where: {
+        id,
+        ...(tenantId ? { tenantId } : {}),
+      },
+    });
 
-      if (!result) return null;
+    if (!result) return null;
 
-      return this.mapToRefundRecord(result);
-    } catch {
-      return null;
-    }
+    return this.mapToRefundRecord(result);
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<RefundRecord | null> {
-    try {
-      const result = await (this.prisma as any).refund?.findFirst({
-        where: { idempotencyKey },
-      });
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<RefundRecord | null> {
+    const result = await (this.prisma as any).refund?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
 
-      if (!result) return null;
+    if (!result) return null;
 
-      return this.mapToRefundRecord(result);
-    } catch {
-      return null;
-    }
+    return this.mapToRefundRecord(result);
   }
 
   async listRefunds(filter: RefundFilter): Promise<RefundRecord[]> {
-    try {
-      const where: any = {};
+    const where: any = {};
 
-      if (filter.tenantId) where.tenantId = filter.tenantId;
-      if (filter.paymentId) where.paymentId = filter.paymentId;
-      if (filter.invoiceId) where.invoiceId = filter.invoiceId;
-      if (filter.status) where.status = filter.status;
-      if (filter.refundType) where.refundType = filter.refundType;
-      if (filter.reason) where.reason = filter.reason;
-      if (filter.provider) where.provider = filter.provider;
-      if (filter.currency) where.currency = filter.currency;
-      if (filter.idempotencyKey) where.idempotencyKey = filter.idempotencyKey;
-      if (filter.fromDate || filter.toDate) {
-        where.requestedAt = {};
-        if (filter.fromDate) where.requestedAt.gte = filter.fromDate;
-        if (filter.toDate) where.requestedAt.lte = filter.toDate;
-      }
-
-      const results = await (this.prisma as any).refund?.findMany({
-        where,
-        orderBy: { requestedAt: 'desc' },
-        take: 100,
-      });
-
-      if (!results) return [];
-
-      return results.map((r: any) => this.mapToRefundRecord(r));
-    } catch {
-      return [];
+    if (filter.tenantId) where.tenantId = filter.tenantId;
+    if (filter.paymentId) where.paymentId = filter.paymentId;
+    if (filter.invoiceId) where.invoiceId = filter.invoiceId;
+    if (filter.status) where.status = filter.status;
+    if (filter.refundType) where.refundType = filter.refundType;
+    if (filter.reason) where.reason = filter.reason;
+    if (filter.provider) where.provider = filter.provider;
+    if (filter.currency) where.currency = filter.currency;
+    if (filter.idempotencyKey) where.idempotencyKey = filter.idempotencyKey;
+    if (filter.fromDate || filter.toDate) {
+      where.requestedAt = {};
+      if (filter.fromDate) where.requestedAt.gte = filter.fromDate;
+      if (filter.toDate) where.requestedAt.lte = filter.toDate;
     }
+
+    const results = await (this.prisma as any).refund?.findMany({
+      where,
+      orderBy: { requestedAt: 'desc' },
+      take: 100,
+    });
+
+    if (!results) return [];
+
+    return results.map((r: any) => this.mapToRefundRecord(r));
   }
 
   async calculateRefundableAmount(paymentId: string, tenantId: string): Promise<RefundableAmount> {
@@ -407,7 +395,7 @@ export class RefundService {
       }
       if (error.code === 'P2002') {
         // Duplicate idempotency key - return existing
-        const existing = await this.findByIdempotencyKey(params.idempotencyKey);
+        const existing = await this.findByIdempotencyKey(params.idempotencyKey, params.tenantId);
         if (existing) return existing;
       }
       throw error;
@@ -570,12 +558,8 @@ export class RefundService {
       const payment = await this.paymentService.getPaymentById(paymentId);
       return payment ? { ...payment, amount: payment.amount, currency: payment.currency, provider: payment.provider, providerPaymentId: payment.providerPaymentId, status: payment.status, tenantId: payment.tenantId } : null;
     } catch {
-      try {
-        const payment = await this.paymentService.getPaymentById(paymentId);
-        return payment ? { ...payment, amount: payment.amount, currency: payment.currency, provider: payment.provider, providerPaymentId: payment.providerPaymentId, status: payment.status, tenantId: payment.tenantId } : null;
-      } catch {
-        return null;
-      }
+      const payment = await this.paymentService.getPaymentById(paymentId);
+      return payment ? { ...payment, amount: payment.amount, currency: payment.currency, provider: payment.provider, providerPaymentId: payment.providerPaymentId, status: payment.status, tenantId: payment.tenantId } : null;
     }
   }
 

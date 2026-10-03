@@ -289,6 +289,7 @@ export class TokenService {
     userId: string,
     tenantId: string,
     deviceId: string,
+    options: { sso?: string } = {},
   ): Promise<{ token: string; expiresIn: number }> {
     const payload: Omit<JwtTwoFactorPayload, 'iat' | 'exp'> = {
       sub: userId,
@@ -296,6 +297,8 @@ export class TokenService {
       typ: '2fa_challenge',
       did: deviceId,
       jti: randomUUID(),
+      // The SSO login transaction this challenge follows (opaque id, no identity data).
+      ...(options.sso ? { sso: options.sso } : {}),
     };
 
     const token = await this.jwtService.signAsync(payload, {

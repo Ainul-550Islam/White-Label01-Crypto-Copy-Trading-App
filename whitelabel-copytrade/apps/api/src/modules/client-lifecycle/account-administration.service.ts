@@ -50,7 +50,7 @@ export class AccountAdministrationService {
     });
 
     try {
-      const existing = await (this.prisma as any).institutionalAccount.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).institutionalAccount.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -87,13 +87,9 @@ export class AccountAdministrationService {
   }
 
   async getAccount(params: { tenantId: string; accountId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).institutionalAccount.findFirst({
-        where: { id: params.accountId, tenantId: params.tenantId },
-      });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).institutionalAccount.findFirst({
+      where: { id: params.accountId, tenantId: params.tenantId },
+    });
   }
 
   async listAccounts(params: {
@@ -112,20 +108,16 @@ export class AccountAdministrationService {
     if (accountType) where.accountType = accountType;
     if (ownerId) where.ownerId = ownerId;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).institutionalAccount.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).institutionalAccount.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).institutionalAccount.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).institutionalAccount.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async updateAccountMetadata(params: {

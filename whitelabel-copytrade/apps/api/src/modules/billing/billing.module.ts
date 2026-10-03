@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 
 import { PlansService } from './plans.service';
 import { SubscriptionsService } from './subscriptions.service';
@@ -117,6 +117,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
  *  - Deterministic, machine-readable decisions
  *  - No secrets in audit logs or error messages
  */
+@Global()
 @Module({
   imports: [EnforcementModule, PaymentsModule, FinanceModule, PortalModule, SaasAdminModule, FeesModule, UsageModule, BillingNotificationsModule, AnalyticsModule],
   controllers: [PlansController, SubscriptionsController],

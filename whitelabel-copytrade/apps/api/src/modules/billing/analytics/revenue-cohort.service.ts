@@ -207,7 +207,7 @@ export class RevenueCohortService {
       return subs.filter((s: any) => !s.plan || s.plan.currency?.toUpperCase() === params.currency);
     } catch (e: any) {
       this.logger.warn(`Failed to fetch subscriptions for cohort: ${e.message}`);
-      return [];
+      throw e;
     }
   }
 }

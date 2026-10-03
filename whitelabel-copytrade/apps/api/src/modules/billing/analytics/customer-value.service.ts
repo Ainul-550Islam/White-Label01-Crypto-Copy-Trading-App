@@ -202,68 +202,64 @@ export class CustomerValueService {
     const { start, end } = this.parsePeriod(params.period);
     const limit = params.limit || 20;
 
-    try {
-      const payments = await (this.prisma as any).payment?.findMany({
-        where: {
-          currency,
-          status: { in: ['SUCCEEDED', 'PAID', 'COMPLETED'] },
-          createdAt: { gte: start, lte: end },
-        },
-      }) || [];
+    const payments = await (this.prisma as any).payment?.findMany({
+      where: {
+        currency,
+        status: { in: ['SUCCEEDED', 'PAID', 'COMPLETED'] },
+        createdAt: { gte: start, lte: end },
+      },
+    }) || [];
 
-      const byTenant = new Map<string, number>();
-      for (const p of payments) {
-        const minor = parseToMinorUnits(p.amount || '0', currency);
-        byTenant.set(p.tenantId, (byTenant.get(p.tenantId) || 0) + minor);
-      }
-
-      const sorted = Array.from(byTenant.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, limit);
-
-      const results = [];
-      for (const [tenantId, totalMinor] of sorted) {
-        // Fetch current MRR for tenant
-        let currentMrrMinor = 0;
-        let planCode: string | undefined;
-        try {
-          const active = await (this.prisma as any).tenantSubscription?.findFirst({
-            where: { tenantId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
-            include: { plan: true },
-            orderBy: { createdAt: 'desc' },
-          });
-          if (active?.plan && active.plan.currency?.toUpperCase() === currency) {
-            const priceMinor = parseToMinorUnits(active.plan.price?.toString() || '0', currency);
-            switch (active.plan.interval) {
-              case 'MONTHLY':
-                currentMrrMinor = priceMinor;
-                break;
-              case 'QUARTERLY':
-                currentMrrMinor = Math.round(priceMinor / 3);
-                break;
-              case 'YEARLY':
-                currentMrrMinor = Math.round(priceMinor / 12);
-                break;
-              default:
-                currentMrrMinor = 0;
-            }
-            planCode = active.plan.code;
-          }
-        } catch {}
-
-        results.push({
-          tenantId,
-          totalPaid: { amount: formatFromMinorUnits(totalMinor, currency), currency, minorUnit: getMinorUnitForCurrency(currency) },
-          currentMrr: { amount: formatFromMinorUnits(currentMrrMinor, currency), currency, minorUnit: getMinorUnitForCurrency(currency) },
-          tenureDays: 0,
-          planCode,
-        });
-      }
-
-      return results;
-    } catch {
-      return [];
+    const byTenant = new Map<string, number>();
+    for (const p of payments) {
+      const minor = parseToMinorUnits(p.amount || '0', currency);
+      byTenant.set(p.tenantId, (byTenant.get(p.tenantId) || 0) + minor);
     }
+
+    const sorted = Array.from(byTenant.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit);
+
+    const results = [];
+    for (const [tenantId, totalMinor] of sorted) {
+      // Fetch current MRR for tenant
+      let currentMrrMinor = 0;
+      let planCode: string | undefined;
+      try {
+        const active = await (this.prisma as any).tenantSubscription?.findFirst({
+          where: { tenantId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
+          include: { plan: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (active?.plan && active.plan.currency?.toUpperCase() === currency) {
+          const priceMinor = parseToMinorUnits(active.plan.price?.toString() || '0', currency);
+          switch (active.plan.interval) {
+            case 'MONTHLY':
+              currentMrrMinor = priceMinor;
+              break;
+            case 'QUARTERLY':
+              currentMrrMinor = Math.round(priceMinor / 3);
+              break;
+            case 'YEARLY':
+              currentMrrMinor = Math.round(priceMinor / 12);
+              break;
+            default:
+              currentMrrMinor = 0;
+          }
+          planCode = active.plan.code;
+        }
+      } catch {}
+
+      results.push({
+        tenantId,
+        totalPaid: { amount: formatFromMinorUnits(totalMinor, currency), currency, minorUnit: getMinorUnitForCurrency(currency) },
+        currentMrr: { amount: formatFromMinorUnits(currentMrrMinor, currency), currency, minorUnit: getMinorUnitForCurrency(currency) },
+        tenureDays: 0,
+        planCode,
+      });
+    }
+
+    return results;
   }
 
   private parsePeriod(period: ReportingPeriod): { start: Date; end: Date } {
@@ -271,39 +267,23 @@ export class CustomerValueService {
   }
 
   private async fetchSubscriptions(params: { tenantId: string }): Promise<any[]> {
-    try {
-      return await (this.prisma as any).tenantSubscription?.findMany({ where: { tenantId: params.tenantId }, include: { plan: true } }) || [];
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).tenantSubscription?.findMany({ where: { tenantId: params.tenantId }, include: { plan: true } }) || [];
   }
 
   private async fetchPayments(params: { tenantId: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      return await (this.prisma as any).payment?.findMany({ where: { tenantId: params.tenantId, currency: params.currency, createdAt: { gte: params.start, lte: params.end } } }) || [];
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).payment?.findMany({ where: { tenantId: params.tenantId, currency: params.currency, createdAt: { gte: params.start, lte: params.end } } }) || [];
   }
 
   private async fetchRefunds(params: { tenantId: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      return await (this.prisma as any).refund?.findMany({ where: { tenantId: params.tenantId, currency: params.currency, createdAt: { gte: params.start, lte: params.end } } }) || [];
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).refund?.findMany({ where: { tenantId: params.tenantId, currency: params.currency, createdAt: { gte: params.start, lte: params.end } } }) || [];
   }
 
   private async fetchPaymentsForArpu(params: { currency: string; start: Date; end: Date; tenantIds?: string[] }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantIds && params.tenantIds.length > 0) where.tenantId = { in: params.tenantIds };
-      return await (this.prisma as any).payment?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantIds && params.tenantIds.length > 0) where.tenantId = { in: params.tenantIds };
+    return await (this.prisma as any).payment?.findMany({ where }) || [];
   }
 }

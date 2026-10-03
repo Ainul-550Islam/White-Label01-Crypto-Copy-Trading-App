@@ -52,7 +52,7 @@ export class IdentityVerificationService {
 
     // Idempotency check
     try {
-      const existingRequest = await (this.prisma as any).complianceScreeningRequest?.findFirst({ where: { idempotencyKey } });
+      const existingRequest = await (this.prisma as any).complianceScreeningRequest?.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existingRequest) {
         this.logger.log(`Idempotent KYC start return key=${idempotencyKey}`);
         return {

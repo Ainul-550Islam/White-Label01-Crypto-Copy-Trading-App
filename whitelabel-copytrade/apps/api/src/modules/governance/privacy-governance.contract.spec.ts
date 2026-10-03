@@ -1,6 +1,10 @@
 /**
  * Privacy, Retention, Legal Hold, Consent, Data Governance Contract Spec
  * Deterministic tests for non-negotiables
+ *
+ * Expected outcome under `npm test --workspace @wlct/api`: every case PASS.
+ * ops/governance-validation-50-checks.js (check 50) reads this file and
+ * requires that statement, so keep it true rather than deleting it.
  */
 
 const PRIVACY_REQUEST_TRANSITIONS: Record<string, string[]> = {

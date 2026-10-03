@@ -3,6 +3,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingNotificationEventKey, WebhookSubscription, DeliveryStatus, SafeNotificationPayload } from './billing-notification.types';
 import { BillingNotificationAuditService } from './billing-notification.audit';
 import { randomUUID, createHmac } from 'crypto';
+import { isRecordNotFound } from '../../../common/errors/prisma-not-found';
 
 /**
  * Tenant-configured outbound billing webhooks.
@@ -92,28 +93,20 @@ export class BillingWebhookNotificationService {
   }
 
   async listSubscriptions(tenantId: string): Promise<WebhookSubscription[]> {
-    try {
-      const results = await (this.prisma as any).webhookSubscription?.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!results) return [];
-      return results.map((r: any) => this.mapSubscriptionToDomain(r));
-    } catch {
-      return [];
-    }
+    const results = await (this.prisma as any).webhookSubscription?.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!results) return [];
+    return results.map((r: any) => this.mapSubscriptionToDomain(r));
   }
 
   async findSubscriptionById(id: string, tenantId: string): Promise<WebhookSubscription | null> {
-    try {
-      const result = await (this.prisma as any).webhookSubscription?.findFirst({
-        where: { id, tenantId },
-      });
-      if (!result) return null;
-      return this.mapSubscriptionToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).webhookSubscription?.findFirst({
+      where: { id, tenantId },
+    });
+    if (!result) return null;
+    return this.mapSubscriptionToDomain(result);
   }
 
   async updateSubscription(
@@ -138,8 +131,9 @@ export class BillingWebhookNotificationService {
 
       if (!updated) return null;
       return this.mapSubscriptionToDomain(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
@@ -159,8 +153,9 @@ export class BillingWebhookNotificationService {
 
       if (!updated) return null;
       return this.mapSubscriptionToDomain(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
@@ -170,8 +165,9 @@ export class BillingWebhookNotificationService {
         where: { id, tenantId },
       });
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (isRecordNotFound(error)) return false;
+      throw error;
     }
   }
 

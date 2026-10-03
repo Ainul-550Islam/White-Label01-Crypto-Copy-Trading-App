@@ -365,78 +365,122 @@ export class RecoveryPlanService {
     step: RecoveryStep;
     correlationId: string | null;
   }): Promise<any> {
-    // No recovery procedure may directly patch database state to simulate success
-    // Must re-enter existing authoritative service boundary
-
+    // No recovery procedure may directly patch database state to simulate
+    // success, and (Phase 3) no step may REPORT success it did not verify.
+    // Each step either performs a real read-only verification against the
+    // authoritative stores (DB, Redis) and throws when the system is not in
+    // the required state, or - where the action belongs to a boundary this
+    // service cannot drive (stream reconnect, queue replay, manual review) -
+    // throws RECOVERY_MANUAL_ACTION_REQUIRED so the run stops as FAILED with
+    // an explicit reason instead of pretending the action happened.
     const { step, tenantId } = params;
+    const tenantWhere = tenantId ? { tenantId } : {};
+    const manual = (what: string): never => {
+      throw new BadRequestException(`RECOVERY_MANUAL_ACTION_REQUIRED: ${what}`);
+    };
 
-    // Simulate delegation to existing services — in production, these would call actual services
-    // For example, queue retry would call QueueService, exchange reconnect would call ExecutionSafetyService, etc.
-    // Here we implement safe stubs that verify preconditions but never bypass controls
+    const unsyncedOrders = () =>
+      this.prisma.order.count({ where: { ...tenantWhere, reconciliationState: { not: 'IN_SYNC' } as any } });
 
     switch (step.service) {
       case 'queue':
         if (step.action === 'health-check') {
-          // Would call QueueHealthService
-          return { checked: true, healthy: true };
-        } else if (step.action === 'retry-failed') {
-          // Would call existing queue retry logic — not implemented here, but would not bypass
-          return { retried: 0, note: 'Retry via existing queue infrastructure (stub)' };
+          const health = await this.redis.healthCheck().catch(() => ({ ok: false, latencyMs: -1 }));
+          if (!health.ok) throw new BadRequestException('Queue backend (Redis) is not reachable');
+          return { checked: true, healthy: true, latencyMs: health.latencyMs };
+        }
+        if (step.action === 'retry-failed') {
+          return manual('replay failed jobs from the queue admin (BullMQ) after the root cause is fixed; replay is not automated because non-idempotent jobs must be reviewed');
         }
         break;
       case 'credential':
         if (step.action === 'verify') {
-          // Would call credential fetcher — fail if missing, never invent success
-          if (tenantId) {
-            const accounts = await this.prisma.tradingAccount.findMany({ where: { tenantId }, take: 1 }).catch(() => []);
-            if (accounts.length === 0) throw new BadRequestException('No trading accounts for credential verification');
-          }
-          return { verified: true };
+          if (!tenantId) throw new BadRequestException('Credential verification requires a tenant');
+          const accounts = await this.prisma.tradingAccount.findMany({
+            where: { tenantId },
+            select: { id: true, credentialSource: true, credentialRef: true, apiKeyCiphertext: true, apiSecretCiphertext: true },
+            take: 1000,
+          });
+          if (accounts.length === 0) throw new BadRequestException('No trading accounts for credential verification');
+          const broken = accounts.filter((a: any) =>
+            a.credentialSource === 'SECRET_MANAGER' ? !a.credentialRef : a.credentialSource ? !(a.apiKeyCiphertext && a.apiSecretCiphertext) : false,
+          );
+          if (broken.length > 0) throw new BadRequestException(`${broken.length} trading account(s) have an incomplete credential record`);
+          return { verified: true, accountsChecked: accounts.length };
         }
         break;
       case 'live-gate':
         if (step.action === 'check') {
-          // Would call ExecutionSafetyService.safetySummary — never bypass
-          return { liveGateOk: true };
+          const engaged = await this.prisma.killSwitch.count({ where: { isEngaged: true, OR: [{ tenantId: tenantId ?? undefined }, { tenantId: null }] } });
+          if (engaged > 0) throw new BadRequestException(`${engaged} kill switch(es) engaged - live gate closed`);
+          const unsynced = await unsyncedOrders();
+          if (unsynced > 0) throw new BadRequestException(`${unsynced} order(s) not reconciled - live gate stays closed until they are`);
+          return { killSwitchEngaged: false, unreconciledOrders: 0 };
         }
         break;
       case 'execution':
         if (step.action === 'reconnect') {
-          // Would call ExecutionOrdersService reconnect — re-enters existing boundary
-          return { reconnected: true, note: 'Via existing execution service boundary' };
+          return manual('restart/reconnect the execution-engine private stream (the engine owns venue connections; the API cannot reconnect them)');
         }
         break;
       case 'oms':
-        if (step.action.startsWith('reconcile')) {
-          // Would call OMS reconciliation services
-          return { reconciled: true, type: step.action };
-        } else if (step.action === 'health-check') {
+        if (step.action === 'health-check') {
+          await this.prisma.$queryRaw`SELECT 1`;
           return { healthy: true };
-        } else if (step.action === 'post-trade-verify') {
-          return { verified: true };
+        }
+        if (step.action === 'reconcile-orders' || step.action === 'post-trade-verify') {
+          const unsynced = await unsyncedOrders();
+          if (unsynced > 0) throw new BadRequestException(`${unsynced} order(s) are not IN_SYNC with the venue`);
+          return { verified: true, unsyncedOrders: 0, type: step.action };
+        }
+        if (step.action === 'reconcile-fills') {
+          const filledWithoutFills = await this.prisma.order.count({
+            where: { ...tenantWhere, status: { in: ['FILLED', 'PARTIALLY_FILLED'] as any }, fills: { none: {} } },
+          });
+          if (filledWithoutFills > 0) throw new BadRequestException(`${filledWithoutFills} filled order(s) have no fill records`);
+          return { verified: true, filledWithoutFills: 0 };
+        }
+        if (step.action === 'reconcile-positions') {
+          const open = await this.prisma.reconciliationDiscrepancy.count({ where: { ...tenantWhere, repaired: false } });
+          if (open > 0) throw new BadRequestException(`${open} unrepaired reconciliation discrepancy(ies)`);
+          return { verified: true, openDiscrepancies: 0 };
         }
         break;
       case 'risk':
         if (step.action === 'check-policy') {
-          // Would call risk policy service — never approve risk decision directly
-          return { policyChecked: true, note: 'Risk decision still requires risk engine, not bypassed' };
+          // Verification only: the risk engine still decides every order.
+          const engaged = await this.prisma.killSwitch.count({ where: { isEngaged: true, OR: [{ tenantId: tenantId ?? undefined }, { tenantId: null }] } });
+          return { policyChecked: true, killSwitchEngaged: engaged > 0, note: 'Risk decisions still require the risk engine, not bypassed' };
         }
         break;
       case 'compliance':
-        if (step.action === 'check-case' || step.action === 'request-review') {
-          return { complianceChecked: true, note: 'Compliance block still enforced via compliance service' };
+        if (step.action === 'check-case') {
+          const blocking = await this.prisma.complianceCase.count({
+            where: { ...tenantWhere, decision: 'BLOCK' as any, state: { in: ['OPEN', 'IN_REVIEW', 'ESCALATED'] as any } },
+          });
+          if (blocking > 0) throw new BadRequestException(`${blocking} open compliance BLOCK case(s) - recovery cannot proceed`);
+          return { complianceChecked: true, blockingCases: 0 };
+        }
+        if (step.action === 'request-review') {
+          return manual('open a compliance review through the compliance case workflow');
         }
         break;
       case 'reconciliation':
         if (step.action === 'verify') {
-          return { verified: true };
+          const unsynced = await unsyncedOrders();
+          const open = await this.prisma.reconciliationDiscrepancy.count({ where: { ...tenantWhere, repaired: false } });
+          if (unsynced > 0 || open > 0) {
+            throw new BadRequestException(`Reconciliation not clean: unsyncedOrders=${unsynced} openDiscrepancies=${open}`);
+          }
+          return { verified: true, unsyncedOrders: 0, openDiscrepancies: 0 };
         }
         break;
       default:
-        return { executed: true, service: step.service, action: step.action };
+        break;
     }
 
-    return { executed: true, service: step.service, action: step.action };
+    // Unknown service/action: never a silent success.
+    throw new BadRequestException(`Unsupported recovery step ${step.service}:${step.action}`);
   }
 
   async getRecoveryRun(tenantId: string | null, recoveryRunId: string): Promise<any> {
@@ -470,19 +514,15 @@ export class RecoveryPlanService {
     if (state) where.state = state;
     if (incidentId) where.incidentId = incidentId;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).operationalRecoveryRun.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).operationalRecoveryRun.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).operationalRecoveryRun.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).operationalRecoveryRun.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

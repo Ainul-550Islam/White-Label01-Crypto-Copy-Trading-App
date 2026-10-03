@@ -1,38 +1,21 @@
 /**
  * Entitlements Module - Admin Web Public API
  *
- * This module exports all public interfaces, types, and functions
- * for the billing entitlements feature in the admin interface.
+ * Read-only views of the API's entitlement derivation (see entitlement-api.ts).
  */
-
-// Enums (runtime values - must be value re-exports under isolatedModules)
-export { EntitlementStatus, UsagePeriod } from './entitlement-types';
 
 // Types
 export type {
-  EntitlementFeature,
-  EntitlementLimit,
-  Entitlement,
-  EntitlementSummary,
-  EntitlementFilter,
-  CreateEntitlementRequest,
-  UpdateEntitlementRequest,
-  UsageRecord,
+  EntitlementSource,
+  TenantEntitlement,
+  TenantLimit,
+  TenantFeatureAccess,
+  FeatureCheckResult,
+  OwnPlanLimits,
+  UsageItem,
+  FeatureAvailability,
+  OwnUsageSummary,
 } from './entitlement-types';
 
 // API
-export {
-  getEntitlements,
-  getEntitlement,
-  createEntitlement,
-  updateEntitlement,
-  deleteEntitlement,
-  suspendEntitlement,
-  reactivateEntitlement,
-  cancelEntitlement,
-  changePlan,
-  getUsageHistory,
-  resetUsage,
-  getEntitlementStats,
-  checkFeatureAccess,
-} from './entitlement-api';
+export { getTenantFeatureAccess, checkTenantFeature, getOwnPlanLimits, getOwnUsage } from './entitlement-api';

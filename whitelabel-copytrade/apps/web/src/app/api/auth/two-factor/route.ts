@@ -1,18 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { z } from 'zod';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
 import { ApiError } from '@/lib/api-error';
+import { buildVerifyBody, twoFactorRequestSchema } from '@/lib/two-factor-verify';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const bodySchema = z.object({
-  code: z.string().min(1).max(32),
-  method: z.enum(['TOTP', 'RECOVERY']).default('TOTP'),
-});
+/**
+ * Second step of sign-in. The challenge token and device id were stored as
+ * httpOnly cookies by /api/auth/login and never reach browser JavaScript.
+ * The backend body is built by buildVerifyBody (lib/two-factor-verify).
+ */
+interface VerifiedSession {
+  tokens: { accessToken: string; refreshToken: string; expiresIn: number; refreshExpiresIn: number };
+}
 
 export async function POST(request: Request): Promise<NextResponse> {
   const cookieStore = cookies();
@@ -36,7 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const parsed = bodySchema.safeParse(raw);
+  const parsed = twoFactorRequestSchema.safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json(
       { success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid code.' } },
@@ -45,17 +49,11 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const result = await serverFetch<{
-      tokens: { accessToken: string; refreshToken: string; expiresIn: number; refreshExpiresIn: number };
-    }>('/auth/two-factor/challenge', {
+    const result = await serverFetch<VerifiedSession>('/auth/two-factor/verify', {
       method: 'POST',
       authenticated: false,
-      body: {
-        challengeToken,
-        code: parsed.data.code,
-        method: parsed.data.method,
-        deviceId,
-      },
+      body: buildVerifyBody(challengeToken, deviceId, parsed.data),
+      host: request.headers.get('host') ?? undefined,
     });
 
     persistSession(result.tokens, deviceId, randomUUID());
@@ -67,7 +65,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof ApiError) {
       return NextResponse.json(
-        { success: false, error: { code: err.code, message: err.message } },
+        { success: false, error: { code: err.code, message: err.message, details: err.details } },
         { status: err.status }
       );
     }

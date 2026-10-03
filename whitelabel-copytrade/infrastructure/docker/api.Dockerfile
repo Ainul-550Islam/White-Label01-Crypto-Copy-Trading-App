@@ -38,6 +38,16 @@ FROM deps AS build
 ENV NODE_ENV=development
 WORKDIR /app
 
+# The API compile (`nest build`: about 880 files, the swagger plugin and a
+# generated Prisma client of roughly 30 MB) needs more heap than Node's default
+# on most hosts and aborts with "JavaScript heap out of memory" without it. CI
+# type-checks the same code with the same ceiling (.github/workflows/ci.yml).
+# It is a ceiling, not a reservation; override it with
+# `--build-arg NODE_BUILD_HEAP_MB=<MiB>`. Only this stage (and the one-shot
+# migrate job that runs it) sees it: the runtime stage starts from `base`.
+ARG NODE_BUILD_HEAP_MB=6144
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_BUILD_HEAP_MB}
+
 COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY apps/api ./apps/api
@@ -50,7 +60,12 @@ RUN npm run build --workspace @wlct/shared-types \
     && npm run build --workspace @wlct/api
 
 # Strip development dependencies from the tree that will be copied forward.
-RUN npm prune --omit=dev --workspace @wlct/api --include-workspace-root
+# npm workspaces hoist every package to /app/node_modules and create
+# apps/api/node_modules only when a version conflict forces a nested copy, so
+# the directory is made to exist: the runtime COPY below then carries any
+# nested packages and is never a "not found" build failure without them.
+RUN npm prune --omit=dev --workspace @wlct/api --include-workspace-root \
+    && mkdir -p apps/api/node_modules
 
 # ---------------------------------------------------------------------------
 FROM base AS runtime
@@ -64,6 +79,11 @@ COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=node:node /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build --chown=node:node /app/apps/api/prisma ./apps/api/prisma
 COPY --from=build --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
+
+# Dataset store and its staging area. Production requires both as absolute
+# paths on the same filesystem (finalisation is a rename) and disjoint from
+# each other; /app itself is root-owned, so create them for the runtime user.
+RUN mkdir -p /app/data/datasets /app/data/staging && chown -R node:node /app/data
 
 USER node
 EXPOSE 4000

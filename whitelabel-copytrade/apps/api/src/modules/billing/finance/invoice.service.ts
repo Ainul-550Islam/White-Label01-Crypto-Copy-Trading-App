@@ -125,15 +125,31 @@ export class InvoiceService {
       }
     }
 
-    // Calculate tax using tax service - not hardcoded rates
+    // Calculate tax using tax service - not hardcoded rates. The customer's
+    // tax profile (country, region, VAT number, business/exempt flags) comes
+    // from the tenant record; previously the country was read from a query
+    // that never selected it, so every invoice was taxed as 'US' (0%) and
+    // exemptions / reverse charge were never applied.
     const subtotalMoney = planPriceMoney;
+    const taxInfo = await this.taxService.getCustomerTaxInfo(payment.tenantId);
+    if (!taxInfo) {
+      throw new AppException({
+        code: ErrorCode.SERVICE_UNAVAILABLE,
+        message: 'Customer tax information unavailable; invoice not generated',
+      });
+    }
     const taxResult = await this.taxService.calculateTax({
       tenantId: payment.tenantId,
       amount: subtotalMoney,
       currency,
-      billingCountry: (tenant as any).countryCode || 'US',
-      taxId: undefined,
-      isBusinessCustomer: false,
+      billingCountry: taxInfo.billingCountry,
+      billingRegion: taxInfo.billingRegion,
+      taxId: taxInfo.taxId,
+      vatNumber: taxInfo.vatNumber,
+      isBusinessCustomer: taxInfo.isBusinessCustomer === true,
+      isTaxExempt: taxInfo.isTaxExempt === true,
+      exemptionReason: taxInfo.exemptionReason,
+      customerId: payment.tenantId,
     });
 
     if (taxResult.taxAmount && parseToMinorUnits(taxResult.taxAmount.amount, currency) > 0) {
@@ -158,8 +174,9 @@ export class InvoiceService {
       billingName: tenant.name,
       legalName: tenant.name,
       billingEmail: tenant.contactEmail || `${tenant.slug}@example.com`,
-      taxId: undefined,
-      vatNumber: undefined,
+      // A reverse-charge invoice must show the customer's VAT number.
+      taxId: taxInfo.taxId,
+      vatNumber: taxInfo.vatNumber,
     };
 
     const billingPeriod = {
@@ -206,6 +223,17 @@ export class InvoiceService {
         paymentId: payment.id,
         planId: plan.id,
         generatedFrom: 'payment_succeeded',
+        ...(taxResult.vatCheck
+          ? {
+              vatCheck: {
+                status: taxResult.vatCheck.status,
+                source: taxResult.vatCheck.source,
+                countryCode: taxResult.vatCheck.countryCode,
+                consultationNumber: taxResult.vatCheck.consultationNumber ?? null,
+                checkedAt: taxResult.vatCheck.checkedAt,
+              },
+            }
+          : {}),
       },
     };
 

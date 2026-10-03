@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'billing_portal_api.dart';
-import '../../../core/network/api_client.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/di/providers.dart';
 
 /// Mobile subscription management.
 /// Supports current plan, change plan, change interval, cancel at period end,
@@ -28,7 +29,9 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
   @override
   void initState() {
     super.initState();
-    _api = BillingPortalApi(ApiClient());
+    // The app-wide ApiClient (auth, base URL, envelope unwrapping) - never a
+    // second, unconfigured client.
+    _api = BillingPortalApi(ProviderScope.containerOf(context, listen: false).read(apiClientProvider));
     _fetchData();
   }
 
@@ -49,7 +52,7 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
         _api.getAvailablePlans(),
       ]);
       setState(() {
-        _state = results[0] as Map<String, dynamic>;
+        _state = results[0];
         _plans = (results[1]['plans'] as List?) ?? [];
         _loading = false;
       });
@@ -69,7 +72,7 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
     try {
       final result = await _api.cancelSubscription(reason: _cancelReasonController.text.isNotEmpty ? _cancelReasonController.text : null, atPeriodEnd: true);
       setState(() {
-        _message = 'Subscription will cancel at ${result['effectiveAt'] != null ? DateTime.parse(result['effectiveAt']).toLocal().toString().split(' ')[0] : 'period end'}';
+        _message = 'Subscription will cancel at ${result['effectiveAt'] != null ? DateTime.parse('${result['effectiveAt']}').toLocal().toString().split(' ')[0] : 'period end'}';
         _showCancelDialog = false;
       });
       await _fetchData();
@@ -92,7 +95,7 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
     try {
       final result = await _api.resumeSubscription();
       setState(() {
-        _message = result['message'] ?? 'Subscription resumed';
+        _message = (result['message'] as String?) ?? 'Subscription resumed';
       });
       await _fetchData();
     } catch (e) {
@@ -124,7 +127,7 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
         }
       } else {
         setState(() {
-          _message = result['message'] ?? 'Plan changed successfully';
+          _message = (result['message'] as String?) ?? 'Plan changed successfully';
         });
         await _fetchData();
       }
@@ -147,7 +150,7 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
     try {
       final result = await _api.changeInterval(newInterval: newInterval, atPeriodEnd: true);
       setState(() {
-        _message = result['message'] ?? 'Interval change to $newInterval scheduled';
+        _message = (result['message'] as String?) ?? 'Interval change to $newInterval scheduled';
       });
       await _fetchData();
     } catch (e) {
@@ -219,10 +222,10 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
                     const Text('Current Subscription', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     if (sub != null) ...[
-                      _buildRow('Plan', sub['plan']?['name'] ?? sub['planId'] ?? 'Unknown'),
-                      _buildRow('Status', sub['status'] ?? 'UNKNOWN', isBadge: true),
-                      _buildRow('Period End', sub['currentPeriodEnd'] != null ? DateTime.parse(sub['currentPeriodEnd']).toLocal().toString().split(' ')[0] : 'N/A'),
-                      _buildRow('Interval', sub['plan']?['interval'] ?? 'N/A'),
+                      _buildRow('Plan', '${sub['plan']?['name'] ?? sub['planId'] ?? 'Unknown'}'),
+                      _buildRow('Status', '${sub['status'] ?? 'UNKNOWN'}', isBadge: true),
+                      _buildRow('Period End', sub['currentPeriodEnd'] != null ? DateTime.parse('${sub['currentPeriodEnd']}').toLocal().toString().split(' ')[0] : 'N/A'),
+                      _buildRow('Interval', '${sub['plan']?['interval'] ?? 'N/A'}'),
                       if (sub['cancelAtPeriodEnd'] == true)
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
@@ -324,12 +327,12 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
                         margin: const EdgeInsets.only(bottom: 8),
                         color: isCurrent ? Colors.blue[50] : null,
                         child: ListTile(
-                          title: Text(p['name'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                          title: Text('${p['name']}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                           subtitle: Text('${p['code']} - ${p['interval']} - ${p['price']} ${p['currency']}', style: const TextStyle(fontSize: 12)),
                           trailing: isCurrent
                               ? const Chip(label: Text('Current', style: TextStyle(fontSize: 10)))
                               : ElevatedButton(
-                                  onPressed: _actionLoading == 'plan_${p['id']}' ? null : () => _handleChangePlan(p['id']),
+                                  onPressed: _actionLoading == 'plan_${p['id']}' ? null : () => _handleChangePlan('${p['id']}'),
                                   child: Text(_actionLoading == 'plan_${p['id']}' ? '...' : 'Select', style: const TextStyle(fontSize: 12)),
                                 ),
                         ),

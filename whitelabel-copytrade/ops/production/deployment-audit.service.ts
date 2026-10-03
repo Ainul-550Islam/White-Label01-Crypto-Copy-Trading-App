@@ -98,6 +98,8 @@ export class DeploymentAuditService {
       'POSTGRES_PASSWORD',
       'JWT_SECRET',
       'ENCRYPTION_KEY',
+      // ENCRYPTION_MASTER_KEY_BASE64 / BLIND_INDEX_KEY_BASE64
+      'KEY_BASE64',
     ];
 
     const redacted: Record<string, unknown> = {};

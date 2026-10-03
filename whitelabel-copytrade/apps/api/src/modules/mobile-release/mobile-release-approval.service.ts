@@ -13,7 +13,7 @@ import {
   MOBILE_ERROR_CODES,
   redactSecrets,
 } from './mobile-release.types';
-import type { MobileReleaseAuditService } from './mobile-release-audit.service';
+import { MobileReleaseAuditService } from './mobile-release-audit.service';
 
 /**
  * Production release approval workflow.

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PayoutProvider } from './payout.types';
 import { IPayoutProvider } from './payout-provider.interface';
+import { StripeConnectPayoutProvider } from './stripe-connect-payout.provider';
 
 /**
  * Selects configured payout provider using existing app config conventions.
@@ -126,18 +127,20 @@ export class PayoutProviderFactory {
         return new ManualPayoutProvider();
       case PayoutProvider.INTERNAL:
         return new InternalPayoutProvider();
-      case PayoutProvider.STRIPE:
-        // Stripe payout would require Stripe Connect - not configured in this repo by default
-        // Return manual as safe fallback but log config error for stripe
-        if (!process.env.STRIPE_SECRET_KEY) {
-          this.logger.error('STRIPE payout requested but STRIPE_SECRET_KEY not configured');
+      case PayoutProvider.STRIPE: {
+        // Stripe Connect Transfers to the beneficiary's connected account.
+        // Without a usable secret key it fails closed (NoOp) instead of
+        // falling back to a provider that could report the payout as paid.
+        const stripe = new StripeConnectPayoutProvider();
+        if (!stripe.isAvailable()) {
+          this.logger.error('STRIPE payout requested but STRIPE_SECRET_KEY (sk_/rk_) is not configured');
           return new NoOpPayoutProvider();
         }
-        // If configured, use internal as adapter placeholder that still requires confirmation
-        return new InternalPayoutProvider();
+        return stripe;
+      }
       case PayoutProvider.BANK_TRANSFER:
       case PayoutProvider.CRYPTO:
-        // These would need external adapters - return NoOp with explicit error for now
+        // No bank or crypto payout adapter ships in this build: fail closed.
         this.logger.warn(`Payout provider ${target} not fully configured, returning NoOp`);
         return new NoOpPayoutProvider();
       default:

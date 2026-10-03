@@ -35,58 +35,66 @@ export class CopyPolicyService {
     return this.platformPolicy;
   }
 
+  // The three lookups below let errors propagate. Lower levels may only
+  // tighten the policy, so silently dropping a level on a database error (as
+  // they used to, returning null) produced a LOOSER effective policy - e.g.
+  // tenant-blocked symbols or the follower's max notional disappeared. The
+  // copy engine skips the subscription when resolution fails (no order).
+
   async getTenantPolicy(tenantId: string): Promise<CopyPolicy | null> {
-    try {
-      const setting = await this.prisma.tenantSetting.findFirst({ where: { tenantId, key: 'copy_trading_policy' } });
-      if (setting && setting.value) {
-        return setting.value as any as CopyPolicy;
-      }
-    } catch {}
+    const setting = await this.prisma.tenantSetting.findFirst({ where: { tenantId, key: 'copy_trading_policy' } });
+    if (setting && setting.value) {
+      return setting.value as any as CopyPolicy;
+    }
     return null;
   }
 
-  async getTraderStrategyPolicy(strategyId: string): Promise<CopyPolicy | null> {
-    try {
-      const strategy = await (this.prisma as any).traderStrategy?.findFirst({ where: { id: strategyId } });
-      if (strategy && strategy.riskProfile) {
-        // Extract copy policy from riskProfile or strategyConfig
-        return {
-          sizingMode: strategy.strategyConfig?.sizingMode || CopySizingMode.PROPORTIONAL,
-          proportionalRatio: strategy.strategyConfig?.proportionalRatio || null,
-          fixedQuantity: null,
-          fixedNotional: null,
-          maxOrderNotional: strategy.riskProfile?.maxOrderNotional || null,
-          maxDailyNotional: strategy.riskProfile?.maxDailyNotional || null,
-          maxConcurrentCopies: strategy.riskProfile?.maxConcurrentCopies || null,
-          slippageToleranceBps: strategy.strategyConfig?.slippageToleranceBps || null,
-          executionDelayMs: strategy.strategyConfig?.executionDelayMs || null,
-          allowedSymbols: strategy.supportedSymbols || null,
-          blockedSymbols: null,
-          allowedSides: null,
-          leveragePolicy: null,
-          reduceOnly: null,
-          stopCopyConditions: null,
-        };
-      }
-    } catch {}
-    return null;
+  /**
+   * `tenantId` scopes the lookup; resolveEffectivePolicy always passes it, so
+   * GET copy-trading/policies/effective cannot read another tenant's
+   * strategy or subscription policy by id.
+   */
+  async getTraderStrategyPolicy(strategyId: string, tenantId?: string): Promise<CopyPolicy | null> {
+    const strategy = await this.prisma.traderStrategy.findFirst({
+      where: { id: strategyId, ...(tenantId ? { tenantId } : {}) },
+      select: { riskProfile: true, strategyConfig: true, supportedSymbols: true },
+    });
+    if (!strategy || !strategy.riskProfile) return null;
+    const risk = (strategy.riskProfile ?? {}) as Record<string, any>;
+    const config = (strategy.strategyConfig ?? {}) as Record<string, any>;
+    // Extract copy policy from riskProfile or strategyConfig
+    return {
+      sizingMode: config.sizingMode || CopySizingMode.PROPORTIONAL,
+      proportionalRatio: config.proportionalRatio || null,
+      fixedQuantity: null,
+      fixedNotional: null,
+      maxOrderNotional: risk.maxOrderNotional || null,
+      maxDailyNotional: risk.maxDailyNotional || null,
+      maxConcurrentCopies: risk.maxConcurrentCopies || null,
+      slippageToleranceBps: config.slippageToleranceBps || null,
+      executionDelayMs: config.executionDelayMs || null,
+      allowedSymbols: strategy.supportedSymbols || null,
+      blockedSymbols: null,
+      allowedSides: null,
+      leveragePolicy: null,
+      reduceOnly: null,
+      stopCopyConditions: null,
+    };
   }
 
-  async getSubscriptionPolicy(subscriptionId: string): Promise<CopyPolicy | null> {
-    try {
-      const sub = await (this.prisma as any).copySubscription?.findFirst({ where: { id: subscriptionId } });
-      if (sub && sub.copyPolicy) {
-        return sub.copyPolicy as CopyPolicy;
-      }
-    } catch {}
+  async getSubscriptionPolicy(subscriptionId: string, tenantId?: string): Promise<CopyPolicy | null> {
+    const sub = await this.prisma.copySubscription.findFirst({ where: { id: subscriptionId, ...(tenantId ? { tenantId } : {}) } });
+    if (sub && sub.copyPolicy) {
+      return sub.copyPolicy as unknown as CopyPolicy;
+    }
     return null;
   }
 
   async resolveEffectivePolicy(input: { tenantId: string; strategyId?: string; subscriptionId?: string }): Promise<CopyPolicy> {
     const platform = await this.getPlatformPolicy();
     const tenant = await this.getTenantPolicy(input.tenantId);
-    const strategy = input.strategyId ? await this.getTraderStrategyPolicy(input.strategyId) : null;
-    const subscription = input.subscriptionId ? await this.getSubscriptionPolicy(input.subscriptionId) : null;
+    const strategy = input.strategyId ? await this.getTraderStrategyPolicy(input.strategyId, input.tenantId) : null;
+    const subscription = input.subscriptionId ? await this.getSubscriptionPolicy(input.subscriptionId, input.tenantId) : null;
 
     // Precedence: Platform → Tenant → Trader Strategy → Follower Subscription
     // Lower-level must never weaken mandatory higher-level safety rule

@@ -258,52 +258,48 @@ export class BillingCustomerService {
   }
 
   private async buildFromTenant(tenantId: string): Promise<BillingCustomerProfile | null> {
-    try {
-      const tenant = await this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-          id: true,
-          name: true,
-          countryCode: true,
-          metadata: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        name: true,
+        countryCode: true,
+        metadata: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
-      if (!tenant) return null;
+    if (!tenant) return null;
 
-      const metadata = tenant.metadata as any;
-      const billingData = metadata?.billingCustomer || metadata?.billing || {};
+    const metadata = tenant.metadata as any;
+    const billingData = metadata?.billingCustomer || metadata?.billing || {};
 
-      return {
-        id: tenant.id,
-        tenantId: tenant.id,
-        billingName: billingData.billingName || tenant.name || 'Unknown',
-        legalName: billingData.legalName || null,
-        businessName: billingData.businessName || null,
-        billingEmail: billingData.billingEmail || metadata?.email || '',
-        billingAddressLine1: billingData.billingAddressLine1 || null,
-        billingAddressLine2: billingData.billingAddressLine2 || null,
-        billingCity: billingData.billingCity || null,
-        billingRegion: billingData.billingRegion || null,
-        billingPostalCode: billingData.billingPostalCode || null,
-        billingCountry: billingData.billingCountry || tenant.countryCode || 'US',
-        taxId: billingData.taxId || null,
-        vatNumber: billingData.vatNumber || null,
-        preferredCurrency: billingData.preferredCurrency || 'USD',
-        providerCustomerId: billingData.providerCustomerId || null,
-        provider: billingData.provider || null,
-        isBusinessCustomer: billingData.isBusinessCustomer || false,
-        isTaxExempt: billingData.isTaxExempt || false,
-        exemptionReason: billingData.exemptionReason || null,
-        metadata: billingData.metadata || null,
-        createdAt: tenant.createdAt,
-        updatedAt: tenant.updatedAt,
-      };
-    } catch {
-      return null;
-    }
+    return {
+      id: tenant.id,
+      tenantId: tenant.id,
+      billingName: billingData.billingName || tenant.name || 'Unknown',
+      legalName: billingData.legalName || null,
+      businessName: billingData.businessName || null,
+      billingEmail: billingData.billingEmail || metadata?.email || '',
+      billingAddressLine1: billingData.billingAddressLine1 || null,
+      billingAddressLine2: billingData.billingAddressLine2 || null,
+      billingCity: billingData.billingCity || null,
+      billingRegion: billingData.billingRegion || null,
+      billingPostalCode: billingData.billingPostalCode || null,
+      billingCountry: billingData.billingCountry || tenant.countryCode || 'US',
+      taxId: billingData.taxId || null,
+      vatNumber: billingData.vatNumber || null,
+      preferredCurrency: billingData.preferredCurrency || 'USD',
+      providerCustomerId: billingData.providerCustomerId || null,
+      provider: billingData.provider || null,
+      isBusinessCustomer: billingData.isBusinessCustomer || false,
+      isTaxExempt: billingData.isTaxExempt || false,
+      exemptionReason: billingData.exemptionReason || null,
+      metadata: billingData.metadata || null,
+      createdAt: tenant.createdAt,
+      updatedAt: tenant.updatedAt,
+    };
   }
 
   private async storeInTenantMetadata(input: CreateBillingCustomerInput): Promise<BillingCustomerProfile> {

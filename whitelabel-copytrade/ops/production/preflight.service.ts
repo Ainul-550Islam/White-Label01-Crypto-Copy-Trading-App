@@ -174,7 +174,8 @@ export class PreflightService {
 
   private async checkSecurityControls(input: PreflightInput): Promise<PreflightCheck> {
     const start = Date.now();
-    const hasEncryptionKey = !!input.envVars['ENCRYPTION_KEY'];
+    const hasEncryptionKey =
+      !!input.envVars['ENCRYPTION_MASTER_KEY_BASE64'] && !!input.envVars['BLIND_INDEX_KEY_BASE64'];
     const hasJwtSecrets = !!input.envVars['JWT_ACCESS_SECRET'] && !!input.envVars['JWT_REFRESH_SECRET'];
     if (!hasEncryptionKey || !hasJwtSecrets) {
       return {

@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { DurableUsageEvent, ProcessingState, MeterKey, UsageScope, MeterUnit, PeriodType } from './usage-metering.types';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../../common/errors/prisma-not-found';
+
+/** Record fields without a UsageEvent column, stored in `metadata` under this key. */
+export const USAGE_RECORD_METADATA_KEY = '_usage';
 
 /**
  * Durable event store for metered usage events with idempotency, source references,
@@ -35,7 +39,7 @@ export class UsageEventRepository {
     safeMetadata?: Record<string, unknown> | null;
   }): Promise<DurableUsageEvent> {
     // Idempotency check
-    const existingByKey = await this.findByIdempotencyKey(event.idempotencyKey);
+    const existingByKey = await this.findByIdempotencyKey(event.idempotencyKey, event.tenantId);
     if (existingByKey) {
       this.logger.log(`Idempotent event return by idempotencyKey: ${event.idempotencyKey}`);
       return existingByKey;
@@ -76,30 +80,38 @@ export class UsageEventRepository {
     };
 
     try {
+      // UsageEvent columns only: status = processing state, createdAt = event
+      // time; the remaining record fields live in metadata._usage. Unknown
+      // columns (scope, unit, timestamp, ...) made Prisma reject every event.
       const created = await (this.prisma as any).usageEvent?.create({
         data: {
           id: durableEvent.id,
           tenantId: durableEvent.tenantId,
           meterKey: durableEvent.meterKey,
-          scope: durableEvent.scope,
-          subjectId: durableEvent.subjectId || null,
-          resourceId: durableEvent.resourceId || null,
-          quantity: durableEvent.quantity,
-          unit: durableEvent.unit,
+          eventType: durableEvent.scope,
           sourceType: durableEvent.sourceType,
           sourceId: durableEvent.sourceId,
-          sourceEventId: durableEvent.sourceEventId || null,
+          quantity: Number.isInteger(durableEvent.quantity) ? durableEvent.quantity : Math.round(durableEvent.quantity),
           periodId: durableEvent.periodId,
-          periodType: durableEvent.periodType,
-          periodStart: event.periodStart,
-          periodEnd: event.periodEnd,
-          timestamp: event.timestamp,
           idempotencyKey: durableEvent.idempotencyKey,
-          processingState: durableEvent.processingState,
-          dimensions: durableEvent.dimensions,
-          safeMetadata: durableEvent.safeMetadata,
-          createdAt: new Date(durableEvent.createdAt),
-          updatedAt: new Date(durableEvent.updatedAt),
+          status: durableEvent.processingState,
+          metadata: {
+            [USAGE_RECORD_METADATA_KEY]: {
+              scope: durableEvent.scope,
+              subjectId: durableEvent.subjectId || null,
+              resourceId: durableEvent.resourceId || null,
+              quantity: durableEvent.quantity,
+              unit: durableEvent.unit,
+              sourceEventId: durableEvent.sourceEventId || null,
+              periodType: durableEvent.periodType,
+              periodStart: event.periodStart.toISOString(),
+              periodEnd: event.periodEnd.toISOString(),
+              timestamp: event.timestamp.toISOString(),
+              dimensions: durableEvent.dimensions,
+            },
+          } as any,
+          safeMetadata: (durableEvent.safeMetadata ?? {}) as any,
+          createdAt: event.timestamp,
         },
       });
 
@@ -109,7 +121,7 @@ export class UsageEventRepository {
     } catch (error: any) {
       if (error.code === 'P2002') {
         this.logger.warn(`Duplicate usage event idempotency: ${event.idempotencyKey}`);
-        const existing = await this.findByIdempotencyKey(event.idempotencyKey);
+        const existing = await this.findByIdempotencyKey(event.idempotencyKey, event.tenantId);
         if (existing) return existing;
         const bySource = await this.findBySourceId(event.tenantId, event.sourceId, event.meterKey);
         if (bySource) return bySource;
@@ -122,7 +134,7 @@ export class UsageEventRepository {
               id: randomUUID(),
               tenantId: event.tenantId,
               action: 'USAGE_EVENT_RECORDED',
-              resource: 'UsageEvent',
+              resourceType: 'UsageEvent',
               resourceId: id,
               metadata: { ...durableEvent, fallback: true },
               createdAt: new Date(),
@@ -139,44 +151,32 @@ export class UsageEventRepository {
   }
 
   async findById(id: string, tenantId?: string): Promise<DurableUsageEvent | null> {
-    try {
-      const result = await (this.prisma as any).usageEvent?.findFirst({
-        where: { id, ...(tenantId ? { tenantId } : {}) },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).usageEvent?.findFirst({
+      where: { id, ...(tenantId ? { tenantId } : {}) },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<DurableUsageEvent | null> {
-    try {
-      const result = await (this.prisma as any).usageEvent?.findFirst({
-        where: { idempotencyKey },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<DurableUsageEvent | null> {
+    const result = await (this.prisma as any).usageEvent?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
   async findBySourceId(tenantId: string, sourceId: string, meterKey?: MeterKey): Promise<DurableUsageEvent | null> {
-    try {
-      const result = await (this.prisma as any).usageEvent?.findFirst({
-        where: {
-          tenantId,
-          sourceId,
-          ...(meterKey ? { meterKey } : {}),
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).usageEvent?.findFirst({
+      where: {
+        tenantId,
+        sourceId,
+        ...(meterKey ? { meterKey } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
   async listByTenant(
@@ -194,32 +194,30 @@ export class UsageEventRepository {
       offset?: number;
     },
   ): Promise<DurableUsageEvent[]> {
-    try {
-      const where: any = { tenantId };
-      if (filter?.meterKey) where.meterKey = filter.meterKey;
-      if (filter?.scope) where.scope = filter.scope;
-      if (filter?.subjectId) where.subjectId = filter.subjectId;
-      if (filter?.sourceType) where.sourceType = filter.sourceType;
-      if (filter?.processingState) where.processingState = filter.processingState;
-      if (filter?.periodId) where.periodId = filter.periodId;
-      if (filter?.fromDate || filter?.toDate) {
-        where.timestamp = {};
-        if (filter.fromDate) where.timestamp.gte = filter.fromDate;
-        if (filter.toDate) where.timestamp.lte = filter.toDate;
-      }
-
-      const results = await (this.prisma as any).usageEvent?.findMany({
-        where,
-        orderBy: { timestamp: 'desc' },
-        take: filter?.limit || 100,
-        skip: filter?.offset || 0,
-      });
-
-      if (!results) return [];
-      return results.map((r: any) => this.mapToDomain(r));
-    } catch {
-      return [];
+    const where: any = { tenantId };
+    if (filter?.meterKey) where.meterKey = filter.meterKey;
+    const jsonFilters: any[] = [];
+    if (filter?.scope) jsonFilters.push({ metadata: { path: [USAGE_RECORD_METADATA_KEY, 'scope'], equals: filter.scope } });
+    if (filter?.subjectId) jsonFilters.push({ metadata: { path: [USAGE_RECORD_METADATA_KEY, 'subjectId'], equals: filter.subjectId } });
+    if (jsonFilters.length > 0) where.AND = jsonFilters;
+    if (filter?.sourceType) where.sourceType = filter.sourceType;
+    if (filter?.processingState) where.status = filter.processingState;
+    if (filter?.periodId) where.periodId = filter.periodId;
+    if (filter?.fromDate || filter?.toDate) {
+      where.createdAt = {};
+      if (filter.fromDate) where.createdAt.gte = filter.fromDate;
+      if (filter.toDate) where.createdAt.lte = filter.toDate;
     }
+
+    const results = await (this.prisma as any).usageEvent?.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: filter?.limit || 100,
+      skip: filter?.offset || 0,
+    });
+
+    if (!results) return [];
+    return results.map((r: any) => this.mapToDomain(r));
   }
 
   async updateProcessingState(id: string, state: ProcessingState, error?: string): Promise<DurableUsageEvent | null> {
@@ -227,57 +225,59 @@ export class UsageEventRepository {
       const updated = await (this.prisma as any).usageEvent?.update({
         where: { id },
         data: {
-          processingState: state,
-          updatedAt: new Date(),
+          status: state,
           ...(error ? { safeMetadata: { error } } : {}),
         },
       });
       if (!updated) return null;
       return this.mapToDomain(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
   async countByPeriod(tenantId: string, periodId: string, meterKey?: MeterKey): Promise<number> {
-    try {
-      const count = await (this.prisma as any).usageEvent?.count({
-        where: {
-          tenantId,
-          periodId,
-          ...(meterKey ? { meterKey } : {}),
-        },
-      });
-      return count || 0;
-    } catch {
-      return 0;
-    }
+    const count = await (this.prisma as any).usageEvent?.count({
+      where: {
+        tenantId,
+        periodId,
+        ...(meterKey ? { meterKey } : {}),
+      },
+    });
+    return count || 0;
   }
 
   private mapToDomain(raw: any): DurableUsageEvent {
+    const metadata = raw.metadata && typeof raw.metadata === 'object' ? raw.metadata : {};
+    const record: any = metadata[USAGE_RECORD_METADATA_KEY] && typeof metadata[USAGE_RECORD_METADATA_KEY] === 'object' ? metadata[USAGE_RECORD_METADATA_KEY] : {};
+    const iso = (value: unknown, fallback: unknown): string =>
+      value ? new Date(value as string).toISOString() : fallback ? new Date(fallback as string).toISOString() : new Date().toISOString();
+    const scope = (record.scope ?? raw.eventType) as UsageScope;
     return {
       id: raw.id,
       tenantId: raw.tenantId,
       meterKey: raw.meterKey as MeterKey,
-      scope: raw.scope as UsageScope,
-      subjectId: raw.subjectId || undefined,
-      resourceId: raw.resourceId || undefined,
-      quantity: raw.quantity || 0,
-      unit: raw.unit as MeterUnit,
+      scope,
+      subjectId: record.subjectId || undefined,
+      resourceId: record.resourceId || undefined,
+      quantity: typeof record.quantity === 'number' ? record.quantity : raw.quantity || 0,
+      unit: record.unit as MeterUnit,
       sourceType: raw.sourceType,
       sourceId: raw.sourceId,
-      sourceEventId: raw.sourceEventId || undefined,
+      sourceEventId: record.sourceEventId || undefined,
       periodId: raw.periodId,
-      periodType: raw.periodType as PeriodType,
-      periodStart: raw.periodStart ? new Date(raw.periodStart).toISOString() : new Date().toISOString(),
-      periodEnd: raw.periodEnd ? new Date(raw.periodEnd).toISOString() : new Date().toISOString(),
-      timestamp: raw.timestamp ? new Date(raw.timestamp).toISOString() : new Date().toISOString(),
+      periodType: record.periodType as PeriodType,
+      periodStart: iso(record.periodStart, raw.createdAt),
+      periodEnd: iso(record.periodEnd, raw.createdAt),
+      timestamp: iso(record.timestamp, raw.createdAt),
       idempotencyKey: raw.idempotencyKey,
-      processingState: raw.processingState as ProcessingState,
-      dimensions: raw.dimensions || { tenantId: raw.tenantId, scope: raw.scope },
-      safeMetadata: raw.safeMetadata || null,
-      createdAt: raw.createdAt ? new Date(raw.createdAt).toISOString() : new Date().toISOString(),
-      updatedAt: raw.updatedAt ? new Date(raw.updatedAt).toISOString() : new Date().toISOString(),
+      processingState: raw.status as ProcessingState,
+      dimensions: record.dimensions || { tenantId: raw.tenantId, scope },
+      safeMetadata: raw.safeMetadata && Object.keys(raw.safeMetadata).length > 0 ? raw.safeMetadata : null,
+      createdAt: iso(raw.createdAt, null),
+      updatedAt: iso(raw.createdAt, null),
     };
   }
+
 }

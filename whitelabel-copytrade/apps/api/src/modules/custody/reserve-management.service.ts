@@ -49,7 +49,7 @@ export class ReserveManagementService {
     });
 
     try {
-      const existing = await (this.prisma as any).custodyReserve.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).custodyReserve.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -61,10 +61,10 @@ export class ReserveManagementService {
         networkId: networkId ?? null,
         reserveType,
         requiredAmount,
-        currentAmount: '0',
+        // Column is availableAmount; operator/reason have no columns and are kept in metadata.
+        availableAmount: '0',
         state: 'ACTIVE',
-        operatorId: operatorId ?? null,
-        reason: reason ?? null,
+        metadata: { operatorId: operatorId ?? null, reason: reason ?? null } as any,
         idempotencyKey,
       },
     });
@@ -186,14 +186,10 @@ export class ReserveManagementService {
     if (reserveType) where.reserveType = reserveType;
     if (state) where.state = state;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyReserve.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyReserve.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyReserve.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyReserve.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

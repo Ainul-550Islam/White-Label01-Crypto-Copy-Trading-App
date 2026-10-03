@@ -45,9 +45,17 @@ export class LimitService {
   /**
    * Get a limit by ID
    */
-  async getLimit(id: string): Promise<Limit> {
+  async getLimit(id: string, tenantId?: string): Promise<Limit> {
+    return this.findOwnedLimit(id, tenantId);
+  }
+
+  /**
+   * Load a limit by id. When a tenant is given, another tenant's limit is
+   * reported exactly like a missing one (no cross-tenant read or write by id).
+   */
+  private async findOwnedLimit(id: string, tenantId?: string): Promise<Limit> {
     const limit = await this.repository.findById(id);
-    if (!limit) {
+    if (!limit || (tenantId !== undefined && limit.tenantId !== tenantId)) {
       throw new Error(`Limit not found: ${id}`);
     }
     return limit;
@@ -93,10 +101,12 @@ export class LimitService {
   /**
    * Update a limit
    */
-  async updateLimit(id: string, data: UpdateLimitRequest): Promise<Limit> {
-    const existing = await this.repository.findById(id);
-    if (!existing) {
-      throw new Error(`Limit not found: ${id}`);
+  async updateLimit(id: string, data: UpdateLimitRequest, tenantId?: string): Promise<Limit> {
+    await this.findOwnedLimit(id, tenantId);
+
+    // Same value rule as creation: -1 (unlimited) or a non-negative number.
+    if (data.value !== undefined && (typeof data.value !== 'number' || Number.isNaN(data.value) || data.value < -1)) {
+      throw new Error('Validation failed: Limit value must be -1 (unlimited) or a positive number');
     }
 
     return this.repository.update(id, data);
@@ -105,11 +115,8 @@ export class LimitService {
   /**
    * Delete a limit
    */
-  async deleteLimit(id: string): Promise<void> {
-    const existing = await this.repository.findById(id);
-    if (!existing) {
-      throw new Error(`Limit not found: ${id}`);
-    }
+  async deleteLimit(id: string, tenantId?: string): Promise<void> {
+    await this.findOwnedLimit(id, tenantId);
 
     await this.repository.delete(id);
   }

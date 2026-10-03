@@ -50,7 +50,7 @@ export class NotificationDeliveryService {
     const locale = params.locale || 'en';
 
     // Idempotency check
-    const existing = await this.jobRepository.findByIdempotencyKey(params.idempotencyKey);
+    const existing = await this.jobRepository.findByIdempotencyKey(params.idempotencyKey, params.tenantId);
     if (existing) {
       this.logger.log(`Idempotent delivery request return: idempotencyKey=${params.idempotencyKey} status=${existing.deliveryStatus}`);
       return existing;
@@ -339,6 +339,7 @@ export class NotificationDeliveryService {
 
     const result = await provider.send({
       recipientEmail: job.safePayload.userEmail || job.safePayload.customerEmail || (job.recipient as any).email,
+      recipientPhone: (job.recipient as any)?.phone || job.safePayload.userPhone || job.safePayload.customerPhone,
       recipientUserId: job.userId,
       tenantId: job.tenantId,
       subject: job.renderedSubject || `${job.eventKey} - Notification`,

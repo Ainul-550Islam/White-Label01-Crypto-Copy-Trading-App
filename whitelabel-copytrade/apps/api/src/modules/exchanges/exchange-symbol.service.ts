@@ -7,6 +7,7 @@ import { ExchangeAccountRepository } from './exchange-account.repository';
 import { ExchangeProviderContext } from './exchange-provider.interface';
 import { CacheService } from '../../infrastructure/redis/cache.service';
 import { randomUUID } from 'crypto';
+import { krakenPairParts } from './venues/kraken.provider';
 
 /**
  * Symbol/instrument normalization: base/quote, precision, quantity step, tick size, min/max quantity/notional, contract type, and canonical internal symbol mapping.
@@ -53,12 +54,10 @@ export class ExchangeSymbolService {
       }
 
       if (venue === ExchangeVenue.KRAKEN) {
-        // XBT/USD or XXBTZUSD
-        if (exchangeSymbol.includes('/')) {
-          const parts = exchangeSymbol.split('/');
-          if (parts.length === 2) return { base: parts[0], quote: parts[1] };
-        }
-        return null;
+        // XBT/USD, XXBTZUSD or the altname XBTUSD; legacy asset codes are
+        // normalized (XBT -> BTC, ZUSD -> USD) so the canonical symbol matches
+        // the other venues.
+        return krakenPairParts(exchangeSymbol);
       }
 
       // Generic fallback: try dash, slash, then assume last 4 chars are quote

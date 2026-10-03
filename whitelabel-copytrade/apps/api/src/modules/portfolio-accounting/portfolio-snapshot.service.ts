@@ -12,6 +12,19 @@ import {
 } from './portfolio-accounting.types';
 import { createHash } from 'crypto';
 
+/** API view of a PortfolioSnapshot row: performance/methodology/fingerprint/correlationId from performanceMetrics. */
+export function toSnapshotView(row: any): any {
+  if (!row) return row;
+  const metrics = row.performanceMetrics && typeof row.performanceMetrics === 'object' ? row.performanceMetrics : {};
+  return {
+    ...row,
+    performance: metrics.twr ?? null,
+    methodology: metrics.methodology ?? null,
+    fingerprint: metrics.fingerprint ?? null,
+    correlationId: metrics.correlationId ?? null,
+  };
+}
+
 /**
  * Provides immutable point-in-time snapshots containing NAV, cash, positions, exposure refs,
  * PnL, fees, valuation evidence, source refs, calculationVersion, policyVersion, data completeness.
@@ -60,11 +73,11 @@ export class PortfolioSnapshotService {
     // Duplicate snapshot prevention — immutable idempotent with snapshotId tenantId scope timestamp
     try {
       const existing = await (this.prisma as any).portfolioSnapshot.findFirst({
-        where: { OR: [{ idempotencyKey }, { snapshotId, tenantId }] },
+        where: { tenantId, OR: [{ idempotencyKey }, { snapshotId }] },
       });
       if (existing) {
         this.logger.log({ event: 'portfolio.snapshot.idempotent_hit', snapshotId, tenantId });
-        return existing;
+        return toSnapshotView(existing);
       }
     } catch {}
 
@@ -129,33 +142,48 @@ export class PortfolioSnapshotService {
         unrealizedPnl: pnlResult.evidence?.gross?.unrealized ?? null,
         grossPnl: pnlResult.grossPnl,
         netPnl: pnlResult.netPnl,
-        fees: fees as any,
-        performance: twr.evidence as any,
+        // fees is a decimal-string column: the fee total of the same window as gross/net PnL
+        // (netPnl = grossPnl - fees). The fee ledger rows are kept as cash-breakdown evidence.
+        fees: pnlResult.fees ?? null,
+        cashBreakdown: {
+          balance: cash.balance,
+          currency: cash.currency,
+          baseCurrencyBalance: cash.baseCurrencyBalance ?? null,
+          recentFeeEntries: fees.map((entry: any) => ({
+            id: entry.id,
+            cashFlowType: entry.cashFlowType,
+            amount: entry.amount,
+            currency: entry.currency,
+            baseCurrencyAmount: entry.baseCurrencyAmount ?? null,
+            occurredAt: entry.occurredAt,
+          })),
+        } as any,
+        // No performance/methodology/fingerprint/correlationId columns: kept in performanceMetrics.
+        performanceMetrics: {
+          twr: twr.evidence ?? null,
+          methodology: navResult.methodology ?? null,
+          fingerprint,
+          correlationId: correlationId ?? null,
+        } as any,
         valuationEvidence: navResult.evidences as any,
         sourceReferences: navResult.sourceReferences,
         calculationVersion: policy.calculationVersion,
         policyVersion: policy.policyVersion,
         dataCompleteness: navResult.dataCompleteness,
-        methodology: navResult.methodology,
-        fingerprint,
         idempotencyKey,
-        correlationId: correlationId ?? null,
       },
     });
 
     this.logger.log({ event: 'portfolio.snapshot.created', snapshotId, tenantId, nav: navResult.nav });
 
-    return snapshot;
+    return toSnapshotView(snapshot);
   }
 
   async getSnapshot(params: { tenantId: string; snapshotId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).portfolioSnapshot.findFirst({
-        where: { tenantId: params.tenantId, snapshotId: params.snapshotId },
-      });
-    } catch {
-      return null;
-    }
+    const snapshot = await (this.prisma as any).portfolioSnapshot.findFirst({
+      where: { tenantId: params.tenantId, snapshotId: params.snapshotId },
+    });
+    return snapshot ? toSnapshotView(snapshot) : null;
   }
 
   async listSnapshots(params: {
@@ -175,29 +203,21 @@ export class PortfolioSnapshotService {
       if (to) where.timestamp.lte = to;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).portfolioSnapshot.findMany({
-          where,
-          orderBy: { timestamp: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).portfolioSnapshot.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).portfolioSnapshot.findMany({
+        where,
+        orderBy: { timestamp: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).portfolioSnapshot.count({ where }),
+    ]);
+    return { data: data.map(toSnapshotView), total, page, limit };
   }
 
   async verifySnapshotImmutability(snapshotId: string, currentHash: string): Promise<boolean> {
-    try {
-      const snapshot = await (this.prisma as any).portfolioSnapshot.findFirst({ where: { snapshotId } });
-      if (!snapshot) return false;
-      return snapshot.fingerprint === currentHash;
-    } catch {
-      return false;
-    }
+    const snapshot = await (this.prisma as any).portfolioSnapshot.findFirst({ where: { snapshotId } });
+    if (!snapshot) return false;
+    return toSnapshotView(snapshot).fingerprint === currentHash;
   }
 }

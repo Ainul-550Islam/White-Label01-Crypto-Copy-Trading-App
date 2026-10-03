@@ -132,7 +132,7 @@ export class ReconciliationScheduleService {
             where: { status: 'ACTIVE' as any },
             select: { id: true },
             take: 100,
-          }).catch(() => []);
+          });
           const results = [];
           for (const t of tenants) {
             const res = await this.orchestrator.runReconciliation({

@@ -15,7 +15,7 @@ export class CreateFundingRequestDto {
   clientProfileId?: string;
 
   @IsString()
-  @Matches(/^-?\d+(\.\d+)?$/, { message: 'requestedAmount must be a valid decimal string' })
+  @Matches(/^\d+(\.\d+)?$/, { message: 'requestedAmount must be a positive decimal string' })
   requestedAmount!: string;
 
   @IsString()
@@ -54,7 +54,7 @@ export class CreateWithdrawalRequestDto {
   clientProfileId?: string;
 
   @IsString()
-  @Matches(/^-?\d+(\.\d+)?$/, { message: 'requestedAmount must be a valid decimal string' })
+  @Matches(/^\d+(\.\d+)?$/, { message: 'requestedAmount must be a positive decimal string' })
   requestedAmount!: string;
 
   @IsString()

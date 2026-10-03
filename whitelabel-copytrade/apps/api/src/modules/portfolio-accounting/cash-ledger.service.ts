@@ -60,7 +60,7 @@ export class CashLedgerService {
 
     // Idempotency mandatory
     try {
-      const existing = await (this.prisma as any).portfolioCashLedgerEntry.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).portfolioCashLedgerEntry.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -185,20 +185,16 @@ export class CashLedgerService {
       if (to) where.occurredAt.lte = to;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).portfolioCashLedgerEntry.findMany({
-          where,
-          orderBy: { occurredAt: 'asc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).portfolioCashLedgerEntry.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).portfolioCashLedgerEntry.findMany({
+        where,
+        orderBy: { occurredAt: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).portfolioCashLedgerEntry.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async reconcileAgainstExchangeBalance(params: {

@@ -28,7 +28,7 @@ export class OverageService {
     const idempotencyKey = input.idempotencyKey || `overage_${input.tenantId}_${input.meterKey}_${input.periodId}`;
 
     // Check existing
-    const existing = await this.overageRepository.findByIdempotencyKey(idempotencyKey);
+    const existing = await this.overageRepository.findByIdempotencyKey(idempotencyKey, input.tenantId);
     if (existing) {
       this.logger.log(`Idempotent overage return by key: ${idempotencyKey}`);
       return this.mapRecordToResult(existing, isOverage);

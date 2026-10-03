@@ -74,12 +74,13 @@ export class EmailNotificationProvider implements INotificationProvider {
     const sanitizedBody = this.sanitizeContent(input.body);
 
     try {
-      // Try to use nodemailer if available, otherwise log and simulate with real check
+      // Send through nodemailer; without it the message is refused, never faked.
       let messageId: string | null = null;
 
       try {
-        // Dynamic import to avoid hard dependency
-        const nodemailer = await import('nodemailer').catch(() => null);
+        // Dynamic import: nodemailer is a declared dependency of @wlct/api, but a
+        // broken install must surface as EMAIL_TRANSPORT_UNAVAILABLE, not a crash.
+        const nodemailer = await EmailNotificationProvider.loadNodemailer();
 
         if (nodemailer) {
           const transporter = nodemailer.createTransport({
@@ -111,16 +112,23 @@ export class EmailNotificationProvider implements INotificationProvider {
 
           this.logger.log(`Email sent via SMTP to=${input.recipientEmail} template=${input.templateKey} messageId=${messageId} tenant=${input.tenantId}`);
         } else {
-          // Nodemailer not installed - log email content for development but mark as accepted only if SMTP configured
-          // In production, this would fail, but for development we log
-          this.logger.log(
-            `[EMAIL_DEV] To: ${input.recipientEmail} Subject: ${sanitizedSubject} Tenant: ${input.tenantId} Template: ${input.templateKey} Idempotency: ${input.idempotencyKey}`,
+          // nodemailer could not be loaded, so nothing was sent. Reporting
+          // acceptance here (the previous behaviour, with a `dev_` message id)
+          // marked invoices and dunning notices as delivered when no message
+          // left the process. A missing transport is a deployment fault, not a
+          // property of this message: non-retryable for this attempt, and the
+          // error code names the fix.
+          this.logger.error(
+            `Email transport unavailable (nodemailer not installed) - NOT sent to=${input.recipientEmail} template=${input.templateKey} tenant=${input.tenantId} idempotency=${input.idempotencyKey}`,
           );
-          this.logger.log(`[EMAIL_DEV] Body: ${sanitizedBody.substring(0, 500)}...`);
-
-          // Only mark as accepted if SMTP host is configured (real infrastructure)
-          // If host is example.com or localhost, we still mark accepted for dev but with note
-          messageId = `dev_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          return {
+            accepted: false,
+            providerReference: null,
+            resultType: ProviderDeliveryResultType.PERMANENT_FAILURE,
+            retryable: false,
+            errorCode: 'EMAIL_TRANSPORT_UNAVAILABLE',
+            failureReason: 'Email transport unavailable: the nodemailer package is not installed.',
+          };
         }
       } catch (smtpError: any) {
         // Classify SMTP errors as temporary vs permanent
@@ -158,6 +166,11 @@ export class EmailNotificationProvider implements INotificationProvider {
         failureReason: error.message,
       };
     }
+  }
+
+  /** The nodemailer module, or null when it cannot be loaded. Static so a test can replace it. */
+  static async loadNodemailer(): Promise<typeof import('nodemailer') | null> {
+    return import('nodemailer').catch(() => null);
   }
 
   private buildSmtpConfig(): SmtpConfig | null {

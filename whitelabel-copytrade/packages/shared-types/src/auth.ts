@@ -119,6 +119,13 @@ export interface JwtTwoFactorPayload {
   typ: '2fa_challenge';
   did: string;
   jti: string;
+  /**
+   * Present when the challenge follows a single sign-on login: the id of that
+   * (consumed) SSO login transaction, so the session issued after the second
+   * factor records the SSO method, configuration and SAML logout context.
+   * An opaque reference only; it carries no identity data.
+   */
+  sso?: string;
   iat: number;
   exp: number;
 }

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PaymentService } from '../payments/payment.service';
 import type { PortalPaymentSummary } from './billing-portal.types';
 
@@ -48,7 +48,7 @@ export class BillingPaymentHistoryService {
 
     // Tenant isolation
     if (payment.tenantId !== tenantId) {
-      throw new Error('Payment not found');
+      throw new NotFoundException('Payment not found');
     }
 
     const summary = this.mapToSummary(payment);
@@ -66,7 +66,7 @@ export class BillingPaymentHistoryService {
     const payment = await this.paymentService.getPaymentById(paymentId);
 
     if (payment.tenantId !== tenantId) {
-      throw new Error('Payment not found');
+      throw new NotFoundException('Payment not found');
     }
 
     // Always verify from backend/provider state, never trust frontend

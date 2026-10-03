@@ -81,6 +81,8 @@ export interface NotificationRecipient {
   tenantId: string;
   userId?: string;
   email?: string;
+  /** E.164 phone number for SMS delivery. */
+  phone?: string;
   type: 'tenant_admin' | 'user' | 'platform_operator' | 'beneficiary';
 }
 

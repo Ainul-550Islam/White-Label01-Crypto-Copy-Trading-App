@@ -47,7 +47,7 @@ export class AccountingPeriodService {
     });
 
     try {
-      const existing = await (this.prisma as any).portfolioAccountingPeriod.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).portfolioAccountingPeriod.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -73,10 +73,11 @@ export class AccountingPeriodService {
       data: {
         tenantId,
         profileId,
-        periodType,
         periodStart,
         periodEnd,
         state: PortfolioPeriodState.OPEN as any,
+        // No periodType column: it is kept in closeMetadata.
+        closeMetadata: { periodType } as any,
         baseCurrency,
         calculationVersion: policy.calculationVersion,
         policyVersion: policy.policyVersion,
@@ -117,10 +118,12 @@ export class AccountingPeriodService {
       where: { id: periodId },
       data: {
         state: toState as any,
-        ...(toState === PortfolioPeriodState.CLOSED ? { closedAt: new Date(), closedBy: operatorId ?? null } : {}),
-        ...(toState === PortfolioPeriodState.CLOSING ? { closingStartedAt: new Date() } : {}),
-        evidence: redactSecrets({
-          ...((period.evidence as any) ?? {}),
+        ...(toState === PortfolioPeriodState.CLOSED ? { closedAt: new Date() } : {}),
+        // closedBy / closingStartedAt / transition evidence have no columns: kept in closeMetadata.
+        closeMetadata: redactSecrets({
+          ...((period.closeMetadata as any) ?? {}),
+          ...(toState === PortfolioPeriodState.CLOSED ? { closedBy: operatorId ?? null } : {}),
+          ...(toState === PortfolioPeriodState.CLOSING ? { closingStartedAt: new Date().toISOString() } : {}),
           lastTransition: { from: currentState, to: toState, reason, operatorId, at: new Date().toISOString() },
         }) as any,
       },
@@ -132,13 +135,9 @@ export class AccountingPeriodService {
   }
 
   async getPeriod(params: { tenantId: string; periodId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).portfolioAccountingPeriod.findFirst({
-        where: { id: params.periodId, tenantId: params.tenantId },
-      });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).portfolioAccountingPeriod.findFirst({
+      where: { id: params.periodId, tenantId: params.tenantId },
+    });
   }
 
   async listPeriods(params: {
@@ -160,36 +159,28 @@ export class AccountingPeriodService {
       if (to) where.periodStart.lte = to;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).portfolioAccountingPeriod.findMany({
-          where,
-          orderBy: { periodStart: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).portfolioAccountingPeriod.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).portfolioAccountingPeriod.findMany({
+        where,
+        orderBy: { periodStart: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).portfolioAccountingPeriod.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async isPeriodClosed(params: { tenantId: string; profileId: string; at: Date }): Promise<boolean> {
-    try {
-      const period = await (this.prisma as any).portfolioAccountingPeriod.findFirst({
-        where: {
-          tenantId: params.tenantId,
-          profileId: params.profileId,
-          periodStart: { lte: params.at },
-          periodEnd: { gte: params.at },
-          state: 'CLOSED',
-        },
-      });
-      return !!period;
-    } catch {
-      return false;
-    }
+    const period = await (this.prisma as any).portfolioAccountingPeriod.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        profileId: params.profileId,
+        periodStart: { lte: params.at },
+        periodEnd: { gte: params.at },
+        state: 'CLOSED',
+      },
+    });
+    return !!period;
   }
 }

@@ -39,7 +39,7 @@ export class ResearchPromotionService {
     if (!strategyVersion) throw new Error(`Strategy version ${input.strategyVersionId} not found`);
 
     if (input.idempotencyKey) {
-      const existing = await (this.prisma as any).researchPromotionRequest.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+      const existing = await (this.prisma as any).researchPromotionRequest.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existing) {
         this.logger.log(`Promotion request idempotent by key=${input.idempotencyKey}`);
         return existing;
@@ -164,7 +164,7 @@ export class ResearchPromotionService {
     if (promotion.state !== 'DRAFT') throw new Error(`Only DRAFT promotion can be requested, current=${promotion.state}`);
 
     const updated = await (this.prisma as any).researchPromotionRequest.update({
-      where: { id: promotionId },
+      where: { id: promotionId, tenantId },
       data: { state: 'PENDING_BACKTEST_VALIDATION', requestedBy: actorId, requestedAt: new Date(), updatedAt: new Date() },
     });
 
@@ -294,7 +294,7 @@ export class ResearchPromotionService {
     }
 
     const updated = await (this.prisma as any).researchPromotionRequest.update({
-      where: { id: promotionId },
+      where: { id: promotionId, tenantId },
       data: { 
         state: nextState, 
         validationChecklist: checklist, 
@@ -395,7 +395,7 @@ export class ResearchPromotionService {
     }
 
     const promoted = await (this.prisma as any).researchPromotionRequest.update({
-      where: { id: promotionId },
+      where: { id: promotionId, tenantId },
       data: { state: 'PROMOTED', reviewedBy: actorId, reviewedAt: new Date(), updatedAt: new Date() },
     });
 
@@ -435,7 +435,7 @@ export class ResearchPromotionService {
     if (!reason || reason.trim().length < 10) throw new Error('Rejection reason must be at least 10 characters - auditable');
 
     const updated = await (this.prisma as any).researchPromotionRequest.update({
-      where: { id: promotionId },
+      where: { id: promotionId, tenantId },
       data: { state: 'REJECTED', reviewedBy: reviewerId, reviewedAt: new Date(), reason: reason.trim(), updatedAt: new Date() },
     });
 

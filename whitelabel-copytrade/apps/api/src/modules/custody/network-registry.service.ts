@@ -80,19 +80,11 @@ export class NetworkRegistryService {
   }
 
   async getNetwork(params: { networkId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).custodyNetwork.findFirst({ where: { networkId: params.networkId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).custodyNetwork.findFirst({ where: { networkId: params.networkId } });
   }
 
   async getNetworkByChainId(params: { chainId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).custodyNetwork.findFirst({ where: { chainId: params.chainId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).custodyNetwork.findFirst({ where: { chainId: params.chainId } });
   }
 
   async listNetworks(params: { status?: string; page?: number; limit?: number }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
@@ -100,24 +92,16 @@ export class NetworkRegistryService {
     const where: any = {};
     if (status) where.status = status;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyNetwork.findMany({ where, orderBy: { name: 'asc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyNetwork.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyNetwork.findMany({ where, orderBy: { name: 'asc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyNetwork.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async isNetworkSupported(params: { networkId: string }): Promise<boolean> {
-    try {
-      const network = await (this.prisma as any).custodyNetwork.findFirst({ where: { networkId: params.networkId, status: 'ACTIVE' } });
-      return !!network;
-    } catch {
-      return false;
-    }
+    const network = await (this.prisma as any).custodyNetwork.findFirst({ where: { networkId: params.networkId, status: 'ACTIVE' } });
+    return !!network;
   }
 
   async validateNetworkIdentity(identity: NetworkIdentity): Promise<void> {

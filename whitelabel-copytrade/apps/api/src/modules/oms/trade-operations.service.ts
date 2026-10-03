@@ -81,23 +81,19 @@ export class TradeOperationsService {
     limit?: number;
   }) {
     const { tenantId, accountId, symbol, venue, orderIntentId, from, to, page = 1, limit = 20 } = params;
-    try {
-      const where: any = {
-        tenantId,
-        ...(accountId ? { accountId } : {}),
-        ...(symbol ? { symbol } : {}),
-        ...(venue ? { venue } : {}),
-        ...(orderIntentId ? { orderIntentId } : {}),
-        ...(from || to ? { timestamp: { gte: from?.toISOString(), lte: to?.toISOString() } } : {}),
-      };
-      const [items, total] = await Promise.all([
-        (this.prisma as any).omsFill.findMany({ where, orderBy: { timestampMicros: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).omsFill.count({ where }),
-      ]);
-      return { items, total, page, limit };
-    } catch {
-      return { items: [], total: 0, page, limit };
-    }
+    const where: any = {
+      tenantId,
+      ...(accountId ? { accountId } : {}),
+      ...(symbol ? { symbol } : {}),
+      ...(venue ? { venue } : {}),
+      ...(orderIntentId ? { orderIntentId } : {}),
+      ...(from || to ? { timestamp: { gte: from?.toISOString(), lte: to?.toISOString() } } : {}),
+    };
+    const [items, total] = await Promise.all([
+      (this.prisma as any).omsFill.findMany({ where, orderBy: { timestampMicros: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).omsFill.count({ where }),
+    ]);
+    return { items, total, page, limit };
   }
 
   async searchTrades(params: {
@@ -112,23 +108,19 @@ export class TradeOperationsService {
     limit?: number;
   }) {
     const { tenantId, accountId, symbol, strategyId, state, from, to, page = 1, limit = 20 } = params;
-    try {
-      const where: any = {
-        tenantId,
-        ...(accountId ? { accountId } : {}),
-        ...(symbol ? { symbol } : {}),
-        ...(strategyId ? { strategyId } : {}),
-        ...(state ? { state } : {}),
-        ...(from || to ? { openedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-      };
-      const [items, total] = await Promise.all([
-        (this.prisma as any).omsTrade.findMany({ where, orderBy: { openedAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).omsTrade.count({ where }),
-      ]);
-      return { items, total, page, limit };
-    } catch {
-      return { items: [], total: 0, page, limit };
-    }
+    const where: any = {
+      tenantId,
+      ...(accountId ? { accountId } : {}),
+      ...(symbol ? { symbol } : {}),
+      ...(strategyId ? { strategyId } : {}),
+      ...(state ? { state } : {}),
+      ...(from || to ? { openedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    };
+    const [items, total] = await Promise.all([
+      (this.prisma as any).omsTrade.findMany({ where, orderBy: { openedAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).omsTrade.count({ where }),
+    ]);
+    return { items, total, page, limit };
   }
 
   async getStaleOrders(params: { tenantId: string; accountId?: string; thresholdMs?: number }) {
@@ -151,28 +143,21 @@ export class TradeOperationsService {
 
   async getReconciliationQueue(params: { tenantId: string; accountId?: string }) {
     const { tenantId, accountId } = params;
-    try {
-      return await (this.prisma as any).omsReconciliation.findMany({
-        where: { tenantId, ...(accountId ? { accountId } : {}), resolved: false },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).omsReconciliation.findMany({
+      // OmsReconciliation has no accountId column: filter through the (optional) order intent.
+      where: { tenantId, ...(accountId ? { orderIntent: { is: { accountId } } } : {}), resolved: false },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
   }
 
   async getRejectedOrders(params: { tenantId: string; accountId?: string }) {
     const { tenantId, accountId } = params;
-    try {
-      return await (this.prisma as any).omsRejection.findMany({
-        where: { tenantId, ...(accountId ? { accountId } : {}), isRetriable: false },
-        orderBy: { timestamp: 'desc' },
-        take: 100,
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).omsRejection.findMany({
+      where: { tenantId, ...(accountId ? { accountId } : {}), isRetriable: false },
+      orderBy: { timestamp: 'desc' },
+      take: 100,
+    });
   }
 
   async acknowledgeException(params: { tenantId: string; operationalId: string; userId: string; note: string }) {

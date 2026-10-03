@@ -11,7 +11,15 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
+import { Permission, hasAnyPermission } from '@wlct/shared-types';
+import {
+  AllowAnyAuthenticated,
+  PlatformOnly,
+  RequireAnyPermission,
+  RequirePermissions,
+} from '../../../common/decorators/permissions.decorator';
 import { NotificationJobRepository } from './notification-job.repository';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { BillingWebhookNotificationService } from './billing-webhook-notification.service';
@@ -27,8 +35,18 @@ import { DeliveryStatus, NotificationChannel, BillingNotificationEventKey } from
  * Billing Notifications Controller.
  * Tenant-isolated endpoints for history, inbox, preferences, webhooks, worker, reconciliation.
  * No secrets returned plaintext, no cross-tenant access.
+ *
+ * Authorization: the controller carried no permission metadata, so any user
+ * could reconcile any tenant by URL, drive the global worker, and manage the
+ * tenant's billing webhooks. Handlers also read req.user.id, which the
+ * authenticated actor does not have (it exposes userId), so every inbox
+ * resolved to the literal 'unknown' user and preference writes ran without a
+ * user. Now: webhook subscriptions tenant:update (class default); history
+ * subscription:read or invoice:read; inbox and own preferences any
+ * authenticated user, scoped to the caller; worker and reconciliation
+ * platform-only.
  */
-
+@RequirePermissions(Permission.TENANT_UPDATE)
 @Controller('billing/notifications')
 export class BillingNotificationController {
   constructor(
@@ -40,8 +58,18 @@ export class BillingNotificationController {
     private readonly inAppService: InAppNotificationService,
   ) {}
 
+  /** The authenticated actor exposes userId (not id); refuse to guess. */
+  private actorUserId(req: any): string {
+    const userId: unknown = req.user?.userId ?? req.actor?.userId;
+    if (typeof userId !== 'string' || userId.length === 0) {
+      throw new ForbiddenException('An authenticated user is required');
+    }
+    return userId;
+  }
+
   // History - tenant isolated
   @Get('history')
+  @RequireAnyPermission(Permission.SUBSCRIPTION_READ, Permission.INVOICE_READ)
   async getHistory(@Request() req: any, @Query() query: NotificationHistoryQueryDto) {
     const tenantId = req.user?.tenantId || req.tenantId || (query as any).tenantId || 'unknown';
     const filter: any = {};
@@ -65,6 +93,7 @@ export class BillingNotificationController {
   }
 
   @Get('history/:id')
+  @RequireAnyPermission(Permission.SUBSCRIPTION_READ, Permission.INVOICE_READ)
   async getHistoryById(@Request() req: any, @Param('id') id: string) {
     const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
     const job = await this.jobRepository.findById(id, tenantId);
@@ -76,9 +105,10 @@ export class BillingNotificationController {
 
   // Inbox - user scoped in-app notifications
   @Get('inbox')
+  @AllowAnyAuthenticated()
   async getInbox(@Request() req: any, @Query() query: NotificationInboxQueryDto) {
     const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
-    const userId = req.user?.id || req.userId || 'unknown';
+    const userId = this.actorUserId(req);
     const notifications = await this.inAppService.listNotifications(tenantId, userId, {
       unreadOnly: query.unreadOnly,
       eventKey: query.eventKey,
@@ -98,43 +128,55 @@ export class BillingNotificationController {
   }
 
   @Get('inbox/unread-count')
+  @AllowAnyAuthenticated()
   async getUnreadCount(@Request() req: any) {
     const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
-    const userId = req.user?.id || req.userId || 'unknown';
+    const userId = this.actorUserId(req);
     const count = await this.inAppService.getUnreadCount(tenantId, userId);
     return { tenantId, userId, unreadCount: count };
   }
 
   @Put('inbox/:id/read')
+  @AllowAnyAuthenticated()
   async markRead(@Request() req: any, @Param('id') id: string) {
     const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
-    const userId = req.user?.id || req.userId || 'unknown';
+    const userId = this.actorUserId(req);
     const result = await this.inAppService.markRead(tenantId, userId, id);
     return result;
   }
 
   @Put('inbox/read-all')
+  @AllowAnyAuthenticated()
   @HttpCode(HttpStatus.OK)
   async markAllRead(@Request() req: any) {
     const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
-    const userId = req.user?.id || req.userId || 'unknown';
+    const userId = this.actorUserId(req);
     const result = await this.inAppService.markAllRead(tenantId, userId);
     return result;
   }
 
   // Preferences
   @Get('preferences')
+  @AllowAnyAuthenticated()
   async getPreferences(@Request() req: any, @Query('userId') userId?: string) {
     const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
-    const effectiveUserId = userId || req.user?.id;
+    const selfId = this.actorUserId(req);
+    const effectiveUserId = userId || selfId;
+    if (effectiveUserId !== selfId) {
+      const permissions: string[] = req.user?.permissions ?? [];
+      if (req.user?.isPlatformUser !== true && !hasAnyPermission(permissions, [Permission.TENANT_UPDATE])) {
+        throw new ForbiddenException("Reading another user's notification preferences requires tenant:update");
+      }
+    }
     const prefs = await this.preferenceService.getPreferences(tenantId, effectiveUserId);
     return { tenantId, userId: effectiveUserId, data: prefs };
   }
 
   @Put('preferences')
+  @AllowAnyAuthenticated()
   async updatePreference(@Request() req: any, @Body() dto: UpdateNotificationPreferenceDto) {
     const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
-    const userId = req.user?.id || req.userId;
+    const userId = this.actorUserId(req);
     const updated = await this.preferenceService.updatePreference({
       tenantId,
       userId,
@@ -148,9 +190,10 @@ export class BillingNotificationController {
   }
 
   @Put('preferences/bulk')
+  @AllowAnyAuthenticated()
   async bulkUpdatePreferences(@Request() req: any, @Body() dto: BulkUpdateNotificationPreferencesDto) {
     const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
-    const userId = req.user?.id || req.userId;
+    const userId = this.actorUserId(req);
     const updated = await this.preferenceService.updatePreferencesBulk(tenantId, userId, dto.preferences);
     return { tenantId, userId, data: updated };
   }
@@ -240,6 +283,8 @@ export class BillingNotificationController {
 
   // Worker - admin only
   @Post('worker/process')
+  @PlatformOnly()
+  @RequirePermissions(Permission.PLATFORM_MANAGE)
   @HttpCode(HttpStatus.OK)
   async processWorker(@Query('batchSize') batchSize?: number) {
     const result = await this.workerService.processPendingJobs(batchSize || 20);
@@ -247,6 +292,8 @@ export class BillingNotificationController {
   }
 
   @Get('worker/stuck')
+  @PlatformOnly()
+  @RequirePermissions(Permission.PLATFORM_MANAGE)
   async detectStuck(@Query('thresholdHours') thresholdHours?: number) {
     const stuck = await this.workerService.detectStuckJobs(thresholdHours ? Number(thresholdHours) : 2);
     return { stuck, count: stuck.length };
@@ -254,12 +301,16 @@ export class BillingNotificationController {
 
   // Reconciliation - admin only
   @Get('reconciliation/:tenantId')
+  @PlatformOnly()
+  @RequirePermissions(Permission.PLATFORM_MANAGE)
   async reconcileTenant(@Param('tenantId') tenantId: string) {
     const result = await this.reconciliationService.reconcileTenant(tenantId);
     return result;
   }
 
   @Post('reconciliation/all')
+  @PlatformOnly()
+  @RequirePermissions(Permission.PLATFORM_MANAGE)
   @HttpCode(HttpStatus.OK)
   async reconcileAll(@Query('limit') limit?: number) {
     const result = await this.reconciliationService.reconcileAllTenants(limit || 100);

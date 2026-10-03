@@ -33,6 +33,7 @@ import {
 import type {
   AccountCommandPayload,
   CancelOrderPayload,
+  SubmitOrderPayload,
 } from './worker.types';
 
 /** Re-exported so the two consumers of the contract (this gate and the operations
@@ -293,6 +294,56 @@ export class EngineInternalClient {
       code: typeof body.code === 'string' ? body.code : `HTTP_${status}`,
       detail: body,
     };
+  }
+
+  /** Phase 3: forward one OMS-approved order to the engine's submission route.
+   *
+   * Same ack law as cancel: 200 + any outcome is a COMPLETED job (the verdict
+   * is recorded API-side from the job's return value); only non-2xx is an
+   * error, and `call` classifies it terminal/retryable. ACCEPTED and DRY_RUN
+   * are 'ok'; DUPLICATE is 'ok' too, because a redelivered job whose first
+   * attempt reached the engine must not be recorded as a second rejection. */
+  public async submitOrder(
+    payload: SubmitOrderPayload,
+    correlationId: string,
+  ): Promise<EngineCommandReceipt> {
+    const response = await this.call('/internal/v1/orders/submit', {
+      method: 'POST',
+      body: JSON.stringify({
+        tenantId: payload.tenantId,
+        accountId: payload.accountId,
+        orderId: payload.orderId,
+        clientOrderId: payload.clientOrderId,
+        symbol: payload.symbol,
+        side: payload.side,
+        orderType: payload.orderType,
+        quantity: payload.quantity,
+        ...(payload.price !== null ? { price: payload.price } : {}),
+        timeInForce: payload.timeInForce,
+        reduceOnly: payload.reduceOnly,
+        ...(payload.strategyId !== null ? { strategyId: payload.strategyId } : {}),
+        riskDecisionId: payload.riskDecisionId,
+        environment: payload.environment,
+        specification: payload.specification,
+        exposure: payload.exposure,
+        metadata: payload.metadata,
+        ...(payload.requestedAt !== undefined ? { requestedAt: payload.requestedAt } : {}),
+      }),
+      tenantId: payload.tenantId,
+      correlationId,
+    });
+    const body = (await response.json()) as Record<string, unknown>;
+    const okOutcomes = new Set(['ACCEPTED', 'DRY_RUN', 'DUPLICATE']);
+    const outcome =
+      typeof body.outcome === 'string' && okOutcomes.has(body.outcome) ? 'ok' : 'rejected';
+    return this.receipt(outcome, response.status, {
+      ...body,
+      // Echoed so the API-side recorder can resolve the platform order from
+      // the job's return value alone.
+      platformOrderId: payload.orderId,
+      omsIntentId: payload.omsIntentId,
+      tenantId: payload.tenantId,
+    });
   }
 
   private async call(

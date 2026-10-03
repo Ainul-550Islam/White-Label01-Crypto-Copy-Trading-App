@@ -7,7 +7,26 @@ import { PnLService } from './pnl.service';
 import { PerformanceService } from './performance.service';
 import { CashLedgerService } from './cash-ledger.service';
 import { PositionAccountingService } from './position-accounting.service';
-import { PortfolioStatementState, deterministicIdempotencyKey, redactSecrets } from './portfolio-accounting.types';
+import {
+  PortfolioReturnMethodology,
+  PortfolioStatementState,
+  add,
+  deterministicIdempotencyKey,
+  isValidDecimal,
+  redactSecrets,
+  sub,
+} from './portfolio-accounting.types';
+
+/** Decimal-safe total of ledger amounts; values that are not plain decimals are skipped, never coerced. */
+export function sumLedgerAmounts(entries: Array<{ amount: unknown; type?: string }>): string {
+  let total = '0';
+  for (const entry of entries) {
+    const value = entry.amount === null || entry.amount === undefined ? '' : String(entry.amount);
+    if (!isValidDecimal(value)) continue;
+    total = entry.type === 'TRANSFER_OUT' ? sub(total, value) : add(total, value);
+  }
+  return total;
+}
 
 /**
  * Generates statements from persisted periods and snapshots, including holdings, cash,
@@ -57,7 +76,7 @@ export class StatementService {
     });
 
     try {
-      const existing = await (this.prisma as any).portfolioStatement.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).portfolioStatement.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -127,7 +146,7 @@ export class StatementService {
     // Build statement from persisted records
     const statementData = {
       portfolioId: profileId,
-      period: { id: period.id, start: period.periodStart, end: period.periodEnd, type: period.periodType },
+      period: { id: period.id, start: period.periodStart, end: period.periodEnd, type: (period.closeMetadata as any)?.periodType ?? null },
       openingNav: openingSnapshot?.nav ?? null,
       closingNav: closingSnapshot?.nav ?? pnl.evidence?.gross?.endingNav ?? null,
       deposits: deposits.map((d: any) => ({ amount: d.baseCurrencyAmount ?? d.amount, currency: d.currency, occurredAt: d.occurredAt })),
@@ -148,6 +167,13 @@ export class StatementService {
       versions: { calculationVersion: policy.calculationVersion, policyVersion: policy.policyVersion },
     };
 
+    const dataCompleteness = closingSnapshot?.dataCompleteness ?? 'COMPLETE';
+    const returnPercent =
+      policy.returnMethodology === PortfolioReturnMethodology.MONEY_WEIGHTED_RETURN ? mwr.returnPercent : twr.returnPercent;
+
+    // Only columns of the PortfolioStatement model: Prisma rejects unknown
+    // fields, so the previous payload (holdings, grossPnl, performance, ...)
+    // failed every generation. Line items and evidence live in the Json columns.
     const statement = await (this.prisma as any).portfolioStatement.create({
       data: {
         tenantId,
@@ -155,32 +181,45 @@ export class StatementService {
         periodId,
         statementId,
         state: PortfolioStatementState.FINALIZED as any,
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd,
         openingNav: statementData.openingNav,
         closingNav: statementData.closingNav,
-        deposits: deposits as any,
-        withdrawals: withdrawals as any,
-        transfers: transfers as any,
-        tradingActivity: { count: statementData.tradingActivity } as any,
+        deposits: sumLedgerAmounts(statementData.deposits),
+        withdrawals: sumLedgerAmounts(statementData.withdrawals),
+        transfers: sumLedgerAmounts(statementData.transfers),
+        tradingActivity: {
+          count: statementData.tradingActivity,
+          deposits: statementData.deposits,
+          withdrawals: statementData.withdrawals,
+          transfers: statementData.transfers,
+        } as any,
         realizedPnl: statementData.realizedPnl,
         unrealizedPnl: statementData.unrealizedPnl,
-        grossPnl: statementData.grossPnl,
-        fees: { total: statementData.fees } as any,
+        fees: { total: statementData.fees, grossPnl: statementData.grossPnl } as any,
         netPnl: statementData.netPnl,
         returnMethodology: policy.returnMethodology as any,
-        holdings: holdings as any,
-        cash: { balance: statementData.cash.balance, currency: statementData.cash.currency } as any,
-        performance: statementData.performance as any,
-        benchmark: null,
+        returnPercent: returnPercent ?? null,
+        benchmarkReturn: null,
+        endingHoldings: holdings as any,
+        cash: statementData.cash.balance,
         reconciliationStatus,
         baseCurrency: period.baseCurrency,
         calculationVersion: policy.calculationVersion,
         policyVersion: policy.policyVersion,
-        methodology: `STATEMENT_${policy.returnMethodology}`,
-        dataCompleteness: closingSnapshot?.dataCompleteness ?? 'COMPLETE',
         sourceReferences: [...new Set([...(closingSnapshot?.sourceReferences ?? []), ...(openingSnapshot?.sourceReferences ?? [])])],
-        evidence: redactSecrets({ statementData, period, openingSnapshotId: openingSnapshot?.id, closingSnapshotId: closingSnapshot?.id }) as any,
+        evidence: redactSecrets({
+          statementData,
+          period,
+          openingSnapshotId: openingSnapshot?.id,
+          closingSnapshotId: closingSnapshot?.id,
+          performance: statementData.performance,
+          methodology: `STATEMENT_${policy.returnMethodology}`,
+          dataCompleteness,
+          createdBy: operatorId,
+        }) as any,
         idempotencyKey,
-        createdBy: operatorId,
+        finalizedAt: new Date(),
       },
     });
 
@@ -190,47 +229,53 @@ export class StatementService {
   }
 
   async getStatement(params: { tenantId: string; statementId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).portfolioStatement.findFirst({
-        where: { tenantId: params.tenantId, statementId: params.statementId },
-      });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).portfolioStatement.findFirst({
+      where: { tenantId: params.tenantId, statementId: params.statementId },
+    });
   }
 
   async listStatements(params: {
     tenantId: string;
     profileId?: string;
+    /**
+     * Visibility restriction: only statements of these profiles. Applied in the WHERE clause,
+     * i.e. BEFORE pagination, so page/limit/total describe the visible rows (filtering a page
+     * afterwards produced short or empty pages and a total that counted one page only).
+     */
+    profileIds?: string[];
     periodId?: string;
+    /** PortfolioStatementState; StatementQueryDto validated it but it was never applied. */
+    state?: string;
     from?: Date;
     to?: Date;
     page?: number;
     limit?: number;
   }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
-    const { tenantId, profileId, periodId, from, to, page = 1, limit = 50 } = params;
+    const { tenantId, profileId, profileIds, periodId, state, from, to, page = 1, limit = 50 } = params;
     const where: any = { tenantId };
-    if (profileId) where.profileId = profileId;
+    if (profileIds) {
+      if (profileId && !profileIds.includes(profileId)) return { data: [], total: 0, page, limit };
+      where.profileId = profileId ? profileId : { in: profileIds };
+    } else if (profileId) {
+      where.profileId = profileId;
+    }
     if (periodId) where.periodId = periodId;
+    if (state) where.state = state;
     if (from || to) {
       where.createdAt = {};
       if (from) where.createdAt.gte = from;
       if (to) where.createdAt.lte = to;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).portfolioStatement.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).portfolioStatement.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).portfolioStatement.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).portfolioStatement.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

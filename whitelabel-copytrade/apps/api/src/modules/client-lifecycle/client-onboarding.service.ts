@@ -48,7 +48,7 @@ export class ClientOnboardingService {
     });
 
     try {
-      const existingByKey = await (this.prisma as any).clientOnboarding.findFirst({ where: { idempotencyKey } });
+      const existingByKey = await (this.prisma as any).clientOnboarding.findFirst({ where: { tenantId, idempotencyKey } });
       if (existingByKey) return existingByKey;
     } catch {}
 
@@ -103,26 +103,20 @@ export class ClientOnboardingService {
   }
 
   async getOnboarding(params: { tenantId: string; onboardingId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).clientOnboarding.findFirst({
-        where: { id: params.onboardingId, tenantId: params.tenantId },
-        include: { steps: true },
-      });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).clientOnboarding.findFirst({
+      where: { id: params.onboardingId, tenantId: params.tenantId },
+      include: { steps: true },
+    });
   }
 
   async getOnboardingByClientProfile(params: { tenantId: string; clientProfileId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).clientOnboarding.findFirst({
-        where: { tenantId: params.tenantId, clientProfileId: params.clientProfileId },
-        orderBy: { createdAt: 'desc' },
-        include: { steps: true },
-      });
-    } catch {
-      return null;
-    }
+    // Errors propagate: the old catch returned null, so a database failure was
+    // shown to the customer as "no onboarding" instead of an error.
+    return this.prisma.clientOnboarding.findFirst({
+      where: { tenantId: params.tenantId, clientProfileId: params.clientProfileId },
+      orderBy: { createdAt: 'desc' },
+      include: { steps: { orderBy: { createdAt: 'asc' } } },
+    });
   }
 
   async approveOnboarding(params: {

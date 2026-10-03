@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { RealtimeEvent } from '@wlct/shared-types';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingNotificationEventKey, NotificationChannel } from './billing-notification.types';
 import { randomUUID } from 'crypto';
+import { RealtimeService } from '../../realtime/realtime.service';
 
 /**
  * Creates tenant/user-scoped in-app notification records using existing
@@ -12,7 +14,11 @@ import { randomUUID } from 'crypto';
 export class InAppNotificationService {
   private readonly logger = new Logger(InAppNotificationService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Global module; optional so unit tests and workers without realtime still build.
+    @Optional() private readonly realtime?: RealtimeService,
+  ) {}
 
   async createNotification(params: {
     tenantId: string;
@@ -37,7 +43,7 @@ export class InAppNotificationService {
 
       // Check by idempotency key in billingNotificationJob if exists
       const existingBilling = await (this.prisma as any).billingNotificationJob?.findFirst({
-        where: { idempotencyKey: params.idempotencyKey },
+        where: { tenantId: params.tenantId, idempotencyKey: params.idempotencyKey },
       });
       if (existingBilling && existingBilling.deliveryStatus === 'SENT') {
         this.logger.log(`Idempotent in-app notification return by idempotencyKey: ${params.idempotencyKey}`);
@@ -63,13 +69,20 @@ export class InAppNotificationService {
 
       this.logger.log(`In-app notification created tenant=${params.tenantId} user=${params.userId} event=${params.eventKey} id=${record.id}`);
 
-      // Publish realtime event via Redis if available (reuse existing pattern)
-      try {
-        const { RedisService } = await import('../../../infrastructure/redis/redis.service').catch(() => ({ RedisService: null })) as any;
-        // Real implementation would publish via RedisService
-        // For now, log
-        this.logger.log(`Realtime notification would be published for user ${params.userId} in tenant ${params.tenantId}`);
-      } catch {}
+      // Realtime fan-out through the shared RealtimeService (Redis -> socket
+      // owner). The notification is already persisted, so a publish failure
+      // only delays the client until its next fetch; it is logged, not thrown.
+      if (this.realtime) {
+        try {
+          await this.realtime.emitToUser(params.tenantId, params.userId, RealtimeEvent.NOTIFICATION_CREATED, {
+            id: record.id,
+            type: params.eventKey,
+            title: params.title,
+          });
+        } catch (e) {
+          this.logger.warn(`Realtime publish failed for notification ${record.id}: ${(e as Error).message}`);
+        }
+      }
 
       return record;
     } catch (error: any) {
@@ -82,7 +95,7 @@ export class InAppNotificationService {
               id: randomUUID(),
               tenantId: params.tenantId,
               action: 'IN_APP_NOTIFICATION_CREATED',
-              resource: 'Notification',
+              resourceType: 'Notification',
               resourceId: randomUUID(),
               metadata: {
                 userId: params.userId,
@@ -140,14 +153,10 @@ export class InAppNotificationService {
   }
 
   async getUnreadCount(tenantId: string, userId: string): Promise<number> {
-    try {
-      const count = await this.prisma.notification.count({
-        where: { tenantId, userId, readAt: null },
-      });
-      return count;
-    } catch {
-      return 0;
-    }
+    const count = await this.prisma.notification.count({
+      where: { tenantId, userId, readAt: null },
+    });
+    return count;
   }
 
   async listNotifications(
@@ -155,28 +164,24 @@ export class InAppNotificationService {
     userId: string,
     filter?: { unreadOnly?: boolean; eventKey?: string; channel?: string; fromDate?: Date; toDate?: Date; limit?: number; offset?: number },
   ): Promise<any[]> {
-    try {
-      const where: any = { tenantId, userId };
-      if (filter?.unreadOnly) where.readAt = null;
-      if (filter?.eventKey) where.type = filter.eventKey;
-      if (filter?.channel) where.channel = filter.channel;
-      if (filter?.fromDate || filter?.toDate) {
-        where.createdAt = {};
-        if (filter.fromDate) where.createdAt.gte = filter.fromDate;
-        if (filter.toDate) where.createdAt.lte = filter.toDate;
-      }
-
-      const results = await this.prisma.notification.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: filter?.limit || 50,
-        skip: filter?.offset || 0,
-      });
-
-      return results;
-    } catch {
-      return [];
+    const where: any = { tenantId, userId };
+    if (filter?.unreadOnly) where.readAt = null;
+    if (filter?.eventKey) where.type = filter.eventKey;
+    if (filter?.channel) where.channel = filter.channel;
+    if (filter?.fromDate || filter?.toDate) {
+      where.createdAt = {};
+      if (filter.fromDate) where.createdAt.gte = filter.fromDate;
+      if (filter.toDate) where.createdAt.lte = filter.toDate;
     }
+
+    const results = await this.prisma.notification.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: filter?.limit || 50,
+      skip: filter?.offset || 0,
+    });
+
+    return results;
   }
 
   async archiveNotification(tenantId: string, userId: string, notificationId: string): Promise<any> {

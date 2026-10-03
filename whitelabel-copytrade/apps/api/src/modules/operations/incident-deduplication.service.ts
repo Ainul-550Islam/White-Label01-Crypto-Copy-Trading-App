@@ -40,18 +40,14 @@ export class IncidentDeduplicationService {
     fingerprint: string;
     tenantId?: string | null;
   }): Promise<any | null> {
-    try {
-      const where: any = { fingerprint: params.fingerprint };
-      if (params.tenantId !== undefined) {
-        where.tenantId = params.tenantId;
-      }
-      return await (this.prisma as any).operationalIncident.findFirst({
-        where,
-        orderBy: { lastSeenAt: 'desc' },
-      });
-    } catch {
-      return null;
+    const where: any = { fingerprint: params.fingerprint };
+    if (params.tenantId !== undefined) {
+      where.tenantId = params.tenantId;
     }
+    return await (this.prisma as any).operationalIncident.findFirst({
+      where,
+      orderBy: { lastSeenAt: 'desc' },
+    });
   }
 
   async deduplicateOrCreate(params: {

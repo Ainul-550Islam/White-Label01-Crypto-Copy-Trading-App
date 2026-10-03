@@ -12,6 +12,9 @@ import { WebhookService } from './webhook.service';
 import { PaymentProvider } from './payment.types';
 import type { WebhookPayload } from './webhook.types';
 import { ApiStandardResponses } from '../../../common/decorators/api-standard-responses.decorator';
+import { Public } from '../../../common/decorators/public.decorator';
+import { PlatformOnly, RequirePermissions } from '../../../common/decorators/permissions.decorator';
+import { Permission } from '@wlct/shared-types';
 
 /**
  * Public webhook endpoints for Stripe and NowPayments using raw request-body
@@ -20,8 +23,14 @@ import { ApiStandardResponses } from '../../../common/decorators/api-standard-re
  * Webhook endpoints must be public only where required by provider callbacks,
  * while all provider authenticity and replay checks must occur before processing.
  *
+ * The provider endpoints are @Public(): Stripe and NowPayments cannot send a
+ * user JWT, and without the marker the global JwtAuthGuard answered 401 before
+ * any signature check ran, so no payment webhook was ever processed. Their
+ * authentication is the provider signature plus replay protection below.
+ * The signature-bypassing test endpoint stays authenticated and platform-only.
+ *
  * Security:
- *  - Raw body preserved for signature verification
+ *  - Raw body preserved for signature verification (main.ts: rawBody: true)
  *  - Signature verification before any processing
  *  - Replay protection via provider event ID
  *  - No secrets logged
@@ -36,6 +45,7 @@ export class WebhookController {
   constructor(private readonly webhookService: WebhookService) {}
 
   @Post('stripe')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Stripe webhook endpoint',
@@ -97,6 +107,7 @@ export class WebhookController {
   }
 
   @Post('nowpayments')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'NowPayments IPN webhook endpoint',
@@ -151,6 +162,8 @@ export class WebhookController {
   }
 
   @Post('stripe/test')
+  @PlatformOnly()
+  @RequirePermissions(Permission.PLATFORM_MANAGE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Stripe webhook test endpoint (development only)',

@@ -76,7 +76,7 @@ export class LifecycleReconciliationService {
       for (const account of accounts) {
         if (account.exchangeAccountId) {
           try {
-            const exchangeAccount = await (this.prisma as any).exchangeAccount?.findFirst?.({ where: { id: account.exchangeAccountId, tenantId } });
+            const exchangeAccount = await this.prisma.tradingAccount.findFirst({ where: { id: account.exchangeAccountId, tenantId, deletedAt: null } });
             if (!exchangeAccount) {
               discrepancies.push({ type: 'EXCHANGE_BINDING_ORPHANED', severity: 'WARNING', details: { accountId: account.id, exchangeAccountId: account.exchangeAccountId } });
             }

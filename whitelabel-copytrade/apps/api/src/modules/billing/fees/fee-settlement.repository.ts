@@ -27,7 +27,7 @@ export class FeeSettlementRepository {
     metadata?: Record<string, unknown> | null;
   }): Promise<SettlementBatch> {
     // Idempotency check
-    const existingByKey = await this.findByIdempotencyKey(data.idempotencyKey);
+    const existingByKey = await this.findByIdempotencyKey(data.idempotencyKey, data.tenantId);
     if (existingByKey) {
       this.logger.log(`Idempotent settlement return by idempotencyKey: ${data.idempotencyKey}`);
       return existingByKey;
@@ -71,11 +71,11 @@ export class FeeSettlementRepository {
           idempotencyKey: settlement.idempotencyKey,
           accrualIds: settlement.accrualIds,
           createdAt: new Date(settlement.createdAt),
-          calculatedAt: settlement.calculatedAt ? new Date(settlement.calculatedAt) : null,
           approvedAt: null,
           finalizedAt: settlement.finalizedAt ? new Date(settlement.finalizedAt) : null,
           paidAt: null,
-          metadata: settlement.metadata,
+          // FeeSettlement has no calculatedAt column; it is kept in metadata.
+          metadata: { ...(settlement.metadata ?? {}), calculatedAt: settlement.calculatedAt ?? null } as any,
         },
       });
 
@@ -88,7 +88,7 @@ export class FeeSettlementRepository {
     } catch (error: any) {
       if (error.code === 'P2002') {
         this.logger.warn(`Duplicate settlement idempotency: ${data.idempotencyKey}`);
-        const existing = await this.findByIdempotencyKey(data.idempotencyKey);
+        const existing = await this.findByIdempotencyKey(data.idempotencyKey, data.tenantId);
         if (existing) return existing;
       }
       if (error.code === 'P2021' || error.message?.includes('does not exist')) {
@@ -99,7 +99,7 @@ export class FeeSettlementRepository {
               id: randomUUID(),
               tenantId: data.tenantId,
               action: 'SETTLEMENT_CREATED',
-              resource: 'FeeSettlement',
+              resourceType: 'FeeSettlement',
               resourceId: id,
               metadata: { ...settlement, fallback: true },
               createdAt: new Date(),
@@ -173,27 +173,19 @@ export class FeeSettlementRepository {
   }
 
   async findById(id: string, tenantId?: string): Promise<SettlementBatch | null> {
-    try {
-      const result = await (this.prisma as any).feeSettlement?.findFirst({
-        where: { id, ...(tenantId ? { tenantId } : {}) },
-      });
-      if (!result) return null;
-      return this.mapBatchToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).feeSettlement?.findFirst({
+      where: { id, ...(tenantId ? { tenantId } : {}) },
+    });
+    if (!result) return null;
+    return this.mapBatchToDomain(result);
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<SettlementBatch | null> {
-    try {
-      const result = await (this.prisma as any).feeSettlement?.findFirst({
-        where: { idempotencyKey },
-      });
-      if (!result) return null;
-      return this.mapBatchToDomain(result);
-    } catch {
-      return null;
-    }
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<SettlementBatch | null> {
+    const result = await (this.prisma as any).feeSettlement?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
+    if (!result) return null;
+    return this.mapBatchToDomain(result);
   }
 
   async listByTenant(
@@ -208,42 +200,34 @@ export class FeeSettlementRepository {
       offset?: number;
     },
   ): Promise<SettlementBatch[]> {
-    try {
-      const where: any = { tenantId };
-      if (filter?.status) where.status = filter.status;
-      if (filter?.currency) where.currency = filter.currency;
-      if (filter?.feeType) where.feeType = filter.feeType;
-      if (filter?.fromDate || filter?.toDate) {
-        where.createdAt = {};
-        if (filter.fromDate) where.createdAt.gte = filter.fromDate;
-        if (filter.toDate) where.createdAt.lte = filter.toDate;
-      }
-
-      const results = await (this.prisma as any).feeSettlement?.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: filter?.limit || 100,
-        skip: filter?.offset || 0,
-      });
-
-      if (!results) return [];
-      return results.map((r: any) => this.mapBatchToDomain(r));
-    } catch {
-      return [];
+    const where: any = { tenantId };
+    if (filter?.status) where.status = filter.status;
+    if (filter?.currency) where.currency = filter.currency;
+    if (filter?.feeType) where.feeType = filter.feeType;
+    if (filter?.fromDate || filter?.toDate) {
+      where.createdAt = {};
+      if (filter.fromDate) where.createdAt.gte = filter.fromDate;
+      if (filter.toDate) where.createdAt.lte = filter.toDate;
     }
+
+    const results = await (this.prisma as any).feeSettlement?.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: filter?.limit || 100,
+      skip: filter?.offset || 0,
+    });
+
+    if (!results) return [];
+    return results.map((r: any) => this.mapBatchToDomain(r));
   }
 
   async getSettlementItems(settlementId: string): Promise<SettlementItem[]> {
-    try {
-      const results = await (this.prisma as any).feeSettlementItem?.findMany({
-        where: { settlementId },
-        orderBy: { createdAt: 'asc' },
-      });
-      if (!results) return [];
-      return results.map((r: any) => this.mapItemToDomain(r));
-    } catch {
-      return [];
-    }
+    const results = await (this.prisma as any).feeSettlementItem?.findMany({
+      where: { settlementId },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!results) return [];
+    return results.map((r: any) => this.mapItemToDomain(r));
   }
 
   async updateStatus(
@@ -256,7 +240,11 @@ export class FeeSettlementRepository {
       if (extra?.approvedAt !== undefined) data.approvedAt = extra.approvedAt ? new Date(extra.approvedAt) : null;
       if (extra?.finalizedAt !== undefined) data.finalizedAt = extra.finalizedAt ? new Date(extra.finalizedAt) : null;
       if (extra?.paidAt !== undefined) data.paidAt = extra.paidAt ? new Date(extra.paidAt) : null;
-      if (status === SettlementState.CALCULATED && !data.calculatedAt) data.calculatedAt = new Date();
+      if (status === SettlementState.CALCULATED) {
+        const existing = await (this.prisma as any).feeSettlement?.findUnique({ where: { id } });
+        const current = existing?.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
+        data.metadata = { ...current, calculatedAt: current.calculatedAt ?? new Date().toISOString() };
+      }
       if (status === SettlementState.APPROVED && !data.approvedAt) data.approvedAt = new Date();
       if (status === SettlementState.FINALIZED && !data.finalizedAt) data.finalizedAt = new Date();
       if (status === SettlementState.PAID && !data.paidAt) data.paidAt = new Date();
@@ -288,7 +276,7 @@ export class FeeSettlementRepository {
       idempotencyKey: raw.idempotencyKey,
       accrualIds: raw.accrualIds || [],
       createdAt: raw.createdAt ? new Date(raw.createdAt).toISOString() : new Date().toISOString(),
-      calculatedAt: raw.calculatedAt ? new Date(raw.calculatedAt).toISOString() : null,
+      calculatedAt: raw.metadata?.calculatedAt ? new Date(raw.metadata.calculatedAt).toISOString() : null,
       approvedAt: raw.approvedAt ? new Date(raw.approvedAt).toISOString() : null,
       finalizedAt: raw.finalizedAt ? new Date(raw.finalizedAt).toISOString() : null,
       paidAt: raw.paidAt ? new Date(raw.paidAt).toISOString() : null,

@@ -81,7 +81,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     if ('twoFactorRequired' in result) {
       const response = NextResponse.json({
         success: true,
-        data: { requiresMfa: true, mfaToken: result.challengeToken, methods: result.methods },
+        // The challenge token stays in the httpOnly cookie below; browser
+        // JavaScript only needs to know that a second factor is required.
+        data: { requiresMfa: true, methods: result.methods },
       });
       response.cookies.set('wlct_2fa', result.challengeToken, {
         httpOnly: true,

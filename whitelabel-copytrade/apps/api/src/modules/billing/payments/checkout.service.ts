@@ -12,6 +12,7 @@ import { BillingInterval } from '@wlct/shared-types';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { buildPaymentMetadata, buildProviderReference } from './payment.repository';
 
 /**
  * Creates a provider checkout from the canonical billing plan/catalog and
@@ -408,6 +409,13 @@ export class CheckoutService {
 
   private async updatePaymentWithProviderData(paymentId: string, providerResult: any): Promise<void> {
     try {
+      // Only Payment columns; links and record fields go to the JSON columns
+      // exactly as PaymentRepository stores them.
+      const existing = await (this.prisma as any).payment?.findUnique({ where: { id: paymentId } });
+      if (!existing) {
+        this.logger.warn(`Payment ${paymentId} not found while attaching provider data`);
+        return;
+      }
       await (this.prisma as any).payment?.update({
         where: { id: paymentId },
         data: {
@@ -415,21 +423,24 @@ export class CheckoutService {
           providerSessionId: providerResult.providerSessionId || null,
           providerPaymentId: providerResult.providerPaymentId || null,
           providerInvoiceId: providerResult.providerInvoiceId || null,
-          providerCustomerId: providerResult.providerCustomerId || null,
-          checkoutUrl: providerResult.checkoutUrl,
-          invoiceUrl: providerResult.invoiceUrl || null,
-          expiresAt: providerResult.expiresAt || null,
           status: 'PENDING',
-          transactionState: 'INITIALIZED',
+          providerReference: buildProviderReference(existing.providerReference, {
+            providerCustomerId: providerResult.providerCustomerId || null,
+            checkoutUrl: providerResult.checkoutUrl || null,
+            invoiceUrl: providerResult.invoiceUrl || null,
+          }) as any,
+          metadata: buildPaymentMetadata(existing.metadata, null, {
+            transactionState: 'INITIALIZED',
+            expiresAt: providerResult.expiresAt
+              ? providerResult.expiresAt instanceof Date
+                ? providerResult.expiresAt.toISOString()
+                : String(providerResult.expiresAt)
+              : null,
+          }) as any,
         },
       });
     } catch (error) {
       this.logger.warn(`Failed to update payment ${paymentId} with provider data: ${(error as Error).message}`);
-      // Fallback: try via repository
-      try {
-        const { PaymentRepository } = await import('./payment.repository');
-        // Repository update will be handled via service
-      } catch {}
     }
   }
 }

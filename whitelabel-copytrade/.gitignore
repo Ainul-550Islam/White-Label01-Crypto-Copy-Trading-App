@@ -36,6 +36,9 @@ postgres-data/
 data/pg/
 *.pid
 
+# Generated TEST-ONLY SAML keys (scripts/generate-test-sso-keys.mjs; NEVER commit)
+apps/api/.generated/
+
 # Environment and sensitive data
 .env
 .env.local

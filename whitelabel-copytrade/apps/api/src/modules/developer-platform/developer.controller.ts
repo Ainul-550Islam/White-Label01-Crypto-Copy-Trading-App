@@ -104,9 +104,11 @@ export class DeveloperController {
 
   private actor(
     tenantId: string,
-    request: Request & { user?: { id?: string; sub?: string } },
+    request: Request & { user?: { userId?: string; id?: string; sub?: string } },
   ): DeveloperActor {
-    const actorId = request.user?.id ?? request.user?.sub ?? 'system';
+    // The authenticated actor exposes userId; id/sub never existed on it, so
+    // every developer-portal audit entry was attributed to 'system'.
+    const actorId = request.user?.userId ?? request.user?.id ?? request.user?.sub ?? 'system';
     const correlationId =
       (request.headers['x-correlation-id'] as string | undefined) ?? String(request.id ?? '') ?? 'portal';
     return { tenantId, actorType: 'USER', actorId, correlationId };

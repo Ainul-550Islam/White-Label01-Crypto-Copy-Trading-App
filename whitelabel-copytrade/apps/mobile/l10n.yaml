@@ -4,5 +4,4 @@ output-localization-file: app_localizations.dart
 output-class: AppLocalizations
 # Emit into lib/l10n instead of the synthetic flutter_gen package so imports are
 # ordinary relative paths and analysis works without a special resolver.
-synthetic-package: false
 nullable-getter: false

@@ -43,21 +43,24 @@ export class ReportExportService {
       'dataCompleteness',
     ];
 
+    const evidence = (statement.evidence as any) ?? {};
+    const isoDate = (value: unknown): string => (value instanceof Date ? value.toISOString() : value ? String(value) : '');
     const row = [
       statement.profileId,
-      statement.periodId,
+      isoDate(statement.periodStart),
+      isoDate(statement.periodEnd),
       statement.openingNav ?? '',
       statement.closingNav ?? '',
       statement.realizedPnl ?? '',
       statement.unrealizedPnl ?? '',
-      statement.grossPnl ?? '',
+      (statement.fees as any)?.grossPnl ?? '',
       (statement.fees as any)?.total ?? '',
       statement.netPnl ?? '',
       statement.baseCurrency,
       statement.returnMethodology,
       statement.calculationVersion,
       statement.policyVersion,
-      statement.dataCompleteness,
+      evidence.dataCompleteness ?? '',
     ];
 
     const csv = [headers.join(','), row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')].join('\n');
@@ -70,10 +73,13 @@ export class ReportExportService {
     if (!statement) throw new BadRequestException('Statement not found');
 
     // Export deterministic from persisted records, secrets redacted
+    const evidence = (statement.evidence as any) ?? {};
     const json = redactSecrets({
       statementId: statement.statementId,
       portfolioId: statement.profileId,
       periodId: statement.periodId,
+      periodStart: statement.periodStart,
+      periodEnd: statement.periodEnd,
       openingNav: statement.openingNav,
       closingNav: statement.closingNav,
       deposits: statement.deposits,
@@ -82,20 +88,21 @@ export class ReportExportService {
       tradingActivity: statement.tradingActivity,
       realizedPnl: statement.realizedPnl,
       unrealizedPnl: statement.unrealizedPnl,
-      grossPnl: statement.grossPnl,
+      grossPnl: (statement.fees as any)?.grossPnl ?? null,
       fees: statement.fees,
       netPnl: statement.netPnl,
       returnMethodology: statement.returnMethodology,
-      holdings: statement.holdings,
+      holdings: statement.endingHoldings,
       cash: statement.cash,
-      performance: statement.performance,
-      benchmark: statement.benchmark,
+      returnPercent: statement.returnPercent,
+      performance: evidence.performance ?? null,
+      benchmark: statement.benchmarkReturn ?? null,
       reconciliationStatus: statement.reconciliationStatus,
       baseCurrency: statement.baseCurrency,
       calculationVersion: statement.calculationVersion,
       policyVersion: statement.policyVersion,
-      methodology: statement.methodology,
-      dataCompleteness: statement.dataCompleteness,
+      methodology: evidence.methodology ?? null,
+      dataCompleteness: evidence.dataCompleteness ?? null,
       sourceReferences: statement.sourceReferences,
     });
 

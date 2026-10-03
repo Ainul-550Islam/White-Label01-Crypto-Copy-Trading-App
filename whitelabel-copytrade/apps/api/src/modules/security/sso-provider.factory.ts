@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ISsoProvider } from './sso-provider.interface';
+import { ISsoProvider, SsoProviderMetadata } from './sso-provider.interface';
+import { SsoAuthError, SsoReasonCode } from './sso-flow.types';
 import { SsoProvider } from './security.types';
 import { SamlProviderService } from './saml-provider.service';
 import { OidcProviderService } from './oidc-provider.service';
@@ -22,16 +23,11 @@ class DisabledSsoProvider implements ISsoProvider {
     return false;
   }
 
-  async getMetadata(tenantId: string): Promise<any> {
-    throw new Error(`SSO provider ${this.providerType} disabled for tenant ${tenantId} - explicit authentication failure, no fallback to insecure login`);
-  }
-
-  async createAuthorizationRequest(): Promise<any> {
-    throw new Error(`SSO provider ${this.providerType} disabled - authentication failure, not success`);
-  }
-
-  async validateCallback(): Promise<any> {
-    throw new Error(`SSO provider ${this.providerType} disabled - authentication failure`);
+  async getMetadata(tenantId: string): Promise<SsoProviderMetadata> {
+    throw new SsoAuthError(
+      SsoReasonCode.PROVIDER_DISABLED,
+      `SSO provider ${this.providerType} disabled for tenant ${tenantId} - explicit authentication failure, no fallback to insecure login`,
+    );
   }
 }
 
@@ -102,15 +98,11 @@ export class SsoProviderFactory {
   }
 
   async isSsoEnforced(tenantId: string): Promise<boolean> {
-    try {
-      const config = await (this.prisma as any).ssoConfiguration?.findFirst({
-        where: { tenantId, isActive: true },
-        orderBy: { createdAt: 'desc' },
-      });
-      return config?.enforced === true && config?.state === 'ENFORCED';
-    } catch {
-      return false;
-    }
+    const config = await (this.prisma as any).ssoConfiguration?.findFirst({
+      where: { tenantId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return config?.enforced === true && config?.state === 'ENFORCED';
   }
 
   private resolveProviderFromConfig(config: any): ISsoProvider {
@@ -128,27 +120,23 @@ export class SsoProviderFactory {
   }
 
   async listTenantProviders(tenantId: string): Promise<any[]> {
-    try {
-      const configs = await (this.prisma as any).ssoConfiguration?.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'desc' },
-      }) || [];
-      return configs.map((c: any) => ({
-        id: c.id,
-        tenantId: c.tenantId,
-        providerType: c.providerType,
-        state: c.state,
-        issuer: c.issuer,
-        audience: c.audience,
-        enforced: c.enforced,
-        jitEnabled: c.jitEnabled,
-        isActive: c.isActive,
-        allowedDomains: c.allowedDomains,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-      }));
-    } catch {
-      return [];
-    }
+    const configs = await (this.prisma as any).ssoConfiguration?.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    }) || [];
+    return configs.map((c: any) => ({
+      id: c.id,
+      tenantId: c.tenantId,
+      providerType: c.providerType,
+      state: c.state,
+      issuer: c.issuer,
+      audience: c.audience,
+      enforced: c.enforced,
+      jitEnabled: c.jitEnabled,
+      isActive: c.isActive,
+      allowedDomains: c.allowedDomains,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
   }
 }

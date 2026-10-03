@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ResearchRepository } from './research-repository';
 import { ResearchStrategyVersionStatus } from './research.types';
 import { createHash, randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Immutable strategy-version lifecycle: draft, validate, freeze, publish, deprecate, and version comparison using existing strategy references.
@@ -123,7 +124,7 @@ export class StrategyVersionService {
 
     try {
       const updated = await (this.researchRepo as any).prisma.researchStrategyVersion.update({
-        where: { id: versionId },
+        where: { id: versionId, tenantId },
         data: {
           name: newName,
           description: updates.description !== undefined ? updates.description : existing.description,
@@ -147,8 +148,9 @@ export class StrategyVersionService {
       });
 
       return updated;
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 

@@ -1,6 +1,7 @@
 /// Entitlement Model
 /// 
 /// Represents a user's entitlement in the mobile application.
+library;
 
 enum EntitlementStatus {
   active,

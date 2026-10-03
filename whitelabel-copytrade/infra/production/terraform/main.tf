@@ -451,15 +451,15 @@ resource "aws_db_instance" "main" {
   # Password from secret manager, not hardcoded
   manage_master_user_password = true
 
-  backup_retention_period = var.backup_retention_days
-  backup_window           = "03:00-04:00"
-  maintenance_window      = "sun:04:00-sun:05:00"
-  deletion_protection     = var.enable_deletion_protection
-  multi_az                = true
-  publicly_accessible     = false
-  skip_final_snapshot     = false
+  backup_retention_period   = var.backup_retention_days
+  backup_window             = "03:00-04:00"
+  maintenance_window        = "sun:04:00-sun:05:00"
+  deletion_protection       = var.enable_deletion_protection
+  multi_az                  = true
+  publicly_accessible       = false
+  skip_final_snapshot       = false
   final_snapshot_identifier = "${var.project_name}-${var.environment}-final-${formatdate("YYYY-MM-DD-hh-mm", timestamp())}"
-  copy_tags_to_snapshot   = true
+  copy_tags_to_snapshot     = true
 
   enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
 
@@ -475,12 +475,38 @@ resource "aws_elasticache_subnet_group" "main" {
   subnet_ids = aws_subnet.private[*].id
 }
 
+# Redis AUTH token. ElastiCache requires 16-128 printable characters and
+# rejects several symbols, so alphanumerics only. Generated here, handed to
+# the cluster and to the API through Secrets Manager; never in a tfvars file.
+resource "random_password" "redis_auth" {
+  length  = 64
+  special = false
+}
+
+# The default.redis7 group uses maxmemory-policy volatile-lru, which may evict
+# keys that carry a TTL - including BullMQ's job locks, so a running job could
+# be taken as stalled and processed twice. BullMQ requires noeviction: at the
+# memory limit writes fail loudly instead, and keys with a TTL still expire on
+# time. Changing the group of an existing cluster is an in-place modification.
+resource "aws_elasticache_parameter_group" "redis" {
+  name        = "${var.project_name}-${var.environment}-redis7"
+  family      = "redis7"
+  description = "Redis 7 for ${var.project_name}: noeviction (BullMQ queues and locks)"
+
+  parameter {
+    name  = "maxmemory-policy"
+    value = "noeviction"
+  }
+
+  tags = var.tags
+}
+
 resource "aws_elasticache_replication_group" "main" {
   replication_group_id       = "${var.project_name}-${var.environment}-redis"
   description                = "Production Redis for ${var.project_name}"
   node_type                  = var.redis_node_type
   num_cache_clusters         = length(var.availability_zones)
-  parameter_group_name       = "default.redis7"
+  parameter_group_name       = aws_elasticache_parameter_group.redis.name
   engine                     = "redis"
   engine_version             = "7.1"
   port                       = 6379
@@ -490,8 +516,9 @@ resource "aws_elasticache_replication_group" "main" {
   multi_az_enabled           = true
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true
-  # Auth token from secret manager
-  auth_token                 = null
+  # AUTH on top of TLS: network reachability alone must not be enough to
+  # read or write queues, locks and sessions.
+  auth_token = random_password.redis_auth.result
 
   snapshot_retention_limit = var.backup_retention_days
   snapshot_window          = "02:00-03:00"
@@ -610,15 +637,49 @@ resource "aws_ecs_task_definition" "api" {
         { name = "S3_BUCKET", value = aws_s3_bucket.app_storage.bucket },
         { name = "BACKUP_BUCKET", value = aws_s3_bucket.backups.bucket },
         { name = "SECRET_PREFIX", value = var.secret_manager_prefix },
+        # The API reads Redis as host/port/TLS (packages/config/src/env.schema.ts);
+        # REDIS_HOST defaults to localhost, so leaving it unset in production
+        # silently points the API at a Redis that does not exist.
+        { name = "REDIS_HOST", value = aws_elasticache_replication_group.main.primary_endpoint_address },
+        { name = "REDIS_PORT", value = "6379" },
+        { name = "REDIS_TLS", value = "true" },
+        # Production refuses relative dataset roots; these directories are
+        # created and owned by the runtime user in infrastructure/docker/api.Dockerfile.
+        { name = "DATASET_LOCAL_ROOT", value = "/app/data/datasets" },
+        { name = "DATASET_TEMP_ROOT", value = "/app/data/staging" },
+        # Swagger defaults to on and then requires SWAGGER_USER/SWAGGER_PASSWORD
+        # in production. The public API reference is not served from the
+        # production task; enable it only together with those two secrets.
+        { name = "SWAGGER_ENABLED", value = "false" },
       ]
       secrets = [
         { name = "DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.database.arn}:url::" },
         { name = "DIRECT_DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.database.arn}:directUrl::" },
+        # Python services consume REDIS_URL; the API does not. Kept so a shared
+        # task environment stays complete (rediss:// because transit
+        # encryption is on).
         { name = "REDIS_URL", valueFrom = "${aws_secretsmanager_secret.redis.arn}:url::" },
+        # Redis AUTH token (cluster has auth_token set); the API passes it to
+        # every Redis/BullMQ connection (AppConfigService.redis.password).
+        { name = "REDIS_PASSWORD", valueFrom = "${aws_secretsmanager_secret.redis_auth.arn}:password::" },
         { name = "JWT_ACCESS_SECRET", valueFrom = "${aws_secretsmanager_secret.jwt.arn}:accessSecret::" },
         { name = "JWT_REFRESH_SECRET", valueFrom = "${aws_secretsmanager_secret.jwt.arn}:refreshSecret::" },
-        { name = "ENCRYPTION_KEY", valueFrom = "${aws_secretsmanager_secret.encryption.arn}:key::" },
+        # Names must match the API's env schema exactly: the API refuses to
+        # boot without ENCRYPTION_MASTER_KEY_BASE64 and BLIND_INDEX_KEY_BASE64
+        # (the old single ENCRYPTION_KEY was never read by anything).
+        # Generate with `node scripts/generate-keys.mjs`.
+        { name = "ENCRYPTION_MASTER_KEY_BASE64", valueFrom = "${aws_secretsmanager_secret.encryption.arn}:masterKeyBase64::" },
+        { name = "ENCRYPTION_KEY_ID", valueFrom = "${aws_secretsmanager_secret.encryption.arn}:keyId::" },
+        { name = "BLIND_INDEX_KEY_BASE64", valueFrom = "${aws_secretsmanager_secret.encryption.arn}:blindIndexKeyBase64::" },
         { name = "SESSION_COOKIE_SECRET", valueFrom = "${aws_secretsmanager_secret.session.arn}:secret::" },
+        # The API refuses to boot without this (>= 16 chars): developer-platform
+        # credential and webhook-secret digests are keyed by it.
+        { name = "DEVELOPER_SECRET_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.developer.arn}:hmacKey::" },
+        # Required by the env schema (>= 16 chars each); METRICS_TOKEN is
+        # mandatory when NODE_ENV=production.
+        { name = "INTERNAL_SERVICE_TOKEN", valueFrom = "${aws_secretsmanager_secret.service.arn}:internalServiceToken::" },
+        { name = "EXCHANGE_WEBHOOK_SIGNING_SECRET", valueFrom = "${aws_secretsmanager_secret.service.arn}:exchangeWebhookSigningSecret::" },
+        { name = "METRICS_TOKEN", valueFrom = "${aws_secretsmanager_secret.service.arn}:metricsToken::" },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -665,10 +726,9 @@ resource "aws_ecs_service" "api" {
     rollback = true
   }
 
-  deployment_configuration {
-    maximum_percent         = 200
-    minimum_healthy_percent = 100
-  }
+  # aws provider 5.x: rolling-update bounds are service arguments, not a block.
+  deployment_maximum_percent         = 200
+  deployment_minimum_healthy_percent = 100
 
   tags = var.tags
 }
@@ -778,14 +838,17 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
       Resource = [
         aws_secretsmanager_secret.database.arn,
         aws_secretsmanager_secret.redis.arn,
+        aws_secretsmanager_secret.redis_auth.arn,
         aws_secretsmanager_secret.jwt.arn,
         aws_secretsmanager_secret.encryption.arn,
         aws_secretsmanager_secret.session.arn,
+        aws_secretsmanager_secret.developer.arn,
+        aws_secretsmanager_secret.service.arn,
       ]
     }]
   })
@@ -838,12 +901,28 @@ resource "aws_secretsmanager_secret" "redis" {
   tags                    = var.tags
 }
 
+# JSON secret `{"password": ...}` holding the Redis AUTH token; managed by
+# Terraform (it creates the token). The operator-populated `redis` secret's
+# `url` must carry the same password: rediss://:<password>@<endpoint>:6379.
+resource "aws_secretsmanager_secret" "redis_auth" {
+  name                    = "${var.secret_manager_prefix}/redis-auth"
+  recovery_window_in_days = 30
+  tags                    = var.tags
+}
+
+resource "aws_secretsmanager_secret_version" "redis_auth" {
+  secret_id     = aws_secretsmanager_secret.redis_auth.id
+  secret_string = jsonencode({ password = random_password.redis_auth.result })
+}
+
 resource "aws_secretsmanager_secret" "jwt" {
   name                    = "${var.secret_manager_prefix}/jwt"
   recovery_window_in_days = 30
   tags                    = var.tags
 }
 
+# JSON secret with keys `masterKeyBase64`, `keyId` and `blindIndexKeyBase64`
+# (values from `node scripts/generate-keys.mjs`).
 resource "aws_secretsmanager_secret" "encryption" {
   name                    = "${var.secret_manager_prefix}/encryption"
   recovery_window_in_days = 30
@@ -852,6 +931,23 @@ resource "aws_secretsmanager_secret" "encryption" {
 
 resource "aws_secretsmanager_secret" "session" {
   name                    = "${var.secret_manager_prefix}/session"
+  recovery_window_in_days = 30
+  tags                    = var.tags
+}
+
+# JSON secret with key `hmacKey`. Rotating it invalidates every issued
+# developer credential and webhook signing secret - see docs/dr/manifest.json.
+resource "aws_secretsmanager_secret" "developer" {
+  name                    = "${var.secret_manager_prefix}/developer"
+  recovery_window_in_days = 30
+  tags                    = var.tags
+}
+
+# JSON secret with keys `internalServiceToken`, `exchangeWebhookSigningSecret`
+# and `metricsToken` (each >= 16 random characters). generate-keys emits the
+# first two; create metricsToken with e.g. `openssl rand -hex 32`.
+resource "aws_secretsmanager_secret" "service" {
+  name                    = "${var.secret_manager_prefix}/service"
   recovery_window_in_days = 30
   tags                    = var.tags
 }

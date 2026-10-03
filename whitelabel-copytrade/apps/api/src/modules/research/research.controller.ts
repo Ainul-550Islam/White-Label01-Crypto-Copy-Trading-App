@@ -19,10 +19,30 @@ import { SignalFilterService } from './signal-filter.service';
 import { ResearchPromotionService } from './research-promotion.service';
 import { PaperTradingRepository } from './paper-trading-repository';
 import { CreateDatasetDto, CreateStrategyVersionDto, CreateBacktestDto, WalkForwardDto, MonteCarloDto, ParameterSweepDto, BenchmarkDto, CreatePaperSessionDto, CreatePaperOrderDto, CreateSignalDto, CreatePromotionDto, PromotionActionDto } from './dto/backtest.dto';
+import { authRoles, authTenantId, authUserIdOrNull, hasAdminRole } from '../../common/guards/request-principal';
+import { Permission } from '@wlct/shared-types';
+import { RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { boundedIntParam, limitParam, pageParam } from '../../common/dto/pagination-params';
 
 /**
  * RBAC/tenant-protected API for research, datasets, strategy versions, backtests, paper sessions, signals, and promotion actions.
  */
+/**
+ * Research surface: datasets, market data, strategy versions, backtests,
+ * paper sessions, signals and promotions.
+ *
+ * The controller carried no permission metadata, so a follower could ingest
+ * datasets, run backtests, publish strategy versions and signals, or read any
+ * trader's strategy versions in the tenant. Permissions now follow the RBAC
+ * matrix: dataset:read/ingest/validate, backtest:read/submit,
+ * paper_session:read/operate; strategy versions, signals and promotions need
+ * strategy:manage to change (class default) and strategy:manage or
+ * compliance:read to read (strategy_version:read is deliberately not used:
+ * followers hold it, and versions carry the strategy configuration).
+ * Promotion approve/reject/promote need trading:manage on top of the
+ * existing in-handler admin-role check.
+ */
+@RequirePermissions(Permission.STRATEGY_MANAGE)
 @Controller('research')
 export class ResearchController {
   constructor(
@@ -48,20 +68,21 @@ export class ResearchController {
   ) {}
 
   private getContext(req: any): { tenantId: string; userId: string; roles: string[] } {
-    const tenantId = req.user?.tenantId || req.headers['x-tenant-id'];
-    const userId = req.user?.id || req.user?.userId;
-    const roles = req.user?.roles || [];
-    if (!tenantId) throw new BadRequestException('tenantId required');
+    // Token tenant only; a header can never select the tenant.
+    const tenantId = authTenantId(req);
+    const userId = authUserIdOrNull(req);
+    const roles = authRoles(req);
     if (!userId) throw new BadRequestException('userId required');
     return { tenantId, userId, roles };
   }
 
   private isAdmin(roles: string[]): boolean {
-    return roles.includes('admin') || roles.includes('tenant_admin') || roles.includes('platform_admin') || roles.includes('research_admin');
+    return hasAdminRole(roles, ['research_admin']);
   }
 
   // Datasets
   @Post('datasets')
+  @RequirePermissions(Permission.DATASET_INGEST)
   async createDataset(@Request() req: any, @Body() dto: CreateDatasetDto) {
     const { tenantId, userId } = this.getContext(req);
     const fingerprint = this.researchRepo.computeFingerprint({ venue: dto.venue, symbol: dto.symbol, timeframe: dto.timeframe, startTime: dto.startTime, endTime: dto.endTime, source: dto.source });
@@ -88,12 +109,14 @@ export class ResearchController {
   }
 
   @Get('datasets')
+  @RequirePermissions(Permission.DATASET_READ)
   async listDatasets(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.researchRepo.listDatasets(tenantId, { venue: query.venue, symbol: query.symbol, timeframe: query.timeframe, status: query.status, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.researchRepo.listDatasets(tenantId, { venue: query.venue, symbol: query.symbol, timeframe: query.timeframe, status: query.status, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Get('datasets/:datasetId')
+  @RequirePermissions(Permission.DATASET_READ)
   async getDataset(@Request() req: any, @Param('datasetId') datasetId: string) {
     const { tenantId } = this.getContext(req);
     const dataset = await this.researchRepo.findDatasetById(datasetId, tenantId);
@@ -102,6 +125,7 @@ export class ResearchController {
   }
 
   @Post('datasets/:datasetId/validate')
+  @RequirePermissions(Permission.DATASET_VALIDATE)
   async validateDataset(@Request() req: any, @Param('datasetId') datasetId: string) {
     const { tenantId, userId } = this.getContext(req);
     const dataset = await this.researchRepo.findDatasetById(datasetId, tenantId);
@@ -147,12 +171,14 @@ export class ResearchController {
   }
 
   @Get('market-data/providers')
+  @RequirePermissions(Permission.DATASET_READ)
   async listProviders(@Request() req: any) {
     this.getContext(req);
     return this.providerFactory.listProviders();
   }
 
   @Get('market-data/candles')
+  @RequirePermissions(Permission.DATASET_READ)
   async getCandles(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
     if (!query.venue || !query.symbol || !query.timeframe || !query.startTime || !query.endTime) throw new BadRequestException('venue, symbol, timeframe, startTime, endTime required');
@@ -164,7 +190,7 @@ export class ResearchController {
       startTime: query.startTime,
       endTime: query.endTime,
       source: query.source,
-      limit: query.limit ? parseInt(query.limit) : undefined,
+      limit: boundedIntParam(query.limit, 'limit', 1, 1000),
     });
   }
 
@@ -192,12 +218,14 @@ export class ResearchController {
   }
 
   @Get('strategy-versions')
+  @RequireAnyPermission(Permission.STRATEGY_MANAGE, Permission.COMPLIANCE_READ)
   async listStrategyVersions(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.strategyVersionService.listVersions(tenantId, { strategyId: query.strategyId, status: query.status, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.strategyVersionService.listVersions(tenantId, { strategyId: query.strategyId, status: query.status, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Get('strategy-versions/:versionId')
+  @RequireAnyPermission(Permission.STRATEGY_MANAGE, Permission.COMPLIANCE_READ)
   async getStrategyVersion(@Request() req: any, @Param('versionId') versionId: string) {
     const { tenantId } = this.getContext(req);
     const version = await this.strategyVersionService.getVersion(tenantId, versionId);
@@ -246,6 +274,7 @@ export class ResearchController {
   }
 
   @Get('strategy-versions/:versionId/compare/:otherVersionId')
+  @RequireAnyPermission(Permission.STRATEGY_MANAGE, Permission.COMPLIANCE_READ)
   async compareVersions(@Request() req: any, @Param('versionId') versionId: string, @Param('otherVersionId') otherVersionId: string) {
     const { tenantId } = this.getContext(req);
     return this.strategyVersionService.compareVersions(tenantId, versionId, otherVersionId);
@@ -253,6 +282,7 @@ export class ResearchController {
 
   // Backtests
   @Post('backtests')
+  @RequirePermissions(Permission.BACKTEST_SUBMIT)
   async createBacktest(@Request() req: any, @Body() dto: CreateBacktestDto) {
     const { tenantId, userId } = this.getContext(req);
     return this.backtestEngine.runBacktest({
@@ -278,12 +308,14 @@ export class ResearchController {
   }
 
   @Get('backtests')
+  @RequirePermissions(Permission.BACKTEST_READ)
   async listBacktests(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.backtestEngine.listRuns(tenantId, { strategyVersionId: query.strategyVersionId, status: query.status, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.backtestEngine.listRuns(tenantId, { strategyVersionId: query.strategyVersionId, status: query.status, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Get('backtests/:runId')
+  @RequirePermissions(Permission.BACKTEST_READ)
   async getBacktest(@Request() req: any, @Param('runId') runId: string) {
     const { tenantId } = this.getContext(req);
     const run = await this.backtestEngine.getRun(tenantId, runId);
@@ -292,14 +324,16 @@ export class ResearchController {
   }
 
   @Get('backtests/:runId/trades')
+  @RequirePermissions(Permission.BACKTEST_READ)
   async listBacktestTrades(@Request() req: any, @Param('runId') runId: string, @Query() query: any) {
     const { tenantId } = this.getContext(req);
     const run = await this.backtestEngine.getRun(tenantId, runId);
     if (!run) throw new NotFoundException('Backtest run not found');
-    return this.backtestRepo.listTrades(tenantId, runId, { page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 100 });
+    return this.backtestRepo.listTrades(tenantId, runId, { page: pageParam(query.page), limit: limitParam(query.limit, 100) });
   }
 
   @Get('backtests/:runId/equity-curve')
+  @RequirePermissions(Permission.BACKTEST_READ)
   async getBacktestEquityCurve(@Request() req: any, @Param('runId') runId: string) {
     const { tenantId } = this.getContext(req);
     const run = await this.backtestEngine.getRun(tenantId, runId);
@@ -309,6 +343,7 @@ export class ResearchController {
   }
 
   @Get('backtests/:runId/metrics')
+  @RequirePermissions(Permission.BACKTEST_READ)
   async getBacktestMetrics(@Request() req: any, @Param('runId') runId: string) {
     const { tenantId } = this.getContext(req);
     const run = await this.backtestEngine.getRun(tenantId, runId);
@@ -317,6 +352,7 @@ export class ResearchController {
   }
 
   @Post('backtests/walk-forward')
+  @RequirePermissions(Permission.BACKTEST_SUBMIT)
   async runWalkForward(@Request() req: any, @Body() dto: WalkForwardDto) {
     const { tenantId, userId } = this.getContext(req);
     return this.walkForwardService.runWalkForward({
@@ -338,6 +374,7 @@ export class ResearchController {
   }
 
   @Post('backtests/monte-carlo')
+  @RequirePermissions(Permission.BACKTEST_SUBMIT)
   async runMonteCarlo(@Request() req: any, @Body() dto: MonteCarloDto) {
     const { tenantId, userId } = this.getContext(req);
     return this.monteCarloService.runMonteCarlo({
@@ -352,6 +389,7 @@ export class ResearchController {
   }
 
   @Post('backtests/parameter-sweep')
+  @RequirePermissions(Permission.BACKTEST_SUBMIT)
   async runParameterSweep(@Request() req: any, @Body() dto: ParameterSweepDto) {
     const { tenantId, userId } = this.getContext(req);
     return this.parameterSweepService.runParameterSweep({
@@ -370,6 +408,7 @@ export class ResearchController {
   }
 
   @Post('backtests/benchmark')
+  @RequirePermissions(Permission.BACKTEST_SUBMIT)
   async runBenchmark(@Request() req: any, @Body() dto: BenchmarkDto) {
     const { tenantId, userId } = this.getContext(req);
     return this.benchmarkService.compareBenchmark({
@@ -383,6 +422,7 @@ export class ResearchController {
 
   // Paper Trading
   @Post('paper-sessions')
+  @RequirePermissions(Permission.PAPER_SESSION_OPERATE)
   async createPaperSession(@Request() req: any, @Body() dto: CreatePaperSessionDto) {
     const { tenantId, userId } = this.getContext(req);
     return this.paperTradingService.createSession({
@@ -399,12 +439,14 @@ export class ResearchController {
   }
 
   @Get('paper-sessions')
+  @RequirePermissions(Permission.PAPER_SESSION_READ)
   async listPaperSessions(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.paperTradingService.listSessions(tenantId, { strategyVersionId: query.strategyVersionId, status: query.status, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.paperTradingService.listSessions(tenantId, { strategyVersionId: query.strategyVersionId, status: query.status, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Get('paper-sessions/:sessionId')
+  @RequirePermissions(Permission.PAPER_SESSION_READ)
   async getPaperSession(@Request() req: any, @Param('sessionId') sessionId: string) {
     const { tenantId } = this.getContext(req);
     const session = await this.paperTradingService.getSession(tenantId, sessionId);
@@ -413,6 +455,7 @@ export class ResearchController {
   }
 
   @Post('paper-sessions/:sessionId/start')
+  @RequirePermissions(Permission.PAPER_SESSION_OPERATE)
   async startPaperSession(@Request() req: any, @Param('sessionId') sessionId: string) {
     const { tenantId, userId } = this.getContext(req);
     const started = await this.paperTradingService.startSession(tenantId, sessionId, userId);
@@ -421,6 +464,7 @@ export class ResearchController {
   }
 
   @Post('paper-sessions/:sessionId/pause')
+  @RequirePermissions(Permission.PAPER_SESSION_OPERATE)
   async pausePaperSession(@Request() req: any, @Param('sessionId') sessionId: string) {
     const { tenantId, userId } = this.getContext(req);
     const paused = await this.paperTradingService.pauseSession(tenantId, sessionId, userId);
@@ -429,6 +473,7 @@ export class ResearchController {
   }
 
   @Post('paper-sessions/:sessionId/resume')
+  @RequirePermissions(Permission.PAPER_SESSION_OPERATE)
   async resumePaperSession(@Request() req: any, @Param('sessionId') sessionId: string) {
     const { tenantId, userId } = this.getContext(req);
     const resumed = await this.paperTradingService.resumeSession(tenantId, sessionId, userId);
@@ -437,6 +482,7 @@ export class ResearchController {
   }
 
   @Post('paper-sessions/:sessionId/stop')
+  @RequirePermissions(Permission.PAPER_SESSION_OPERATE)
   async stopPaperSession(@Request() req: any, @Param('sessionId') sessionId: string, @Body() body: { reason?: string }) {
     const { tenantId, userId } = this.getContext(req);
     const stopped = await this.paperTradingService.stopSession(tenantId, sessionId, userId, body.reason);
@@ -445,6 +491,7 @@ export class ResearchController {
   }
 
   @Get('paper-sessions/:sessionId/performance')
+  @RequirePermissions(Permission.PAPER_SESSION_READ)
   async getPaperPerformance(@Request() req: any, @Param('sessionId') sessionId: string) {
     const { tenantId } = this.getContext(req);
     const perf = await this.paperPerformanceService.getPerformance(tenantId, sessionId);
@@ -453,6 +500,7 @@ export class ResearchController {
   }
 
   @Get('paper-sessions/:sessionId/equity-curve')
+  @RequirePermissions(Permission.PAPER_SESSION_READ)
   async getPaperEquityCurve(@Request() req: any, @Param('sessionId') sessionId: string) {
     const { tenantId } = this.getContext(req);
     const session = await this.paperTradingService.getSession(tenantId, sessionId);
@@ -461,6 +509,7 @@ export class ResearchController {
   }
 
   @Post('paper-sessions/:sessionId/orders')
+  @RequirePermissions(Permission.PAPER_SESSION_OPERATE)
   async createPaperOrder(@Request() req: any, @Param('sessionId') sessionId: string, @Body() dto: CreatePaperOrderDto) {
     const { tenantId } = this.getContext(req);
     return this.paperOrderService.createPaperOrder({
@@ -477,12 +526,14 @@ export class ResearchController {
   }
 
   @Get('paper-sessions/:sessionId/orders')
+  @RequirePermissions(Permission.PAPER_SESSION_READ)
   async listPaperOrders(@Request() req: any, @Param('sessionId') sessionId: string, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.paperOrderService.listOrders(tenantId, sessionId, { status: query.status, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.paperOrderService.listOrders(tenantId, sessionId, { status: query.status, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Post('paper-sessions/:sessionId/orders/:orderId/fill')
+  @RequirePermissions(Permission.PAPER_SESSION_OPERATE)
   async simulatePaperFill(@Request() req: any, @Param('sessionId') sessionId: string, @Param('orderId') orderId: string, @Body() body: { marketPrice: string }) {
     const { tenantId } = this.getContext(req);
     if (!body.marketPrice) throw new BadRequestException('marketPrice required');
@@ -490,6 +541,7 @@ export class ResearchController {
   }
 
   @Post('paper-sessions/:sessionId/orders/:orderId/cancel')
+  @RequirePermissions(Permission.PAPER_SESSION_OPERATE)
   async cancelPaperOrder(@Request() req: any, @Param('sessionId') sessionId: string, @Param('orderId') orderId: string) {
     const { tenantId } = this.getContext(req);
     const cancelled = await this.paperOrderService.cancelOrder(tenantId, sessionId, orderId);
@@ -520,12 +572,14 @@ export class ResearchController {
   }
 
   @Get('signals')
+  @RequireAnyPermission(Permission.STRATEGY_MANAGE, Permission.COMPLIANCE_READ)
   async listSignals(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.signalService.listByTenant(tenantId, { state: query.state, symbol: query.symbol, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.signalService.listByTenant(tenantId, { state: query.state, symbol: query.symbol, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Get('signals/:signalId')
+  @RequireAnyPermission(Permission.STRATEGY_MANAGE, Permission.COMPLIANCE_READ)
   async getSignal(@Request() req: any, @Param('signalId') signalId: string) {
     const { tenantId } = this.getContext(req);
     const signal = await this.signalService.findById(tenantId, signalId);
@@ -543,15 +597,15 @@ export class ResearchController {
 
   @Post('signals/:signalId/filter')
   async filterSignal(@Request() req: any, @Param('signalId') signalId: string, @Body() body: { allowedSymbols?: string[]; blockedSymbols?: string[]; allowedSides?: string[]; cooldownMs?: number }) {
-    const { tenantId } = this.getContext(req);
-    return this.signalFilterService.filterSignal({ tenantId, signalId, allowedSymbols: body.allowedSymbols, blockedSymbols: body.blockedSymbols, allowedSides: body.allowedSides, cooldownMs: body.cooldownMs });
+    const { tenantId, userId } = this.getContext(req);
+    return this.signalFilterService.filterSignal({ tenantId, signalId, allowedSymbols: body.allowedSymbols, blockedSymbols: body.blockedSymbols, allowedSides: body.allowedSides, cooldownMs: body.cooldownMs, actorUserId: userId });
   }
 
   @Post('signals/:signalId/publish')
   async publishSignal(@Request() req: any, @Param('signalId') signalId: string) {
     const { tenantId, userId } = this.getContext(req);
     // First filter
-    const filterResult = await this.signalFilterService.filterSignal({ tenantId, signalId });
+    const filterResult = await this.signalFilterService.filterSignal({ tenantId, signalId, actorUserId: userId });
     if (!filterResult.allowed) throw new BadRequestException(`Signal filtered: ${filterResult.reason} rule=${filterResult.ruleId}`);
 
     const published = await this.signalService.publishSignal(tenantId, signalId, userId);
@@ -574,12 +628,14 @@ export class ResearchController {
   }
 
   @Get('promotions')
+  @RequireAnyPermission(Permission.STRATEGY_MANAGE, Permission.COMPLIANCE_READ)
   async listPromotions(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.promotionService.listPromotions(tenantId, { strategyVersionId: query.strategyVersionId, state: query.state, page: query.page ? parseInt(query.page) : 1, limit: query.limit ? parseInt(query.limit) : 20 });
+    return this.promotionService.listPromotions(tenantId, { strategyVersionId: query.strategyVersionId, state: query.state, page: pageParam(query.page), limit: limitParam(query.limit, 20) });
   }
 
   @Get('promotions/:promotionId')
+  @RequireAnyPermission(Permission.STRATEGY_MANAGE, Permission.COMPLIANCE_READ)
   async getPromotion(@Request() req: any, @Param('promotionId') promotionId: string) {
     const { tenantId } = this.getContext(req);
     const promotion = await this.promotionService.getPromotion(tenantId, promotionId);
@@ -596,6 +652,7 @@ export class ResearchController {
   }
 
   @Post('promotions/:promotionId/approve')
+  @RequirePermissions(Permission.TRADING_MANAGE)
   async approvePromotion(@Request() req: any, @Param('promotionId') promotionId: string, @Body() dto: PromotionActionDto) {
     const { tenantId, userId, roles } = this.getContext(req);
     if (!this.isAdmin(roles)) throw new ForbiddenException('Only admin can approve promotion steps');
@@ -605,6 +662,7 @@ export class ResearchController {
   }
 
   @Post('promotions/:promotionId/reject')
+  @RequirePermissions(Permission.TRADING_MANAGE)
   async rejectPromotion(@Request() req: any, @Param('promotionId') promotionId: string, @Body() body: { reason: string }) {
     const { tenantId, userId, roles } = this.getContext(req);
     if (!this.isAdmin(roles)) throw new ForbiddenException('Only admin can reject promotions');
@@ -615,6 +673,7 @@ export class ResearchController {
   }
 
   @Post('promotions/:promotionId/promote')
+  @RequirePermissions(Permission.TRADING_MANAGE)
   async promoteToProduction(@Request() req: any, @Param('promotionId') promotionId: string) {
     const { tenantId, userId, roles } = this.getContext(req);
     if (!this.isAdmin(roles)) throw new ForbiddenException('Only admin can promote to production');

@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { forEachTenant, listBillableTenantIds } from '../finance/tenant-iteration';
 import { FeeAccrualRepository } from './fee-accrual.repository';
 import { FeeSettlementRepository } from './fee-settlement.repository';
 import { PayoutRepository } from './payout.repository';
@@ -22,6 +24,7 @@ export class FeeReconciliationService {
     private readonly payoutRepository: PayoutRepository,
     private readonly ledgerService: FeeLedgerService,
     private readonly auditService: FeeAuditService,
+    @Optional() private readonly prisma?: PrismaService,
   ) {}
 
   async reconcileTenant(tenantId: string, options?: { fromDate?: Date; toDate?: Date; currency?: string }): Promise<{
@@ -309,10 +312,12 @@ export class FeeReconciliationService {
     };
   }
 
-  async reconcileAllTenants(options?: { fromDate?: Date; toDate?: Date }): Promise<any[]> {
-    // In real implementation, would iterate tenants
-    // For now, return empty as placeholder for multi-tenant reconciliation job
-    return [];
+  async reconcileAllTenants(options?: { fromDate?: Date; toDate?: Date; limit?: number }): Promise<any[]> {
+    const tenantIds = await listBillableTenantIds(this.prisma, options?.limit ?? 1000);
+    const results = await forEachTenant(tenantIds, (tenantId) => this.reconcileTenant(tenantId, { fromDate: options?.fromDate, toDate: options?.toDate }));
+    const failed = results.filter((r) => r.error).length;
+    this.logger.log(`Fee reconciliation all tenants=${tenantIds.length} failed=${failed}`);
+    return results.map((r) => (r.error ? { tenantId: r.tenantId, error: r.error } : r.result));
   }
 
   private formatMinor(minor: number, currency: string): string {

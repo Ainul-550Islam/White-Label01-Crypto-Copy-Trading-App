@@ -74,6 +74,41 @@ function parsePositiveFloat(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+const KNOWN_STORE_PROVIDERS: readonly MobileStoreProvider[] = Object.freeze([
+  'GOOGLE_PLAY',
+  'APPLE_APP_STORE',
+  'ENTERPRISE_DISTRIBUTION',
+  'INTERNAL_DISTRIBUTION',
+]);
+
+/**
+ * MOBILE_STORE_PROVIDERS arrives from the environment as ONE comma-separated
+ * string. It used to be cast straight to MobileStoreProvider[], so
+ * `includes()` did substring matching and the health sweep iterated the
+ * string character by character. Parsed here instead: trimmed, upper-cased,
+ * de-duplicated; an unknown name is a misconfiguration and fails loudly
+ * rather than silently enabling or dropping a store.
+ */
+function parseStoreProviders(raw: string | undefined): MobileStoreProvider[] | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const names = Array.from(
+    new Set(
+      raw
+        .split(',')
+        .map((name) => name.trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  );
+  const unknown = names.filter((name) => !KNOWN_STORE_PROVIDERS.includes(name as MobileStoreProvider));
+  if (unknown.length > 0) {
+    throw new Error(
+      `mobile release policy: MOBILE_STORE_PROVIDERS contains unknown provider(s) ${unknown.join(', ')}; ` +
+        `allowed: ${KNOWN_STORE_PROVIDERS.join(', ')}`,
+    );
+  }
+  return names as MobileStoreProvider[];
+}
+
 /**
  * Policy resolution for the mobile factory. Defaults are fail-safe: security
  * scan required, platform approval for production required, public stores only
@@ -102,7 +137,7 @@ export class MobileReleasePolicyService {
       publicStoreEnvironments: ['PRODUCTION'],
       enabledStoreProviders:
         overrides.enabledStoreProviders ??
-        (this.env.get('MOBILE_STORE_PROVIDERS') as MobileStoreProvider[] | undefined) ??
+        parseStoreProviders(this.env.get('MOBILE_STORE_PROVIDERS')) ??
         ['ENTERPRISE_DISTRIBUTION', 'INTERNAL_DISTRIBUTION'],
       rolloutStages: MobileReleasePolicyService.normaliseStages([
         ...(overrides.rolloutStages ?? DEFAULT_ROLLOUT_STAGES),

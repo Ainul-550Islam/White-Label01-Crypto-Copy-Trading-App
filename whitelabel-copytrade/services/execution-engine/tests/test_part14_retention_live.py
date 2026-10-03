@@ -88,6 +88,25 @@ _LEDGER_POLICY_TEARDOWN = (
 )
 
 
+async def _require_rls_subject(connection: asyncpg.Connection) -> None:
+    """RLS assertions are only meaningful for a role RLS applies to.
+
+    A superuser or a BYPASSRLS role skips every policy, FORCE included, so
+    the "a policyless query sees nothing" assertions would fail for a reason
+    that has nothing to do with the store. Say so instead of failing on a
+    row count: the CI DSN must be a NOSUPERUSER NOBYPASSRLS role that owns
+    the disposable database.
+    """
+    exempt = await connection.fetchval(
+        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user"
+    )
+    if exempt:
+        pytest.fail(
+            "EXECUTION_TEST_POSTGRES_DSN connects as a superuser/BYPASSRLS role, which RLS "
+            "never applies to; use a NOSUPERUSER NOBYPASSRLS role that owns the test database"
+        )
+
+
 _MIGRATIONS_APPLIED = False
 
 
@@ -108,7 +127,12 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
     it is, rather than silently patched)."""
     global _MIGRATIONS_APPLIED
     dsn = os.environ["EXECUTION_TEST_POSTGRES_DSN"]
-    async with asyncpg.connect(dsn=dsn, timeout=10.0) as connection:
+    # asyncpg.connect() returns a coroutine resolving to a Connection; a
+    # Connection is NOT an async context manager (only pools and
+    # transactions are), so `async with asyncpg.connect(...)` raised
+    # TypeError before any test body ran. Open, yield, always close.
+    connection = await asyncpg.connect(dsn=dsn, timeout=10.0)
+    try:
         if not _MIGRATIONS_APPLIED:
             await connection.execute(
                 'CREATE TABLE IF NOT EXISTS "tenants" ("id" UUID PRIMARY KEY)'
@@ -130,6 +154,12 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
             elif have_orders and not have_ledger:
                 for statement in _statements_for(MIGRATIONS[1]):
                     await connection.execute(statement)
+            elif have_orders and have_ledger:
+                # fully migrated (a re-run, or part-13's suite ran first on
+                # this database): left alone, exactly as the docstring
+                # promises. Without this branch a second run fell through to
+                # the half-migrated refusal below with a false diagnosis.
+                pass
             else:
                 pytest.fail(
                     "half-migrated CI database (engine_retention_runs without "
@@ -145,6 +175,8 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
         for statement in _TRUNCATES:
             await connection.execute(statement)
         yield connection
+    finally:
+        await connection.close()
 
 
 class _SingleConnectionPool:
@@ -351,6 +383,7 @@ class TestLedgerUnderRls:
     async def test_enabled_policies_see_the_run_through_the_guc_only(
         self, conn: asyncpg.Connection
     ) -> None:
+        await _require_rls_subject(conn)
         now = now_us()
         cutoff = now - 90 * DAY_US
         await seed_order(conn, TENANT_A, "ord-a", terminal_at_us=cutoff - DAY_US)

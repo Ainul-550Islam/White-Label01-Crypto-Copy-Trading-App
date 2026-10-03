@@ -205,14 +205,10 @@ export class SystemReadinessService {
   }
 
   async getLatest(tenantId?: string | null): Promise<any | null> {
-    try {
-      const where = tenantId ? { tenantId } : { tenantId: null };
-      return await (this.prisma as any).operationalReadinessCheck.findFirst({
-        where,
-        orderBy: { checkedAt: 'desc' },
-      });
-    } catch {
-      return null;
-    }
+    const where = tenantId ? { tenantId } : { tenantId: null };
+    return await (this.prisma as any).operationalReadinessCheck.findFirst({
+      where,
+      orderBy: { checkedAt: 'desc' },
+    });
   }
 }

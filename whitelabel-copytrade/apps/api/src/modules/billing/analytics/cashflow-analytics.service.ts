@@ -186,67 +186,47 @@ export class CashflowAnalyticsService {
   }
 
   private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).payment?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).payment?.findMany({ where }) || [];
   }
 
   private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).invoice?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).invoice?.findMany({ where }) || [];
   }
 
   private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).refund?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).refund?.findMany({ where }) || [];
   }
 
   private async fetchDunningCases(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        createdAt: { gte: params.start, lte: params.end },
-        status: { in: ['ACTIVE', 'RECOVERED', 'FAILED'] },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).dunningCase?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      createdAt: { gte: params.start, lte: params.end },
+      status: { in: ['ACTIVE', 'RECOVERED', 'FAILED'] },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).dunningCase?.findMany({ where }) || [];
   }
 
   private async fetchFeeSettlements(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).feeSettlement?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).feeSettlement?.findMany({ where }) || [];
   }
 }

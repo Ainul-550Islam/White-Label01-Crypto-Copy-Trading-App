@@ -80,8 +80,8 @@ export class MobileAppService {
       : createHash('sha256')
           .update(['mobile-app', input.tenantId, tenant.slug, input.dto.displayName].join('|'))
           .digest('hex');
-    const prior = await this.prisma.mobileApplication.findUnique({
-      where: { idempotencyKey },
+    const prior = await this.prisma.mobileApplication.findFirst({
+      where: { tenantId: input.tenantId, idempotencyKey },
     });
     if (prior) {
       return { app: prior as unknown as Record<string, unknown>, replayed: true };

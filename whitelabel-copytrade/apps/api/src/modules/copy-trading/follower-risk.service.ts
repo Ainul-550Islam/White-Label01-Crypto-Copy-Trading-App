@@ -111,7 +111,9 @@ export class FollowerRiskService {
         if (compareDecimalStrings(newSymbolQty, policy.maxSymbolExposure) > 0) {
           return { decision: CopyRiskDecision.BLOCK, allowed: false, ruleId: 'MAX_SYMBOL_EXPOSURE', reason: `Symbol exposure ${newSymbolQty} exceeds max ${policy.maxSymbolExposure} for ${input.symbol}` };
         }
-      } catch {}
+      } catch (e) {
+        return this.ruleUnavailable('MAX_SYMBOL_EXPOSURE', e);
+      }
     }
 
     // Maximum copy count
@@ -123,7 +125,9 @@ export class FollowerRiskService {
         if (copyCount >= policy.maxCopyCount) {
           return { decision: CopyRiskDecision.BLOCK, allowed: false, ruleId: 'MAX_COPY_COUNT', reason: `Daily copy count ${copyCount} exceeds max ${policy.maxCopyCount}` };
         }
-      } catch {}
+      } catch (e) {
+        return this.ruleUnavailable('MAX_COPY_COUNT', e);
+      }
     }
 
     // Daily pause check
@@ -133,7 +137,9 @@ export class FollowerRiskService {
         if (subscription && subscription.state === 'PAUSED') {
           return { decision: CopyRiskDecision.PAUSE, allowed: false, ruleId: 'DAILY_PAUSE', reason: 'Subscription is paused' };
         }
-      } catch {}
+      } catch (e) {
+        return this.ruleUnavailable('DAILY_PAUSE', e);
+      }
     }
 
     // Concentration check - e.g. single symbol > 50% of exposure
@@ -148,11 +154,30 @@ export class FollowerRiskService {
           if (ratio > 0.8) {
             return { decision: CopyRiskDecision.BLOCK, allowed: false, ruleId: 'CONCENTRATION', reason: `Symbol ${input.symbol} would be ${(ratio * 100).toFixed(1)}% of exposure - concentration limit` };
           }
-        } catch {}
+        } catch (e) {
+          return this.ruleUnavailable('CONCENTRATION', e);
+        }
       }
     }
 
     return { decision: CopyRiskDecision.ALLOW, allowed: true, ruleId: null, reason: null };
+  }
+
+  /**
+   * A rule whose data cannot be read blocks the copy and names the rule. The
+   * four database-backed rules (symbol exposure, daily copy count, daily
+   * pause, concentration) used to swallow the error and fall through to
+   * ALLOW - a database hiccup silently disabled them.
+   */
+  private ruleUnavailable(ruleId: string, error: unknown): RiskCheckResult {
+    const message = error instanceof Error ? error.message : String(error);
+    this.logger.warn(`Risk rule ${ruleId} could not be evaluated, blocking: ${message}`);
+    return {
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: `${ruleId}_UNAVAILABLE`,
+      reason: `Risk rule ${ruleId} could not be evaluated`,
+    };
   }
 
   private addDecimals(a: string, b: string): string {
@@ -192,22 +217,23 @@ export class FollowerRiskService {
     }
   }
 
+  /**
+   * Errors propagate: this used to return '0' on failure, which understated
+   * the symbol's share and let the concentration limit pass. checkRisk turns
+   * a failure into a BLOCK.
+   */
   private async calculateSymbolNotional(tenantId: string, accountId: string | null, symbol: string): Promise<string> {
     if (!accountId) return '0';
-    try {
-      const positions = await this.prisma.position.findMany({ where: { tenantId, accountId, symbol } });
-      let total = '0';
-      for (const p of positions) {
-        const qty = p.quantity.toString();
-        const mark = p.markPrice?.toString() || '0';
-        if (isDecimalString(qty) && isDecimalString(mark)) {
-          const notional = (parseFloat(qty) * parseFloat(mark)).toString();
-          total = this.addDecimals(total, notional);
-        }
+    const positions = await this.prisma.position.findMany({ where: { tenantId, accountId, symbol } });
+    let total = '0';
+    for (const p of positions) {
+      const qty = p.quantity.toString();
+      const mark = p.markPrice?.toString() || '0';
+      if (isDecimalString(qty) && isDecimalString(mark)) {
+        const notional = (parseFloat(qty) * parseFloat(mark)).toString();
+        total = this.addDecimals(total, notional);
       }
-      return total;
-    } catch {
-      return '0';
     }
+    return total;
   }
 }

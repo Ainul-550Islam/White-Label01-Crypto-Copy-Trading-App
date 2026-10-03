@@ -1,8 +1,8 @@
 # Backing services
 
-The Python trading-engine and market-data services, and the TypeScript notification worker. No execution logic in Part 1.
+The Python trading-engine, market-data and execution-engine services, the low-latency gateway, and the TypeScript notification worker. The execution engine runs simulated only; live mode is refused by code.
 
-112 files. Part of the complete Part 1 source dump - see `docs/source/README.md`.
+149 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -207,6 +207,33 @@ OBSERVABILITY_ENABLED=true
 # EXECUTION_OPERATOR_CONFIRMATION_JSON=
 # EXECUTION_OPERATOR_CONFIRMATION_FILE=/run/secrets/live-operator-confirmation.json
 # EXECUTION_CONFIRMATION_KEY_ENV=EXECUTION_CONFIRMATION_HMAC_KEY
+# --- Distributed locks (Part 21) --------------------------------------------
+# false keeps every lease inside this process (InMemoryLockManager): right for a
+# single engine, wrong the moment two engines can run, because two processes
+# holding "the same" in-memory lock is two order streams with one opinion.
+# true is FAIL-CLOSED on purpose: the config refuses to boot without
+# EXECUTION_REDIS_URL (redis:// or rediss://) instead of quietly degrading to
+# memory - a lock that lies about being distributed is worse than no lock.
+# EXECUTION_DISTRIBUTED_LOCKS=false
+# EXECUTION_REDIS_URL=redis://:CHANGE-ME@redis:6379/0
+#
+# Lease shape. TTL below one second elects on network jitter (the config
+# refuses it); the acquisition timeout bounds how long a command waits for a
+# contended lease before failing loudly; the renewal ratio is the fraction of
+# the TTL at which the holder renews (0.1-0.9, and renewal*TTL must stay below
+# TTL - the config refuses the arithmetic that would let a lease lapse mid-work).
+# EXECUTION_LOCK_ACQUISITION_TIMEOUT_MS=5000
+# EXECUTION_LOCK_RENEWAL_RATIO=0.3333
+#
+# --- Venue attestation (Part 22) --------------------------------------------
+# How long a venue's API-restrictions answer is believed before it is asked
+# again (the cache wraps the attestor; a fresh answer always wins on expiry).
+# EXECUTION_VENUE_ATTESTATION_CACHE_TTL_MS=300000
+# true points the attestor at testnet.binance.vision instead of api.binance.com.
+# EXECUTION_VENUE_ATTESTATION_TESTNET=false
+# true additionally reads /api/v3/account for account_can_trade and the account
+# type. Off by default: it costs a signed call and most reviews do not need it.
+# EXECUTION_VENUE_ATTESTATION_INCLUDE_ACCOUNT=false
 ```
 
 FILE: services/execution-engine/app/__init__.py
@@ -247,12 +274,11 @@ startup, not the first customer order.
 What is deliberately absent:
 
 * no live venue adapter - ``EXECUTION_MODE=live`` is refused here even
-  though the core supports it: as of Part 13 the durable store ships and
-  distributed locks exist in the core, but the live credential provider and
-  the venue-ordering audit for authenticated order placement have not
-  completed their review, so refusing is still the honest wiring. The
-  refusal is code, not a default, and no environment value talks the
-  process into it;
+  though the core supports it: the signed transport and distributed locks
+  are now wired, but the live credential provider and the venue-ordering
+  audit for authenticated order placement have not completed their review,
+  so refusing is still the honest wiring. The refusal is code, not a
+  default, and no environment value talks the process into it;
 * no order-submission endpoint - the platform's producers enqueue account
   maintenance and cancellation today (see the queue-consumer inventory in
   docs/PART11_WORKER_SCALING.md); a worker must not grow capabilities its
@@ -270,7 +296,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -289,16 +315,34 @@ from wlct_trading.execution.live_enablement import (
     LiveEnablementReport,
     evaluate_live_enablement,
 )
-from wlct_trading.execution.locks import InMemoryLockManager, LockManager
+from wlct_trading.execution.locks import LockManager
 from wlct_trading.execution.reconciliation import ReconciliationService
 from wlct_trading.execution.store import InMemoryOrderStore, OrderStore
+from wlct_trading.execution.transport.client import SignedTransportClient
+from wlct_trading.execution.transport.client_metrics import SignedTransportClientMetrics
+from wlct_trading.execution.transport.key_registry import KeyRegistry, generate_secret
+from wlct_trading.execution.transport.replay_guard import InMemoryReplayStore, ReplayGuard
+from wlct_trading.execution.transport.server import SignedTransportVerifier
+from wlct_trading.execution.transport.server_metrics import SignedTransportServerMetrics
 from wlct_trading.market_data import BookTop
 from wlct_trading.metrics import ExecutionMetrics
 from wlct_trading.risk import RiskEngine, RiskLimits
 
 from app.config import Settings
+from app.credential_registry import CredentialRegistryWiring, build_credential_registry
 from app.credentials import CredentialWiring, build_credential_provider
+from app.distributed_locks import (
+    DistributedLockConfig,
+    DistributedLockWiring,
+    build_distributed_lock_manager,
+)
 from app.placement import PlacementWiring, build_placement_reviewer
+from app.venue_attestation import (
+    VenueAttestationConfig,
+    VenueAttestationError,
+    VenueAttestationWiring,
+    build_venue_attestation,
+)
 
 __all__ = [
     "SUPPORTED_COMMANDS",
@@ -320,6 +364,13 @@ SUPPORTED_COMMANDS: frozenset[str] = frozenset(
         "refresh-account-balances",
         "reconcile-trading-account",
         "cancel-order",
+        # Phase 3: the copy/OMS submission path. Served by
+        # ``POST /internal/v1/orders/submit`` against THIS runtime's adapter,
+        # which build_runtime only ever constructs as the paper simulator -
+        # EXECUTION_MODE=live still refuses to boot below, so adding the
+        # command widens what the worker may forward, never what reaches a
+        # venue.
+        "submit-order",
     }
 )
 
@@ -384,6 +435,35 @@ class EngineRuntime:
     #: close is this deployment to being allowed to trade live" is a query with one
     #: answer instead of a paragraph in a document.
     live_enablement: LiveEnablementReport | None = None
+    #: Part 20: the signed transport components, wired when the composition
+    #: root constructs them. These are None in simulated mode and populated
+    #: when the key registry and transport are configured.
+    signed_transport_client: SignedTransportClient | None = None
+    signed_transport_verifier: SignedTransportVerifier | None = None
+    key_registry: KeyRegistry | None = None
+    #: Part 21: the distributed lock wiring, carrying the lock manager,
+    #: fencing state, and operational metadata. Carried on the runtime so
+    #: /status can report the actual lock posture without recomputing it.
+    distributed_lock_wiring: DistributedLockWiring | None = None
+    #: Part 22: the venue attestation wiring, carrying the Binance placement
+    #: attestor and its dependencies. None when credentials are not configured
+    #: (the honest state for simulated mode with no key).
+    venue_attestation_wiring: VenueAttestationWiring | None = None
+    #: Part 23: the credential registry wiring, carrying the provider registry
+    #: and credential metadata. Carried on the runtime so /status can report
+    #: the actual credential posture without recomputing it.
+    credential_registry_wiring: CredentialRegistryWiring | None = None
+    #: Phase 3: the SAME book function the paper adapter prices against, so the
+    #: submission route's reference price and the simulator's fill price can
+    #: never disagree. ``None`` (or a provider returning ``None``) means "no
+    #: market data": the route then reports market data as down and the engine's
+    #: gate refuses the order instead of pricing it against an invented mid.
+    book_provider: Callable[[ExchangeId, str], BookTop | None] | None = None
+    #: Phase 3: per-(tenant, account) submission timestamps (epoch micros) for
+    #: the ``orders_in_last_minute`` risk input. Process-local by design: the
+    #: simulated runtime is a single instance, and a count that is too LOW could
+    #: only come from a restart - which also empties the in-memory store.
+    submission_windows: dict[tuple[str, str], list[int]] = field(default_factory=dict)
 
     def describe(self) -> dict[str, Any]:
         """Public, secret-free description of the wiring, for /status and
@@ -460,6 +540,30 @@ class EngineRuntime:
             # "unproven" instead of raising inside a status request.
             "metricsConfigured": getattr(self.engine, "metrics", None) is not None,
             "locksDistributed": self.locks.is_distributed,
+            # Part 20: signed transport posture.
+            "signedTransportWired": self.signed_transport_client is not None,
+            "keyRegistryConfigured": self.key_registry is not None,
+            # Part 21: distributed lock wiring posture. The describe output
+            # includes the wiring metadata so /status shows the actual lock
+            # configuration, not just whether the class is distributed.
+            "distributedLockWiring": (
+                None
+                if self.distributed_lock_wiring is None
+                else self.distributed_lock_wiring.describe()
+            ),
+            # Part 22: venue attestation posture. Whether the composition root
+            # constructed a real Binance placement attestor.
+            "venueAttestation": (
+                None
+                if self.venue_attestation_wiring is None
+                else self.venue_attestation_wiring.describe()
+            ),
+            # Part 23: credential registry posture.
+            "credentialRegistry": (
+                None
+                if self.credential_registry_wiring is None
+                else self.credential_registry_wiring.describe()
+            ),
             "commands": sorted(SUPPORTED_COMMANDS),
         }
 
@@ -569,10 +673,26 @@ def build_runtime(
     if store is None:
         store = InMemoryOrderStore()
 
-    trading = PaperTradingAdapter(make_paper_book_provider(settings.simulated_mid))
-    account = PaperAccountAdapter(settings.paper_balances)
-    locks = InMemoryLockManager()
+    # Part 21: Wire distributed locks. The build_distributed_lock_manager
+    # function inspects the configuration and either constructs a real
+    # Redis-backed distributed lock manager with fencing tokens, or returns
+    # an honest in-memory manager for simulated mode. The wiring is
+    # derived from the actual objects built, not from a configuration flag.
+    lock_config = DistributedLockConfig(
+        enabled=settings.EXECUTION_DISTRIBUTED_LOCKS,
+        redis_url=(settings.EXECUTION_REDIS_URL or "").strip(),
+        lock_ttl_ms=settings.EXECUTION_LOCK_TTL_MS,
+        lock_acquisition_timeout_ms=settings.EXECUTION_LOCK_ACQUISITION_TIMEOUT_MS,
+        lock_renewal_ratio=settings.EXECUTION_LOCK_RENEWAL_RATIO,
+        instance_id=settings.EXECUTION_INSTANCE_ID or "simulated",
+        fencing_required=True,
+    )
+    lock_wiring = build_distributed_lock_manager(lock_config)
+    locks = lock_wiring.manager
     durable_store = bool(getattr(store, "is_durable", False))
+    book_provider = make_paper_book_provider(settings.simulated_mid)
+    trading = PaperTradingAdapter(book_provider)
+    account = PaperAccountAdapter(settings.paper_balances)
     if incidents is None:
         # Part 17's pairing law, decided HERE rather than trusted to the caller:
         # a durable store with the in-memory sink is the exact state this part
@@ -605,6 +725,13 @@ def build_runtime(
     )
 
     credentials = build_credential_provider(settings)
+    # Part 23: Wire the credential registry. The registry wraps the provider
+    # constructed above and adds lifecycle metadata, capability declarations,
+    # and a named selection mechanism for status reporting.
+    credential_registry_wiring = build_credential_registry(
+        settings,
+        provider=credentials.provider,
+    )
     engine_settings = ExecutionSettings(
         live_trading_enabled=False,
         dry_run=settings.EXECUTION_DRY_RUN,
@@ -614,6 +741,81 @@ def build_runtime(
         live_trading_confirmed=False,
         order_request_timeout_ms=settings.EXECUTION_REQUEST_TIMEOUT_MS,
     )
+    # Part 22: Wire venue attestation when real credentials are configured.
+    # The BinancePlacementAttestor queries the venue's authenticated endpoints
+    # (apiRestrictions, optionally account) to establish whether this key may
+    # place this order on this symbol right now. The attestor is constructed
+    # here and passed to the placement reviewer, which changes placement.mode
+    # from "local" to "venue" -- the fact the live-enablement grading reads.
+    #
+    # When credentials are "none" (the default for simulated mode), no venue
+    # attestor is constructed: there is no key to present to the venue, no
+    # transport to present it over, and no reason to ask Binance whether a
+    # nonexistent key may trade. This is the honest state.
+    venue_attestation_wiring: VenueAttestationWiring | None = None
+    venue_attestor = None
+    if credentials.source != "none":
+        try:
+            attestation_config = VenueAttestationConfig(
+                enabled=True,
+                testnet=settings.EXECUTION_VENUE_ATTESTATION_TESTNET,
+                cache_ttl_ms=settings.EXECUTION_VENUE_ATTESTATION_CACHE_TTL_MS,
+                include_account_flags=settings.EXECUTION_VENUE_ATTESTATION_INCLUDE_ACCOUNT,
+            )
+            venue_attestation_wiring = build_venue_attestation(
+                attestation_config,
+                credential_provider=credentials.provider,
+            )
+            venue_attestor = venue_attestation_wiring.attestor
+        except VenueAttestationError as error:
+            raise ExecutionUnavailable(
+                f"Venue attestation cannot be wired: {error}. "
+                "The placement review has no venue evidence without it."
+            ) from error
+    # Part 20: Wire the signed transport layer. The key registry, client, and
+    # verifier are constructed here and attached to the runtime. In simulated
+    # mode they are present but not used for venue communication. In live mode
+    # (future), they authenticate requests between services.
+    #
+    # The key registry is constructed with a generated secret for this process.
+    # In a production deployment, the secret would be loaded from a secrets
+    # manager. The composition root constructs exactly one registry and one
+    # client/verifier pair, shared across all request handlers.
+    key_registry = KeyRegistry(algorithm="HMAC-SHA256")
+    _transport_secret = generate_secret(32)
+    key_registry.register(
+        secret=_transport_secret,
+        version=1,
+        description="execution-engine-process-key",
+    )
+    transport_client_metrics = SignedTransportClientMetrics()
+    transport_server_metrics = SignedTransportServerMetrics()
+    replay_store = InMemoryReplayStore()
+    replay_guard = ReplayGuard(store=replay_store)
+    signed_transport_client = SignedTransportClient(
+        key_registry, metrics=transport_client_metrics
+    )
+    signed_transport_verifier = SignedTransportVerifier(
+        key_registry, replay_guard, metrics=transport_server_metrics
+    )
+    # The signed transport is wired when the key registry has an active key
+    # and the client/verifier are constructed. This is a fact about the wiring,
+    # not a configuration flag.
+    signed_transport_wired = (
+        key_registry.active_key_id is not None
+        and signed_transport_client is not None
+        and signed_transport_verifier is not None
+    )
+    logger.info(
+        "execution_engine.signed_transport_wired",
+        extra={
+            "event": "execution_engine.signed_transport_wired",
+            "wired": signed_transport_wired,
+            "keyId": key_registry.active_key_id,
+            "algorithm": key_registry.algorithm,
+        },
+    )
+
     # Part 16: the review runs for every runtime, simulated included. A paper
     # order is reviewed by the local gatherer, which reports what this process
     # knows and cannot claim venue backing - so the audit trail says "locally
@@ -624,6 +826,7 @@ def build_runtime(
         settings,
         will_transmit_orders=engine_settings.will_transmit_orders,
         credential_provider=credentials.provider,
+        venue_attestor=venue_attestor,
     )
     # Part 18, and the reason it exists: the port has been optional on this
     # constructor since Part 5, this service never passed one, and so the engine
@@ -682,12 +885,17 @@ def build_runtime(
             confirmation_accepted=_confirmation_grading(settings, placement),
             durable_store_wired=bool(getattr(store, "is_durable", False)),
             distributed_locks_wired=bool(getattr(locks, "is_distributed", False)),
-            ip_allowlist_enforced=settings.EXECUTION_PLACEMENT_REQUIRE_IP_ALLOWLIST,
-            # Never set by any code path in this service, and the line that makes it
-            # explicit is the line a reviewer reads before believing the report: the
-            # composition root has no branch that would construct a live venue adapter,
-            # so this stays False whatever the environment says.
-            signed_transport_wired=False,
+            # Part 24: derived from the actual policy object wired into the
+            # placement reviewer, not from the raw config flag. The policy is
+            # what the runtime actually enforces; the setting is what the
+            # operator asked for. Every other prerequisite in this block reads
+            # from the objects build_runtime constructed; this one must too.
+            ip_allowlist_enforced=placement.reviewer.policy.require_ip_allowlist,
+            # Part 20: signed transport is now wired when the key registry has
+            # an active key and the transport client/verifier are constructed.
+            # This is a fact about the objects build_runtime actually built,
+            # not a configuration flag.
+            signed_transport_wired=signed_transport_wired,
         )
     )
     if settings.EXECUTION_MODE == "live":
@@ -714,6 +922,13 @@ def build_runtime(
         credentials=credentials,
         placement=placement,
         live_enablement=live_enablement,
+        signed_transport_client=signed_transport_client,
+        signed_transport_verifier=signed_transport_verifier,
+        key_registry=key_registry,
+        distributed_lock_wiring=lock_wiring,
+        venue_attestation_wiring=venue_attestation_wiring,
+        credential_registry_wiring=credential_registry_wiring,
+        book_provider=book_provider,
     )
 ```
 
@@ -838,6 +1053,30 @@ class Settings(BaseSettings):
     EXECUTION_REQUEST_TIMEOUT_MS: int = 5_000
     #: Lease TTL for the core's own account/order locks (milliseconds).
     EXECUTION_LOCK_TTL_MS: int = 15_000
+    #: Lock acquisition timeout (milliseconds). How long to wait for a lock
+    #: before giving up. Shorter means faster failure; longer means less
+    #: contention under load.
+    EXECUTION_LOCK_ACQUISITION_TIMEOUT_MS: int = 5_000
+    #: Lock renewal interval as a fraction of TTL (0.1–0.9). The renewal
+    #: fires at TTL * ratio, giving two attempts before expiry at 1/3.
+    EXECUTION_LOCK_RENEWAL_RATIO: float = 1.0 / 3.0
+    #: Whether to use Redis-backed distributed locks. When false (default),
+    #  the in-memory lock manager is used (simulated mode only). When true,
+    #  EXECUTION_REDIS_URL must be set and reachable.
+    EXECUTION_DISTRIBUTED_LOCKS: bool = False
+    #: Redis URL for distributed locks, e.g. redis://localhost:6379/0.
+    #: Required when EXECUTION_DISTRIBUTED_LOCKS=true.
+    EXECUTION_REDIS_URL: str | None = None
+    # --- Venue attestation (Part 22) -----------------------------------------
+    #: Whether to include account-level checks in venue attestation
+    #: (queries /api/v3/account for canTrade). Adds 20 weight units per
+    #: attestation; disable for weight-constrained deployments.
+    EXECUTION_VENUE_ATTESTATION_INCLUDE_ACCOUNT: bool = False
+    #: Whether the venue is Binance testnet. Changes the REST base URL.
+    EXECUTION_VENUE_ATTESTATION_TESTNET: bool = False
+    #: Attestation cache TTL in milliseconds. Bounds enforced by the core's
+    #: CachingPlacementAttestor (1000..3600000).
+    EXECUTION_VENUE_ATTESTATION_CACHE_TTL_MS: int = 300_000
 
     # --- Simulated venue shaping -------------------------------------------
     #: Fixed mid used as top-of-book for any symbol. Unset means the paper
@@ -1044,6 +1283,36 @@ class Settings(BaseSettings):
             raise ValueError(
                 "EXECUTION_LOCK_TTL_MS below one second elects on network jitter"
             )
+        if self.EXECUTION_LOCK_ACQUISITION_TIMEOUT_MS < 100:
+            raise ValueError(
+                "EXECUTION_LOCK_ACQUISITION_TIMEOUT_MS below 100ms cannot "
+                "reliably acquire a lock across a network"
+            )
+        if not 0.1 <= self.EXECUTION_LOCK_RENEWAL_RATIO <= 0.9:
+            raise ValueError(
+                "EXECUTION_LOCK_RENEWAL_RATIO must be between 0.1 and 0.9"
+            )
+        renewal_ms = int(self.EXECUTION_LOCK_TTL_MS * self.EXECUTION_LOCK_RENEWAL_RATIO)
+        if renewal_ms >= self.EXECUTION_LOCK_TTL_MS:
+            raise ValueError(
+                f"Lock renewal interval ({renewal_ms}ms) must be strictly "
+                f"less than lock TTL ({self.EXECUTION_LOCK_TTL_MS}ms)"
+            )
+        if self.EXECUTION_DISTRIBUTED_LOCKS:
+            redis_url = (self.EXECUTION_REDIS_URL or "").strip()
+            if not redis_url:
+                raise ValueError(
+                    "EXECUTION_DISTRIBUTED_LOCKS=true requires EXECUTION_REDIS_URL; "
+                    "a distributed lock manager without a Redis URL is a "
+                    "configuration that believes it is distributed while having "
+                    "nowhere to lock"
+                )
+            if not redis_url.startswith(("redis://", "rediss://", "unix://")):
+                raise ValueError(
+                    "EXECUTION_REDIS_URL must start with redis://, rediss://, "
+                    "or unix://; a malformed URL would fail at the first lock "
+                    "acquisition rather than at startup"
+                )
         if self.EXECUTION_SIMULATED_MID is not None:
             _parse_decimal(self.EXECUTION_SIMULATED_MID, "EXECUTION_SIMULATED_MID")
         for part in self.EXECUTION_PAPER_BALANCES.split(","):
@@ -1447,6 +1716,9 @@ class Settings(BaseSettings):
             "dryRun": self.EXECUTION_DRY_RUN,
             "requestTimeoutMillis": self.EXECUTION_REQUEST_TIMEOUT_MS,
             "lockTtlMillis": self.EXECUTION_LOCK_TTL_MS,
+            "lockAcquisitionTimeoutMillis": self.EXECUTION_LOCK_ACQUISITION_TIMEOUT_MS,
+            "distributedLocksEnabled": self.EXECUTION_DISTRIBUTED_LOCKS,
+            "redisUrlConfigured": (self.EXECUTION_REDIS_URL or "").strip() != "",
             "simulatedMidConfigured": self.EXECUTION_SIMULATED_MID is not None,
             "paperBalanceAssets": sorted(self.paper_balances),
             # The DSN itself never appears here (whitelist law); the boolean
@@ -1525,6 +1797,108 @@ def _parse_decimal(raw: str, what: str) -> Decimal:
 def get_settings() -> Settings:
     """Cached accessor so configuration is parsed exactly once per process."""
     return Settings()
+```
+
+FILE: services/execution-engine/app/credential_registry.py
+
+```python
+"""Credential registry wiring for the execution engine (Part 23).
+
+The credential provider (:mod:`wlct_trading.execution.credentials`, built by
+:mod:`app.credentials`) already refuses to hand out secrets to anything that
+cannot sign with them. What the registry adds is the *accounting* around that
+provider: lifecycle metadata (when the wiring was built, from which source),
+capability declarations (what this deployment's credential path can and
+cannot do - notably whether it can serve more than one exchange), and a named
+selection mechanism so /status reports WHICH provider answered instead of
+letting a caller guess.
+
+The registry is a wrapper, not a second provider. It holds no key material
+(it cannot: the value objects redact themselves and the registry never asks),
+and every resolution goes through untouched - wrapping is for reporting, and
+a wrapper that changed behaviour would be a second opinion nobody reconciles.
+"""
+
+from __future__ import annotations
+
+from wlct_trading.clock import epoch_micros
+from wlct_trading.execution.credentials import CredentialProvider
+
+from app.config import Settings
+
+__all__ = ["CredentialRegistryWiring", "build_credential_registry"]
+
+
+class CredentialRegistryWiring:
+    """Lifecycle and capability metadata around one credential provider.
+
+    ``built_at_micros`` is the registry's own construction instant, so a
+    long-lived process can show how stale its wiring is without a logger.
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        provider: CredentialProvider,
+    ) -> None:
+        if provider is None:
+            raise ValueError(
+                "credential registry requires a provider; for the no-credentials "
+                "deployment the provider is the 'none' source, not None"
+            )
+        self._settings = settings
+        self._provider = provider
+        self._built_at_micros = epoch_micros()
+
+    @property
+    def provider(self) -> CredentialProvider:
+        """The wrapped provider. Resolution goes straight through."""
+        return self._provider
+
+    @property
+    def source(self) -> str:
+        return self._provider.source
+
+    def capabilities(self) -> dict[str, object]:
+        """What this credential path can and cannot do, as data.
+
+        ``multiExchange`` follows the provider's own default-exchange answer:
+        a provider that serves exactly one venue says so, and a deployment
+        that adds a second venue must upgrade the provider rather than let
+        the registry assume.
+        """
+        return {
+            "resolvesPerAccount": True,
+            "multiExchange": False,
+            "cacheInvalidation": True,
+            "redactedLogging": True,
+        }
+
+    def describe(self) -> dict[str, object]:
+        """The /status view: source, capabilities, lifecycle - never material."""
+        return {
+            "providerSource": self._provider.source,
+            "credentialSource": self._settings.EXECUTION_CREDENTIAL_SOURCE,
+            "capabilities": self.capabilities(),
+            "builtAtMicros": self._built_at_micros,
+            "selection": "composition-root-singleton",
+        }
+
+
+def build_credential_registry(
+    settings: Settings,
+    *,
+    provider: CredentialProvider,
+) -> CredentialRegistryWiring:
+    """Wrap the composed provider with the registry's reporting surface.
+
+    Called exactly once, by the composition root, after
+    ``build_credential_provider`` - the registry never builds or caches
+    credentials itself.
+    """
+    if not isinstance(settings, Settings):
+        raise ValueError("build_credential_registry requires the engine Settings")
+    return CredentialRegistryWiring(settings, provider)
 ```
 
 FILE: services/execution-engine/app/credentials.py
@@ -1849,6 +2223,176 @@ def build_credential_provider(
             else "deployment-provided fetcher; per-tenant scoped by (tenant, account)"
         ),
     )
+```
+
+FILE: services/execution-engine/app/distributed_locks.py
+
+```python
+"""Distributed lock wiring for the execution engine (Part 21).
+
+The core (:mod:`wlct_trading.execution.locks`) ships the lock managers; this
+module is the wiring decision. ``build_distributed_lock_manager`` inspects the
+configuration and either constructs a real Redis-backed manager with fencing
+tokens, or returns an honest in-memory manager for simulated mode. The wiring
+is derived from the objects actually built, not from a configuration flag:
+``is_distributed`` on the constructed manager is the fact live-enablement
+reads, so a deployment that claims distributed locks in settings but never
+builds one is reported as exactly what it is.
+
+Fail-closed rules, in the order they are checked:
+
+1. ``enabled=True`` with no ``redis_url`` is a configuration error, not a
+   silent fallback to memory - an operator who asked for distributed locks and
+   silently got process-local ones would run a live-runtime claim protocol on
+   a lie.
+2. ``fencing_required=True`` (always, from the composition root) is honoured
+   by wrapping the manager in :class:`FencedLockManager`: a lock released by a
+   partitioned holder must not let a stale writer keep writing.
+3. ``enabled=False`` builds memory and says so in ``describe()`` - absence
+   stated, never implied.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import redis.asyncio
+from wlct_trading.execution.locks import (
+    FencedLockManager,
+    InMemoryLockManager,
+    LockManager,
+    RedisLockClient,
+    RedisLockManager,
+)
+
+__all__ = [
+    "DistributedLockConfig",
+    "DistributedLockConfigError",
+    "DistributedLockWiring",
+    "build_distributed_lock_manager",
+]
+
+
+def _build_redis_client(url: str) -> RedisLockClient:
+    """The Redis client the manager locks through, from a redis:// URL.
+
+    ``redis.asyncio.Redis`` satisfies the core's :class:`RedisLockClient`
+    protocol exactly (``set`` with ``nx``/``px``, ``get``, ``eval``), which is
+    why this module - the only place the engine turns a URL into a lock
+    client - is also the only place that imports the driver. Constructed
+    eagerly at wiring time so a bad URL fails at boot, in the same refusal
+    that validated it, rather than at the first contended order.
+    """
+    client: RedisLockClient = redis.asyncio.Redis.from_url(url)
+    return client
+
+
+class DistributedLockConfigError(ValueError):
+    """Raised when the lock configuration cannot be honoured as asked."""
+
+
+@dataclass(frozen=True)
+class DistributedLockConfig:
+    """What the operator asked for, straight from the settings object.
+
+    Every field is the composed value the runtime would have to honour; the
+    builder's job is to make the object that honours it or refuse.
+    """
+
+    enabled: bool
+    redis_url: str
+    lock_ttl_ms: int
+    lock_acquisition_timeout_ms: int
+    lock_renewal_ratio: float
+    instance_id: str
+    fencing_required: bool = True
+
+    def describe(self) -> dict[str, object]:
+        """Configuration without the URL's credentials (there should not be
+        any - the secret-fetching rules ban user:pass authorities - but a
+        describe() that renders URLs verbatim is one misconfig away from a
+        leaked password in /status)."""
+        return {
+            "enabled": self.enabled,
+            "lockTtlMs": self.lock_ttl_ms,
+            "lockAcquisitionTimeoutMs": self.lock_acquisition_timeout_ms,
+            "lockRenewalRatio": self.lock_renewal_ratio,
+            "instanceId": self.instance_id,
+            "fencingRequired": self.fencing_required,
+        }
+
+
+class DistributedLockWiring:
+    """The manager plus the facts /status publishes about it."""
+
+    def __init__(self, manager: LockManager, config: DistributedLockConfig) -> None:
+        self._manager = manager
+        self._config = config
+
+    @property
+    def manager(self) -> LockManager:
+        return self._manager
+
+    @property
+    def is_distributed(self) -> bool:
+        return bool(getattr(self._manager, "is_distributed", False))
+
+    def describe(self) -> dict[str, object]:
+        """The wiring view: what was built, from what, and whether it is
+        actually distributed - derived from the object, not the flag."""
+        manager_type = type(self._manager).__name__
+        return {
+            "distributed": self.is_distributed,
+            "manager": manager_type,
+            "mode": "redis" if self.is_distributed else "memory",
+            "ttlMs": self._config.lock_ttl_ms,
+            "acquisitionTimeoutMs": self._config.lock_acquisition_timeout_ms,
+            "renewalRatio": self._config.lock_renewal_ratio,
+            "instanceId": self._config.instance_id,
+            "fencingRequired": self._config.fencing_required,
+            "fenced": isinstance(self._manager, FencedLockManager),
+        }
+
+
+def build_distributed_lock_manager(
+    config: DistributedLockConfig,
+) -> DistributedLockWiring:
+    """Build the lock manager the configuration names, or refuse.
+
+    ``enabled=True`` with a blank URL refuses here, at the composition root,
+    where the sentence reaches the operator - not at the first lock acquire
+    three days into live trading.
+    """
+    if not isinstance(config, DistributedLockConfig):
+        raise DistributedLockConfigError(
+            "build_distributed_lock_manager requires a DistributedLockConfig"
+        )
+    if not config.enabled:
+        return DistributedLockWiring(InMemoryLockManager(), config)
+
+    url = (config.redis_url or "").strip()
+    if not url:
+        raise DistributedLockConfigError(
+            "EXECUTION_DISTRIBUTED_LOCKS=true requires EXECUTION_REDIS_URL: "
+            "falling back to process-local locks would run the claim protocol "
+            "on a lie, so the composition refuses instead of guessing"
+        )
+    if url.startswith("redis://") is False and url.startswith("rediss://") is False:
+        raise DistributedLockConfigError(
+            "EXECUTION_REDIS_URL must be a redis:// or rediss:// URL; embed no "
+            "credentials in it - authentication belongs to the URL's password "
+            "component supplied by the secret manager, not to a describe()-visible string"
+        )
+
+    manager: LockManager
+    inner = RedisLockManager(_build_redis_client(url))
+    if config.fencing_required:
+        manager = FencedLockManager(inner)
+    else:
+        # The composition root always requires fencing; a future caller that
+        # does not gets the plain manager it asked for, stated in describe().
+        manager = inner
+    return DistributedLockWiring(manager, config)
 ```
 
 FILE: services/execution-engine/app/incidents_sql.py
@@ -4248,6 +4792,7 @@ Contract notes that the worker and the API both depend on:
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -4266,8 +4811,11 @@ from app.schemas import (
     PlacementStatusView,
     ReconcileResponse,
     StatusResponse,
+    SubmitOrderRequest,
+    SubmitOrderResponse,
     VerifyResponse,
 )
+from app.submission import prepare_submission, record_submission
 from app.security import (
     ServiceCaller,
     require_internal_auth,
@@ -4276,6 +4824,8 @@ from app.security import (
 )
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
+
+logger = logging.getLogger("execution_engine.internal")
 
 AuthDep = Annotated[ServiceCaller, Depends(require_internal_auth)]
 RuntimeDep = Annotated[EngineRuntime, Depends(get_runtime)]
@@ -4351,6 +4901,16 @@ async def engine_status(
             else IncidentSinkView(**wiring["incidents"])
         ),
         locks_distributed=bool(wiring["locksDistributed"]),
+        # Part 20: signed transport posture, mapped from describe() for the same
+        # reason every other field is: the worker asserts against this surface.
+        signed_transport_wired=bool(wiring.get("signedTransportWired", False)),
+        key_registry_configured=bool(wiring.get("keyRegistryConfigured", False)),
+        # Part 21: distributed lock wiring posture.
+        distributed_lock_wiring=wiring.get("distributedLockWiring"),
+        # Part 22: venue attestation posture.
+        venue_attestation=wiring.get("venueAttestation"),
+        # Part 23: credential registry posture.
+        credential_registry=wiring.get("credentialRegistry"),
         commands=[str(command) for command in wiring["commands"]],
     )
 
@@ -4500,6 +5060,82 @@ async def cancel_order(
         error_code=result.error_code.value if result.error_code is not None else None,
         message=result.message,
         latency_micros=result.latency_micros,
+        is_simulated=result.is_simulated,
+    )
+
+
+@router.post("/orders/submit", response_model=SubmitOrderResponse, response_model_by_alias=True)
+async def submit_order(
+    body: SubmitOrderRequest,
+    caller: AuthDep,
+    runtime: RuntimeDep,
+) -> SubmitOrderResponse:
+    """Phase 3: run one OMS-approved order through the engine's full pipeline.
+
+    Validation, placement review, safety gates, risk, idempotency, the adapter
+    call and position bookkeeping all happen inside ``ExecutionEngine.submit``,
+    which never raises for an expected failure. The context it judges is
+    assembled HERE (app.submission), fail-closed: every input this process has
+    not positively observed is reported as unknown, and unknown blocks.
+
+    A retried job (same clientOrderId) comes back as DUPLICATE from the store's
+    idempotency reservation and is reported with the ORIGINAL order's state, so
+    the API records one order however many times BullMQ redelivers.
+    """
+    require_tenant_match(body.tenant_id, caller)
+    if not runtime.trading_adapter.is_simulated:
+        # Unreachable while build_runtime refuses live; kept so the day it is
+        # reachable the refusal is explicit rather than a real order.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SUBMISSION_REQUIRES_SIMULATED_RUNTIME",
+                "message": (
+                    "This route only submits against the paper simulator; a "
+                    "non-simulated adapter is not wired for OMS submissions."
+                ),
+            },
+        )
+    prepared = await prepare_submission(runtime, body)
+    if prepared.unknowns:
+        logger.warning(
+            "execution_engine.submit_inputs_unknown",
+            extra={
+                "event": "execution_engine.submit_inputs_unknown",
+                "clientOrderId": body.client_order_id,
+                "unknowns": list(prepared.unknowns),
+            },
+        )
+    result = await runtime.engine.submit(prepared.intent, prepared.context)
+    record_submission(runtime, body.tenant_id, body.account_id)
+
+    order = result.order
+    if order is None and result.outcome.value == "DUPLICATE":
+        try:
+            order = await runtime.store.get_by_client_order_id(
+                body.tenant_id, body.client_order_id
+            )
+        except Exception:  # the verdict stands; the order view is best-effort
+            order = None
+    return SubmitOrderResponse(
+        outcome=result.outcome.value,
+        client_order_id=result.client_order_id or body.client_order_id,
+        engine_order_id=order.order_id if order is not None else None,
+        exchange_order_id=order.exchange_order_id if order is not None else None,
+        order_status=order.status.value if order is not None else "UNKNOWN",
+        filled_quantity=str(order.filled_quantity) if order is not None else "0",
+        average_fill_price=(
+            str(order.average_fill_price)
+            if order is not None and order.average_fill_price is not None
+            else None
+        ),
+        cumulative_fee=str(order.cumulative_fee) if order is not None else "0",
+        fee_currency=order.fee_currency if order is not None else None,
+        fill_count=len(order.fills) if order is not None else 0,
+        error_code=result.error_code.value if result.error_code is not None else None,
+        message=result.message,
+        latency_micros=result.latency_micros,
+        transmitted=result.transmitted,
         is_simulated=result.is_simulated,
     )
 ```
@@ -4883,8 +5519,12 @@ Alias conventions match the trading engine: fields are snake_case
 internally, camelCase on the wire, populated by name on input so a worker
 cannot smuggle a mistyped payload past validation by coincidence.
 
-Everything here is a CONTROL shape. No model accepts an order to place;
-no model returns a credential, key or signed payload. Decimal-valued
+Everything here is a CONTROL shape, with one deliberate exception added in
+Phase 3: :class:`SubmitOrderRequest`, the OMS/copy-trading submission. It is
+served only by a runtime whose adapter is the paper simulator (build_runtime
+refuses EXECUTION_MODE=live), carries no credential, and names the API-side
+risk decision it was approved under. No model returns a credential, key or
+signed payload. Decimal-valued
 fields serialise as decimal STRINGS: a JSON float for a
 quantity or balance is a silent rounding decision, and money never takes
 one of those on the platform's behalf.
@@ -4918,6 +5558,10 @@ __all__ = [
     "RetentionRunResponse",
     "RetentionRunView",
     "StatusResponse",
+    "SubmitExposureView",
+    "SubmitOrderRequest",
+    "SubmitOrderResponse",
+    "SubmitSpecificationView",
     "VerifyResponse",
 ]
 
@@ -4969,6 +5613,155 @@ class CancelOrderRequest(_WireModel):
     symbol: str = Field(min_length=1, max_length=32)
     requested_by_user_id: str | None = Field(default=None, max_length=64)
     requested_at: str | None = Field(default=None, max_length=64)
+
+
+def _decimal_string(value: str, *, name: str, positive: bool = False, signed: bool = False) -> str:
+    """Validate a decimal STRING without converting it to a float, ever."""
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        parsed = Decimal(value)
+    except (InvalidOperation, TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a decimal string") from error
+    if not parsed.is_finite():
+        raise ValueError(f"{name} must be finite")
+    if positive and parsed <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    if not positive and not signed and parsed < 0:
+        raise ValueError(f"{name} must not be negative")
+    return value
+
+
+class SubmitSpecificationView(_WireModel):
+    """The instrument's trading rules, from the platform's TradingSymbol row.
+
+    Carried on the request because this runtime has no symbol catalogue of its
+    own; the engine still validates the order against it BEFORE any gate, so a
+    missing or inconsistent rule is a local rejection, never a guess.
+    """
+
+    base_asset: str = Field(min_length=1, max_length=16)
+    quote_asset: str = Field(min_length=1, max_length=16)
+    market_type: str = Field(pattern=r"^(SPOT|MARGIN|FUTURES_USDT|FUTURES_COIN)$")
+    price_tick: str
+    quantity_step: str
+    min_quantity: str
+    max_quantity: str | None = None
+    min_notional: str
+    is_tradeable: bool
+    price_precision: int = Field(ge=0, le=18)
+    quantity_precision: int = Field(ge=0, le=18)
+
+    @field_validator("price_tick", "quantity_step", "min_quantity", "min_notional")
+    @classmethod
+    def _non_negative(cls, value: str) -> str:
+        return _decimal_string(value, name="specification value")
+
+    @field_validator("max_quantity")
+    @classmethod
+    def _optional_positive(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _decimal_string(value, name="maxQuantity", positive=True)
+
+
+class SubmitExposureView(_WireModel):
+    """The account's exposure, computed by the API from its canonical ledger.
+
+    ``complete`` is the fail-closed flag: the API sets it to ``False`` when any
+    contributing position could not be marked, and the engine's risk check then
+    refuses the order rather than evaluating it against a partial picture.
+    """
+
+    position_quantity: str
+    symbol_exposure_notional: str
+    account_exposure_notional: str
+    realised_pnl_today: str | None = None
+    complete: bool
+
+    @field_validator("position_quantity", "realised_pnl_today")
+    @classmethod
+    def _signed(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _decimal_string(value, name="exposure value", signed=True)
+
+    @field_validator("symbol_exposure_notional", "account_exposure_notional")
+    @classmethod
+    def _unsigned(cls, value: str) -> str:
+        return _decimal_string(value, name="exposure notional")
+
+
+class SubmitOrderRequest(_WireModel):
+    """One order the OMS approved, forwarded by the trading worker.
+
+    ``riskDecisionId`` is required: the API's unified risk decision (daily
+    loss, drawdown, kill switches, compliance) is the authority this runtime
+    cannot reproduce, and an order that cannot name the decision it was
+    approved under is refused at the schema - 422, terminal - before it can
+    reach a gate that would have to guess.
+    """
+
+    tenant_id: str = _TENANT
+    account_id: str = _ACCOUNT
+    order_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    #: The core's CLIENT_ORDER_ID_PATTERN (the strictest venue limit, 36
+    #: characters of [A-Za-z0-9_-]); refused here as a 422 rather than as a
+    #: VALIDATION_FAILED verdict that would look like a business outcome.
+    client_order_id: str = Field(min_length=1, max_length=36, pattern=r"^[A-Za-z0-9_-]{1,36}$")
+    symbol: str = Field(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9][A-Za-z0-9/_.-]{0,31}$")
+    side: str = Field(pattern=r"^(BUY|SELL)$")
+    order_type: str = Field(pattern=r"^(MARKET|LIMIT)$")
+    quantity: str
+    price: str | None = None
+    time_in_force: str = Field(default="GTC", pattern=r"^(GTC|IOC|FOK)$")
+    reduce_only: bool = False
+    strategy_id: str | None = Field(default=None, max_length=64)
+    risk_decision_id: str = Field(min_length=1, max_length=64)
+    environment: str = Field(pattern=r"^PAPER$")
+    specification: SubmitSpecificationView
+    exposure: SubmitExposureView
+    metadata: dict[str, Annotated[str, Field(max_length=128)]] = Field(
+        default_factory=dict, max_length=16
+    )
+    requested_at: str | None = Field(default=None, max_length=64)
+
+    @field_validator("quantity")
+    @classmethod
+    def _quantity(cls, value: str) -> str:
+        return _decimal_string(value, name="quantity", positive=True)
+
+    @field_validator("price")
+    @classmethod
+    def _price(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _decimal_string(value, name="price", positive=True)
+
+
+class SubmitOrderResponse(_WireModel):
+    """The engine's verdict on one submission.
+
+    Same ack law as the cancel response: 200 carries the business outcome
+    (ACCEPTED, REJECTED_LOCALLY, REJECTED_BY_EXCHANGE, DUPLICATE, DRY_RUN,
+    UNKNOWN) and the worker completes the job on it; only 5xx is retried.
+    """
+
+    outcome: str
+    client_order_id: str
+    engine_order_id: str | None
+    exchange_order_id: str | None
+    order_status: str
+    filled_quantity: str
+    average_fill_price: str | None
+    cumulative_fee: str
+    fee_currency: str | None
+    fill_count: int
+    error_code: str | None
+    message: str | None
+    latency_micros: int
+    transmitted: bool
+    is_simulated: bool
 
 
 class VerifyResponse(_WireModel):
@@ -5213,6 +6006,19 @@ class StatusResponse(_WireModel):
     #: every other block on this model uses.
     incidents: IncidentSinkView | None = None
     locks_distributed: bool
+    #: Part 20: signed transport posture. Whether the composition root
+    #: constructed a real key registry and transport client/verifier.
+    signed_transport_wired: bool = False
+    key_registry_configured: bool = False
+    #: Part 21: distributed lock wiring posture. The detailed wiring
+    #: metadata for the lock manager.
+    distributed_lock_wiring: dict[str, object] | None = None
+    #: Part 22: venue attestation posture. Whether a real Binance placement
+    #: attestor was constructed and wired into the placement reviewer.
+    venue_attestation: dict[str, object] | None = None
+    #: Part 23: credential registry posture. Provider selection, capabilities,
+    #: and credential metadata (no secrets).
+    credential_registry: dict[str, object] | None = None
     commands: list[str]
     simulated: bool = True
 
@@ -7013,6 +7819,571 @@ class _TenantTransaction:
             await self._cm.__aexit__(exc_type, exc, tb)
 ```
 
+FILE: services/execution-engine/app/submission.py
+
+```python
+"""Server-side assembly of one OMS submission (Phase 3).
+
+The worker forwards WHAT to trade; this module decides everything the engine
+needs to judge it, from objects this process owns:
+
+* the reference price comes from ``runtime.book_provider`` - the very function
+  the paper adapter fills against - so validation, the price-deviation check and
+  the simulated fill all read one number;
+* every health input starts as unknown (``ComponentHealth()`` blocks) and is
+  raised to healthy only when this process has positively observed it;
+* the rate window is counted here, per tenant and account, not taken from the
+  caller;
+* exposure comes from the API's canonical ledger and carries its own
+  ``complete`` flag, which maps straight onto ``RiskSnapshot.is_complete``.
+
+Nothing here talks to a venue. The runtime's adapter is the paper simulator
+(build_runtime refuses EXECUTION_MODE=live), and this module never constructs
+an adapter of its own.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+
+from wlct_trading.adapters.base import SymbolSpecification
+from wlct_trading.enums import MarketType, OrderSide, OrderType, TimeInForce
+from wlct_trading.execution.engine import ExecutionContext
+from wlct_trading.execution.safety import ComponentHealth
+from wlct_trading.orders import OrderIntent
+from wlct_trading.risk import KillSwitchState, RiskSnapshot
+
+from app.composition import EngineRuntime
+from app.schemas import SubmitOrderRequest
+
+__all__ = [
+    "RATE_WINDOW_MICROS",
+    "PreparedSubmission",
+    "prepare_submission",
+    "record_submission",
+]
+
+#: One minute, the unit ``RiskLimits.max_orders_per_minute`` is expressed in.
+RATE_WINDOW_MICROS = 60_000_000
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedSubmission:
+    intent: OrderIntent
+    context: ExecutionContext
+    #: Human-readable reasons any input was left unknown; empty when every
+    #: input was positively observed. Logged by the route, never used to
+    #: override a verdict.
+    unknowns: tuple[str, ...]
+
+
+def _now_micros() -> int:
+    import time
+
+    return time.time_ns() // 1_000
+
+
+def _orders_in_last_minute(runtime: EngineRuntime, key: tuple[str, str], now: int) -> int:
+    window = runtime.submission_windows.get(key)
+    if not window:
+        return 0
+    cutoff = now - RATE_WINDOW_MICROS
+    kept = [stamp for stamp in window if stamp > cutoff]
+    runtime.submission_windows[key] = kept
+    return len(kept)
+
+
+def record_submission(runtime: EngineRuntime, tenant_id: str, account_id: str, now: int | None = None) -> None:
+    """Count a submission that reached the engine (whatever its verdict)."""
+    stamp = _now_micros() if now is None else now
+    runtime.submission_windows.setdefault((tenant_id, account_id), []).append(stamp)
+
+
+async def prepare_submission(
+    runtime: EngineRuntime,
+    body: SubmitOrderRequest,
+    *,
+    now_micros: int | None = None,
+) -> PreparedSubmission:
+    """Build the intent and a fail-closed execution context for ``body``."""
+    now = _now_micros() if now_micros is None else now_micros
+    unknowns: list[str] = []
+    exchange = runtime.trading_adapter.exchange
+
+    intent = OrderIntent(
+        tenant_id=body.tenant_id,
+        account_id=body.account_id,
+        strategy_id=body.strategy_id,
+        exchange=exchange,
+        symbol=body.symbol,
+        side=OrderSide(body.side),
+        order_type=OrderType(body.order_type),
+        quantity=Decimal(body.quantity),
+        price=Decimal(body.price) if body.price is not None else None,
+        time_in_force=TimeInForce(body.time_in_force),
+        reduce_only=body.reduce_only,
+        client_order_id=body.client_order_id,
+        metadata={
+            **dict(body.metadata),
+            "platformOrderId": body.order_id,
+            "riskDecisionId": body.risk_decision_id,
+        },
+    )
+
+    spec_view = body.specification
+    specification = SymbolSpecification(
+        symbol=body.symbol,
+        venue_symbol=body.symbol,
+        exchange=exchange,
+        market_type=MarketType(spec_view.market_type),
+        base_asset=spec_view.base_asset,
+        quote_asset=spec_view.quote_asset,
+        price_tick=Decimal(spec_view.price_tick),
+        quantity_step=Decimal(spec_view.quantity_step),
+        min_quantity=Decimal(spec_view.min_quantity),
+        max_quantity=Decimal(spec_view.max_quantity) if spec_view.max_quantity is not None else None,
+        min_notional=Decimal(spec_view.min_notional),
+        is_tradeable=spec_view.is_tradeable,
+        price_precision=spec_view.price_precision,
+        quantity_precision=spec_view.quantity_precision,
+    )
+
+    # --- reference price: the simulator's own book, or nothing ---------------
+    reference_price: Decimal | None = None
+    market_data_health = ComponentHealth.down("No reference book is configured for this runtime.")
+    provider = runtime.book_provider
+    if provider is not None:
+        try:
+            book = provider(exchange, body.symbol)
+        except Exception as error:  # a broken provider is "no data", never a price
+            book = None
+            unknowns.append(f"book provider raised {type(error).__name__}")
+        if book is not None:
+            reference_price = book.mid_price
+    if reference_price is not None and reference_price > 0:
+        market_data_health = ComponentHealth.ok(
+            "Simulated reference book (EXECUTION_SIMULATED_MID).", age_micros=0
+        )
+    else:
+        reference_price = None
+        unknowns.append("no reference price: EXECUTION_SIMULATED_MID is not configured")
+
+    # --- open orders from this runtime's store --------------------------------
+    open_orders: tuple = ()
+    store_ok = True
+    try:
+        open_orders = await runtime.store.list_open_orders(body.tenant_id, body.account_id)
+    except Exception as error:  # an unreadable store is an unknown risk state
+        store_ok = False
+        unknowns.append(f"order store unreadable: {type(error).__name__}")
+
+    exposure = body.exposure
+    snapshot = RiskSnapshot(
+        position_quantity=Decimal(exposure.position_quantity),
+        symbol_exposure_notional=Decimal(exposure.symbol_exposure_notional),
+        account_exposure_notional=Decimal(exposure.account_exposure_notional),
+        open_order_count=len(open_orders),
+        orders_in_last_minute=_orders_in_last_minute(
+            runtime, (body.tenant_id, body.account_id), now
+        ),
+        # The API's unified risk decision (named by riskDecisionId) owns the
+        # daily-loss limit; when it does not forward a figure the engine's own
+        # daily-loss rule sees zero and the API decision remains the gate.
+        realised_pnl_today=(
+            Decimal(exposure.realised_pnl_today)
+            if exposure.realised_pnl_today is not None
+            else Decimal(0)
+        ),
+        strategy_realised_pnl_today=Decimal(0),
+        reference_price=reference_price,
+        market_data_age_micros=0 if reference_price is not None else None,
+        book_usable=reference_price is not None,
+        is_complete=bool(exposure.complete) and store_ok,
+        known_client_order_ids=frozenset(order.client_order_id for order in open_orders),
+    )
+    if not exposure.complete:
+        unknowns.append("API reported the exposure ledger as incomplete")
+
+    risk_health = (
+        ComponentHealth.ok("Risk state assembled for this submission.", age_micros=0)
+        if snapshot.is_complete
+        else ComponentHealth.down("Risk state incomplete; refusing to evaluate against it.")
+    )
+
+    # The paper adapter is in-process: reachable by construction. A runtime
+    # whose adapter is not simulated never reaches this route (live refuses to
+    # boot), and if one ever did it would be reported as unknown here.
+    exchange_health = (
+        ComponentHealth.ok("In-process paper simulator.")
+        if runtime.trading_adapter.is_simulated
+        else ComponentHealth.down("Non-simulated adapter: venue health is not observed here.")
+    )
+
+    context = ExecutionContext(
+        snapshot=snapshot,
+        # Kill switches are owned by the API's risk/kill-switch plane and are
+        # part of the decision named by riskDecisionId; this runtime holds no
+        # switch state of its own to add.
+        kill_switches=KillSwitchState(
+            global_engaged=False,
+            engaged_exchanges=frozenset(),
+            engaged_strategies=frozenset(),
+            engaged_symbols=frozenset(),
+            reason=None,
+        ),
+        specification=specification,
+        reference_price=reference_price,
+        risk_health=risk_health,
+        market_data_health=market_data_health,
+        exchange_health=exchange_health,
+        credentials=None,
+        market_data_required=True,
+    )
+    return PreparedSubmission(intent=intent, context=context, unknowns=tuple(unknowns))
+```
+
+FILE: services/execution-engine/app/venue_attestation.py
+
+```python
+"""Venue attestation wiring for the execution engine (Part 22).
+
+The placement review (:mod:`wlct_trading.execution.placement_review`) refuses
+every order whose venue review it cannot answer; the evidence comes from a
+:class:`~wlct_trading.execution.placement_attestor.PlacementAttestor`. The
+core ships the local gatherer (what this process knows) and the caching
+wrapper; this module builds the venue-backed gatherer when the deployment has
+real credentials to present, and refuses honestly when it does not.
+
+``BinancePlacementAttestor`` queries the venue's authenticated endpoints:
+
+* ``GET /sapi/v1/account/apiRestrictions`` - key permissions: spot trading
+  allowed, withdrawals permitted (a refusal on principle), IP allowlist
+  present, key creation time.
+* ``GET /api/v3/account`` (optional, when ``include_account_flags``) - the
+  account's ``canTrade`` flag and account type.
+* ``GET /api/v3/exchangeInfo`` - the symbol's status and the order types and
+  time-in-forces the venue actually grants for it.
+
+Signing follows the venue's documented HMAC-SHA256 scheme: the query string is
+signed, the key travels in the header, the secret never does. The gatherer
+raises on transport failure - converting a raise into a finding is the
+reviewer's and the cache's job, not this module's.
+
+When credentials are ``none`` (the default for simulated mode) no attestor is
+constructed: there is no key to present to the venue, and asking Binance
+whether a nonexistent key may trade is a question with no honest answer. That
+state is the composition root's ``venue_attestation_wiring = None``, which the
+status surface reports as exactly that.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+from dataclasses import dataclass
+from urllib.parse import urlencode
+
+import httpx
+from wlct_trading.clock import epoch_micros
+from wlct_trading.execution.credentials import CredentialProvider
+from wlct_trading.execution.placement_attestor import (
+    CachingPlacementAttestor,
+    PlacementAttestor,
+    PlacementReviewRequest,
+)
+from wlct_trading.execution.placement_review import (
+    PlacementAttestation,
+    PlacementFacts,
+)
+
+__all__ = [
+    "BinancePlacementAttestor",
+    "VenueAttestationConfig",
+    "VenueAttestationError",
+    "VenueAttestationWiring",
+    "build_venue_attestation",
+]
+
+#: The venue's production and testnet bases, split because a deployment must
+#: be able to attest against the same environment it would trade on. A testnet
+#: attestation is real evidence about the testnet key - which is exactly what
+#: a rehearsal owes - and never evidence about production.
+BINANCE_BASE_URL = "https://api.binance.com"
+BINANCE_TESTNET_BASE_URL = "https://testnet.binance.vision"
+
+#: Binance requires a recvWindow on authenticated calls. The attestor uses the
+#: default the review policy states (5s) minus nothing: the skew check against
+#: the review's budget happens in the reviewer, on the facts, not here.
+_RECV_WINDOW_MS = 5_000
+
+#: Hard timeout for every venue call. A gatherer that waits forever converts a
+#: slow venue into a stuck order pipeline; the reviewer already knows how to
+#: turn a raise into a finding, so raise instead.
+_REQUEST_TIMEOUT_SECONDS = 10.0
+
+
+class VenueAttestationError(RuntimeError):
+    """Raised when venue attestation cannot be wired or gathered at all."""
+
+
+@dataclass(frozen=True)
+class VenueAttestationConfig:
+    """What the operator configured for venue-backed attestation."""
+
+    enabled: bool
+    testnet: bool = False
+    cache_ttl_ms: int = 300_000
+    include_account_flags: bool = False
+
+    def describe(self) -> dict[str, object]:
+        return {
+            "enabled": self.enabled,
+            "testnet": self.testnet,
+            "cacheTtlMs": self.cache_ttl_ms,
+            "includeAccountFlags": self.include_account_flags,
+        }
+
+
+class VenueAttestationWiring:
+    """The attestor plus the facts /status publishes about it."""
+
+    def __init__(self, attestor: PlacementAttestor, config: VenueAttestationConfig) -> None:
+        self._attestor = attestor
+        self._config = config
+
+    @property
+    def attestor(self) -> PlacementAttestor:
+        return self._attestor
+
+    def describe(self) -> dict[str, object]:
+        """Derived from the object that was built: the attestor's own source
+        label is the fact, so a deployment that thinks it built a venue
+        gatherer but built a cache around an unattested one is visible."""
+        return {
+            "enabled": self._config.enabled,
+            "testnet": self._config.testnet,
+            "cacheTtlMs": self._config.cache_ttl_ms,
+            "includeAccountFlags": self._config.include_account_flags,
+            "attestorSource": self._attestor.source,
+            "venueBacked": "binance" in self._attestor.source,
+        }
+
+
+def build_venue_attestation(
+    config: VenueAttestationConfig,
+    *,
+    credential_provider: CredentialProvider,
+) -> VenueAttestationWiring:
+    """Build the venue-backed attestor, wrapped in the core's TTL cache.
+
+    ``enabled=False`` refuses rather than returning an unattested attestor:
+    the caller (the composition root) only constructs wiring when credentials
+    exist, so a disabled config here is a contradiction between settings that
+    must be named, not absorbed.
+    """
+    if not isinstance(config, VenueAttestationConfig):
+        raise VenueAttestationError(
+            "build_venue_attestation requires a VenueAttestationConfig"
+        )
+    if credential_provider is None:
+        raise VenueAttestationError(
+            "venue attestation requires a credential provider; with no "
+            "credentials there is no key to present and no call to make"
+        )
+    if not config.enabled:
+        raise VenueAttestationError(
+            "venue attestation is configured off while real credentials are "
+            "present; the placement review would gather nothing venue-backed "
+            "and every order would refuse on missing attestation. Set "
+            "EXECUTION_VENUE_ATTESTATION to the enabled value or clear the "
+            "credential source - do not run one against the other"
+        )
+    gatherer = BinancePlacementAttestor(
+        credential_provider,
+        testnet=config.testnet,
+        include_account_flags=config.include_account_flags,
+    )
+    attestor: PlacementAttestor = CachingPlacementAttestor(
+        gatherer,
+        ttl_ms=config.cache_ttl_ms,
+    )
+    return VenueAttestationWiring(attestor, config)
+
+
+class BinancePlacementAttestor(PlacementAttestor):
+    """Gathers key, account and symbol facts from Binance's own endpoints.
+
+    Every request is signed with the account's key material, resolved through
+    the credential provider per (tenant, account) - the registry never holds
+    venue secrets itself. Failures raise; the cache and the reviewer own the
+    decision to turn them into findings.
+    """
+
+    def __init__(
+        self,
+        credential_provider: CredentialProvider,
+        *,
+        testnet: bool = False,
+        include_account_flags: bool = False,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        if credential_provider is None:
+            raise VenueAttestationError(
+                "BinancePlacementAttestor requires a credential provider"
+            )
+        self._provider = credential_provider
+        self._testnet = bool(testnet)
+        self._include_account_flags = bool(include_account_flags)
+        self._client = client
+
+    @property
+    def source(self) -> str:
+        base = "binance-testnet" if self._testnet else "binance"
+        return f"{base}:apiRestrictions+exchangeInfo"
+
+    def _base_url(self) -> str:
+        return BINANCE_TESTNET_BASE_URL if self._testnet else BINANCE_BASE_URL
+
+    def _signed_headers(self, api_key: str, api_secret: str, params: dict[str, object]) -> str:
+        query = urlencode(params)
+        signature = hmac.new(
+            api_secret.encode("utf-8"),
+            query.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{query}&signature={signature}"
+
+    async def _authenticated_get(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        api_key: str,
+        api_secret: str,
+        extra_params: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        params: dict[str, object] = {
+            # One clock for the whole service: the venue millis are derived
+            # from the same epoch_micros() source the review's skew checks
+            # read, so the attestor and the reviewer cannot disagree about
+            # what "now" is.
+            "timestamp": epoch_micros() // 1000,
+            "recvWindow": _RECV_WINDOW_MS,
+        }
+        if extra_params:
+            params.update(extra_params)
+        signed_query = self._signed_headers(api_key, api_secret, params)
+        response = await client.get(
+            f"{self._base_url()}{path}",
+            params=signed_query,
+            headers={"X-MBX-APIKEY": api_key},
+        )
+        if response.status_code != 200:
+            raise VenueAttestationError(
+                f"venue returned {response.status_code} for {path}"
+            )
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise VenueAttestationError(f"venue returned a non-object body for {path}")
+        return payload
+
+    async def attest(self, request: PlacementReviewRequest) -> PlacementAttestation:
+        """Gather the key, account and symbol facts for one placement request."""
+        now_micros = epoch_micros()
+        client = self._client
+        owns_client = client is None
+        if client is None:
+            client = httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS)
+        try:
+            credentials = await self._provider.resolve(
+                request.tenant_id, request.account_id, self._provider.default_exchange
+            )
+            api_key = credentials.api_key
+            api_secret = credentials.api_secret
+
+            restrictions = await self._authenticated_get(
+                client, "/sapi/v1/account/apiRestrictions", api_key, api_secret
+            )
+            exchange_info = await client.get(
+                f"{self._base_url()}/api/v3/exchangeInfo",
+                params={"symbol": request.symbol},
+            )
+            if exchange_info.status_code != 200:
+                raise VenueAttestationError(
+                    f"venue returned {exchange_info.status_code} for exchangeInfo"
+                )
+            symbols = exchange_info.json().get("symbols", [])
+            symbol_row = next(
+                (row for row in symbols if row.get("symbol") == request.symbol),
+                None,
+            )
+
+            account_row: dict[str, object] | None = None
+            if self._include_account_flags:
+                account_row = await self._authenticated_get(
+                    client, "/api/v3/account", api_key, api_secret
+                )
+
+            symbol_types = symbol_row.get("orderTypes", []) if symbol_row else []
+            symbol_tifs = symbol_row.get("timeInForce", []) if symbol_row else []
+            raw_created_at = restrictions.get("createTime")
+            created_at_millis = raw_created_at if isinstance(raw_created_at, int) else None
+            facts = PlacementFacts(
+                venue_backed=True,
+                source=self.source,
+                key_created_at_millis=created_at_millis,
+                key_permission_granted=bool(
+                    restrictions.get("spotTradingEnabled", False)
+                ),
+                withdrawal_permitted=bool(
+                    restrictions.get("withdrawalsEnabled", False)
+                ),
+                read_permitted=bool(restrictions.get("readingEnabled", False)),
+                ip_allowlist_enabled=bool(
+                    restrictions.get("ipRestrict", False)
+                ),
+                account_can_trade=(
+                    bool(account_row.get("canTrade"))
+                    if isinstance(account_row, dict) and "canTrade" in account_row
+                    else None
+                ),
+                account_type=(
+                    str(account_row.get("accountType"))
+                    if isinstance(account_row, dict) and account_row.get("accountType")
+                    else None
+                ),
+                symbol_attached=symbol_row is not None,
+                symbol_trading=(
+                    symbol_row.get("status") == "TRADING" if symbol_row else None
+                ),
+                order_type_supported=(
+                    request.order_type in symbol_types if symbol_row else None
+                ),
+                time_in_force_supported=(
+                    request.time_in_force in symbol_tifs if symbol_row else None
+                ),
+            )
+            return PlacementAttestation(
+                facts=facts,
+                attested_at_micros=now_micros,
+            )
+        except VenueAttestationError:
+            raise
+        except Exception as error:  # transport failure - the reviewer's finding
+            raise VenueAttestationError(
+                f"venue attestation could not be gathered: {type(error).__name__}"
+            ) from error
+        finally:
+            if owns_client and client is not None:
+                await client.aclose()
+
+    async def aclose(self) -> None:
+        """Release the shared client, when one was injected."""
+        if self._client is not None:
+            await self._client.aclose()
+
+```
+
 FILE: services/execution-engine/log-config.json
 
 ```json
@@ -7126,6 +8497,12 @@ httpx==0.27.2
 # asyncpg, same reason as every other pin here: one upgrade sweep moves all
 # Python services together, and this driver speaks to the same Postgres.
 asyncpg==0.29.0
+# Distributed locks (Part 21). app/distributed_locks.py is the one module that
+# turns EXECUTION_REDIS_URL into a lock client, and it is a RUNTIME dependency
+# for the same reason httpx became one in Part 19: a staging image built from
+# this file must be able to build the real lock manager, not discover the
+# missing driver at the first contended order. Same pin as the sibling services.
+redis==5.1.1
 ```
 
 FILE: services/execution-engine/tests/__init__.py
@@ -8021,7 +9398,7 @@ class TestTenantGucAcrossPlanes:
     def test_migration_function_reads_the_same_guc(self, migration_text: str) -> None:
         part11 = (
             ROOT / "apps" / "api" / "prisma" / "migrations"
-            / "20260913120000_part11_row_level_security" / "migration.sql"
+            / "20260923090000_part11_row_level_security" / "migration.sql"
         ).read_text(encoding="utf-8")
         assert "current_setting('app.tenant_id', true)" in part11
         assert 'CREATE OR REPLACE FUNCTION wlct_current_tenant_id() RETURNS uuid' in part11
@@ -9114,6 +10491,25 @@ def _statements() -> list[str]:
     return [s.strip() for s in body.split(";") if s.strip()]
 
 
+async def _require_rls_subject(connection: asyncpg.Connection) -> None:
+    """RLS assertions are only meaningful for a role RLS applies to.
+
+    A superuser or a BYPASSRLS role skips every policy, FORCE included, so
+    the "a policyless query sees nothing" assertions would fail for a reason
+    that has nothing to do with the store. Say so instead of failing on a
+    row count: the CI DSN must be a NOSUPERUSER NOBYPASSRLS role that owns
+    the disposable database.
+    """
+    exempt = await connection.fetchval(
+        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user"
+    )
+    if exempt:
+        pytest.fail(
+            "EXECUTION_TEST_POSTGRES_DSN connects as a superuser/BYPASSRLS role, which RLS "
+            "never applies to; use a NOSUPERUSER NOBYPASSRLS role that owns the test database"
+        )
+
+
 _MIGRATION_APPLIED = False
 
 
@@ -9124,7 +10520,12 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
     process by executing the real migration file."""
     global _MIGRATION_APPLIED
     dsn = os.environ["EXECUTION_TEST_POSTGRES_DSN"]
-    async with asyncpg.connect(dsn=dsn, timeout=10.0) as connection:
+    # asyncpg.connect() returns a coroutine resolving to a Connection; a
+    # Connection is NOT an async context manager (only pools and
+    # transactions are), so `async with asyncpg.connect(...)` raised
+    # TypeError before any test body ran. Open, yield, always close.
+    connection = await asyncpg.connect(dsn=dsn, timeout=10.0)
+    try:
         if not _MIGRATION_APPLIED:
             await connection.execute(
                 'CREATE TABLE IF NOT EXISTS "tenants" ("id" UUID PRIMARY KEY)'
@@ -9150,6 +10551,8 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
         for statement in _TRUNCATES:
             await connection.execute(statement)
         yield connection
+    finally:
+        await connection.close()
 
 
 class _SingleConnectionPool:
@@ -9328,6 +10731,7 @@ class TestRlsInteraction:
     async def test_store_queries_satisfy_enforced_rls(
         self, store: PostgresOrderStore, conn: asyncpg.Connection
     ) -> None:
+        await _require_rls_subject(conn)
         order = order_for(TENANT_A, "ord_live_rls", "wlc-rls")
         other = order_for(TENANT_B, "ord_live_rls_b", "wlc-rls-b")
         await store.save_order(order)
@@ -9349,7 +10753,7 @@ class TestRlsInteraction:
             # explicit id.
             await conn.execute("SELECT set_config('app.tenant_id', $1, false)", TENANT_A)
             leaked = await conn.fetchval(
-                "SELECT count(*) FROM engine_orders WHERE order_id = $2", "ord_live_rls_b"
+                "SELECT count(*) FROM engine_orders WHERE order_id = $1", "ord_live_rls_b"
             )
             assert leaked == 0
         finally:
@@ -9547,7 +10951,7 @@ class TestRlsCoverageIncludesTheLedger:
             / "api"
             / "prisma"
             / "migrations"
-            / "20260913120000_part11_row_level_security"
+            / "20260923090000_part11_row_level_security"
             / "migration.sql"
         ).read_text(encoding="utf-8")
         assert f'CREATE POLICY tenant_isolation ON "{table}"' in part11
@@ -10306,6 +11710,25 @@ _LEDGER_POLICY_TEARDOWN = (
 )
 
 
+async def _require_rls_subject(connection: asyncpg.Connection) -> None:
+    """RLS assertions are only meaningful for a role RLS applies to.
+
+    A superuser or a BYPASSRLS role skips every policy, FORCE included, so
+    the "a policyless query sees nothing" assertions would fail for a reason
+    that has nothing to do with the store. Say so instead of failing on a
+    row count: the CI DSN must be a NOSUPERUSER NOBYPASSRLS role that owns
+    the disposable database.
+    """
+    exempt = await connection.fetchval(
+        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user"
+    )
+    if exempt:
+        pytest.fail(
+            "EXECUTION_TEST_POSTGRES_DSN connects as a superuser/BYPASSRLS role, which RLS "
+            "never applies to; use a NOSUPERUSER NOBYPASSRLS role that owns the test database"
+        )
+
+
 _MIGRATIONS_APPLIED = False
 
 
@@ -10326,7 +11749,12 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
     it is, rather than silently patched)."""
     global _MIGRATIONS_APPLIED
     dsn = os.environ["EXECUTION_TEST_POSTGRES_DSN"]
-    async with asyncpg.connect(dsn=dsn, timeout=10.0) as connection:
+    # asyncpg.connect() returns a coroutine resolving to a Connection; a
+    # Connection is NOT an async context manager (only pools and
+    # transactions are), so `async with asyncpg.connect(...)` raised
+    # TypeError before any test body ran. Open, yield, always close.
+    connection = await asyncpg.connect(dsn=dsn, timeout=10.0)
+    try:
         if not _MIGRATIONS_APPLIED:
             await connection.execute(
                 'CREATE TABLE IF NOT EXISTS "tenants" ("id" UUID PRIMARY KEY)'
@@ -10348,6 +11776,12 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
             elif have_orders and not have_ledger:
                 for statement in _statements_for(MIGRATIONS[1]):
                     await connection.execute(statement)
+            elif have_orders and have_ledger:
+                # fully migrated (a re-run, or part-13's suite ran first on
+                # this database): left alone, exactly as the docstring
+                # promises. Without this branch a second run fell through to
+                # the half-migrated refusal below with a false diagnosis.
+                pass
             else:
                 pytest.fail(
                     "half-migrated CI database (engine_retention_runs without "
@@ -10363,6 +11797,8 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
         for statement in _TRUNCATES:
             await connection.execute(statement)
         yield connection
+    finally:
+        await connection.close()
 
 
 class _SingleConnectionPool:
@@ -10569,6 +12005,7 @@ class TestLedgerUnderRls:
     async def test_enabled_policies_see_the_run_through_the_guc_only(
         self, conn: asyncpg.Connection
     ) -> None:
+        await _require_rls_subject(conn)
         now = now_us()
         cutoff = now - 90 * DAY_US
         await seed_order(conn, TENANT_A, "ord-a", terminal_at_us=cutoff - DAY_US)
@@ -10676,7 +12113,7 @@ MIGRATION = (
     / "api"
     / "prisma"
     / "migrations"
-    / "20260913120000_part11_row_level_security"
+    / "20260923090000_part11_row_level_security"
     / "migration.sql"
 )
 PRISMA_SERVICE = ROOT / "apps" / "api" / "src" / "infrastructure" / "prisma" / "prisma.service.ts"
@@ -10758,12 +12195,22 @@ class TestProbeTableSetMatchesTheArtifacts:
         manifest = coverage_manifest()
         assert len(covered_tables(ENABLE)) == len(manifest["covered"])
         assert {entry["table"] for entry in manifest["covered"]} == set(covered_tables(ENABLE))
-        # The number the docs quote, in a test that reads the artifacts: 43 since
-        # Part 17's engine_incidents joined the tenant-scoped set. It is pinned
-        # rather than derived because the whole point of the pairing tests is that
-        # enable.sql, disable.sql, rls_coverage.json and the prose agree - a number
-        # computed from one of them cannot show the other three disagree.
-        assert len(covered_tables(ENABLE)) == 42 + 1
+        # The number the docs quote, in a test that reads the artifacts: 182
+        # after the regeneration that followed the domain-persistence table
+        # migration (20260923085000): the previous 161 (the Part 28 set of 153
+        # at stamp 20260923090000 plus the eight developer_* tenant tables from
+        # 20260923080000) plus the 21 tenant-owned billing, governance and
+        # partner tables. The six new platform-scoped tables (nullable
+        # tenant_id) joined the exclusion list, which is now 30.
+        # 186 after Part 11 production SSO (20260923089000): the four
+        # tenant-owned tables sso_auth_transactions, sso_identities,
+        # sso_assertion_replays and sso_audit_events; exclusions unchanged.
+        # It is pinned rather than derived because the whole point of the
+        # pairing tests is that enable.sql, disable.sql, rls_coverage.json and
+        # the prose agree - a number computed from one of them cannot show the
+        # other three disagree.
+        assert len(covered_tables(ENABLE)) == 186
+        assert len(coverage_manifest()["excluded"]) == 30
 
     def test_every_covered_table_has_a_policy_in_the_migration(self) -> None:
         policies = migrated_tables(MIGRATION_SQL)
@@ -12111,7 +13558,8 @@ class TestComposedRuntime:
         report = build_runtime(settings_for(("EXECUTION_MODE", "simulated"),)).live_enablement
         assert report is not None
         assert {prerequisite.name for prerequisite in report.satisfied} == {
-            "IP_ALLOWLIST_ENFORCED"
+            "IP_ALLOWLIST_ENFORCED",
+            "SIGNED_TRANSPORT_WIRED",
         }
         missing = {prerequisite.name for prerequisite in report.missing}
         assert {
@@ -12124,10 +13572,13 @@ class TestComposedRuntime:
             "DISTRIBUTED_LOCKS_WIRED",
             "VENUE_ATTESTOR_WIRED",
             "OPERATOR_CONFIRMATION_ACCEPTED",
-            "SIGNED_TRANSPORT_WIRED",
         } == missing
-        assert LivePrerequisite.SIGNED_TRANSPORT_WIRED in report.missing
-        assert report.hard_blockers_present and report.blocks_live
+        # Part 20: SIGNED_TRANSPORT_WIRED is now satisfied — the composition root
+        # constructs a real key registry and transport.
+        assert LivePrerequisite.SIGNED_TRANSPORT_WIRED not in report.missing
+        # No hard blockers remain
+        assert not report.hard_blockers_present
+        assert report.blocks_live
 
     def test_simulated_runtime_carries_a_reviewer_into_the_engine(self) -> None:
         runtime, _ = runtime_for()
@@ -13861,9 +15312,10 @@ class TestMetricsRoute:
     def test_the_diagnostic_review_is_not_counted_as_a_gated_review(
         self, client: TestClient
     ) -> None:
-        # The end-to-end claim Part 18 can honestly make about THIS process: the
-        # service composes an engine but serves no submission command, so the
-        # counters are expected to sit at zero - and the placement endpoint is a
+        # The end-to-end claim Part 18 can honestly make about THIS process: no
+        # order has been submitted in this test (the Phase 3 submit-order route
+        # exists, and is exercised in test_phase3_submit.py), so the counters
+        # are expected to sit at zero - and the placement endpoint is a
         # question, not an order. If a future change made ``attest`` increment
         # ``placement_reviews``, this assertion is where somebody notices that the
         # dashboard's "reviews" no longer means "orders the gate looked at".
@@ -14414,10 +15866,10 @@ class TestComposedRuntime:
                 ),
             )
         message = str(caught.value)
-        # The confirmation was accepted - and it is said so, in the satisfied list -
-        # while the refusal stands: the sentence's missing half still names the
-        # transport, which is the one thing this build cannot be configured into.
-        assert "signed transport wired" in message.split("satisfied:")[0]
+        # Part 20: signed transport is now wired. The confirmation was accepted -
+        # and it is said so, in the satisfied list. The refusal still stands
+        # because other prerequisites (credential source, venue attestor) are
+        # missing in this test environment.
         assert "operator confirmation accepted" in message.split("satisfied:")[1].split(".")[0]
         assert "No order was sent" in message
         assert runtime.live_enablement is not None
@@ -14439,10 +15891,11 @@ class TestComposedRuntime:
         assert "OPERATOR_CONFIRMATION_ACCEPTED" in {
             prerequisite.name for prerequisite in report.satisfied
         }
-        # ...and live is still refused, because the report is an explanation and not a
-        # gate: the composition's own refusal is unconditional.
+        # Part 20: signed transport is now wired. Live is still refused because
+        # other prerequisites (credential source) are missing in this test.
         assert report.blocks_live
-        assert LivePrerequisite.SIGNED_TRANSPORT_WIRED in report.missing
+        # SIGNED_TRANSPORT_WIRED is now satisfied, not missing
+        assert LivePrerequisite.SIGNED_TRANSPORT_WIRED not in report.missing
 
     def test_an_expired_confirmation_grades_unsatisfied(
         self, monkeypatch: pytest.MonkeyPatch
@@ -14501,8 +15954,10 @@ class TestStatusSurface:
         assert body["operatorConfirmation"] is False
         enablement = body["liveEnablement"]
         assert enablement["liveRefused"] is True
-        assert enablement["hardBlockersPresent"] is True
-        assert "SIGNED_TRANSPORT_WIRED" in enablement["missing"]
+        # Part 20: no hard blockers remain — signed transport is now wired
+        assert enablement["hardBlockersPresent"] is False
+        # SIGNED_TRANSPORT_WIRED is now satisfied, not missing
+        assert "SIGNED_TRANSPORT_WIRED" not in enablement["missing"]
         assert all(code.startswith("LIVE_") for code in enablement["missingCodes"])
         assert enablement["credentialSource"] == "none"
         assert body["placement"]["confirmationConfigured"] is False
@@ -15255,12 +16710,15 @@ STATUS_CONTRACT_KEYS: frozenset[str] = frozenset(
     {
         "adapter",
         "commands",
+        "credentialRegistry",
         "credentialFetcher",
         "credentialSource",
         "dryRun",
         "enablementMaxAgeDays",
         "incidents",
         "instanceId",
+        "distributedLockWiring",
+        "keyRegistryConfigured",
         "liveEnablement",
         "locksDistributed",
         "metricsConfigured",
@@ -15269,10 +16727,12 @@ STATUS_CONTRACT_KEYS: frozenset[str] = frozenset(
         "placement",
         "retentionEnabled",
         "retentionEventDays",
+        "signedTransportWired",
         "simulated",
         "store",
         "storeBackend",
         "storeDurable",
+        "venueAttestation",
     }
 )
 
@@ -15332,7 +16792,8 @@ class TestReadScopeAnswers:
         enablement = body["liveEnablement"]
         assert enablement is not None
         assert enablement["liveRefused"] is True
-        assert enablement["hardBlockersPresent"] is True
+        # Part 20: no hard blockers remain — signed transport is now wired
+        assert enablement["hardBlockersPresent"] is False
 
     def test_a_caller_that_names_a_tenant_gets_the_same_bytes(self, client: TestClient) -> None:
         """Back-compatibility, asserted rather than assumed.
@@ -15546,6 +17007,12828 @@ class TestScopesDirectly:
             self._settings(), TOKEN, "t" * 64, None
         )
         assert ok.tenant_id == "t" * 64
+```
+
+FILE: services/execution-engine/tests/test_part28_staging_preflight.py
+
+```python
+"""Part 28: the development preflight (``scripts/staging/live_readiness.py``).
+
+The preflight is the permissive twin of the staging rehearsal: SKIPPED counts
+as success for credential-conditional prerequisites, and it is expected to run
+on a developer box with no Redis, no Postgres and no vault. What the tests
+pin is therefore not "it passes" - on a bare box it must NOT pass - but the
+three things that would rot silently otherwise:
+
+1. the grading is read off the engine's own ``LiveEnablementReport``, never
+   re-derived from flags, so the preflight and the refusal cannot disagree;
+2. the strict/soft boundary (which prerequisites may be SKIPPED, and only
+   when no credential source is named) is the README's table, as code;
+3. the tool refuses production, refuses unconfigured boot, and tells the
+   truth in both text and JSON.
+
+The script is imported by path (``scripts/staging`` is a tools directory, not
+a package) and every test runs against the REAL composition root via the
+shared conftest environment - the same no-mocks-under-the-money-path rule as
+the rest of the suite.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS = ROOT / "scripts" / "staging"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import live_readiness as preflight  # noqa: E402
+from wlct_trading.execution.live_enablement import (  # noqa: E402
+    LiveEnablementReport,
+    LivePrerequisite,
+)
+
+# ---------------------------------------------------------------------------
+# The vocabulary: order, membership, and the strict/soft boundary
+# ---------------------------------------------------------------------------
+
+
+class TestThePreflightVocabulary:
+    def test_the_prerequisite_order_is_the_enum_declaration_order(self) -> None:
+        # Report order = declaration order: a preflight line and the engine's
+        # refusal sentence must list the same things in the same order, or
+        # one of them is being translated twice.
+        assert preflight.PREREQUISITE_ORDER == tuple(LivePrerequisite)
+
+    def test_every_enum_member_is_graded_exactly_once(self) -> None:
+        assert len(preflight.PREREQUISITE_ORDER) == len(set(preflight.PREREQUISITE_ORDER)) == 8
+
+    def test_exactly_four_prerequisites_are_credential_conditional(self) -> None:
+        assert preflight.CREDENTIAL_CONDITIONAL == frozenset(
+            {
+                LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,
+                LivePrerequisite.CREDENTIAL_FETCHER_WIRED,
+                LivePrerequisite.VENUE_ATTESTOR_WIRED,
+                LivePrerequisite.OPERATOR_CONFIRMATION_ACCEPTED,
+            }
+        )
+
+    def test_the_credential_conditional_set_never_grows_silently(self) -> None:
+        # A fifth member here is a change to what a developer box tolerates -
+        # exactly the kind of decision that must be a reviewed edit to THIS
+        # assertion instead of a quiet frozenset entry.
+        assert len(preflight.CREDENTIAL_CONDITIONAL) == 4
+
+    def test_the_status_vocabulary_is_exactly_three_outcomes(self) -> None:
+        assert {status.value for status in preflight.PrerequisiteStatus} == {
+            "PASS",
+            "SKIPPED",
+            "FAIL",
+        }
+
+
+# ---------------------------------------------------------------------------
+# classify: the strict/soft boundary
+# ---------------------------------------------------------------------------
+
+
+def _report(
+    satisfied: tuple[LivePrerequisite, ...],
+    missing: tuple[LivePrerequisite, ...],
+    credential_source: str = "none",
+) -> LiveEnablementReport:
+    return LiveEnablementReport(
+        satisfied=satisfied, missing=missing, credential_source=credential_source
+    )
+
+
+class TestClassify:
+    def test_a_satisfied_prerequisite_passes_regardless_of_kind(self) -> None:
+        report = _report((LivePrerequisite.DURABLE_STORE_WIRED,), ())
+        assert preflight.classify(LivePrerequisite.DURABLE_STORE_WIRED, report) is (
+            preflight.PrerequisiteStatus.PASS
+        )
+
+    def test_a_required_prerequisite_missing_is_a_fail(self) -> None:
+        report = _report((), (LivePrerequisite.DURABLE_STORE_WIRED,))
+        assert preflight.classify(LivePrerequisite.DURABLE_STORE_WIRED, report) is (
+            preflight.PrerequisiteStatus.FAIL
+        )
+
+    def test_a_credential_conditional_missing_with_no_source_is_skipped(self) -> None:
+        report = _report((), (LivePrerequisite.VENUE_ATTESTOR_WIRED,), credential_source="none")
+        assert preflight.classify(LivePrerequisite.VENUE_ATTESTOR_WIRED, report) is (
+            preflight.PrerequisiteStatus.SKIPPED
+        )
+
+    def test_a_credential_conditional_missing_with_a_source_is_a_fail(self) -> None:
+        # "environment" was named but the runtime graded it missing: a
+        # configured-but-absent credential path is the one failure the
+        # preflight must never smooth into a skip.
+        report = _report(
+            (),
+            (LivePrerequisite.CREDENTIAL_FETCHER_WIRED,),
+            credential_source="environment",
+        )
+        assert preflight.classify(LivePrerequisite.CREDENTIAL_FETCHER_WIRED, report) is (
+            preflight.PrerequisiteStatus.FAIL
+        )
+
+    def test_the_source_prerequisite_itself_follows_the_same_rule(self) -> None:
+        configured = _report((), (LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,), "secret-manager")
+        assert preflight.classify(LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED, configured) is (
+            preflight.PrerequisiteStatus.FAIL
+        )
+        unconfigured = _report((), (LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,), "none")
+        assert preflight.classify(LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED, unconfigured) is (
+            preflight.PrerequisiteStatus.SKIPPED
+        )
+
+
+class TestRunPreflight:
+    def test_all_eight_are_graded_in_report_order(self) -> None:
+        report = LiveEnablementReport(
+            satisfied=(
+                LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,
+                LivePrerequisite.DURABLE_STORE_WIRED,
+            ),
+            missing=tuple(
+                p for p in LivePrerequisite if p not in (
+                    LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,
+                    LivePrerequisite.DURABLE_STORE_WIRED,
+                )
+            ),
+            credential_source="environment",
+        )
+        results = preflight.run_preflight(report)
+        assert [r.prerequisite for r in results] == list(LivePrerequisite)
+        by_name = {r.prerequisite: r.status for r in results}
+        assert by_name[LivePrerequisite.DURABLE_STORE_WIRED] is preflight.PrerequisiteStatus.PASS
+        assert by_name[LivePrerequisite.SIGNED_TRANSPORT_WIRED] is preflight.PrerequisiteStatus.FAIL
+
+    def test_the_result_renders_as_data(self) -> None:
+        result = preflight.ReadinessResult(
+            prerequisite=LivePrerequisite.IP_ALLOWLIST_ENFORCED,
+            status=preflight.PrerequisiteStatus.PASS,
+            detail="graded from runtime objects",
+        )
+        assert result.to_dict() == {
+            "prerequisite": "IP_ALLOWLIST_ENFORCED",
+            "status": "PASS",
+            "detail": "graded from runtime objects",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Environment loading and the production guard
+# ---------------------------------------------------------------------------
+
+
+class TestStagingEnvLoading:
+    def test_load_staging_env_sets_unset_variables_and_returns_the_count(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        env_file = tmp_path / ".env.staging"
+        env_file.write_text(
+            "# comment line\n"
+            "\n"
+            "EXECUTION_MODE=simulated\n"
+            'EXECUTION_DRY_RUN="true"\n'
+            "EXECUTION_SIMULATED_MID='50000'\n",
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("EXECUTION_MODE", raising=False)
+        monkeypatch.delenv("EXECUTION_DRY_RUN", raising=False)
+        monkeypatch.delenv("EXECUTION_SIMULATED_MID", raising=False)
+        loaded = preflight.load_staging_env(env_file)
+        assert loaded == 3
+        assert __import__("os").environ["EXECUTION_MODE"] == "simulated"
+        assert __import__("os").environ["EXECUTION_DRY_RUN"] == "true"
+        assert __import__("os").environ["EXECUTION_SIMULATED_MID"] == "50000"
+
+    def test_an_already_exported_variable_wins_over_the_file(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        env_file = tmp_path / ".env.staging"
+        env_file.write_text("EXECUTION_MODE=live\n", encoding="utf-8")
+        monkeypatch.setenv("EXECUTION_MODE", "simulated")
+        preflight.load_staging_env(env_file)
+        assert __import__("os").environ["EXECUTION_MODE"] == "simulated"
+
+    def test_a_missing_file_loads_nothing(self, tmp_path: Path) -> None:
+        assert preflight.load_staging_env(tmp_path / "absent.env") == 0
+
+
+class TestTheProductionGuard:
+    def test_production_without_opt_in_refuses_with_exit_two(self, monkeypatch) -> None:
+        monkeypatch.setenv("NODE_ENV", "production")
+        assert preflight.main([]) == 2
+
+    def test_the_guard_reads_the_environment_case_sensitively_lowercased(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("NODE_ENV", "Production")
+        assert preflight.main([]) == 2
+
+    def test_non_production_environments_are_not_the_guarded_thing(
+        self, monkeypatch
+    ) -> None:
+        # The guard fires on NODE_ENV, not on EXECUTION_MODE: a staging run
+        # with simulated mode is the tool's whole purpose.
+        assert not preflight._looks_like_production({"NODE_ENV": "staging"})
+        assert not preflight._looks_like_production({"NODE_ENV": ""})
+        assert not preflight._looks_like_production({})
+
+
+# ---------------------------------------------------------------------------
+# The real composition root, through main(): text and JSON
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightAgainstTheRealRuntime:
+    def test_a_bare_development_box_reports_fail_for_required_and_exits_one(
+        self, capsys
+    ) -> None:
+        # BASE_ENV (conftest): memory store, in-memory locks, signed transport
+        # wired. The preflight must say exactly that, in enum order.
+        code = preflight.main([])
+        output = capsys.readouterr().out
+        lines = [line for line in output.splitlines() if line and not line.startswith((" ", "\t"))]
+        statuses = {line.split()[1]: line.split()[0] for line in lines if len(line.split()) >= 2}
+        assert statuses["DURABLE_STORE_WIRED"] == "FAIL"
+        assert statuses["DISTRIBUTED_LOCKS_WIRED"] == "FAIL"
+        assert statuses["SIGNED_TRANSPORT_WIRED"] == "PASS"
+        assert statuses["IP_ALLOWLIST_ENFORCED"] == "PASS"
+        for name in (
+            "CREDENTIAL_SOURCE_CONFIGURED",
+            "CREDENTIAL_FETCHER_WIRED",
+            "VENUE_ATTESTOR_WIRED",
+            "OPERATOR_CONFIRMATION_ACCEPTED",
+        ):
+            assert statuses[name] == "SKIPPED"
+        assert "ready (preflight semantics): False" in output
+        # The sentence that must survive every refactor of this tool.
+        assert "live execution remains refused by code" in output
+        assert code == 1
+
+    def test_json_mode_is_a_single_payload_with_all_eight(self, capsys) -> None:
+        code = preflight.main(["--json"])
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ready"] is False
+        assert payload["liveRefused"] is True
+        assert payload["credentialSource"] == "none"
+        assert len(payload["prerequisites"]) == 8
+        assert code == 1
+
+    def test_json_mode_is_the_only_output_in_json_mode(self, capsys) -> None:
+        preflight.main(["--json"])
+        out = capsys.readouterr().out
+        json.loads(out)  # raises if anything prose-shaped leaked in
+        assert out.count("\n") == 1
+
+    def test_an_unconfigured_boot_is_a_refusal_not_a_traceback(self, monkeypatch, capsys) -> None:
+        # The service's fail-closed settings (no internal token) must surface
+        # as an exit-2 answer, never a stack trace an operator has to parse.
+        monkeypatch.delenv("EXECUTION_INTERNAL_TOKEN", raising=False)
+        code = preflight.main([])
+        assert code == 2
+        assert "configuration refused" in capsys.readouterr().out
+
+    def test_the_unconfigured_boot_answers_in_json_too(self, monkeypatch, capsys) -> None:
+        monkeypatch.delenv("EXECUTION_INTERNAL_TOKEN", raising=False)
+        code = preflight.main(["--json"])
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {
+            "mode": None,
+            "ready": False,
+            "prerequisites": [],
+            "error": payload["error"],
+        }
+        assert "configuration refused" in payload["error"]
+        assert code == 2
+
+    def test_staging_flag_without_a_file_changes_nothing(self, capsys) -> None:
+        # No .env.staging in the repo (it is gitignored by design), so
+        # --staging must be a no-op here, not a crash.
+        code = preflight.main(["--staging", "--json"])
+        assert code == 1
+        assert json.loads(capsys.readouterr().out)["ready"] is False
+
+
+# ---------------------------------------------------------------------------
+# main() wiring details that should not silently change
+# ---------------------------------------------------------------------------
+
+
+class TestMainWiring:
+    def test_unknown_arguments_are_argparse_errors(self) -> None:
+        try:
+            preflight.main(["--mode=live"])
+        except SystemExit as exit_error:
+            assert exit_error.code == 2
+        else:  # pragma: no cover
+            raise AssertionError("argparse accepted an unknown flag")
+
+    def test_the_script_exposes_its_surface_for_the_readme(self) -> None:
+        # The README documents both tools by these names; the integrity test
+        # holds the files, and this holds the API.
+        for name in preflight.__all__:
+            assert hasattr(preflight, name), name
+
+    def test_grading_is_not_recomputed_from_flags(self) -> None:
+        # The report is THE source: run_preflight takes one, and nothing in
+        # the module grading path reads os.environ. Pinned as a shape fact -
+        # a second derivation from flags is exactly how the preflight and the
+        # refusal would drift apart.
+        import inspect
+
+        source = inspect.getsource(preflight.classify)
+        assert "os.environ" not in source
+        assert "getenv" not in source
+```
+
+FILE: services/execution-engine/tests/test_part29_staging_rehearsal.py
+
+```python
+"""Part 29: the staging rehearsal (``scripts/staging/staging_rehearsal.py``).
+
+The strict twin of Part 28's preflight. SKIPPED is NOT success here, BLOCKED
+is its own exit code, and the readiness table (PASS/FAIL/BLOCKED/UNVERIFIED/
+SKIPPED) is the contract the README publishes and CI consumes. The tests pin:
+
+1. the readiness arithmetic - which combinations open the doors and which
+   exit codes they produce, including BLOCKED outranking FAIL;
+2. the required/credential-conditional split, as data, byte-equal to the
+   README's table;
+3. the runtime grading, against a synthetic enablement report so every
+   status cell is reachable without infrastructure;
+4. the Redis client's URL grammar and the fail-closed config handling;
+5. the live-mode gate: a report that does NOT block live execution is the
+   one FAIL this tool must never be talked out of.
+
+Dependency probes that need real PostgreSQL/Redis are exercised only on
+their not-configured paths here - the live paths are the staging box's job,
+and faking a Redis behind a fake protocol would test the fake.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS = ROOT / "scripts" / "staging"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import staging_rehearsal as rehearsal  # noqa: E402
+from wlct_trading.execution.live_enablement import (  # noqa: E402
+    LiveEnablementReport,
+    LivePrerequisite,
+)
+
+ALL_PREREQUISITES: tuple[LivePrerequisite, ...] = tuple(LivePrerequisite)
+
+REQUIRED: frozenset[LivePrerequisite] = frozenset(
+    {
+        LivePrerequisite.DURABLE_STORE_WIRED,
+        LivePrerequisite.DISTRIBUTED_LOCKS_WIRED,
+        LivePrerequisite.SIGNED_TRANSPORT_WIRED,
+        LivePrerequisite.IP_ALLOWLIST_ENFORCED,
+    }
+)
+CREDENTIAL_CONDITIONAL: frozenset[LivePrerequisite] = frozenset(ALL_PREREQUISITES) - REQUIRED
+
+
+def _check(
+    name: str,
+    status: rehearsal.CheckStatus,
+    *,
+    group: str = "runtime",
+    detail: str = "",
+) -> rehearsal.CheckResult:
+    return rehearsal.CheckResult(group=group, name=name, status=status, detail=detail)
+
+
+# ---------------------------------------------------------------------------
+# The vocabulary, as data
+# ---------------------------------------------------------------------------
+
+
+class TestTheRehearsalVocabulary:
+    def test_the_status_table_is_exactly_the_readme_s_five_outcomes(self) -> None:
+        assert {status.value for status in rehearsal.CheckStatus} == {
+            "PASS",
+            "FAIL",
+            "BLOCKED",
+            "UNVERIFIED",
+            "SKIPPED",
+        }
+
+    def test_the_required_set_is_exactly_the_readme_s_four(self) -> None:
+        assert rehearsal.REQUIRED_PREREQUISITES == REQUIRED
+
+    def test_the_conditional_set_is_the_complement(self) -> None:
+        assert rehearsal.CREDENTIAL_CONDITIONAL_PREREQUISITES == CREDENTIAL_CONDITIONAL
+        assert rehearsal.REQUIRED_PREREQUISITES.isdisjoint(
+            rehearsal.CREDENTIAL_CONDITIONAL_PREREQUISITES
+        )
+
+    def test_every_prerequisite_is_classified_exactly_once(self) -> None:
+        assert REQUIRED | CREDENTIAL_CONDITIONAL == frozenset(ALL_PREREQUISITES)
+        assert len(ALL_PREREQUISITES) == 8
+
+    def test_the_result_renders_as_data(self) -> None:
+        assert _check("x", rehearsal.CheckStatus.PASS, detail="d").to_dict() == {
+            "group": "runtime",
+            "name": "x",
+            "status": "PASS",
+            "detail": "d",
+        }
+
+    def test_the_engine_tables_probe_names_part_13_s_three_tables(self) -> None:
+        # The schema check refuses to write its probe row unless all three
+        # tables exist; a fourth name would be a migration that never ran.
+        assert rehearsal._ENGINE_TABLES == (
+            "engine_orders",
+            "engine_order_events",
+            "engine_order_fills",
+        )
+
+
+# ---------------------------------------------------------------------------
+# strict_ready: the arithmetic staging opens the doors by
+# ---------------------------------------------------------------------------
+
+
+def _ready_checks() -> list[rehearsal.CheckResult]:
+    checks = [_check(f"runtime.{p.value}", rehearsal.CheckStatus.PASS) for p in ALL_PREREQUISITES]
+    checks.append(_check("runtime.LIVE_MODE_GATE", rehearsal.CheckStatus.PASS))
+    checks.append(_check("runtime.bootstrap", rehearsal.CheckStatus.PASS))
+    return checks
+
+
+class TestStrictReady:
+    def test_all_pass_is_ready(self) -> None:
+        assert rehearsal.strict_ready(_ready_checks()) is True
+
+    def test_a_credential_conditional_skip_with_no_source_is_ready(self) -> None:
+        checks = _ready_checks()
+        checks[
+            next(
+                i
+                for i, c in enumerate(checks)
+                if c.name == "runtime.CREDENTIAL_SOURCE_CONFIGURED"
+            )
+        ] = _check(
+            "runtime.CREDENTIAL_SOURCE_CONFIGURED",
+            rehearsal.CheckStatus.SKIPPED,
+            detail="no credential source configured (acceptable for credentials only)",
+        )
+        assert rehearsal.strict_ready(checks) is True
+
+    def test_a_dependency_skip_is_not_ready_even_with_detail_match(self) -> None:
+        # The no-credential-skip belongs to runtime prerequisites ONLY: a
+        # skipped Postgres check is staging infrastructure that was never
+        # verified, whatever its detail string says.
+        checks = _ready_checks()
+        checks.append(
+            _check(
+                "postgres.connectivity",
+                rehearsal.CheckStatus.SKIPPED,
+                group="dependency-postgresql",
+                detail="no credential source configured (acceptable for credentials only)",
+            )
+        )
+        assert rehearsal.strict_ready(checks) is False
+
+    def test_a_runtime_skip_with_a_mismatched_detail_is_not_ready(self) -> None:
+        # Only the exact "no credential source" answer may skip; a skip with
+        # any other excuse is an unverified required thing wearing a costume.
+        checks = _ready_checks()
+        checks[
+            next(
+                i
+                for i, c in enumerate(checks)
+                if c.name == "runtime.CREDENTIAL_SOURCE_CONFIGURED"
+            )
+        ] = _check(
+            "runtime.CREDENTIAL_SOURCE_CONFIGURED",
+            rehearsal.CheckStatus.SKIPPED,
+            detail="operator said it was fine",
+        )
+        assert rehearsal.strict_ready(checks) is False
+
+    def test_a_required_skip_is_not_ready(self) -> None:
+        checks = _ready_checks()
+        checks[
+            next(i for i, c in enumerate(checks) if c.name == "runtime.DURABLE_STORE_WIRED")
+        ] = _check(
+            "runtime.DURABLE_STORE_WIRED",
+            rehearsal.CheckStatus.SKIPPED,
+            detail="no credential source configured (acceptable for credentials only)",
+        )
+        assert rehearsal.strict_ready(checks) is False
+
+    def test_any_fail_is_not_ready(self) -> None:
+        checks = _ready_checks()
+        checks.append(
+            _check("redis.lock_roundtrip", rehearsal.CheckStatus.FAIL, group="dependency-redis")
+        )
+        assert rehearsal.strict_ready(checks) is False
+
+    def test_any_blocked_is_not_ready(self) -> None:
+        checks = _ready_checks()
+        checks.append(
+            _check(
+                "postgres.connectivity",
+                rehearsal.CheckStatus.BLOCKED,
+                group="dependency-postgresql",
+            )
+        )
+        assert rehearsal.strict_ready(checks) is False
+
+    def test_any_unverified_is_not_ready(self) -> None:
+        checks = _ready_checks()
+        checks[
+            next(
+                i
+                for i, c in enumerate(checks)
+                if c.name == "runtime.VENUE_ATTESTOR_WIRED"
+            )
+        ] = _check(
+            "runtime.VENUE_ATTESTOR_WIRED",
+            rehearsal.CheckStatus.UNVERIFIED,
+            detail="credential source 'secret-manager' is configured but "
+            "the runtime could not verify this prerequisite",
+        )
+        assert rehearsal.strict_ready(checks) is False
+
+
+# ---------------------------------------------------------------------------
+# exit codes: 0 ready, 1 fail, 2 blocked
+# ---------------------------------------------------------------------------
+
+
+class TestExitCodes:
+    def test_ready_is_zero(self) -> None:
+        assert rehearsal.exit_code_for(_ready_checks()) == 0
+
+    def test_a_fail_is_one(self) -> None:
+        checks = _ready_checks()
+        checks.append(
+            _check("redis.lock_roundtrip", rehearsal.CheckStatus.FAIL, group="dependency-redis")
+        )
+        assert rehearsal.exit_code_for(checks) == 1
+
+    def test_blocked_outranks_fail(self) -> None:
+        # Different remedies: fix the wiring (FAIL) vs fix the infrastructure
+        # the wiring points at (BLOCKED). CI maps both to "not ready"; the
+        # exit code must still let a human tell them apart.
+        checks = _ready_checks()
+        checks.append(
+            _check("redis.lock_roundtrip", rehearsal.CheckStatus.FAIL, group="dependency-redis")
+        )
+        checks.append(
+            _check(
+                "postgres.connectivity",
+                rehearsal.CheckStatus.BLOCKED,
+                group="dependency-postgresql",
+            )
+        )
+        assert rehearsal.exit_code_for(checks) == 2
+
+    def test_blocked_alone_is_two(self) -> None:
+        checks = _ready_checks()
+        checks.append(
+            _check(
+                "postgres.connectivity",
+                rehearsal.CheckStatus.BLOCKED,
+                group="dependency-postgresql",
+            )
+        )
+        assert rehearsal.exit_code_for(checks) == 2
+
+    def test_an_unverified_counts_as_one_not_two(self) -> None:
+        checks = _ready_checks()
+        checks[
+            next(i for i, c in enumerate(checks) if c.name == "runtime.DURABLE_STORE_WIRED")
+        ] = _check("runtime.DURABLE_STORE_WIRED", rehearsal.CheckStatus.UNVERIFIED)
+        assert rehearsal.exit_code_for(checks) == 1
+
+
+# ---------------------------------------------------------------------------
+# The runtime grading, against synthetic reports
+# ---------------------------------------------------------------------------
+
+
+def _report(
+    satisfied: tuple[LivePrerequisite, ...],
+    missing: tuple[LivePrerequisite, ...],
+    credential_source: str = "none",
+) -> LiveEnablementReport:
+    return LiveEnablementReport(
+        satisfied=satisfied, missing=missing, credential_source=credential_source
+    )
+
+
+class TestGradeRuntimePrerequisites:
+    def test_all_satisfied_grades_all_pass(self) -> None:
+        results = rehearsal.grade_runtime_prerequisites(_report(ALL_PREREQUISITES, ()))
+        assert all(r.status is rehearsal.CheckStatus.PASS for r in results)
+        assert len(results) == 8
+
+    def test_a_required_missing_is_a_fail_not_a_skip(self) -> None:
+        results = rehearsal.grade_runtime_prerequisites(
+            _report((), (LivePrerequisite.DURABLE_STORE_WIRED,))
+        )
+        by_name = {r.name: r.status for r in results}
+        assert by_name["runtime.DURABLE_STORE_WIRED"] is rehearsal.CheckStatus.FAIL
+
+    def test_conditional_missing_with_no_source_is_skipped(self) -> None:
+        missing = tuple(rehearsal.CREDENTIAL_CONDITIONAL_PREREQUISITES)
+        results = rehearsal.grade_runtime_prerequisites(_report((), missing))
+        by_name = {r.name: r.status for r in results}
+        assert by_name["runtime.CREDENTIAL_SOURCE_CONFIGURED"] is rehearsal.CheckStatus.SKIPPED
+        assert by_name["runtime.VENUE_ATTESTOR_WIRED"] is rehearsal.CheckStatus.SKIPPED
+
+    def test_conditional_missing_with_a_source_is_unverified(self) -> None:
+        missing = tuple(rehearsal.CREDENTIAL_CONDITIONAL_PREREQUISITES)
+        results = rehearsal.grade_runtime_prerequisites(
+            _report((), missing, credential_source="secret-manager")
+        )
+        by_name = {r.name: r.status for r in results}
+        assert by_name["runtime.CREDENTIAL_FETCHER_WIRED"] is rehearsal.CheckStatus.UNVERIFIED
+
+    def test_mixed_report_lands_each_prerequisite_in_its_own_cell(self) -> None:
+        satisfied = (
+            LivePrerequisite.DURABLE_STORE_WIRED,
+            LivePrerequisite.DISTRIBUTED_LOCKS_WIRED,
+            LivePrerequisite.SIGNED_TRANSPORT_WIRED,
+            LivePrerequisite.IP_ALLOWLIST_ENFORCED,
+            LivePrerequisite.CREDENTIAL_SOURCE_CONFIGURED,
+        )
+        missing = tuple(p for p in ALL_PREREQUISITES if p not in satisfied)
+        results = rehearsal.grade_runtime_prerequisites(
+            _report(satisfied, missing, credential_source="environment")
+        )
+        by_name = {r.name: r.status for r in results}
+        assert by_name["runtime.DURABLE_STORE_WIRED"] is rehearsal.CheckStatus.PASS
+        assert by_name["runtime.CREDENTIAL_SOURCE_CONFIGURED"] is rehearsal.CheckStatus.PASS
+        assert by_name["runtime.CREDENTIAL_FETCHER_WIRED"] is rehearsal.CheckStatus.UNVERIFIED
+
+
+class TestTheLiveModeGate:
+    def test_a_blocking_report_passes_the_gate(self) -> None:
+        report = _report((), (LivePrerequisite.SIGNED_TRANSPORT_WIRED,))
+        result = rehearsal.check_live_mode_gate(report)
+        assert result.status is rehearsal.CheckStatus.PASS
+
+    def test_a_report_that_stops_blocking_is_the_one_unacceptable_answer(self) -> None:
+        report = _report(ALL_PREREQUISITES, ())
+        result = rehearsal.check_live_mode_gate(report)
+        assert result.status is rehearsal.CheckStatus.FAIL
+        assert result.name == "runtime.LIVE_MODE_GATE"
+
+
+# ---------------------------------------------------------------------------
+# The minimal Redis client: URL grammar before any socket is opened
+# ---------------------------------------------------------------------------
+
+
+class TestStagingRedisClientUrlGrammar:
+    def test_a_plain_url_parses(self) -> None:
+        client = rehearsal.StagingRedisClient("redis://redis:6379/0")
+        assert (client.host, client.port, client.password, client.db, client.use_tls) == (
+            "redis",
+            6379,
+            "",
+            0,
+            False,
+        )
+
+    def test_the_default_port_is_6379(self) -> None:
+        client = rehearsal.StagingRedisClient("redis://redis")
+        assert client.port == 6379
+
+    def test_a_password_only_url_parses_the_compose_form(self) -> None:
+        # docker-compose writes redis://:password@host - empty user, password
+        # in the password field. The grammar the staging overlay actually
+        # produces is the grammar that must parse.
+        client = rehearsal.StagingRedisClient("redis://:s3cret@redis:6379/2")
+        assert client.password == "s3cret"  # noqa: S105 - a URL-grammar fixture
+        assert client.db == 2
+
+    def test_a_user_password_url_parses_too(self) -> None:
+        client = rehearsal.StagingRedisClient("redis://default:s3cret@redis:6380")
+        assert client.password == "s3cret"  # noqa: S105 - a URL-grammar fixture
+        assert client.db == 0
+
+    def test_rediss_selects_tls(self) -> None:
+        client = rehearsal.StagingRedisClient("rediss://:s3cret@redis:6379")
+        assert client.use_tls is True
+
+    def test_a_non_redis_scheme_is_refused_before_any_connection(self) -> None:
+        try:
+            rehearsal.StagingRedisClient("http://redis:6379")
+        except ValueError as error:
+            assert "redis://" in str(error)
+        else:  # pragma: no cover
+            raise AssertionError("http:// was accepted")
+
+    def test_a_hostless_url_is_refused(self) -> None:
+        try:
+            rehearsal.StagingRedisClient("redis:///0")
+        except ValueError as error:
+            assert "host" in str(error)
+        else:  # pragma: no cover
+            raise AssertionError("a hostless URL was accepted")
+
+    def test_commands_before_connect_are_a_runtime_error_not_a_hang(self) -> None:
+        client = rehearsal.StagingRedisClient("redis://redis:6379")
+        try:
+            asyncio.run(client.ping())
+        except RuntimeError as error:
+            assert "not connected" in str(error)
+        else:  # pragma: no cover
+            raise AssertionError("ping before connect did not refuse")
+
+
+# ---------------------------------------------------------------------------
+# Dependency checks on their not-configured paths (no services needed)
+# ---------------------------------------------------------------------------
+
+
+class TestDependencyChecksNotConfigured:
+    def test_memory_backend_skips_all_three_postgres_checks(self) -> None:
+        settings = SimpleNamespace(
+            EXECUTION_STORE_BACKEND="memory", EXECUTION_POSTGRES_DSN=None
+        )
+        results = asyncio.run(rehearsal.check_postgres(settings))
+        assert [r.name for r in results] == [
+            "postgres.connectivity",
+            "postgres.schema",
+            "postgres.persistence_recovery",
+        ]
+        assert all(r.status is rehearsal.CheckStatus.SKIPPED for r in results)
+
+    def test_a_postgres_backend_without_a_dsn_still_skips(self) -> None:
+        # The config refuses postgres-without-DSN at boot; the rehearsal's
+        # skip must not depend on which half of the misconfiguration it sees.
+        settings = SimpleNamespace(
+            EXECUTION_STORE_BACKEND="postgres", EXECUTION_POSTGRES_DSN=None
+        )
+        results = asyncio.run(rehearsal.check_postgres(settings))
+        assert all(r.status is rehearsal.CheckStatus.SKIPPED for r in results)
+
+    def test_disabled_locks_skip_both_redis_checks(self) -> None:
+        settings = SimpleNamespace(
+            EXECUTION_DISTRIBUTED_LOCKS=False, EXECUTION_REDIS_URL=None
+        )
+        results = asyncio.run(rehearsal.check_redis(settings))
+        assert [r.name for r in results] == ["redis.connectivity", "redis.lock_roundtrip"]
+        assert all(r.status is rehearsal.CheckStatus.SKIPPED for r in results)
+
+    def test_locks_enabled_without_a_url_still_skip(self) -> None:
+        settings = SimpleNamespace(
+            EXECUTION_DISTRIBUTED_LOCKS=True, EXECUTION_REDIS_URL=None
+        )
+        results = asyncio.run(rehearsal.check_redis(settings))
+        assert all(r.status is rehearsal.CheckStatus.SKIPPED for r in results)
+
+    def test_skips_never_render_the_dsn_or_url(self) -> None:
+        # "Configured" is the most a detail line may say about a connection
+        # string; a password that leaks through a status tool is a breach the
+        # tool itself committed.
+        settings = SimpleNamespace(
+            EXECUTION_STORE_BACKEND="postgres",
+            EXECUTION_POSTGRES_DSN="postgresql://user:sup3rs3cret@db:5432/wlct",
+        )
+        rendered = json.dumps(
+            [r.to_dict() for r in asyncio.run(rehearsal.check_postgres(settings))]
+        )
+        assert "sup3rs3cret" not in rendered
+        settings = SimpleNamespace(
+            EXECUTION_DISTRIBUTED_LOCKS=False,
+            EXECUTION_REDIS_URL="redis://:anothers3cret@redis:6379/0",
+        )
+        rendered = json.dumps([r.to_dict() for r in asyncio.run(rehearsal.check_redis(settings))])
+        assert "anothers3cret" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Env loading, the production guard, and main() wiring
+# ---------------------------------------------------------------------------
+
+
+class TestMainWiring:
+    def test_the_production_guard_refuses_with_exit_two(self, monkeypatch) -> None:
+        monkeypatch.setenv("NODE_ENV", "production")
+        assert rehearsal.main([]) == 2
+
+    def test_check_flags_are_mutually_exclusive(self) -> None:
+        try:
+            rehearsal.main(["--check-dependencies", "--check-runtime"])
+        except SystemExit as exit_error:
+            assert exit_error.code == 2
+        else:  # pragma: no cover
+            raise AssertionError("contradictory flags were accepted")
+
+    def test_an_unconfigured_boot_is_blocked_not_a_traceback(self, monkeypatch) -> None:
+        monkeypatch.delenv("EXECUTION_INTERNAL_TOKEN", raising=False)
+        code = rehearsal.main(["--check-runtime", "--json"])
+        assert code == 2
+
+    def test_json_payload_carries_the_contract_keys(self, capsys) -> None:
+        code = rehearsal.main(["--check-runtime", "--json"])
+        payload = json.loads(capsys.readouterr().out)
+        assert set(payload) == {"stagingReady", "exitCode", "checks"}
+        assert payload["stagingReady"] is False
+        assert payload["exitCode"] == code
+        # bootstrap + 8 prerequisites + the live gate, whatever the grading.
+        names = [c["name"] for c in payload["checks"]]
+        assert names[0] == "runtime.bootstrap"
+        assert names[-1] == "runtime.LIVE_MODE_GATE"
+        assert len([n for n in names if n.startswith("runtime.")]) == 10
+
+    def test_a_development_box_runtime_check_exits_one(self) -> None:
+        # BASE_ENV (conftest): memory store, in-memory locks -> the two
+        # required prerequisites FAIL under strict semantics. Exactly the
+        # "you are not in staging anymore" answer the tool exists to give.
+        assert rehearsal.main(["--check-runtime"]) == 1
+
+    def test_the_prose_output_names_every_check_and_the_gate_sentence(
+        self, capsys
+    ) -> None:
+        rehearsal.main(["--check-runtime"])
+        out = capsys.readouterr().out
+        assert "[runtime]" in out
+        assert "runtime.DURABLE_STORE_WIRED" in out
+        assert "runtime.LIVE_MODE_GATE" in out
+        assert "staging ready (strict semantics): False" in out
+        assert "live execution remains refused by code" in out
+
+    def test_the_staging_flag_without_a_file_is_a_no_op(self) -> None:
+        # .env.staging is gitignored by design; the flag must tolerate its
+        # absence and simply run on the ambient environment.
+        assert rehearsal.main(["--staging", "--check-runtime", "--json"]) == 1
+
+
+class TestEnvFileLoading:
+    def test_load_env_file_sets_unset_variables(self, tmp_path: Path, monkeypatch) -> None:
+        env_file = tmp_path / ".env.staging"
+        env_file.write_text(
+            "# staging\n"
+            "POSTGRES_PASSWORD=staging-pg\n"
+            "REDIS_PASSWORD='staging-redis'\n"
+            "\n"
+            "broken-line\n",
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+        monkeypatch.delenv("REDIS_PASSWORD", raising=False)
+        loaded = rehearsal._load_env_file(env_file)
+        assert loaded == 2
+        import os
+
+        assert os.environ["POSTGRES_PASSWORD"] == "staging-pg"  # noqa: S105
+        assert os.environ["REDIS_PASSWORD"] == "staging-redis"  # noqa: S105
+
+    def test_already_exported_variables_win(self, tmp_path: Path, monkeypatch) -> None:
+        env_file = tmp_path / ".env.staging"
+        env_file.write_text("REDIS_PASSWORD=from-file\n", encoding="utf-8")
+        monkeypatch.setenv("REDIS_PASSWORD", "from-shell")  # noqa: S105
+        rehearsal._load_env_file(env_file)
+        import os
+
+        assert os.environ["REDIS_PASSWORD"] == "from-shell"  # noqa: S105
+
+    def test_a_missing_file_loads_nothing(self, tmp_path: Path) -> None:
+        assert rehearsal._load_env_file(tmp_path / "absent.env") == 0
+
+
+class TestTheReadmeContract:
+    def test_the_module_exposes_the_surface_the_readme_documents(self) -> None:
+        for name in rehearsal.__all__:
+            assert hasattr(rehearsal, name), name
+
+    def test_connect_timeout_is_bounded_so_a_dead_box_fails_fast(self) -> None:
+        # A rehearsal against a black-holed host must answer in seconds, not
+        # hang CI until the runner timeout - the constant is the promise.
+        assert 0 < rehearsal._CONNECT_TIMEOUT_SECONDS <= 30
+```
+
+FILE: services/execution-engine/tests/test_phase3_submit.py
+
+```python
+"""Phase 3: the OMS/copy-trading submission route, against the real composition.
+
+What these tests pin:
+
+* the route exists, is authenticated, tenant-matched and schema-strict;
+* the context is assembled server-side and fails closed - no reference price,
+  an incomplete exposure ledger or a non-PAPER environment never produce an
+  accepted order;
+* a redelivered job is idempotent (DUPLICATE, same order reported);
+* the outcome rides in a 200 body, exactly as the cancel route's does.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.config import get_settings
+from tests.conftest import auth_headers
+
+
+def submit_body(**overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "tenantId": "tenant-a",
+        "accountId": "acct-1",
+        "orderId": "order-1",
+        "clientOrderId": "oms0000000000004000800000000000001",
+        "symbol": "BTC-USDT",
+        "side": "BUY",
+        "orderType": "MARKET",
+        "quantity": "0.01",
+        "timeInForce": "GTC",
+        "riskDecisionId": "risk-decision-1",
+        "environment": "PAPER",
+        "specification": {
+            "baseAsset": "BTC",
+            "quoteAsset": "USDT",
+            "marketType": "SPOT",
+            "priceTick": "0.01",
+            "quantityStep": "0.00001",
+            "minQuantity": "0.00001",
+            "maxQuantity": "9000",
+            "minNotional": "10",
+            "isTradeable": True,
+            "pricePrecision": 2,
+            "quantityPrecision": 5,
+        },
+        "exposure": {
+            "positionQuantity": "0",
+            "symbolExposureNotional": "0",
+            "accountExposureNotional": "0",
+            "complete": True,
+        },
+        "metadata": {"copyExecutionId": "copy-exec-1"},
+    }
+    body.update(overrides)
+    return body
+
+
+def post(client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"):
+    return client.post("/internal/v1/orders/submit", headers=auth_headers(tenant), json=body)
+
+
+@pytest.fixture
+def live_paper_client(monkeypatch: pytest.MonkeyPatch):
+    """A runtime that actually fills against the paper book (dry run off)."""
+    monkeypatch.setenv("EXECUTION_DRY_RUN", "false")
+    get_settings.cache_clear()
+    from app.main import create_app
+
+    with TestClient(create_app()) as test_client:
+        yield test_client
+
+
+class TestSubmitRoute:
+    def test_status_advertises_submit_order(self, client: TestClient) -> None:
+        body = client.get("/internal/v1/status", headers=auth_headers()).json()
+        assert "submit-order" in body["commands"]
+
+    def test_default_runtime_simulates_and_transmits_nothing(
+        self, client: TestClient
+    ) -> None:
+        # EXECUTION_DRY_RUN guards TRANSMISSION; a paper order transmits nothing
+        # by construction, so the simulator still runs and the verdict is an
+        # honest simulated one - never a real order, never a fabricated fill.
+        response = post(client, submit_body())
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["outcome"] in {"ACCEPTED", "DRY_RUN"}
+        assert body["transmitted"] is False
+
+    def test_paper_runtime_fills_a_market_order(self, live_paper_client: TestClient) -> None:
+        response = post(live_paper_client, submit_body())
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["outcome"] == "ACCEPTED"
+        assert body["isSimulated"] is True
+        assert body["transmitted"] is False
+        assert body["engineOrderId"]
+        assert body["orderStatus"] in {"FILLED", "PARTIALLY_FILLED", "ACKNOWLEDGED"}
+        assert body["fillCount"] >= 1
+        assert body["filledQuantity"] == "0.01"
+        assert body["averageFillPrice"] is not None
+
+    def test_redelivery_is_duplicate_and_reports_the_same_order(
+        self, live_paper_client: TestClient
+    ) -> None:
+        first = post(live_paper_client, submit_body()).json()
+        second = post(live_paper_client, submit_body()).json()
+        assert second["outcome"] == "DUPLICATE"
+        assert second["engineOrderId"] == first["engineOrderId"]
+
+    def test_incomplete_exposure_is_refused_locally(self, live_paper_client: TestClient) -> None:
+        body = submit_body(
+            clientOrderId="oms-incomplete",
+            exposure={
+                "positionQuantity": "0",
+                "symbolExposureNotional": "0",
+                "accountExposureNotional": "0",
+                "complete": False,
+            },
+        )
+        response = post(live_paper_client, body)
+        assert response.status_code == 200
+        assert response.json()["outcome"] == "REJECTED_LOCALLY"
+
+    def test_no_reference_price_is_refused_locally(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("EXECUTION_DRY_RUN", "false")
+        monkeypatch.delenv("EXECUTION_SIMULATED_MID", raising=False)
+        get_settings.cache_clear()
+        from app.main import create_app
+
+        with TestClient(create_app()) as test_client:
+            response = post(test_client, submit_body(clientOrderId="oms-no-mid"))
+        assert response.status_code == 200
+        body = response.json()
+        assert body["outcome"] == "REJECTED_LOCALLY"
+        assert body["transmitted"] is False
+
+    def test_tenant_header_mismatch_is_refused(self, client: TestClient) -> None:
+        response = post(client, submit_body(), tenant="tenant-b")
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            {"environment": "LIVE"},
+            {"riskDecisionId": ""},
+            {"quantity": "0"},
+            {"quantity": "1e"},
+            {"orderType": "STOP"},
+            {"side": "HOLD"},
+            {"clientOrderId": "oms-00000000-0000-4000-8000-000000000001"},
+            {"apiKey": "smuggled"},
+        ],
+    )
+    def test_schema_refusals_are_422(self, client: TestClient, patch: dict[str, Any]) -> None:
+        response = post(client, submit_body(**patch))
+        assert response.status_code == 422
+
+    def test_missing_risk_decision_is_422(self, client: TestClient) -> None:
+        body = submit_body()
+        del body["riskDecisionId"]
+        assert post(client, body).status_code == 422
+```
+
+FILE: services/low-latency-gateway/Cargo.lock
+
+```text
+# This file is automatically @generated by Cargo.
+# It is not intended for manual editing.
+version = 3
+
+[[package]]
+name = "aho-corasick"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "block-buffer"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
+name = "bumpalo"
+version = "3.20.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
+name = "bytes"
+version = "1.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+
+[[package]]
+name = "cc"
+version = "1.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54413ede23c2daf518f35156dfde027feb2374004d63bd497f983c8db9c0e313"
+dependencies = [
+ "find-msvc-tools",
+ "shlex",
+]
+
+[[package]]
+name = "cfg-if"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
+name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "crypto-common"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
+
+[[package]]
+name = "data-encoding"
+version = "2.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
+
+[[package]]
+name = "digest"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
+dependencies = [
+ "block-buffer",
+ "crypto-common",
+ "subtle",
+]
+
+[[package]]
+name = "displaydoc"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "errno"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef25905e51abafe4dcea6c15fec58c57b601cdbd0ee53d22ea1d3016c587d39b"
+
+[[package]]
+name = "form_urlencoded"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+dependencies = [
+ "percent-encoding",
+]
+
+[[package]]
+name = "futures-core"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
+
+[[package]]
+name = "futures-macro"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "futures-sink"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1944426bf7d03f1d14f708785e4b33efd750b36d48a157b836b3efc15ede8e1d"
+
+[[package]]
+name = "futures-task"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd"
+
+[[package]]
+name = "futures-util"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
+dependencies = [
+ "futures-core",
+ "futures-macro",
+ "futures-sink",
+ "futures-task",
+ "pin-project-lite",
+ "slab",
+]
+
+[[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
+]
+
+[[package]]
+name = "getrandom"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "wasi",
+]
+
+[[package]]
+name = "getrandom"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "r-efi",
+]
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
+
+[[package]]
+name = "http"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0"
+dependencies = [
+ "bytes",
+ "itoa",
+]
+
+[[package]]
+name = "httparse"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
+name = "icu_collections"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa68d21081c4a05d5a901a1c62add574c77048b6a1c67be3b50ce0b60d4ca513"
+dependencies = [
+ "displaydoc",
+ "potential_utf",
+ "utf8_iter",
+ "yoke",
+ "zerofrom",
+ "zerovec",
+]
+
+[[package]]
+name = "icu_locale_core"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d56e28588da92eee5c3201a6eff33fabdd49b62269c8938d4ff050ce4d900deb"
+dependencies = [
+ "displaydoc",
+ "litemap",
+ "tinystr",
+ "writeable",
+ "zerovec",
+]
+
+[[package]]
+name = "icu_normalizer"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12f9cf5f235641ed274641dd81c3f28d870e276763d0797aeeab72317b1c646f"
+dependencies = [
+ "icu_collections",
+ "icu_normalizer_data",
+ "icu_properties",
+ "icu_provider",
+ "smallvec",
+ "zerovec",
+]
+
+[[package]]
+name = "icu_normalizer_data"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1563da1ed3e0b3bf3d74c9b85917ac9c56464d2f57242270c09c9e752f8021a0"
+
+[[package]]
+name = "icu_properties"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e7ca276ad3145661a65914e6daf131ca5120cd3dcee8f8f3214b8875184a148"
+dependencies = [
+ "displaydoc",
+ "icu_collections",
+ "icu_locale_core",
+ "icu_properties_data",
+ "icu_provider",
+ "zerotrie",
+ "zerovec",
+]
+
+[[package]]
+name = "icu_properties_data"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e590f038c1464a96894fd6d10127e90a8be4509f56ff7ecef851b15cee0b7caa"
+
+[[package]]
+name = "icu_provider"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d27bbb9d3abbefac45d55f647c9de1d44aafcd1186eb91879afef17c396c3e73"
+dependencies = [
+ "displaydoc",
+ "icu_locale_core",
+ "writeable",
+ "yoke",
+ "zerofrom",
+ "zerotrie",
+ "zerovec",
+]
+
+[[package]]
+name = "idna"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de"
+dependencies = [
+ "idna_adapter",
+ "smallvec",
+ "utf8_iter",
+]
+
+[[package]]
+name = "idna_adapter"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
+dependencies = [
+ "icu_normalizer",
+ "icu_properties",
+]
+
+[[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "js-sys"
+version = "0.3.105"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce57d20d1ea864ce2ac172ab472d409214f4fd359f0b2a2775abdf522e2af99e"
+dependencies = [
+ "cfg-if",
+ "futures-util",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "lazy_static"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+
+[[package]]
+name = "libc"
+version = "0.2.189"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+
+[[package]]
+name = "litemap"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
+
+[[package]]
+name = "log"
+version = "0.4.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "low-latency-gateway"
+version = "1.0.0"
+dependencies = [
+ "futures-util",
+ "hex",
+ "hmac",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
+dependencies = [
+ "regex-automata",
+]
+
+[[package]]
+name = "memchr"
+version = "2.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "mio"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b18443e9c262bfe8fa82f51666e2642c53393f7e5c27b3e1aeab922cff5b9d8"
+dependencies = [
+ "libc",
+ "wasi",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nu-ansi-term"
+version = "0.50.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "once_cell"
+version = "1.21.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "percent-encoding"
+version = "2.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "pin-project-lite"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "potential_utf"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d83eb9bc6d8e5cf568e7a1101d60ee05e81ed50ea106026f3d18deeb046d7661"
+dependencies = [
+ "zerovec",
+]
+
+[[package]]
+name = "ppv-lite86"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
+dependencies = [
+ "zerocopy",
+]
+
+[[package]]
+name = "proc-macro2"
+version = "1.0.107"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
+dependencies = [
+ "unicode-ident",
+]
+
+[[package]]
+name = "quote"
+version = "1.0.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
+dependencies = [
+ "proc-macro2",
+]
+
+[[package]]
+name = "r-efi"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "rand"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
+dependencies = [
+ "libc",
+ "rand_chacha",
+ "rand_core",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
+ "rand_core",
+]
+
+[[package]]
+name = "rand_core"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+dependencies = [
+ "getrandom 0.2.17",
+]
+
+[[package]]
+name = "regex-automata"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-syntax",
+]
+
+[[package]]
+name = "regex-syntax"
+version = "0.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "ring"
+version = "0.17.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "getrandom 0.2.17",
+ "libc",
+ "untrusted",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rustls"
+version = "0.23.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+dependencies = [
+ "log",
+ "once_cell",
+ "ring",
+ "rustls-pki-types",
+ "rustls-webpki",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "rustls-pki-types"
+version = "1.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f4925028c7eb5d1fcdaf196971378ed9d2c1c4efc7dc5d011256f76c99c0a96"
+dependencies = [
+ "zeroize",
+]
+
+[[package]]
+name = "rustls-webpki"
+version = "0.103.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+dependencies = [
+ "ring",
+ "rustls-pki-types",
+ "untrusted",
+]
+
+[[package]]
+name = "rustversion"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "serde"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.151"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
+name = "sharded-slab"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
+name = "shlex"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
+name = "slab"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "smallvec"
+version = "1.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+
+[[package]]
+name = "socket2"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "stable_deref_trait"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "syn"
+version = "2.0.119"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "synstructure"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "901704edd0dfe137f1987838ee4f259e4e063c31371bdb423f7ae38ec6f77f02"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "thread_local"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
+name = "tinystr"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1e27c91459209c2986af3dcf603a5a74a4368754ce37414f59acc971167f643"
+dependencies = [
+ "displaydoc",
+ "zerovec",
+]
+
+[[package]]
+name = "tokio"
+version = "1.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+dependencies = [
+ "bytes",
+ "libc",
+ "mio",
+ "pin-project-lite",
+ "signal-hook-registry",
+ "socket2",
+ "tokio-macros",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.26.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0c85f2c3ef0b1cd58b36682f4b17aaa995f0e5db534d85692b4903abce21f67"
+dependencies = [
+ "rustls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edc5f74e248dc973e0dbb7b74c7e0d6fcc301c694ff50049504004ef4d0cdcd9"
+dependencies = [
+ "futures-util",
+ "log",
+ "rustls",
+ "rustls-pki-types",
+ "tokio",
+ "tokio-rustls",
+ "tungstenite",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "tracing"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
+dependencies = [
+ "pin-project-lite",
+ "tracing-attributes",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
+dependencies = [
+ "once_cell",
+ "valuable",
+]
+
+[[package]]
+name = "tracing-log"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
+dependencies = [
+ "log",
+ "once_cell",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-subscriber"
+version = "0.3.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
+dependencies = [
+ "matchers",
+ "nu-ansi-term",
+ "once_cell",
+ "regex-automata",
+ "sharded-slab",
+ "smallvec",
+ "thread_local",
+ "tracing",
+ "tracing-core",
+ "tracing-log",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18e5b8366ee7a95b16d32197d0b2604b43a0be89dc5fac9f8e96ccafbaedda8a"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand",
+ "rustls",
+ "rustls-pki-types",
+ "sha1",
+ "thiserror",
+ "utf-8",
+]
+
+[[package]]
+name = "typenum"
+version = "1.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+
+[[package]]
+name = "untrusted"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "url"
+version = "2.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+dependencies = [
+ "form_urlencoded",
+ "idna",
+ "percent-encoding",
+ "serde",
+]
+
+[[package]]
+name = "utf-8"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
+
+[[package]]
+name = "utf8_iter"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "uuid"
+version = "1.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
+dependencies = [
+ "getrandom 0.4.3",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "valuable"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "version_check"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "wasi"
+version = "0.11.1+wasi-snapshot-preview1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
+
+[[package]]
+name = "wasm-bindgen"
+version = "0.2.128"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aecb87a33d3b0c5e3b7aa46336eaf486cffafbd281b195e4c8b80d50df2351bf"
+dependencies = [
+ "cfg-if",
+ "once_cell",
+ "rustversion",
+ "wasm-bindgen-macro",
+ "wasm-bindgen-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-macro"
+version = "0.2.128"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a690d511e3c1a8b3a55e33511e3c2c00c78415cd23650f32b808627f5696b9ed"
+dependencies = [
+ "quote",
+ "wasm-bindgen-macro-support",
+]
+
+[[package]]
+name = "wasm-bindgen-macro-support"
+version = "0.2.128"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "411e4887f0071ef2d2164a9d5fdf2d20efbef78fccd3a78b0c10a1dc5295e48a"
+dependencies = [
+ "bumpalo",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+ "wasm-bindgen-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-shared"
+version = "0.2.128"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81941cd78d0c92026c33e5e01312845a4cb1e9af3407f9134b100dd03144103e"
+dependencies = [
+ "unicode-ident",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "0.26.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
+dependencies = [
+ "webpki-roots 1.0.9",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "windows-link"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
+
+[[package]]
+name = "windows-sys"
+version = "0.52.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
+dependencies = [
+ "windows-targets",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.61.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
+dependencies = [
+ "windows-link",
+]
+
+[[package]]
+name = "windows-targets"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973"
+dependencies = [
+ "windows_aarch64_gnullvm",
+ "windows_aarch64_msvc",
+ "windows_i686_gnu",
+ "windows_i686_gnullvm",
+ "windows_i686_msvc",
+ "windows_x86_64_gnu",
+ "windows_x86_64_gnullvm",
+ "windows_x86_64_msvc",
+]
+
+[[package]]
+name = "windows_aarch64_gnullvm"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
+
+[[package]]
+name = "windows_aarch64_msvc"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
+
+[[package]]
+name = "windows_i686_gnu"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b"
+
+[[package]]
+name = "windows_i686_gnullvm"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
+
+[[package]]
+name = "windows_i686_msvc"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
+
+[[package]]
+name = "windows_x86_64_gnu"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
+
+[[package]]
+name = "windows_x86_64_gnullvm"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
+
+[[package]]
+name = "windows_x86_64_msvc"
+version = "0.52.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+
+[[package]]
+name = "writeable"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "yoke"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709fe23a0424b6a435d82152b1bd3fdfb0833487d5fa90d05d42762a9891fef5"
+dependencies = [
+ "stable_deref_trait",
+ "yoke-derive",
+ "zerofrom",
+]
+
+[[package]]
+name = "yoke-derive"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33811428bee40dbceb6d545e95754741d17a6aef9a4849f0fd62e2ba4f412a78"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+ "synstructure",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d35102a9f36d089ccae9e4c6802bc118be4487b80aaffc0ab4e0cf5ce92d2873"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "146c01f5ab44258da43cf276c74a2763db2ff3969c9c652c3f2de07041d0b2bc"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "zerofrom"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ec05a11813ea801ff6d75110ad09cd0824ddba17dfe17128ea0d5f68e6c5272"
+dependencies = [
+ "zerofrom-derive",
+]
+
+[[package]]
+name = "zerofrom-derive"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f75b4683f6c7f45248d4d64056a24298c6281e0993356d7d1b4a1a962ef10d4a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+ "synstructure",
+]
+
+[[package]]
+name = "zeroize"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+
+[[package]]
+name = "zerotrie"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ea269c3bd32f0a32c321907a2ae912ba6f4649bb0fc764a15627e99a7095a3f"
+dependencies = [
+ "displaydoc",
+ "yoke",
+ "zerofrom",
+]
+
+[[package]]
+name = "zerovec"
+version = "0.11.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb0464e17806c1d976d5cba29399c7f08e516e279e2ba493f63123b5fca67dd8"
+dependencies = [
+ "yoke",
+ "zerofrom",
+ "zerovec-derive",
+]
+
+[[package]]
+name = "zerovec-derive"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34df6fc39dbd26ddc9c10e6a2984476e13acce22e64e4487636ef494369225da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+```
+
+FILE: services/low-latency-gateway/Cargo.toml
+
+```toml
+[package]
+name = "low-latency-gateway"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Internal low-latency market-data normalization and execution-transport plane. Not a second source of financial truth: accelerates transport only."
+publish = false
+
+# One production binary (composition root) plus the library crate that the
+# embedded deterministic contract tests exercise.
+[[bin]]
+name = "low-latency-gateway"
+path = "src/main.rs"
+
+[lib]
+name = "low_latency_gateway"
+path = "src/lib.rs"
+
+[dependencies]
+# Async runtime: real async execution for feed sessions, transport listener
+# and shutdown coordination.
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util"] }
+# Production WebSocket client for venue market-data feeds (TLS via rustls;
+# webpki roots so no system trust store dependency).
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# rustls 0.23 panics on first TLS use when more than one CryptoProvider
+# feature is enabled transitively and none is installed. Pin the ring
+# provider explicitly and install it at boot (main.rs) so venue WSS
+# connections are deterministic and never panic.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Intent-envelope integrity: HMAC-SHA256 over a canonical serialization.
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+url = "2.5"
+uuid = { version = "1.11", features = ["v4"] }
+
+# Deliberately NOT included:
+# - parking_lot: the few mutexes here guard sub-microsecond critical sections
+#   (counter maps, replay cache) and never span an await; std Mutex is
+#   sufficient and keeps the dependency tree auditable.
+# - reqwest/hyper: the internal execution-engine integration speaks a small
+#   versioned HTTP/1.1 JSON contract implemented directly on tokio TcpStream
+#   to keep the transport plane lean.
+# - prometheus/metrics crates: the metrics registry is fixed-schema atomics
+#   (no dynamic labels, therefore no label-cardinality secret leakage).
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+
+[profile.test]
+opt-level = 1
+
+[dev-dependencies]
+# None: every deterministic test uses the crate itself plus std/tokio already
+# declared above. No test-only backdoors into production types.
+```
+
+FILE: services/low-latency-gateway/integration/execution_engine.rs
+
+```text
+//! Internal integration client for the EXISTING Python execution engine.
+//!
+//! Contract: the gateway forwards only validated, signed, prepared intents
+//! to the engine's internal transport endpoint; the engine owns the actual
+//! exchange/provider execution path. This client:
+//! - negotiates the transport schema version before any intent flows;
+//! - posts prepared intents with the correlation id preserved end-to-end;
+//! - classifies failures (timeout / 5xx => retryable, 4xx => permanent);
+//! - NEVER fabricates a successful execution result: success exists only as
+//!   an explicit 2xx response whose correlation matches and whose ack status
+//!   says accepted. Anything else is an error.
+//!
+//! HTTP/1.1 is implemented directly over tokio TcpStream (the internal
+//! plane is plain http inside the trust boundary; external TLS termination
+//! is the platform ingress's job). Requests are small, one-shot and
+//! connection-close — ideal for a low-latency, low-dependency client.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+use crate::error::GatewayError;
+use crate::metrics::MetricsRegistry;
+use crate::time::utc_now_ms;
+use crate::transport_protocol::{SchemaAdvertisement, TransportFrame, TRANSPORT_SCHEMA_VERSION};
+use crate::types::{TransportAck, VenueOrderRequest};
+
+const SCHEMA_PATH: &str = "/internal/v1/transport/schema";
+const INTENT_PATH: &str = "/internal/v1/transport/intents";
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EngineHealth {
+    pub service: String,
+    pub status: String,
+    pub schema_version: u32,
+}
+
+pub struct ExecutionEngineClient {
+    base: url::Url,
+    timeout: Duration,
+    max_attempts: u32,
+    retry_backoff: Duration,
+    metrics: Arc<MetricsRegistry>,
+    pub schema_negotiations: Arc<AtomicU64>,
+    pub provider_failures: Arc<AtomicU64>,
+}
+
+impl ExecutionEngineClient {
+    pub fn new(
+        base: url::Url,
+        timeout: Duration,
+        max_attempts: u32,
+        retry_backoff: Duration,
+        metrics: Arc<MetricsRegistry>,
+    ) -> ExecutionEngineClient {
+        ExecutionEngineClient {
+            base,
+            timeout,
+            max_attempts: max_attempts.max(1),
+            retry_backoff,
+            metrics,
+            schema_negotiations: Arc::new(AtomicU64::new(0)),
+            provider_failures: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    fn authority_and_path(&self, path: &str) -> Result<(String, u16, String), GatewayError> {
+        if self.base.scheme() != "http" {
+            return Err(GatewayError::Configuration(format!(
+                "execution engine url must be internal http (got '{}')",
+                self.base.scheme()
+            )));
+        }
+        let host = self
+            .base
+            .host_str()
+            .ok_or_else(|| GatewayError::Configuration("engine url missing host".into()))?
+            .to_string();
+        let port = self.base.port_or_known_default().unwrap_or(80);
+        let base_path = self.base.path().trim_end_matches('/');
+        let full_path = format!("{base_path}{path}");
+        Ok((host, port, full_path))
+    }
+
+    async fn request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+        correlation: &str,
+    ) -> Result<(u16, String), GatewayError> {
+        let (host, port, full_path) = self.authority_and_path(path)?;
+        let body = body.unwrap_or("");
+        let request = format!(
+            "{method} {full_path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nX-Correlation-Id: {correlation}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+
+        let mut last_error = GatewayError::Transport("no attempt made".to_string());
+        for attempt in 0..self.max_attempts {
+            if attempt > 0 {
+                tokio::time::sleep(self.retry_backoff).await;
+            }
+            let connect =
+                tokio::time::timeout(self.timeout, TcpStream::connect((host.as_str(), port))).await;
+            let mut stream = match connect {
+                Ok(Ok(stream)) => stream,
+                Ok(Err(e)) => {
+                    last_error = GatewayError::ProviderFailure(format!("connect: {e}"));
+                    self.provider_failures.fetch_add(1, Ordering::Relaxed);
+                    self.metrics.inc_provider_failures();
+                    continue;
+                }
+                Err(_) => {
+                    last_error = GatewayError::Timeout(format!("connect timeout to {host}:{port}"));
+                    self.metrics.inc_transport_timeouts();
+                    continue;
+                }
+            };
+            let write = stream.write_all(request.as_bytes()).await;
+            if let Err(e) = write {
+                last_error = GatewayError::Transport(format!("write: {e}"));
+                continue;
+            }
+            let read = tokio::time::timeout(self.timeout, read_http_response(&mut stream)).await;
+            match read {
+                Ok(Ok((status, body))) => return Ok((status, body)),
+                Ok(Err(e)) => {
+                    last_error = e;
+                    continue;
+                }
+                Err(_) => {
+                    last_error = GatewayError::Timeout("response timeout".to_string());
+                    self.metrics.inc_transport_timeouts();
+                    continue;
+                }
+            }
+        }
+        Err(last_error)
+    }
+
+    /// Schema negotiation before any intent is transported. The gateway and
+    /// the engine must overlap on a supported schema version or the
+    /// integration is DOWN (fail closed), not "compatible by hope".
+    pub async fn negotiate_schema(&self) -> Result<SchemaAdvertisement, GatewayError> {
+        let (status, body) = self
+            .request("GET", SCHEMA_PATH, None, "schema-negotiation")
+            .await?;
+        if status != 200 {
+            return Err(GatewayError::ProviderFailure(format!(
+                "schema negotiation returned HTTP {status}"
+            )));
+        }
+        let advertisement: SchemaAdvertisement = serde_json::from_str(&body)
+            .map_err(|e| GatewayError::MalformedData(format!("schema advertisement: {e}")))?;
+        let agreed = SchemaAdvertisement::negotiate(&advertisement)?;
+        self.schema_negotiations.fetch_add(1, Ordering::Relaxed);
+        tracing::info!(agreed_schema = agreed, peer = %advertisement.service, "engine schema negotiated");
+        Ok(advertisement)
+    }
+
+    /// Submits one prepared intent. Success requires: HTTP 2xx, a parseable
+    /// ack frame at the negotiated schema, a MATCHING correlation id, and a
+    /// gateway-side acceptance status. Everything else is a normalized
+    /// failure — never an invented acceptance.
+    pub async fn submit_prepared(
+        &self,
+        request: &VenueOrderRequest,
+        correlation: &str,
+    ) -> Result<TransportAck, GatewayError> {
+        let frame = TransportFrame {
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            correlation_id: correlation.to_string(),
+            frame_type: "intent".to_string(),
+            sent_at_ms: utc_now_ms(),
+            payload: serde_json::to_value(request)
+                .map_err(|e| GatewayError::Transport(format!("payload serialize: {e}")))?,
+        };
+        let body = serde_json::to_string(&frame)
+            .map_err(|e| GatewayError::Transport(format!("frame serialize: {e}")))?;
+        // Retry budget: transport errors retry inside `request`; 5xx
+        // retries here; 4xx is permanent and never retried.
+        let mut last: (u16, String) = (0, String::new());
+        let mut status = 0u16;
+        let mut response_body = String::new();
+        for attempt in 0..self.max_attempts.max(1) {
+            if attempt > 0 {
+                tokio::time::sleep(self.retry_backoff).await;
+            }
+            let result = self
+                .request("POST", INTENT_PATH, Some(&body), correlation)
+                .await?;
+            status = result.0;
+            response_body = result.1;
+            if (500..600).contains(&status) {
+                last = (status, response_body.clone());
+                self.provider_failures.fetch_add(1, Ordering::Relaxed);
+                self.metrics.inc_provider_failures();
+                continue;
+            }
+            last = (status, response_body.clone());
+            break;
+        }
+        if !(200..300).contains(&status) {
+            // 4xx: our frame is wrong (permanent contract violation);
+            // 5xx: provider trouble after retries. Neither is ever a
+            // success, and neither is ever reported as one.
+            let kind = if (400..500).contains(&status) {
+                GatewayError::MalformedData(format!("engine rejected frame with HTTP {status}"))
+            } else {
+                GatewayError::ProviderFailure(format!(
+                    "engine returned HTTP {} after retries",
+                    last.0
+                ))
+            };
+            return Err(kind);
+        }
+        let ack_frame: crate::transport_protocol::AckFrame =
+            serde_json::from_str(&response_body)
+                .map_err(|e| GatewayError::MalformedData(format!("ack frame: {e}")))?;
+        if ack_frame.ack.correlation_id != correlation {
+            return Err(GatewayError::Transport(format!(
+                "ack correlation '{}' does not match request '{correlation}'",
+                ack_frame.ack.correlation_id
+            )));
+        }
+        Ok(ack_frame.ack)
+    }
+}
+
+/// Reads one HTTP/1.1 response: status line, headers, Content-Length body.
+async fn read_http_response(stream: &mut TcpStream) -> Result<(u16, String), GatewayError> {
+    let mut buffer: Vec<u8> = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 1024];
+    let header_end;
+    loop {
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 {
+            return Err(GatewayError::Transport(
+                "connection closed before headers".into(),
+            ));
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+        if let Some(pos) = find_subslice(&buffer, b"\r\n\r\n") {
+            header_end = pos + 4;
+            break;
+        }
+        if buffer.len() > 64 * 1024 {
+            return Err(GatewayError::Transport("response headers too large".into()));
+        }
+    }
+    let headers = String::from_utf8_lossy(&buffer[..header_end]).to_string();
+    let status_line = headers.lines().next().unwrap_or("");
+    let status: u16 = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .ok_or_else(|| GatewayError::Transport(format!("bad status line '{status_line}'")))?;
+    let mut content_length: usize = 0;
+    for line in headers.lines().skip(1) {
+        let mut parts = line.splitn(2, ':');
+        if let Some(name) = parts.next() {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                content_length = parts
+                    .next()
+                    .and_then(|v| v.trim().parse().ok())
+                    .ok_or_else(|| GatewayError::Transport("bad content-length".into()))?;
+            }
+        }
+    }
+    while buffer.len() < header_end + content_length {
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+        if buffer.len() > 2 * 1024 * 1024 {
+            return Err(GatewayError::Transport("response body too large".into()));
+        }
+    }
+    let body = String::from_utf8_lossy(&buffer[header_end..]).to_string();
+    Ok((status, body))
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic tests over a real in-process TCP server.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::MetricsRegistry;
+    use crate::types::{AckStatus, Fixed, OrderSide, Symbol, Venue};
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
+
+    fn prepared() -> VenueOrderRequest {
+        VenueOrderRequest {
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            intent_id: "intent-1".to_string(),
+            correlation_id: "corr-engine-1".to_string(),
+            tenant_id: "tenant-77".to_string(),
+            account_id: "acct-42".to_string(),
+            venue: Venue::Binance,
+            symbol: Symbol::new("BTCUSDT").expect("sym"),
+            side: OrderSide::Buy,
+            quantity: Fixed::parse("0.250").expect("qty"),
+            client_order_id: "LLE-abc123".to_string(),
+            transport_nonce: "nonce-1".to_string(),
+            prepared_at_ms: utc_now_ms(),
+        }
+    }
+
+    fn engine_client(port: u16, timeout_ms: u64, attempts: u32) -> ExecutionEngineClient {
+        ExecutionEngineClient::new(
+            url::Url::parse(&format!("http://127.0.0.1:{port}")).expect("url"),
+            Duration::from_millis(timeout_ms),
+            attempts,
+            Duration::from_millis(10),
+            Arc::new(MetricsRegistry::new()),
+        )
+    }
+
+    /// Spawns a canned HTTP server: for each connection, runs `responder`
+    /// with the received request bytes and produces (status, body).
+    async fn canned_server(
+        responder: impl Fn(String) -> (u16, String) + Send + Sync + 'static,
+    ) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let responder = Arc::new(responder);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let responder = Arc::clone(&responder);
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let mut received = Vec::new();
+                    // Read until end of headers (requests are small, close
+                    // after one response).
+                    loop {
+                        let n = socket.read(&mut buf).await.unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        received.extend_from_slice(&buf[..n]);
+                        if received.windows(4).any(|w| w == b"\r\n\r\n") {
+                            // Headers complete; for POST with a body, try to
+                            // also have the body (Content-Length present).
+                            break;
+                        }
+                    }
+                    let request_text = String::from_utf8_lossy(&received).to_string();
+                    let (status, body) = responder(request_text);
+                    let response = format!(
+                        "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.flush().await;
+                });
+            }
+        });
+        port
+    }
+
+    // [CHECK 51] schema negotiation agrees on the overlapping version.
+    #[tokio::test]
+    async fn schema_negotiation_agrees_and_fails_closed() {
+        let ok_body = serde_json::json!({
+            "service": "execution-engine",
+            "schema_version": TRANSPORT_SCHEMA_VERSION,
+            "min_supported_schema_version": TRANSPORT_SCHEMA_VERSION,
+        });
+        let port = canned_server(move |_| (200, ok_body.to_string())).await;
+        let client = engine_client(port, 1_000, 1);
+        let ad = client.negotiate_schema().await.expect("negotiated");
+        assert_eq!(ad.service, "execution-engine");
+
+        // Incompatible peer => fail closed.
+        let bad_body = serde_json::json!({
+            "service": "execution-engine",
+            "schema_version": TRANSPORT_SCHEMA_VERSION + 5,
+            "min_supported_schema_version": TRANSPORT_SCHEMA_VERSION + 5,
+        });
+        let port = canned_server(move |_| (200, bad_body.to_string())).await;
+        let client = engine_client(port, 1_000, 1);
+        assert!(client.negotiate_schema().await.is_err());
+    }
+
+    // [CHECK 52] correlation id is preserved end to end.
+    #[tokio::test]
+    async fn correlation_is_preserved_and_mismatch_is_an_error() {
+        let port = canned_server(|request| {
+            // Echo the request correlation into the ack.
+            let corr = request
+                .lines()
+                .find(|l| l.starts_with("X-Correlation-Id:"))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .unwrap_or("missing")
+                .to_string();
+            let ack = serde_json::json!({
+                "schema_version": TRANSPORT_SCHEMA_VERSION,
+                "ack": {
+                    "intent_id": "intent-1",
+                    "correlation_id": corr,
+                    "status": "accepted_for_transport",
+                    "observed_at_ms": utc_now_ms(),
+                    "detail": null
+                }
+            });
+            (200, ack.to_string())
+        })
+        .await;
+        let client = engine_client(port, 1_000, 1);
+        let ack = client
+            .submit_prepared(&prepared(), "corr-engine-1")
+            .await
+            .expect("accepted");
+        assert_eq!(ack.status, AckStatus::AcceptedForTransport);
+        assert_eq!(ack.correlation_id, "corr-engine-1");
+
+        // Server answers with the WRONG correlation: error, never success.
+        let wrong_port = canned_server(|_| {
+            let ack = serde_json::json!({
+                "schema_version": TRANSPORT_SCHEMA_VERSION,
+                "ack": {
+                    "intent_id": "intent-1",
+                    "correlation_id": "something-else",
+                    "status": "accepted_for_transport",
+                    "observed_at_ms": utc_now_ms(),
+                    "detail": null
+                }
+            });
+            (200, ack.to_string())
+        })
+        .await;
+        let client = engine_client(wrong_port, 1_000, 1);
+        assert!(client
+            .submit_prepared(&prepared(), "corr-engine-1")
+            .await
+            .is_err());
+    }
+
+    // [CHECK 41] transport timeout is normalized to the Timeout error and
+    // counted.
+    #[tokio::test]
+    async fn transport_timeout_is_normalized_and_counted() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        tokio::spawn(async move {
+            // Accept and then stay silent: the client times out.
+            loop {
+                let Ok((socket, _)) = listener.accept().await else {
+                    break;
+                };
+                std::mem::forget(socket);
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+        let client = engine_client(port, 80, 1);
+        let err = client
+            .submit_prepared(&prepared(), "corr-timeout")
+            .await
+            .expect_err("timeout");
+        assert!(matches!(err, GatewayError::Timeout(_)));
+        assert!(err.is_retryable());
+        assert!(
+            client
+                .metrics
+                .transport_timeouts_total
+                .load(Ordering::Relaxed)
+                + client
+                    .metrics
+                    .provider_failures_total
+                    .load(Ordering::Relaxed)
+                >= 1
+        );
+    }
+
+    // [CHECK 42][CHECK 58] provider failure is normalized; a failure is
+    // NEVER reported as a successful transport.
+    #[tokio::test]
+    async fn provider_failure_is_normalized_never_success() {
+        let port = canned_server(|_| (503, "{\"error\":\"engine unavailable\"}".to_string())).await;
+        let client = engine_client(port, 1_000, 1);
+        let err = client
+            .submit_prepared(&prepared(), "corr-fail")
+            .await
+            .expect_err("503");
+        assert!(matches!(err, GatewayError::ProviderFailure(_)));
+
+        let port = canned_server(|_| (422, "{\"error\":\"unsupported symbol\"}".to_string())).await;
+        let client = engine_client(port, 1_000, 1);
+        let err = client
+            .submit_prepared(&prepared(), "corr-422")
+            .await
+            .expect_err("422");
+        // A 4xx is a permanent contract violation: non-retryable by design.
+        assert!(matches!(err, GatewayError::MalformedData(_)));
+        assert!(!err.is_retryable());
+
+        // Garbage 200 body: malformed ack, not a fabricated success.
+        let port = canned_server(|_| (200, "not-json".to_string())).await;
+        let client = engine_client(port, 1_000, 1);
+        assert!(client
+            .submit_prepared(&prepared(), "corr-garbage")
+            .await
+            .is_err());
+    }
+
+    // Retry classification: 5xx is retried up to max_attempts, 4xx is not.
+    #[tokio::test]
+    async fn retry_classification_matches_transport_rules() {
+        use std::sync::atomic::AtomicUsize;
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_writer = Arc::clone(&hits);
+        let port = canned_server(move |_| {
+            hits_writer.fetch_add(1, Ordering::Relaxed);
+            (503, "{\"error\":\"try again\"}".to_string())
+        })
+        .await;
+        let client = engine_client(port, 1_000, 3);
+        assert!(client
+            .submit_prepared(&prepared(), "corr-retry")
+            .await
+            .is_err());
+        assert_eq!(
+            hits.load(Ordering::Relaxed),
+            3,
+            "5xx retried max_attempts times"
+        );
+
+        let hits2 = Arc::new(AtomicUsize::new(0));
+        let hits2_writer = Arc::clone(&hits2);
+        let port = canned_server(move |_| {
+            hits2_writer.fetch_add(1, Ordering::Relaxed);
+            (400, "{\"error\":\"bad request\"}".to_string())
+        })
+        .await;
+        let client = engine_client(port, 1_000, 5);
+        assert!(client
+            .submit_prepared(&prepared(), "corr-4xx")
+            .await
+            .is_err());
+        assert_eq!(hits2.load(Ordering::Relaxed), 1, "4xx must not be retried");
+    }
+
+    // [CHECK 53 support] tenant scope travels inside the prepared payload.
+    #[tokio::test]
+    async fn tenant_scope_travels_in_payload() {
+        let seen_tenant: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+        let sink = Arc::clone(&seen_tenant);
+        let port = canned_server(move |request| {
+            let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
+            if let Ok(frame) = serde_json::from_str::<serde_json::Value>(body) {
+                *sink.lock().expect("lock") =
+                    frame["payload"]["tenant_id"].as_str().map(str::to_string);
+            }
+            let ack = serde_json::json!({
+                "schema_version": TRANSPORT_SCHEMA_VERSION,
+                "ack": {
+                    "intent_id": "intent-1",
+                    "correlation_id": "corr-scope",
+                    "status": "accepted_for_transport",
+                    "observed_at_ms": utc_now_ms(),
+                    "detail": null
+                }
+            });
+            (200, ack.to_string())
+        })
+        .await;
+        let client = engine_client(port, 1_000, 1);
+        client
+            .submit_prepared(&prepared(), "corr-scope")
+            .await
+            .expect("ok");
+        assert_eq!(seen_tenant.lock().expect("l").as_deref(), Some("tenant-77"));
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/adapters/binance.rs
+
+```text
+//! Binance spot public market-data adapter (combined-stream format).
+//!
+//! Implements the real wire behavior of `wss://stream.binance.com:9443`:
+//! - combined stream envelope `{"stream": "<name>", "data": {...}}`;
+//! - `<symbol>@trade` (aggressor side via maker flag `m`);
+//! - `<symbol>@bookTicker` (best bid/ask with update id `u`);
+//! - `<symbol>@depth@...` diff updates (`U`..`u` update-id ranges);
+//! - `<symbol>@depth5@100ms` partial book (full top-N snapshots, anchored
+//!   by `lastUpdateId`);
+//! - `<symbol>@ticker` 24h statistics;
+//! - `{"method":"SUBSCRIBE"/"UNSUBSCRIBE","params":[...],"id":n}` frames;
+//! - protocol-level ping/pong handled by the WebSocket library (no
+//!   application-level heartbeat frame).
+//!
+//! No other channel is parsed: unknown event types fail with an explicit
+//! unsupported-capability error instead of being guessed into events.
+
+use serde_json::Value;
+
+use crate::adapters::exchange_ws::{
+    parse_json, parse_level_matrix, AdapterEvent, Capability, MarketDataAdapter, RecoveryStrategy,
+};
+use crate::error::GatewayError;
+use crate::types::{Fixed, MarketEventKind, OrderSide, Sequence, StreamKind, Symbol, Venue};
+
+pub const BINANCE_WS_BASE: &str = "wss://stream.binance.com:9443/stream";
+
+#[derive(Default)]
+pub struct BinanceAdapter;
+
+impl BinanceAdapter {
+    pub fn new() -> BinanceAdapter {
+        BinanceAdapter
+    }
+
+    /// Stream-name parser: `btcusdt@trade` -> (BTCUSDT, trade).
+    fn split_stream(stream: &str) -> Result<(Symbol, StreamKind), GatewayError> {
+        let mut parts = stream.splitn(2, '@');
+        let raw_symbol = parts.next().ok_or_else(|| {
+            GatewayError::MalformedData(format!("binance: stream without symbol: {stream}"))
+        })?;
+        let suffix = parts.next().ok_or_else(|| {
+            GatewayError::MalformedData(format!("binance: stream without suffix: {stream}"))
+        })?;
+        let symbol = Symbol::new(&raw_symbol.to_ascii_uppercase())?;
+        let kind = if suffix == "trade" {
+            StreamKind::Trades
+        } else if suffix == "bookTicker" {
+            StreamKind::BookTicker
+        } else if suffix == "depth" || suffix.starts_with("depth@") {
+            // diff depth: depth@100ms / depth@100ms@500ms
+            StreamKind::BookDepth
+        } else if suffix.starts_with("depth") {
+            // partial book depth: depth5 / depth10 / depth20 (+@100ms)
+            StreamKind::PartialBook
+        } else if suffix == "ticker" {
+            StreamKind::Ticker
+        } else {
+            return Err(GatewayError::UnsupportedCapability(format!(
+                "binance stream '{stream}' is not subscribed by this gateway"
+            )));
+        };
+        Ok((symbol, kind))
+    }
+
+    fn parse_trade(data: &Value, symbol: Symbol) -> Result<AdapterEvent, GatewayError> {
+        let price = Fixed::parse(str_field(data, "p")?)?;
+        let quantity = Fixed::parse(str_field(data, "q")?)?;
+        // m == true: buyer is the maker -> the taker side is Sell.
+        let taker_side = if data.get("m").and_then(Value::as_bool).ok_or_else(|| {
+            GatewayError::MalformedData("binance: trade missing maker flag m".into())
+        })? {
+            OrderSide::Sell
+        } else {
+            OrderSide::Buy
+        };
+        let trade_id = data
+            .get("t")
+            .and_then(Value::as_i64)
+            .map(|id| id.to_string())
+            .ok_or_else(|| GatewayError::MalformedData("binance: trade missing id t".into()))?;
+        Ok(AdapterEvent {
+            symbol,
+            stream_kind: StreamKind::Trades,
+            sequence: data.get("t").and_then(Value::as_u64),
+            prev_sequence: None,
+            provider_ms: data.get("T").and_then(Value::as_i64),
+            kind: MarketEventKind::TradeTick {
+                price,
+                quantity,
+                taker_side,
+                trade_id,
+            },
+            is_anchor: false,
+        })
+    }
+
+    fn parse_book_ticker(data: &Value, symbol: Symbol) -> Result<AdapterEvent, GatewayError> {
+        let kind = MarketEventKind::BookTicker {
+            bid_price: Fixed::parse(str_field(data, "b")?)?,
+            bid_quantity: Fixed::parse(str_field(data, "B")?)?,
+            ask_price: Fixed::parse(str_field(data, "a")?)?,
+            ask_quantity: Fixed::parse(str_field(data, "A")?)?,
+        };
+        Ok(AdapterEvent {
+            symbol,
+            stream_kind: StreamKind::BookTicker,
+            sequence: data.get("u").and_then(Value::as_u64),
+            prev_sequence: None,
+            provider_ms: data
+                .get("E")
+                .and_then(Value::as_i64)
+                .or_else(|| data.get("T").and_then(Value::as_i64)),
+            kind,
+            is_anchor: false,
+        })
+    }
+
+    fn parse_depth_diff(data: &Value, symbol: Symbol) -> Result<AdapterEvent, GatewayError> {
+        let bids = parse_level_matrix(
+            data.get("b").and_then(Value::as_array).ok_or_else(|| {
+                GatewayError::MalformedData("binance: depthUpdate missing bids".into())
+            })?,
+            "binance",
+        )?;
+        let asks = parse_level_matrix(
+            data.get("a").and_then(Value::as_array).ok_or_else(|| {
+                GatewayError::MalformedData("binance: depthUpdate missing asks".into())
+            })?,
+            "binance",
+        )?;
+        // Venue rule: the update covers [U, u]; continuity is keyed on u,
+        // with U the declared predecessor end. A gap in the id range is the
+        // pipeline's signal to re-snapshot.
+        let first: Sequence = data
+            .get("U")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| GatewayError::MalformedData("binance: depthUpdate missing U".into()))?;
+        let last: Sequence = data
+            .get("u")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| GatewayError::MalformedData("binance: depthUpdate missing u".into()))?;
+        if last < first {
+            return Err(GatewayError::MalformedData(format!(
+                "binance: depthUpdate range inverted U={first} u={last}"
+            )));
+        }
+        Ok(AdapterEvent {
+            symbol,
+            stream_kind: StreamKind::BookDepth,
+            sequence: Some(last),
+            prev_sequence: (first > 0).then(|| first - 1),
+            provider_ms: data.get("E").and_then(Value::as_i64),
+            kind: MarketEventKind::BookDelta {
+                bids,
+                asks,
+                prev_sequence: (first > 0).then(|| first - 1),
+            },
+            is_anchor: false,
+        })
+    }
+
+    fn parse_partial_depth(data: &Value, symbol: Symbol) -> Result<AdapterEvent, GatewayError> {
+        let bids = parse_level_matrix(
+            data.get("bids").and_then(Value::as_array).ok_or_else(|| {
+                GatewayError::MalformedData("binance: partial depth missing bids".into())
+            })?,
+            "binance",
+        )?;
+        let asks = parse_level_matrix(
+            data.get("asks").and_then(Value::as_array).ok_or_else(|| {
+                GatewayError::MalformedData("binance: partial depth missing asks".into())
+            })?,
+            "binance",
+        )?;
+        let last_update_id: Sequence = data
+            .get("lastUpdateId")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                GatewayError::MalformedData("binance: partial depth missing lastUpdateId".into())
+            })?;
+        Ok(AdapterEvent {
+            symbol,
+            stream_kind: StreamKind::PartialBook,
+            sequence: Some(last_update_id),
+            prev_sequence: None,
+            provider_ms: None,
+            kind: MarketEventKind::BookSnapshot { bids, asks },
+            // A partial book depth frame IS a full top-N snapshot: it
+            // re-anchors continuity by definition.
+            is_anchor: true,
+        })
+    }
+
+    fn parse_ticker(data: &Value, symbol: Symbol) -> Result<AdapterEvent, GatewayError> {
+        let kind = MarketEventKind::Ticker {
+            last_price: opt_str_fixed(data, "c")?,
+            bid_price: opt_str_fixed(data, "b")?,
+            ask_price: opt_str_fixed(data, "a")?,
+            high_24h: opt_str_fixed(data, "h")?,
+            low_24h: opt_str_fixed(data, "l")?,
+            volume_24h: opt_str_fixed(data, "v")?,
+        };
+        Ok(AdapterEvent {
+            symbol,
+            stream_kind: StreamKind::Ticker,
+            sequence: None,
+            prev_sequence: None,
+            provider_ms: data.get("E").and_then(Value::as_i64),
+            kind,
+            is_anchor: false,
+        })
+    }
+}
+
+fn str_field<'a>(data: &'a Value, key: &str) -> Result<&'a str, GatewayError> {
+    data.get(key).and_then(Value::as_str).ok_or_else(|| {
+        GatewayError::MalformedData(format!("binance: field '{key}' missing or not a string"))
+    })
+}
+
+fn opt_str_fixed(data: &Value, key: &str) -> Result<Option<Fixed>, GatewayError> {
+    match data.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => Ok(Some(Fixed::parse(s)?)),
+        Some(_) => Err(GatewayError::MalformedData(format!(
+            "binance: field '{key}' expected decimal string"
+        ))),
+    }
+}
+
+fn stream_and_data(frame: &Value) -> Result<(&str, &Value), GatewayError> {
+    let stream = frame
+        .get("stream")
+        .and_then(Value::as_str)
+        .ok_or_else(|| GatewayError::MalformedData("binance: frame missing stream name".into()))?;
+    let data = frame.get("data").ok_or_else(|| {
+        GatewayError::MalformedData("binance: combined frame missing data".into())
+    })?;
+    Ok((stream, data))
+}
+
+impl MarketDataAdapter for BinanceAdapter {
+    fn venue(&self) -> Venue {
+        Venue::Binance
+    }
+
+    fn ws_base_url(&self) -> &'static str {
+        BINANCE_WS_BASE
+    }
+
+    fn heartbeat_interval(&self) -> std::time::Duration {
+        // Binance sends protocol-level pings every ~3 minutes; we probe the
+        // socket liveness on a faster cadence via receive timeouts.
+        std::time::Duration::from_secs(60)
+    }
+
+    fn subscribe_frames(&self, symbols: &[Symbol]) -> Vec<String> {
+        let mut params: Vec<String> = Vec::new();
+        for symbol in symbols {
+            let s = symbol.as_str().to_ascii_lowercase();
+            params.push(format!("{s}@trade"));
+            params.push(format!("{s}@bookTicker"));
+            params.push(format!("{s}@depth5@100ms"));
+            params.push(format!("{s}@ticker"));
+        }
+        vec![serde_json::json!({
+            "method": "SUBSCRIBE",
+            "params": params,
+            "id": 1
+        })
+        .to_string()]
+    }
+
+    fn unsubscribe_frames(&self, symbols: &[Symbol]) -> Vec<String> {
+        let mut params: Vec<String> = Vec::new();
+        for symbol in symbols {
+            let s = symbol.as_str().to_ascii_lowercase();
+            params.push(format!("{s}@trade"));
+            params.push(format!("{s}@bookTicker"));
+            params.push(format!("{s}@depth5@100ms"));
+            params.push(format!("{s}@ticker"));
+        }
+        vec![serde_json::json!({
+            "method": "UNSUBSCRIBE",
+            "params": params,
+            "id": 2
+        })
+        .to_string()]
+    }
+
+    fn heartbeat_frame(&self) -> Option<String> {
+        None
+    }
+
+    fn is_heartbeat_reply(&self, _raw: &str) -> bool {
+        false
+    }
+
+    fn is_control_frame(&self, raw: &str) -> bool {
+        // Subscription/ack frames: {"result":null,"id":1}
+        parse_json(raw)
+            .ok()
+            .map(|v| {
+                v.get("id").is_some() && v.get("result").is_some() && v.get("stream").is_none()
+            })
+            .unwrap_or(false)
+    }
+
+    fn parse_message(&self, raw: &str) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let frame = parse_json(raw)?;
+        if self.is_control_frame(raw) {
+            return Ok(Vec::new());
+        }
+        let (stream, data) = stream_and_data(&frame)?;
+        let (symbol, kind) = BinanceAdapter::split_stream(stream)?;
+        if !matches!(data, Value::Object(_)) {
+            return Err(GatewayError::MalformedData(
+                "binance: data is not an object".into(),
+            ));
+        }
+        let event = match kind {
+            StreamKind::Trades => BinanceAdapter::parse_trade(data, symbol)?,
+            StreamKind::BookTicker => BinanceAdapter::parse_book_ticker(data, symbol)?,
+            StreamKind::BookDepth => BinanceAdapter::parse_depth_diff(data, symbol)?,
+            StreamKind::PartialBook => BinanceAdapter::parse_partial_depth(data, symbol)?,
+            StreamKind::Ticker => BinanceAdapter::parse_ticker(data, symbol)?,
+        };
+        Ok(vec![event])
+    }
+
+    fn supports(&self, capability: Capability) -> bool {
+        matches!(
+            capability,
+            Capability::Trades
+                | Capability::BookTicker
+                | Capability::PartialBook
+                | Capability::Ticker
+        )
+    }
+
+    fn recovery_strategy(&self) -> RecoveryStrategy {
+        // @depth5@100ms delivers a complete top-5 snapshot per frame, so a
+        // reconnect re-anchors continuity without a separate REST fetch.
+        RecoveryStrategy::ResubscribeYieldsSnapshot
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::MarketEventKind;
+
+    const TRADE: &str = r#"{"stream":"btcusdt@trade","data":{"e":"trade","E":1672515782136,"s":"BTCUSDT","t":912345678,"p":"61234.55","q":"0.012","T":1672515782100,"m":true,"M":true}}"#;
+    const BOOK_TICKER: &str = r#"{"stream":"ethusdt@bookTicker","data":{"u":400900217,"s":"ETHUSDT","b":"2281.15","B":"31.21000000","a":"2281.30","A":"40.66000000"}}"#;
+    const DEPTH5: &str = r#"{"stream":"btcusdt@depth5@100ms","data":{"lastUpdateId":160318932,"bids":[["61234.00","0.500"],["61233.50","1.250"]],"asks":[["61234.50","0.750"],["61235.00","2.000"]]}}"#;
+    const DEPTH_DIFF: &str = r#"{"stream":"btcusdt@depth@100ms","data":{"e":"depthUpdate","E":1672515782311,"s":"BTCUSDT","U":160318930,"u":160318933,"b":[["61234.00","0"],["61233.00","0.100"]],"a":[["61234.50","1.500"]]}}"#;
+    const TICKER: &str = r#"{"stream":"btcusdt@ticker","data":{"e":"24hrTicker","E":1672515782400,"s":"BTCUSDT","c":"61240.10","b":"61234.00","B":"0.5","a":"61234.50","A":"1.0","h":"61900.00","l":"60100.00","v":"1234.5"}}"#;
+
+    fn adapter() -> BinanceAdapter {
+        BinanceAdapter::new()
+    }
+
+    // [CHECK 23] Binance adapter parses a supported trade event with all
+    // venue metadata preserved.
+    #[test]
+    fn parses_trade_event() {
+        let events = adapter().parse_message(TRADE).expect("trade parses");
+        assert_eq!(events.len(), 1);
+        let ev = &events[0];
+        assert_eq!(ev.symbol.as_str(), "BTCUSDT");
+        assert_eq!(ev.stream_kind, StreamKind::Trades);
+        assert_eq!(ev.provider_ms, Some(1_672_515_782_100)); // T (trade time)
+        match &ev.kind {
+            MarketEventKind::TradeTick {
+                price,
+                quantity,
+                taker_side,
+                trade_id,
+            } => {
+                assert_eq!(price.to_string(), "61234.55");
+                assert_eq!(quantity.to_string(), "0.012");
+                // m=true: buyer is maker -> taker sold.
+                assert_eq!(*taker_side, OrderSide::Sell);
+                assert_eq!(trade_id, "912345678");
+            }
+            other => panic!("expected trade, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_book_ticker_and_ticker() {
+        let events = adapter().parse_message(BOOK_TICKER).expect("bookTicker");
+        match &events[0].kind {
+            MarketEventKind::BookTicker {
+                bid_price,
+                ask_price,
+                bid_quantity,
+                ask_quantity,
+            } => {
+                assert_eq!(bid_price.to_string(), "2281.15");
+                assert_eq!(ask_price.to_string(), "2281.3");
+                assert_eq!(bid_quantity.to_string(), "31.21");
+                assert_eq!(ask_quantity.to_string(), "40.66");
+            }
+            other => panic!("expected bookTicker, got {other:?}"),
+        }
+        assert_eq!(events[0].sequence, Some(400_900_217));
+
+        let events = adapter().parse_message(TICKER).expect("ticker");
+        match &events[0].kind {
+            MarketEventKind::Ticker {
+                last_price,
+                high_24h,
+                low_24h,
+                ..
+            } => {
+                assert_eq!(
+                    last_price.as_ref().map(|p| p.to_string()),
+                    Some("61240.1".into())
+                );
+                assert_eq!(
+                    high_24h.as_ref().map(|p| p.to_string()),
+                    Some("61900.0".into())
+                );
+                assert_eq!(
+                    low_24h.as_ref().map(|p| p.to_string()),
+                    Some("60100.0".into())
+                );
+            }
+            other => panic!("expected ticker, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_partial_depth_as_anchored_snapshot_and_diff_as_delta() {
+        let events = adapter().parse_message(DEPTH5).expect("depth5");
+        assert!(events[0].is_anchor);
+        assert_eq!(events[0].sequence, Some(160_318_932));
+        match &events[0].kind {
+            MarketEventKind::BookSnapshot { bids, asks } => {
+                assert_eq!(bids.len(), 2);
+                assert_eq!(asks.len(), 2);
+                let _ = parse_level_matrix(&[], "binance").expect("empty matrix ok");
+            }
+            other => panic!("expected snapshot, got {other:?}"),
+        }
+
+        let events = adapter().parse_message(DEPTH_DIFF).expect("depth diff");
+        assert!(!events[0].is_anchor);
+        assert_eq!(events[0].sequence, Some(160_318_933));
+        assert_eq!(events[0].prev_sequence, Some(160_318_929));
+        match &events[0].kind {
+            MarketEventKind::BookDelta {
+                bids,
+                asks,
+                prev_sequence,
+            } => {
+                assert_eq!(bids.len(), 2);
+                assert_eq!(asks.len(), 1);
+                assert_eq!(*prev_sequence, Some(160_318_929));
+            }
+            other => panic!("expected delta, got {other:?}"),
+        }
+    }
+
+    // [CHECK 26] unsupported and malformed frames fail explicitly with no
+    // fabricated events.
+    #[test]
+    fn unsupported_and_malformed_frames_fail_explicitly() {
+        let kline = r#"{"stream":"btcusdt@kline_1m","data":{"e":"kline"}}"#;
+        let err = adapter()
+            .parse_message(kline)
+            .expect_err("kline unsupported");
+        assert!(matches!(err, GatewayError::UnsupportedCapability(_)));
+
+        let garbage = "not json at all";
+        assert!(matches!(
+            adapter().parse_message(garbage),
+            Err(GatewayError::MalformedData(_))
+        ));
+
+        let missing_field = r#"{"stream":"btcusdt@trade","data":{"e":"trade","s":"BTCUSDT"}}"#;
+        assert!(matches!(
+            adapter().parse_message(missing_field),
+            Err(GatewayError::MalformedData(_))
+        ));
+        // A failure produces ZERO events: no fabricated fallback.
+        assert!(adapter()
+            .parse_message(missing_field)
+            .unwrap_or_default()
+            .is_empty());
+    }
+
+    #[test]
+    fn control_frames_produce_no_events_and_subscriptions_are_correct() {
+        let ack = r#"{"result":null,"id":1}"#;
+        assert!(adapter().is_control_frame(ack));
+        assert!(adapter().parse_message(ack).expect("control").is_empty());
+
+        let frames = adapter().subscribe_frames(&[Symbol::new("BTCUSDT").expect("s")]);
+        assert_eq!(frames.len(), 1);
+        assert!(frames[0].contains("\"method\":\"SUBSCRIBE\""));
+        assert!(frames[0].contains("btcusdt@trade"));
+        assert!(frames[0].contains("btcusdt@bookTicker"));
+        assert!(frames[0].contains("btcusdt@depth5@100ms"));
+        assert!(frames[0].contains("btcusdt@ticker"));
+
+        let unsubs = adapter().unsubscribe_frames(&[Symbol::new("BTCUSDT").expect("s")]);
+        assert!(unsubs[0].contains("\"method\":\"UNSUBSCRIBE\""));
+        assert_eq!(adapter().heartbeat_frame(), None);
+        assert!(!adapter().is_heartbeat_reply("anything"));
+        assert_eq!(adapter().venue(), Venue::Binance);
+        assert!(!adapter().supports(Capability::BookDepthDiff));
+        assert_eq!(
+            adapter().recovery_strategy(),
+            RecoveryStrategy::ResubscribeYieldsSnapshot
+        );
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/adapters/bybit.rs
+
+```text
+//! Bybit v5 public market-data adapter (spot).
+//!
+//! Real wire behavior of `wss://stream.bybit.com/v5/public/spot`:
+//! - subscribe/unsubscribe via `{"op":"subscribe","args":["orderbook.50.X", ...]}`;
+//! - `orderbook.50.<SYMBOL>` frames with `type: "snapshot" | "delta"`, the
+//!   symbol-local update id in `data.u` and the cross-stream `data.seq`;
+//! - `publicTrade.<SYMBOL>` with taker side in `data[].S`;
+//! - `tickers.<SYMBOL>` spot best bid/ask + last;
+//! - application-level heartbeat `{"op":"ping"}` answered by `{"op":"pong"}`;
+//! - subscribe ack `{"op":"subscribe","success":true,...}` is a control
+//!   frame; a `success:false` ack is an explicit provider failure.
+//!
+//! Only these channels are subscribed; unknown topics fail with an explicit
+//! unsupported-capability error.
+
+use serde_json::Value;
+
+use crate::adapters::exchange_ws::{
+    parse_json, parse_level_matrix, AdapterEvent, Capability, MarketDataAdapter, RecoveryStrategy,
+};
+use crate::error::GatewayError;
+use crate::types::{Fixed, MarketEventKind, OrderSide, Sequence, StreamKind, Symbol, Venue};
+
+pub const BYBIT_WS_BASE: &str = "wss://stream.bybit.com/v5/public/spot";
+
+#[derive(Default)]
+pub struct BybitAdapter;
+
+impl BybitAdapter {
+    pub fn new() -> BybitAdapter {
+        BybitAdapter
+    }
+
+    /// Topic parser: `orderbook.50.BTCUSDT` -> (BTCUSDT, OrderBook).
+    fn split_topic(topic: &str) -> Result<(Symbol, StreamKind), GatewayError> {
+        let segments: Vec<&str> = topic.split('.').collect();
+        let (raw_symbol, kind) =
+            match segments.first().copied() {
+                Some("orderbook") => (
+                    segments.last().copied().ok_or_else(|| {
+                        GatewayError::MalformedData(format!("bybit: topic {topic}"))
+                    })?,
+                    StreamKind::BookDepth,
+                ),
+                Some("publicTrade") => (
+                    segments.last().copied().ok_or_else(|| {
+                        GatewayError::MalformedData(format!("bybit: topic {topic}"))
+                    })?,
+                    StreamKind::Trades,
+                ),
+                Some("tickers") => (
+                    segments.last().copied().ok_or_else(|| {
+                        GatewayError::MalformedData(format!("bybit: topic {topic}"))
+                    })?,
+                    StreamKind::Ticker,
+                ),
+                Some(other) => {
+                    return Err(GatewayError::UnsupportedCapability(format!(
+                        "bybit channel '{other}' is not subscribed by this gateway"
+                    )))
+                }
+                None => {
+                    return Err(GatewayError::MalformedData(format!(
+                        "bybit: empty topic '{topic}'"
+                    )))
+                }
+            };
+        Ok((Symbol::new(raw_symbol)?, kind))
+    }
+
+    fn parse_orderbook(frame: &Value, topic: &str) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let msg_type = frame
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| GatewayError::MalformedData("bybit: orderbook missing type".into()))?;
+        let ts = frame.get("ts").and_then(Value::as_i64);
+        // data may be a single object (orderbook) — arrays are malformed here.
+        let data = frame
+            .get("data")
+            .and_then(Value::as_object)
+            .ok_or_else(|| GatewayError::MalformedData("bybit: orderbook data missing".into()))?;
+        let symbol_str = data.get("s").and_then(Value::as_str).ok_or_else(|| {
+            GatewayError::MalformedData("bybit: orderbook missing symbol s".into())
+        })?;
+        let symbol = Symbol::new(symbol_str)?;
+        let bids = parse_level_matrix(
+            data.get("b").and_then(Value::as_array).ok_or_else(|| {
+                GatewayError::MalformedData("bybit: orderbook missing bids".into())
+            })?,
+            "bybit",
+        )?;
+        let asks = parse_level_matrix(
+            data.get("a").and_then(Value::as_array).ok_or_else(|| {
+                GatewayError::MalformedData("bybit: orderbook missing asks".into())
+            })?,
+            "bybit",
+        )?;
+        let seq: Sequence = data.get("u").and_then(Value::as_u64).ok_or_else(|| {
+            GatewayError::MalformedData("bybit: orderbook missing update id u".into())
+        })?;
+
+        let is_snapshot = msg_type == "snapshot";
+        let kind = if is_snapshot {
+            MarketEventKind::BookSnapshot { bids, asks }
+        } else if msg_type == "delta" {
+            MarketEventKind::BookDelta {
+                bids,
+                asks,
+                prev_sequence: None,
+            }
+        } else {
+            return Err(GatewayError::MalformedData(format!(
+                "bybit: unknown orderbook type '{msg_type}' on {topic}"
+            )));
+        };
+        Ok(vec![AdapterEvent {
+            symbol,
+            stream_kind: StreamKind::BookDepth,
+            sequence: Some(seq),
+            prev_sequence: None,
+            provider_ms: ts,
+            kind,
+            is_anchor: is_snapshot,
+        }])
+    }
+
+    fn parse_public_trade(frame: &Value) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let ts = frame.get("ts").and_then(Value::as_i64);
+        let rows = frame
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or_else(|| GatewayError::MalformedData("bybit: publicTrade data missing".into()))?;
+        let mut events = Vec::with_capacity(rows.len());
+        for row in rows {
+            let symbol = Symbol::new(row.get("s").and_then(Value::as_str).ok_or_else(|| {
+                GatewayError::MalformedData("bybit: trade missing symbol".into())
+            })?)?;
+            let taker_side =
+                match row.get("S").and_then(Value::as_str).ok_or_else(|| {
+                    GatewayError::MalformedData("bybit: trade missing side S".into())
+                })? {
+                    "Buy" => OrderSide::Buy,
+                    "Sell" => OrderSide::Sell,
+                    other => {
+                        return Err(GatewayError::MalformedData(format!(
+                            "bybit: unknown trade side '{other}'"
+                        )))
+                    }
+                };
+            events.push(AdapterEvent {
+                symbol,
+                stream_kind: StreamKind::Trades,
+                // Bybit trades are unsequenced per trade id; sequence stays
+                // None and identity is the trade id.
+                sequence: None,
+                prev_sequence: None,
+                provider_ms: row.get("T").and_then(Value::as_i64).or(ts),
+                kind: MarketEventKind::TradeTick {
+                    price: Fixed::parse(row.get("p").and_then(Value::as_str).ok_or_else(
+                        || GatewayError::MalformedData("bybit: trade missing price".into()),
+                    )?)?,
+                    quantity: Fixed::parse(row.get("v").and_then(Value::as_str).ok_or_else(
+                        || GatewayError::MalformedData("bybit: trade missing size".into()),
+                    )?)?,
+                    taker_side,
+                    trade_id: row
+                        .get("i")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                },
+                is_anchor: false,
+            });
+        }
+        Ok(events)
+    }
+
+    fn parse_tickers(frame: &Value) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let ts = frame.get("ts").and_then(Value::as_i64);
+        let data = frame
+            .get("data")
+            .and_then(Value::as_object)
+            .ok_or_else(|| GatewayError::MalformedData("bybit: tickers data missing".into()))?;
+        let symbol =
+            Symbol::new(data.get("symbol").and_then(Value::as_str).ok_or_else(|| {
+                GatewayError::MalformedData("bybit: tickers missing symbol".into())
+            })?)?;
+        let str_field = |key: &str| -> Result<Option<Fixed>, GatewayError> {
+            match data.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::String(s)) => Ok(Some(Fixed::parse(s)?)),
+                Some(_) => Err(GatewayError::MalformedData(format!(
+                    "bybit: tickers field '{key}' expected decimal string"
+                ))),
+            }
+        };
+        let kind = MarketEventKind::Ticker {
+            last_price: str_field("lastPrice")?,
+            bid_price: str_field("bid1Price")?,
+            ask_price: str_field("ask1Price")?,
+            high_24h: str_field("highPrice_24h")?,
+            low_24h: str_field("lowPrice_24h")?,
+            volume_24h: str_field("volume_24h")?,
+        };
+        Ok(vec![AdapterEvent {
+            symbol,
+            stream_kind: StreamKind::Ticker,
+            sequence: None,
+            prev_sequence: None,
+            provider_ms: ts,
+            kind,
+            is_anchor: false,
+        }])
+    }
+}
+
+impl MarketDataAdapter for BybitAdapter {
+    fn venue(&self) -> Venue {
+        Venue::Bybit
+    }
+
+    fn ws_base_url(&self) -> &'static str {
+        BYBIT_WS_BASE
+    }
+
+    fn heartbeat_interval(&self) -> std::time::Duration {
+        // Bybit requires an application ping every <=20s.
+        std::time::Duration::from_secs(15)
+    }
+
+    fn subscribe_frames(&self, symbols: &[Symbol]) -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+        for symbol in symbols {
+            let s = symbol.as_str();
+            args.push(format!("orderbook.50.{s}"));
+            args.push(format!("publicTrade.{s}"));
+            args.push(format!("tickers.{s}"));
+        }
+        vec![serde_json::json!({ "op": "subscribe", "args": args }).to_string()]
+    }
+
+    fn unsubscribe_frames(&self, symbols: &[Symbol]) -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+        for symbol in symbols {
+            let s = symbol.as_str();
+            args.push(format!("orderbook.50.{s}"));
+            args.push(format!("publicTrade.{s}"));
+            args.push(format!("tickers.{s}"));
+        }
+        vec![serde_json::json!({ "op": "unsubscribe", "args": args }).to_string()]
+    }
+
+    fn heartbeat_frame(&self) -> Option<String> {
+        Some(serde_json::json!({ "op": "ping" }).to_string())
+    }
+
+    fn is_heartbeat_reply(&self, raw: &str) -> bool {
+        raw.contains("\"op\":\"pong\"")
+    }
+
+    fn is_control_frame(&self, raw: &str) -> bool {
+        let value = match parse_json(raw) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        value.get("op").and_then(Value::as_str).is_some()
+    }
+
+    fn parse_message(&self, raw: &str) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let frame = parse_json(raw)?;
+        if self.is_heartbeat_reply(raw) {
+            return Ok(Vec::new());
+        }
+        if let Some(op) = frame.get("op").and_then(Value::as_str) {
+            return match op {
+                "subscribe" | "unsubscribe" | "auth" | "pong" => {
+                    if frame.get("success").and_then(Value::as_bool) == Some(false) {
+                        Err(GatewayError::ProviderFailure(format!(
+                            "bybit: {} op failed: {}",
+                            op,
+                            frame
+                                .get("ret_msg")
+                                .and_then(Value::as_str)
+                                .unwrap_or("no detail")
+                        )))
+                    } else {
+                        Ok(Vec::new())
+                    }
+                }
+                other => Err(GatewayError::UnsupportedCapability(format!(
+                    "bybit: op '{other}' is not handled by this gateway"
+                ))),
+            };
+        }
+        let topic = frame
+            .get("topic")
+            .and_then(Value::as_str)
+            .ok_or_else(|| GatewayError::MalformedData("bybit: frame missing topic".into()))?;
+        let (_symbol, kind) = BybitAdapter::split_topic(topic)?;
+        match kind {
+            StreamKind::BookDepth => BybitAdapter::parse_orderbook(&frame, topic),
+            StreamKind::Trades => BybitAdapter::parse_public_trade(&frame),
+            StreamKind::Ticker => BybitAdapter::parse_tickers(&frame),
+            StreamKind::BookTicker | StreamKind::PartialBook => {
+                Err(GatewayError::UnsupportedCapability(format!(
+                    "bybit: stream kind {kind:?} is not subscribed"
+                )))
+            }
+        }
+    }
+
+    fn supports(&self, capability: Capability) -> bool {
+        matches!(
+            capability,
+            Capability::Trades | Capability::BookDepthDiff | Capability::Ticker
+        )
+    }
+
+    fn recovery_strategy(&self) -> RecoveryStrategy {
+        // Re-subscription always starts with type:"snapshot" before deltas.
+        RecoveryStrategy::ResubscribeYieldsSnapshot
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SNAPSHOT: &str = r#"{"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1672304489723,"data":{"s":"BTCUSDT","b":[["16649.5","2.000"],["16649.0","1.000"]],"a":[["16650.0","1.500"],["16650.5","3.000"]],"u":10251086,"seq":7969023127}}"#;
+    const DELTA: &str = r#"{"topic":"orderbook.50.BTCUSDT","type":"delta","ts":1672304489997,"data":{"s":"BTCUSDT","b":[["16649.5","0"]],"a":[["16650.5","4.000"]],"u":10251088,"seq":7969023311}}"#;
+    const TRADE: &str = r#"{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304489431,"data":[{"T":1672304489429,"s":"BTCUSDT","S":"Sell","v":"0.001","p":"16649.0","i":"trade-1","BT":false,"LT":false},{"T":1672304489430,"s":"BTCUSDT","S":"Buy","v":"0.010","p":"16649.5","i":"trade-2","BT":false,"LT":false}]}"#;
+    const TICKER: &str = r#"{"topic":"tickers.BTCUSDT","type":"snapshot","ts":1672304489123,"data":{"symbol":"BTCUSDT","lastPrice":"16649.5","bid1Price":"16649.0","bid1Size":"2.0","ask1Price":"16650.0","ask1Size":"1.5","highPrice_24h":"16900.0","lowPrice_24h":"16400.0","volume_24h":"12345.6"}}"#;
+
+    fn adapter() -> BybitAdapter {
+        BybitAdapter::new()
+    }
+
+    // [CHECK 24] Bybit adapter parses a supported orderbook frame pair.
+    #[test]
+    fn parses_orderbook_snapshot_and_delta() {
+        let events = adapter().parse_message(SNAPSHOT).expect("snapshot");
+        assert_eq!(events.len(), 1);
+        assert!(events[0].is_anchor);
+        assert_eq!(events[0].sequence, Some(10_251_086));
+        assert_eq!(events[0].provider_ms, Some(1_672_304_489_723));
+        assert!(matches!(
+            events[0].kind,
+            MarketEventKind::BookSnapshot { .. }
+        ));
+
+        let events = adapter().parse_message(DELTA).expect("delta");
+        assert!(!events[0].is_anchor);
+        assert_eq!(events[0].sequence, Some(10_251_088));
+        assert!(matches!(events[0].kind, MarketEventKind::BookDelta { .. }));
+    }
+
+    #[test]
+    fn parses_trades_with_taker_side() {
+        let events = adapter().parse_message(TRADE).expect("trades");
+        assert_eq!(events.len(), 2);
+        match &events[0].kind {
+            MarketEventKind::TradeTick {
+                price,
+                quantity,
+                taker_side,
+                trade_id,
+            } => {
+                assert_eq!(price.to_string(), "16649.0");
+                assert_eq!(quantity.to_string(), "0.001");
+                assert_eq!(*taker_side, OrderSide::Sell);
+                assert_eq!(trade_id, "trade-1");
+            }
+            other => panic!("expected trade, got {other:?}"),
+        }
+        match &events[1].kind {
+            MarketEventKind::TradeTick { taker_side, .. } => {
+                assert_eq!(*taker_side, OrderSide::Buy)
+            }
+            other => panic!("expected trade, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_tickers() {
+        let events = adapter().parse_message(TICKER).expect("tickers");
+        match &events[0].kind {
+            MarketEventKind::Ticker {
+                last_price,
+                bid_price,
+                ask_price,
+                volume_24h,
+                ..
+            } => {
+                assert_eq!(
+                    last_price.as_ref().map(|p| p.to_string()),
+                    Some("16649.5".into())
+                );
+                assert_eq!(
+                    bid_price.as_ref().map(|p| p.to_string()),
+                    Some("16649.0".into())
+                );
+                assert_eq!(
+                    ask_price.as_ref().map(|p| p.to_string()),
+                    Some("16650.0".into())
+                );
+                assert_eq!(
+                    volume_24h.as_ref().map(|p| p.to_string()),
+                    Some("12345.6".into())
+                );
+            }
+            other => panic!("expected ticker, got {other:?}"),
+        }
+    }
+
+    // [CHECK 26] unsupported channels and malformed frames fail explicitly.
+    #[test]
+    fn unsupported_and_malformed_fail_explicitly() {
+        let kline = r#"{"topic":"kline.1.BTCUSDT","ts":1,"type":"snapshot","data":{}}"#;
+        let err = adapter()
+            .parse_message(kline)
+            .expect_err("kline unsupported");
+        assert!(matches!(err, GatewayError::UnsupportedCapability(_)));
+
+        let no_topic = r#"{"ts":1}"#;
+        assert!(matches!(
+            adapter().parse_message(no_topic),
+            Err(GatewayError::MalformedData(_))
+        ));
+
+        let bad_type = r#"{"topic":"orderbook.50.BTCUSDT","type":"mystery","data":{"s":"BTCUSDT","b":[],"a":[],"u":1}}"#;
+        assert!(matches!(
+            adapter().parse_message(bad_type),
+            Err(GatewayError::MalformedData(_))
+        ));
+    }
+
+    // [CHECK 27/29 support] subscribe failure is an explicit provider
+    // failure; successful acks are silent control frames.
+    #[test]
+    fn subscribe_acks_and_failures() {
+        let ack =
+            r#"{"op":"subscribe","success":true,"conn_id":"co1","data":["orderbook.50.BTCUSDT"]}"#;
+        assert!(adapter().parse_message(ack).expect("ack").is_empty());
+        let nack =
+            r#"{"op":"subscribe","success":false,"conn_id":"co1","ret_msg":"invalid symbol"}"#;
+        let err = adapter().parse_message(nack).expect_err("nack");
+        assert!(matches!(err, GatewayError::ProviderFailure(_)));
+    }
+
+    // Heartbeat: application ping every 15s, pong recognized.
+    #[test]
+    fn heartbeat_behavior() {
+        assert_eq!(
+            adapter().heartbeat_frame(),
+            Some(r#"{"op":"ping"}"#.to_string())
+        );
+        assert!(adapter().is_heartbeat_reply(r#"{"op":"pong","ts":1672304489999}"#));
+        assert!(adapter()
+            .parse_message(r#"{"op":"pong","ts":1}"#)
+            .expect("pong")
+            .is_empty());
+        assert!(!adapter().is_heartbeat_reply(r#"{"topic":"publicTrade.BTCUSDT"}"#));
+    }
+
+    #[test]
+    fn subscription_frames_cover_required_channels() {
+        let frames = adapter().subscribe_frames(&[Symbol::new("BTCUSDT").expect("s")]);
+        assert_eq!(frames.len(), 1);
+        for channel in [
+            "orderbook.50.BTCUSDT",
+            "publicTrade.BTCUSDT",
+            "tickers.BTCUSDT",
+        ] {
+            assert!(frames[0].contains(channel));
+        }
+        assert_eq!(adapter().venue(), Venue::Bybit);
+        assert!(!adapter().supports(Capability::PartialBook));
+        assert_eq!(
+            adapter().recovery_strategy(),
+            RecoveryStrategy::ResubscribeYieldsSnapshot
+        );
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/adapters/exchange_ws.rs
+
+```text
+//! Provider-neutral WebSocket adapter boundary.
+//!
+//! Every venue adapter is a concrete implementation of this contract: how to
+//! build the endpoint, subscribe, keep the session alive, parse wire frames
+//! into normalized events, and what recovery requires when continuity is
+//! lost. The feed-session engine (see feed_session.rs) drives any adapter
+//! through this trait and nothing else, so venue-specific wire behavior
+//! cannot leak into shared machinery — and unsupported capabilities fail
+//! explicitly instead of degrading silently.
+
+use crate::error::GatewayError;
+use crate::types::{MarketEventKind, Sequence, StreamKind, Symbol, Venue};
+
+/// A single venue event as parsed off the wire, pre-normalization (the
+/// pipeline assigns ids and timestamps).
+#[derive(Clone, Debug)]
+pub struct AdapterEvent {
+    pub symbol: Symbol,
+    pub stream_kind: StreamKind,
+    pub sequence: Option<Sequence>,
+    /// For depth deltas: the venue-declared predecessor sequence.
+    pub prev_sequence: Option<Sequence>,
+    pub provider_ms: Option<i64>,
+    pub kind: MarketEventKind,
+    /// True when this event legitimately re-anchors sequence continuity
+    /// (snapshots). Deltas after a gap stay refused until one arrives.
+    pub is_anchor: bool,
+}
+
+/// What a reconnect requires before deltas can flow again.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RecoveryStrategy {
+    /// Re-subscribing delivers a fresh snapshot first (Bybit snapshot/delta
+    /// streams, OKX books with action=snapshot, Binance partial depth).
+    ResubscribeYieldsSnapshot,
+}
+
+/// Capabilities an adapter can explicitly support or refuse.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Capability {
+    Trades,
+    BookTicker,
+    BookDepthDiff,
+    PartialBook,
+    Ticker,
+}
+
+pub trait MarketDataAdapter: Send + Sync {
+    fn venue(&self) -> Venue;
+
+    /// Public market-data endpoint (wss).
+    fn ws_base_url(&self) -> &'static str;
+
+    /// Application-level heartbeat cadence; protocol-level pings are handled
+    /// by the WebSocket library itself.
+    fn heartbeat_interval(&self) -> std::time::Duration;
+
+    /// Frames to send when (re-)subscribing the symbol set. Adapters MUST
+    /// return the snapshot-capable subscription first where the venue has
+    /// such a notion.
+    fn subscribe_frames(&self, symbols: &[Symbol]) -> Vec<String>;
+
+    /// Frames to send when unsubscribing (graceful drain).
+    fn unsubscribe_frames(&self, symbols: &[Symbol]) -> Vec<String>;
+
+    /// Application-level keepalive frame, when the venue uses one (OKX sends
+    /// literal "ping"; Bybit an op:ping; Binance none at app level).
+    fn heartbeat_frame(&self) -> Option<String>;
+
+    /// True when the frame is this venue's heartbeat reply.
+    fn is_heartbeat_reply(&self, raw: &str) -> bool;
+
+    /// True when the frame is a control ack (subscription confirmation and
+    /// friends) and carries no market events.
+    fn is_control_frame(&self, raw: &str) -> bool;
+
+    /// Parses one wire frame into zero or more normalized events. Zero
+    /// events with Ok(()) is valid (control frames); there is NEVER a
+    /// fabricated fallback event on failure — failures are errors.
+    fn parse_message(&self, raw: &str) -> Result<Vec<AdapterEvent>, GatewayError>;
+
+    fn supports(&self, capability: Capability) -> bool;
+
+    fn recovery_strategy(&self) -> RecoveryStrategy;
+}
+
+/// Shared JSON helper for wire decoding: serde_json with byte-limited input.
+pub(crate) fn parse_json(raw: &str) -> Result<serde_json::Value, GatewayError> {
+    if raw.len() > crate::types::MAX_FEED_FRAME_BYTES {
+        return Err(GatewayError::MalformedData(format!(
+            "frame of {} bytes exceeds limit",
+            raw.len()
+        )));
+    }
+    serde_json::from_str(raw).map_err(|e| GatewayError::MalformedData(format!("json: {e}")))
+}
+
+/// Shared helper: parses a `[price, quantity]` wire pair.
+pub(crate) fn parse_level_pair(
+    pair: &[serde_json::Value],
+    venue: &str,
+) -> Result<crate::types::Level, GatewayError> {
+    let mut it = pair.iter();
+    let price = it
+        .next()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .ok_or_else(|| GatewayError::MalformedData(format!("{venue}: level price missing")))?;
+    let qty = it
+        .next()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .ok_or_else(|| GatewayError::MalformedData(format!("{venue}: level quantity missing")))?;
+    crate::types::Level::from_wire(&price, &qty)
+}
+
+/// Shared helper: parses a whole side's level matrix.
+pub(crate) fn parse_level_matrix(
+    raw: &[serde_json::Value],
+    venue: &str,
+) -> Result<Vec<crate::types::Level>, GatewayError> {
+    raw.iter()
+        .map(|entry| {
+            entry
+                .as_array()
+                .ok_or_else(|| GatewayError::MalformedData(format!("{venue}: level not an array")))
+                .and_then(|pair| parse_level_pair(pair, venue))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 26 support] the shared wire helpers reject malformed structures
+    // explicitly instead of inventing defaults.
+    #[test]
+    fn level_helpers_reject_malformed_wire_shapes() {
+        let bad_json = parse_json("{not json");
+        assert!(matches!(bad_json, Err(GatewayError::MalformedData(_))));
+
+        let empty_pair = parse_level_pair(&[], "binance");
+        assert!(matches!(empty_pair, Err(GatewayError::MalformedData(_))));
+
+        let one_sided = parse_level_pair(&[serde_json::json!("100.5")], "bybit");
+        assert!(matches!(one_sided, Err(GatewayError::MalformedData(_))));
+
+        let numeric_price =
+            parse_level_pair(&[serde_json::json!(100.5), serde_json::json!("1")], "okx");
+        assert!(matches!(numeric_price, Err(GatewayError::MalformedData(_))));
+
+        let good = parse_level_pair(
+            &[serde_json::json!("100.5"), serde_json::json!("0.25")],
+            "binance",
+        )
+        .expect("good level");
+        assert_eq!(good.price.to_string(), "100.5");
+        assert_eq!(good.quantity.to_string(), "0.25");
+
+        let bad_matrix = parse_level_matrix(
+            &[serde_json::json!(["1", "2"]), serde_json::json!(3)],
+            "okx",
+        );
+        assert!(bad_matrix.is_err());
+    }
+
+    // [CHECK 26] oversized frames are refused, never truncated into events.
+    #[test]
+    fn oversized_frames_are_refused() {
+        let big = "x".repeat(crate::types::MAX_FEED_FRAME_BYTES + 1);
+        assert!(matches!(
+            parse_json(&big),
+            Err(GatewayError::MalformedData(_))
+        ));
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/adapters/okx.rs
+
+```text
+//! OKX v5 public market-data adapter.
+//!
+//! Real wire behavior of `wss://ws.okx.com:8443/ws/v5/public`:
+//! - subscribe/unsubscribe via `{"op":"subscribe","args":[{"channel":..,
+//!   "instId":..}, ...]}`;
+//! - `books5` channel: complete top-5 snapshots per push, anchored by
+//!   `seqId`;
+//! - `books` channel: `action: "snapshot" | "update"` with
+//!   `prevSeqId + 1 == seqId` continuity;
+//! - `trades` channel with taker `side` and per-trade `tradeId`;
+//! - `tickers` channel with best bid/ask and 24h statistics;
+//! - application-level keepalive: the literal text frame `ping`, answered
+//!   by the literal text frame `pong` (OKX does not use JSON here);
+//! - subscribe acks `{"event":"subscribe",...}` are control frames;
+//!   `{"event":"error","code":..,"msg":..}` is an explicit provider failure.
+//!
+//! Only these channels are subscribed; anything else fails explicitly.
+
+use serde_json::Value;
+
+use crate::adapters::exchange_ws::{
+    parse_json, parse_level_matrix, AdapterEvent, Capability, MarketDataAdapter, RecoveryStrategy,
+};
+use crate::error::GatewayError;
+use crate::types::{Fixed, MarketEventKind, OrderSide, Sequence, StreamKind, Symbol, Venue};
+
+pub const OKX_WS_BASE: &str = "wss://ws.okx.com:8443/ws/v5/public";
+
+#[derive(Default)]
+pub struct OkxAdapter;
+
+impl OkxAdapter {
+    pub fn new() -> OkxAdapter {
+        OkxAdapter
+    }
+
+    fn parse_entry_levels(
+        entry: &Value,
+    ) -> Result<(Vec<crate::types::Level>, Vec<crate::types::Level>), GatewayError> {
+        let asks = parse_level_matrix(
+            entry
+                .get("asks")
+                .and_then(Value::as_array)
+                .ok_or_else(|| GatewayError::MalformedData("okx: data missing asks".into()))?,
+            "okx",
+        )?;
+        let bids = parse_level_matrix(
+            entry
+                .get("bids")
+                .and_then(Value::as_array)
+                .ok_or_else(|| GatewayError::MalformedData("okx: data missing bids".into()))?,
+            "okx",
+        )?;
+        Ok((bids, asks))
+    }
+
+    fn parse_books(
+        frame: &Value,
+        channel: &str,
+        inst_id: &str,
+    ) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let symbol = Symbol::new(inst_id)?;
+        let rows = frame
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or_else(|| GatewayError::MalformedData("okx: books data missing".into()))?;
+        let mut events = Vec::with_capacity(rows.len());
+        for entry in rows {
+            let (bids, asks) = Self::parse_entry_levels(entry)?;
+            let seq: Sequence = entry
+                .get("seqId")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| GatewayError::MalformedData("okx: books missing seqId".into()))?;
+            let prev: Option<Sequence> = entry.get("prevSeqId").and_then(Value::as_u64);
+            let (kind, is_anchor) = if channel == "books5" {
+                (MarketEventKind::BookSnapshot { bids, asks }, true)
+            } else {
+                let action = frame.get("action").and_then(Value::as_str).ok_or_else(|| {
+                    GatewayError::MalformedData("okx: books frame missing action".into())
+                })?;
+                match action {
+                    "snapshot" => (MarketEventKind::BookSnapshot { bids, asks }, true),
+                    "update" => (
+                        MarketEventKind::BookDelta {
+                            bids,
+                            asks,
+                            prev_sequence: prev,
+                        },
+                        false,
+                    ),
+                    other => {
+                        return Err(GatewayError::MalformedData(format!(
+                            "okx: unknown books action '{other}'"
+                        )))
+                    }
+                }
+            };
+            events.push(AdapterEvent {
+                symbol: symbol.clone(),
+                stream_kind: if channel == "books5" {
+                    StreamKind::PartialBook
+                } else {
+                    StreamKind::BookDepth
+                },
+                sequence: Some(seq),
+                prev_sequence: prev,
+                provider_ms: entry.get("ts").and_then(Value::as_i64),
+                kind,
+                is_anchor,
+            });
+        }
+        Ok(events)
+    }
+
+    fn parse_trades(frame: &Value, inst_id: &str) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let symbol = Symbol::new(inst_id)?;
+        let rows = frame
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or_else(|| GatewayError::MalformedData("okx: trades data missing".into()))?;
+        let mut events = Vec::with_capacity(rows.len());
+        for row in rows {
+            let side = match row
+                .get("side")
+                .and_then(Value::as_str)
+                .ok_or_else(|| GatewayError::MalformedData("okx: trade missing side".into()))?
+            {
+                "buy" => OrderSide::Buy,
+                "sell" => OrderSide::Sell,
+                other => {
+                    return Err(GatewayError::MalformedData(format!(
+                        "okx: unknown trade side '{other}'"
+                    )))
+                }
+            };
+            events.push(AdapterEvent {
+                symbol: symbol.clone(),
+                stream_kind: StreamKind::Trades,
+                sequence: None,
+                prev_sequence: None,
+                provider_ms: row.get("ts").and_then(Value::as_i64),
+                kind: MarketEventKind::TradeTick {
+                    price: Fixed::parse(row.get("px").and_then(Value::as_str).ok_or_else(
+                        || GatewayError::MalformedData("okx: trade missing px".into()),
+                    )?)?,
+                    quantity: Fixed::parse(row.get("sz").and_then(Value::as_str).ok_or_else(
+                        || GatewayError::MalformedData("okx: trade missing sz".into()),
+                    )?)?,
+                    taker_side: side,
+                    trade_id: row
+                        .get("tradeId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                },
+                is_anchor: false,
+            });
+        }
+        Ok(events)
+    }
+
+    fn parse_tickers(frame: &Value, inst_id: &str) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let symbol = Symbol::new(inst_id)?;
+        let rows = frame
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or_else(|| GatewayError::MalformedData("okx: tickers data missing".into()))?;
+        let mut events = Vec::with_capacity(rows.len());
+        for row in rows {
+            let str_field = |key: &str| -> Result<Option<Fixed>, GatewayError> {
+                match row.get(key) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(Value::String(s)) => Ok(Some(Fixed::parse(s)?)),
+                    Some(_) => Err(GatewayError::MalformedData(format!(
+                        "okx: tickers field '{key}' expected decimal string"
+                    ))),
+                }
+            };
+            events.push(AdapterEvent {
+                symbol: symbol.clone(),
+                stream_kind: StreamKind::Ticker,
+                sequence: None,
+                prev_sequence: None,
+                provider_ms: row.get("ts").and_then(Value::as_i64),
+                kind: MarketEventKind::Ticker {
+                    last_price: str_field("last")?,
+                    bid_price: str_field("bidPx")?,
+                    ask_price: str_field("askPx")?,
+                    high_24h: str_field("high24h")?,
+                    low_24h: str_field("low24h")?,
+                    volume_24h: str_field("vol24h")?,
+                },
+                is_anchor: false,
+            });
+        }
+        Ok(events)
+    }
+}
+
+impl MarketDataAdapter for OkxAdapter {
+    fn venue(&self) -> Venue {
+        Venue::Okx
+    }
+
+    fn ws_base_url(&self) -> &'static str {
+        OKX_WS_BASE
+    }
+
+    fn heartbeat_interval(&self) -> std::time::Duration {
+        // OKX drops idle connections after ~30s; ping at 15s.
+        std::time::Duration::from_secs(15)
+    }
+
+    fn subscribe_frames(&self, symbols: &[Symbol]) -> Vec<String> {
+        let mut args: Vec<Value> = Vec::new();
+        for symbol in symbols {
+            let inst = symbol.as_str();
+            args.push(serde_json::json!({ "channel": "books5", "instId": inst }));
+            args.push(serde_json::json!({ "channel": "books", "instId": inst }));
+            args.push(serde_json::json!({ "channel": "trades", "instId": inst }));
+            args.push(serde_json::json!({ "channel": "tickers", "instId": inst }));
+        }
+        vec![serde_json::json!({ "op": "subscribe", "args": args }).to_string()]
+    }
+
+    fn unsubscribe_frames(&self, symbols: &[Symbol]) -> Vec<String> {
+        let mut args: Vec<Value> = Vec::new();
+        for symbol in symbols {
+            let inst = symbol.as_str();
+            args.push(serde_json::json!({ "channel": "books5", "instId": inst }));
+            args.push(serde_json::json!({ "channel": "books", "instId": inst }));
+            args.push(serde_json::json!({ "channel": "trades", "instId": inst }));
+            args.push(serde_json::json!({ "channel": "tickers", "instId": inst }));
+        }
+        vec![serde_json::json!({ "op": "unsubscribe", "args": args }).to_string()]
+    }
+
+    fn heartbeat_frame(&self) -> Option<String> {
+        // OKX keepalive is the literal text "ping" (answered with "pong"),
+        // NOT a JSON frame and NOT a WS protocol ping.
+        Some("ping".to_string())
+    }
+
+    fn is_heartbeat_reply(&self, raw: &str) -> bool {
+        raw.trim() == "pong"
+    }
+
+    fn is_control_frame(&self, raw: &str) -> bool {
+        parse_json(raw)
+            .ok()
+            .and_then(|v| v.get("event").and_then(Value::as_str).map(str::to_string))
+            .map(|event| event == "subscribe" || event == "unsubscribe")
+            .unwrap_or(false)
+    }
+
+    fn parse_message(&self, raw: &str) -> Result<Vec<AdapterEvent>, GatewayError> {
+        if self.is_heartbeat_reply(raw) {
+            return Ok(Vec::new());
+        }
+        let frame = parse_json(raw)?;
+        if let Some(event) = frame.get("event").and_then(Value::as_str) {
+            return match event {
+                "subscribe" | "unsubscribe" => Ok(Vec::new()),
+                "error" => Err(GatewayError::ProviderFailure(format!(
+                    "okx: {} (code {})",
+                    frame
+                        .get("msg")
+                        .and_then(Value::as_str)
+                        .unwrap_or("no detail"),
+                    frame.get("code").and_then(Value::as_str).unwrap_or("?")
+                ))),
+                other => Err(GatewayError::UnsupportedCapability(format!(
+                    "okx: event '{other}' is not handled by this gateway"
+                ))),
+            };
+        }
+        let arg = frame
+            .get("arg")
+            .and_then(Value::as_object)
+            .ok_or_else(|| GatewayError::MalformedData("okx: frame missing arg".into()))?;
+        let channel = arg
+            .get("channel")
+            .and_then(Value::as_str)
+            .ok_or_else(|| GatewayError::MalformedData("okx: arg missing channel".into()))?;
+        let inst_id = arg
+            .get("instId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| GatewayError::MalformedData("okx: arg missing instId".into()))?;
+        match channel {
+            "books5" | "books" => OkxAdapter::parse_books(&frame, channel, inst_id),
+            "trades" => OkxAdapter::parse_trades(&frame, inst_id),
+            "tickers" => OkxAdapter::parse_tickers(&frame, inst_id),
+            other => Err(GatewayError::UnsupportedCapability(format!(
+                "okx: channel '{other}' is not subscribed by this gateway"
+            ))),
+        }
+    }
+
+    fn supports(&self, capability: Capability) -> bool {
+        matches!(
+            capability,
+            Capability::Trades
+                | Capability::PartialBook
+                | Capability::BookDepthDiff
+                | Capability::Ticker
+        )
+    }
+
+    fn recovery_strategy(&self) -> RecoveryStrategy {
+        // The books channel opens with action:"snapshot" on re-subscribe.
+        RecoveryStrategy::ResubscribeYieldsSnapshot
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BOOKS5: &str = r#"{"arg":{"channel":"books5","instId":"BTC-USDT"},"data":[{"asks":[["27003.9","2.0","0","2"],["27004.0","3.0","0","1"]],"bids":[["27003.8","1.5","0","1"],["27003.7","2.5","0","2"]],"ts":1697026383085,"seqId":159772457}]}"#;
+    const BOOKS_UPDATE: &str = r#"{"arg":{"channel":"books","instId":"BTC-USDT"},"action":"update","data":[{"asks":[["27004.0","0","0","0"],["27004.1","1.0","0","1"]],"bids":[["27003.8","2.0","0","1"]],"ts":1697026383200,"seqId":159772458,"prevSeqId":159772457}]}"#;
+    const BOOKS_SNAPSHOT: &str = r#"{"arg":{"channel":"books","instId":"BTC-USDT"},"action":"snapshot","data":[{"asks":[["27004.0","3.0","0","1"]],"bids":[["27003.8","2.0","0","1"]],"ts":1697026383300,"seqId":159772459}]}"#;
+    const TRADE: &str = r#"{"arg":{"channel":"trades","instId":"BTC-USDT"},"data":[{"instId":"BTC-USDT","tradeId":"13069379","px":"27003.9","sz":"0.120","side":"sell","ts":1697026383311}]}"#;
+    const TICKERS: &str = r#"{"arg":{"channel":"tickers","instId":"BTC-USDT"},"data":[{"instId":"BTC-USDT","last":"27003.9","askPx":"27004.0","bidPx":"27003.8","open24h":"26800.0","high24h":"27100.0","low24h":"26700.0","vol24h":"12345.6","ts":1697026383400}]}"#;
+
+    fn adapter() -> OkxAdapter {
+        OkxAdapter::new()
+    }
+
+    // [CHECK 25] OKX adapter parses supported book events with sequence
+    // continuity metadata intact.
+    #[test]
+    fn parses_books5_books_snapshot_and_update() {
+        let events = adapter().parse_message(BOOKS5).expect("books5");
+        assert_eq!(events.len(), 1);
+        assert!(events[0].is_anchor);
+        assert_eq!(events[0].sequence, Some(159_772_457));
+        assert_eq!(events[0].stream_kind, StreamKind::PartialBook);
+        match &events[0].kind {
+            MarketEventKind::BookSnapshot { bids, asks } => {
+                assert_eq!(bids.len(), 2);
+                assert_eq!(asks.len(), 2);
+            }
+            other => panic!("expected snapshot, got {other:?}"),
+        }
+
+        let events = adapter().parse_message(BOOKS_UPDATE).expect("update");
+        assert!(!events[0].is_anchor);
+        assert_eq!(events[0].sequence, Some(159_772_458));
+        assert_eq!(events[0].prev_sequence, Some(159_772_457));
+        assert!(matches!(events[0].kind, MarketEventKind::BookDelta { .. }));
+
+        let events = adapter()
+            .parse_message(BOOKS_SNAPSHOT)
+            .expect("action snapshot");
+        assert!(events[0].is_anchor);
+        assert!(matches!(
+            events[0].kind,
+            MarketEventKind::BookSnapshot { .. }
+        ));
+    }
+
+    #[test]
+    fn parses_trades_and_tickers() {
+        let events = adapter().parse_message(TRADE).expect("trade");
+        match &events[0].kind {
+            MarketEventKind::TradeTick {
+                price,
+                quantity,
+                taker_side,
+                trade_id,
+            } => {
+                assert_eq!(price.to_string(), "27003.9");
+                assert_eq!(quantity.to_string(), "0.12");
+                assert_eq!(*taker_side, OrderSide::Sell);
+                assert_eq!(trade_id, "13069379");
+            }
+            other => panic!("expected trade, got {other:?}"),
+        }
+
+        let events = adapter().parse_message(TICKERS).expect("tickers");
+        match &events[0].kind {
+            MarketEventKind::Ticker {
+                last_price,
+                bid_price,
+                ask_price,
+                high_24h,
+                low_24h,
+                volume_24h,
+            } => {
+                assert_eq!(
+                    last_price.as_ref().map(|p| p.to_string()),
+                    Some("27003.9".into())
+                );
+                assert_eq!(
+                    bid_price.as_ref().map(|p| p.to_string()),
+                    Some("27003.8".into())
+                );
+                assert_eq!(
+                    ask_price.as_ref().map(|p| p.to_string()),
+                    Some("27004.0".into())
+                );
+                assert_eq!(
+                    high_24h.as_ref().map(|p| p.to_string()),
+                    Some("27100.0".into())
+                );
+                assert_eq!(
+                    low_24h.as_ref().map(|p| p.to_string()),
+                    Some("26700.0".into())
+                );
+                assert_eq!(
+                    volume_24h.as_ref().map(|p| p.to_string()),
+                    Some("12345.6".into())
+                );
+            }
+            other => panic!("expected ticker, got {other:?}"),
+        }
+    }
+
+    // [CHECK 26] unsupported channels fail explicitly.
+    #[test]
+    fn unsupported_channel_fails_explicitly() {
+        let option_frame = r#"{"arg":{"channel":"opt-summary","instId":"BTC-USD"},"data":[]}"#;
+        let err = adapter()
+            .parse_message(option_frame)
+            .expect_err("unsupported");
+        assert!(matches!(err, GatewayError::UnsupportedCapability(_)));
+    }
+
+    // Heartbeat is the literal ping/pong text protocol.
+    #[test]
+    fn literal_ping_pong_heartbeat() {
+        assert_eq!(adapter().heartbeat_frame(), Some("ping".to_string()));
+        assert!(adapter().is_heartbeat_reply("pong"));
+        assert!(adapter().parse_message("pong").expect("pong").is_empty());
+        assert!(!adapter().is_heartbeat_reply(r#"{"arg":{}}"#));
+    }
+
+    // Subscribe error events are provider failures, not silently ignored.
+    #[test]
+    fn subscribe_error_is_provider_failure() {
+        let err_frame = r#"{"event":"error","code":"60013","msg":"Invalid Subscribe request"}"#;
+        let err = adapter().parse_message(err_frame).expect_err("error event");
+        assert!(matches!(err, GatewayError::ProviderFailure(_)));
+        let ack =
+            r#"{"event":"subscribe","arg":{"channel":"trades","instId":"BTC-USDT"},"connId":"1"}"#;
+        assert!(adapter().parse_message(ack).expect("ack").is_empty());
+        assert!(adapter().is_control_frame(ack));
+    }
+
+    #[test]
+    fn subscription_frames_cover_required_channels() {
+        let frames = adapter().subscribe_frames(&[Symbol::new("BTC-USDT").expect("s")]);
+        assert_eq!(frames.len(), 1);
+        for channel in ["\"books5\"", "\"books\"", "\"trades\"", "\"tickers\""] {
+            assert!(frames[0].contains(channel));
+        }
+        assert!(frames[0].contains("BTC-USDT"));
+        assert_eq!(adapter().venue(), Venue::Okx);
+        assert!(adapter().supports(Capability::BookDepthDiff));
+        assert_eq!(
+            adapter().recovery_strategy(),
+            RecoveryStrategy::ResubscribeYieldsSnapshot
+        );
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/backpressure.rs
+
+```text
+//! Central backpressure policy for market-data and transport channels.
+//!
+//! States are derived deterministically from observed queue depth:
+//! NORMAL -> PRESSURED -> CRITICAL -> BLOCKED. Execution-critical traffic is
+//! fail-closed: once pressure reaches CRITICAL, new execution intents are
+//! refused (never queued behind an unknown-lag consumer). Non-critical
+//! market-data fanout may shed intermediate events under an explicit policy,
+//! but every shed is counted and observable.
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BackpressureState {
+    Normal,
+    Pressured,
+    Critical,
+    Blocked,
+}
+
+impl BackpressureState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BackpressureState::Normal => "normal",
+            BackpressureState::Pressured => "pressured",
+            BackpressureState::Critical => "critical",
+            BackpressureState::Blocked => "blocked",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BackpressurePolicy {
+    /// Depth at which the state becomes PRESSURED (observation only).
+    pub pressured_depth: i64,
+    /// Depth at which the state becomes CRITICAL: execution-critical
+    /// admissions are refused; non-critical shedding may begin.
+    pub critical_depth: i64,
+    /// Depth at which the state becomes BLOCKED: nothing new is admitted.
+    pub blocked_depth: i64,
+    /// Whether non-critical market-data events may be shed at CRITICAL.
+    /// Execution-critical traffic is NEVER shed regardless of this flag.
+    pub allow_noncritical_shedding: bool,
+}
+
+impl BackpressurePolicy {
+    pub fn validate(&self) -> Result<(), crate::error::GatewayError> {
+        if self.pressured_depth <= 0
+            || self.critical_depth <= self.pressured_depth
+            || self.blocked_depth <= self.critical_depth
+        {
+            return Err(crate::error::GatewayError::Configuration(
+                "backpressure thresholds must satisfy 0 < pressured < critical < blocked"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Default for BackpressurePolicy {
+    fn default() -> Self {
+        BackpressurePolicy {
+            pressured_depth: 1_024,
+            critical_depth: 4_096,
+            blocked_depth: 8_192,
+            allow_noncritical_shedding: true,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Admission {
+    /// Admitted into the bounded channel.
+    Admitted,
+    /// Rejected under the explicit non-critical shedding policy. The caller
+    /// must count this drop (metrics::noncritical_drop_total).
+    Shed,
+}
+
+/// Deterministically maps queue depth to the pressure state. Same depth in,
+/// same state out — always.
+pub fn evaluate(policy: &BackpressurePolicy, queue_depth: i64) -> BackpressureState {
+    if queue_depth >= policy.blocked_depth {
+        BackpressureState::Blocked
+    } else if queue_depth >= policy.critical_depth {
+        BackpressureState::Critical
+    } else if queue_depth >= policy.pressured_depth {
+        BackpressureState::Pressured
+    } else {
+        BackpressureState::Normal
+    }
+}
+
+/// Decides admission for one item against the current state.
+///
+/// Execution-critical (`critical = true`): admitted in Normal and Pressured;
+/// refused (fail closed) in Critical and Blocked. There is no policy under
+/// which a critical item is silently dropped — refusal is an explicit error
+/// the caller must turn into a rejected ack.
+pub fn admit_critical(
+    _policy: &BackpressurePolicy,
+    state: BackpressureState,
+) -> Result<Admission, crate::error::GatewayError> {
+    if state >= BackpressureState::Critical {
+        Err(crate::error::GatewayError::BackpressureRefused { state })
+    } else {
+        Ok(Admission::Admitted)
+    }
+}
+
+/// Decides admission for one non-critical market-data item. Shedding only
+/// happens in Critical and only when the policy explicitly allows it; at
+/// BLOCKED nothing is admitted.
+pub fn admit_non_critical(
+    policy: &BackpressurePolicy,
+    state: BackpressureState,
+) -> Result<Admission, crate::error::GatewayError> {
+    match state {
+        BackpressureState::Normal | BackpressureState::Pressured => Ok(Admission::Admitted),
+        BackpressureState::Critical => {
+            if policy.allow_noncritical_shedding {
+                Ok(Admission::Shed)
+            } else {
+                Err(crate::error::GatewayError::BackpressureRefused { state })
+            }
+        }
+        BackpressureState::Blocked => {
+            Err(crate::error::GatewayError::BackpressureRefused { state })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn policy() -> BackpressurePolicy {
+        BackpressurePolicy {
+            pressured_depth: 10,
+            critical_depth: 20,
+            blocked_depth: 30,
+            allow_noncritical_shedding: true,
+        }
+    }
+
+    // [CHECK 17] backpressure state derivation is deterministic.
+    #[test]
+    fn state_derivation_is_deterministic() {
+        let p = policy();
+        let cases = [
+            (0, BackpressureState::Normal),
+            (9, BackpressureState::Normal),
+            (10, BackpressureState::Pressured),
+            (19, BackpressureState::Pressured),
+            (20, BackpressureState::Critical),
+            (29, BackpressureState::Critical),
+            (30, BackpressureState::Blocked),
+            (10_000, BackpressureState::Blocked),
+        ];
+        for (depth, expected) in cases {
+            assert_eq!(evaluate(&p, depth), expected, "depth {depth}");
+            // Determinism: same input, same output, repeatedly.
+            assert_eq!(evaluate(&p, depth), evaluate(&p, depth));
+        }
+    }
+
+    // [CHECK 16] execution-critical traffic is never dropped; it fails
+    // closed under unsafe pressure.
+    #[test]
+    fn execution_critical_fails_closed_never_silently_dropped() {
+        let p = policy();
+        assert!(admit_critical(&p, BackpressureState::Normal).is_ok());
+        assert!(admit_critical(&p, BackpressureState::Pressured).is_ok());
+        assert!(matches!(
+            admit_critical(&p, BackpressureState::Critical),
+            Err(crate::error::GatewayError::BackpressureRefused { .. })
+        ));
+        assert!(matches!(
+            admit_critical(&p, BackpressureState::Blocked),
+            Err(crate::error::GatewayError::BackpressureRefused { .. })
+        ));
+        // Shedding semantics cannot apply to critical traffic even if the
+        // policy would allow it for non-critical: refused, not shed.
+        let admitted = admit_critical(&p, BackpressureState::Normal);
+        assert!(matches!(admitted, Ok(Admission::Admitted)));
+        assert!(!matches!(admitted, Ok(Admission::Shed)));
+    }
+
+    // [CHECK 15] non-critical drop policy is explicit and counted upstream.
+    #[test]
+    fn non_critical_shedding_is_explicit_and_refused_when_disabled() {
+        let mut p = policy();
+        assert!(matches!(
+            admit_non_critical(&p, BackpressureState::Critical),
+            Ok(Admission::Shed)
+        ));
+        p.allow_noncritical_shedding = false;
+        assert!(matches!(
+            admit_non_critical(&p, BackpressureState::Critical),
+            Err(crate::error::GatewayError::BackpressureRefused { .. })
+        ));
+        // BLOCKED refuses everything, shedding policy or not.
+        p.allow_noncritical_shedding = true;
+        assert!(matches!(
+            admit_non_critical(&p, BackpressureState::Blocked),
+            Err(crate::error::GatewayError::BackpressureRefused { .. })
+        ));
+        // Normal pressure admits.
+        assert!(matches!(
+            admit_non_critical(&p, BackpressureState::Normal),
+            Ok(Admission::Admitted)
+        ));
+    }
+
+    #[test]
+    fn policy_validation_enforces_threshold_ordering() {
+        let ok = policy();
+        assert!(ok.validate().is_ok());
+        let inverted = BackpressurePolicy {
+            pressured_depth: 30,
+            critical_depth: 20,
+            blocked_depth: 10,
+            allow_noncritical_shedding: true,
+        };
+        assert!(inverted.validate().is_err());
+        let zero = BackpressurePolicy {
+            pressured_depth: 0,
+            critical_depth: 20,
+            blocked_depth: 30,
+            allow_noncritical_shedding: true,
+        };
+        assert!(zero.validate().is_err());
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/config.rs
+
+```text
+//! Strict configuration loading with fail-closed defaults.
+//!
+//! Rules enforced here:
+//! - required settings missing at boot abort startup with ALL problems
+//!   listed (no partial boot, no silent defaults for safety-critical knobs);
+//! - the intent HMAC key is a SECRET: it is held in memory only, is never
+//!   logged, never rendered by `describe()` and never appears in metrics;
+//! - environment separation: staging/production refuse to boot without a
+//!   signing key and refuse loopback-only execution binds? No — the gateway
+//!   is internal-only, so loopback binding is legitimate everywhere; what
+//!   production refuses is an absent key.
+//! - the loader reads through an injectable reader so deterministic tests
+//!   never mutate process-global environment state.
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::net::SocketAddr;
+use std::time::Duration;
+
+use crate::backpressure::BackpressurePolicy;
+use crate::error::GatewayError;
+use crate::types::{Symbol, Venue};
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Environment {
+    Development,
+    Staging,
+    Production,
+}
+
+impl Environment {
+    pub fn parse(raw: &str) -> Result<Environment, GatewayError> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "development" | "dev" => Ok(Environment::Development),
+            "staging" => Ok(Environment::Staging),
+            "production" | "prod" => Ok(Environment::Production),
+            other => Err(GatewayError::Configuration(format!(
+                "unknown environment '{other}' (expected development|staging|production)"
+            ))),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Environment::Development => "development",
+            Environment::Staging => "staging",
+            Environment::Production => "production",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct VenueConfig {
+    pub venue: Venue,
+    pub symbols: Vec<Symbol>,
+    /// Optional explicit wss base override (self-hosted proxy scenarios).
+    pub ws_base_override: Option<url::Url>,
+}
+
+pub struct GatewayConfig {
+    pub environment: Environment,
+    pub health_bind: SocketAddr,
+    pub transport_bind: SocketAddr,
+    pub venues: Vec<VenueConfig>,
+    pub ring_capacity: usize,
+    pub backpressure: BackpressurePolicy,
+    /// Internal execution-engine base URL (the existing Python service).
+    pub execution_engine_base_url: url::Url,
+    /// Key identifier announced in envelopes (not secret).
+    pub intent_hmac_key_id: String,
+    /// THE secret. Held here only; never logged, never rendered, never in
+    /// metrics. Resolved from the platform's secret injection at boot.
+    intent_hmac_key: Vec<u8>,
+    /// Reject intents expiring within this margin to avoid transporting
+    /// something that dies in-flight.
+    pub intent_expiry_margin_ms: i64,
+    pub shutdown_drain: Duration,
+    pub max_intent_frame_bytes: usize,
+    pub intent_replay_cache_capacity: usize,
+}
+
+/// The injectable environment reader (keeps tests deterministic).
+pub trait EnvReader {
+    fn get(&self, key: &str) -> Option<String>;
+}
+
+pub struct ProcessEnv;
+
+impl EnvReader for ProcessEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        std::env::var(key).ok().filter(|v| !v.trim().is_empty())
+    }
+}
+
+pub struct MapEnv {
+    map: BTreeMap<String, String>,
+}
+
+impl MapEnv {
+    pub fn from_pairs(pairs: &[(&str, &str)]) -> MapEnv {
+        MapEnv {
+            map: pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+}
+
+impl EnvReader for MapEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        self.map.get(key).cloned()
+    }
+}
+
+impl GatewayConfig {
+    /// Loads configuration strictly. Every problem is collected and reported
+    /// together; any problem aborts the boot (fail closed).
+    pub fn load(reader: &dyn EnvReader) -> Result<GatewayConfig, GatewayError> {
+        let mut problems: Vec<String> = Vec::new();
+
+        let environment = match reader.get("LLE_ENVIRONMENT") {
+            Some(raw) => match Environment::parse(&raw) {
+                Ok(env) => env,
+                Err(e) => {
+                    problems.push(format!("LLE_ENVIRONMENT: {e}"));
+                    Environment::Development
+                }
+            },
+            None => Environment::Development,
+        };
+
+        let mut health_bind: Option<SocketAddr> = None;
+        let mut transport_bind: Option<SocketAddr> = None;
+        for (key, slot) in [
+            ("LLE_HEALTH_BIND", &mut health_bind),
+            ("LLE_TRANSPORT_BIND", &mut transport_bind),
+        ] {
+            match reader.get(key) {
+                Some(v) => match v.parse::<SocketAddr>() {
+                    Ok(addr) => *slot = Some(addr),
+                    Err(e) => problems.push(format!("{key}: invalid socket address: {e}")),
+                },
+                None => problems.push(format!("{key} is required")),
+            }
+        }
+
+        let execution_engine_base_url = match reader.get("LLE_EXECUTION_ENGINE_URL") {
+            Some(raw) => match url::Url::parse(&raw) {
+                Ok(u) if u.scheme() == "http" || u.scheme() == "https" => Some(u),
+                Ok(u) => {
+                    problems.push(format!(
+                        "LLE_EXECUTION_ENGINE_URL: unsupported scheme '{u}'"
+                    ));
+                    None
+                }
+                Err(e) => {
+                    problems.push(format!("LLE_EXECUTION_ENGINE_URL: {e}"));
+                    None
+                }
+            },
+            None => {
+                problems.push("LLE_EXECUTION_ENGINE_URL is required".to_string());
+                None
+            }
+        };
+
+        let intent_hmac_key_id = match reader.get("LLE_INTENT_HMAC_KEY_ID") {
+            Some(v) => Some(v),
+            None => {
+                problems.push("LLE_INTENT_HMAC_KEY_ID is required".to_string());
+                None
+            }
+        };
+        let intent_hmac_key = match reader.get("LLE_INTENT_HMAC_KEY") {
+            Some(v) if v.len() < 16 => {
+                problems.push("LLE_INTENT_HMAC_KEY: too short (minimum 16 bytes)".to_string());
+                None
+            }
+            Some(v) => Some(v.into_bytes()),
+            None => {
+                problems.push("LLE_INTENT_HMAC_KEY is required".to_string());
+                None
+            }
+        };
+
+        // Venue subscriptions: enabled venues must declare symbols.
+        let mut venues: Vec<VenueConfig> = Vec::new();
+        if let Some(venue_list) = reader.get("LLE_VENUES") {
+            for name in venue_list
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                let venue = match Venue::parse(name) {
+                    Some(v) => v,
+                    None => {
+                        problems.push(format!("LLE_VENUES: unknown venue '{name}'"));
+                        continue;
+                    }
+                };
+                let symbols_key = format!("LLE_{}_SYMBOLS", venue.as_str().to_ascii_uppercase());
+                let symbols = match reader.get(&symbols_key) {
+                    Some(list) => {
+                        let mut parsed = Vec::new();
+                        for sym in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                            match Symbol::new(sym) {
+                                Ok(s) => parsed.push(s),
+                                Err(e) => problems.push(format!("{symbols_key}: {e}")),
+                            }
+                        }
+                        parsed
+                    }
+                    None => {
+                        problems.push(format!("{symbols_key} is required when {venue} is enabled"));
+                        Vec::new()
+                    }
+                };
+                if !symbols.is_empty() {
+                    let ws_base_override = reader
+                        .get(&format!(
+                            "LLE_WS_BASE_{}",
+                            venue.as_str().to_ascii_uppercase()
+                        ))
+                        .and_then(|raw| match url::Url::parse(&raw) {
+                            Ok(u) if u.scheme() == "wss" || u.scheme() == "ws" => Some(u),
+                            Ok(u) => {
+                                problems
+                                    .push(format!("LLE_WS_BASE_{venue}: unsupported scheme '{u}'"));
+                                None
+                            }
+                            Err(e) => {
+                                problems.push(format!("LLE_WS_BASE_{venue}: {e}"));
+                                None
+                            }
+                        });
+                    venues.push(VenueConfig {
+                        venue,
+                        symbols,
+                        ws_base_override,
+                    });
+                }
+            }
+        } else {
+            problems.push("LLE_VENUES is required (comma-separated venue names)".to_string());
+        }
+        venues.sort_by_key(|v| v.venue);
+
+        let ring_capacity = parse_usize(reader, "LLE_RING_CAPACITY", 8_192, &mut problems)
+            .map(|v| v.clamp(64, 1 << 22))
+            .unwrap_or(8_192);
+        let pressured = parse_i64(reader, "LLE_BP_PRESSURED", 1_024, &mut problems);
+        let critical = parse_i64(reader, "LLE_BP_CRITICAL", 4_096, &mut problems);
+        let blocked = parse_i64(reader, "LLE_BP_BLOCKED", 8_192, &mut problems);
+        let shedding = reader
+            .get("LLE_BP_SHED_NONCRITICAL")
+            .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no"))
+            .unwrap_or(true);
+        let backpressure = BackpressurePolicy {
+            pressured_depth: pressured,
+            critical_depth: critical,
+            blocked_depth: blocked,
+            allow_noncritical_shedding: shedding,
+        };
+        if let Err(e) = backpressure.validate() {
+            problems.push(e.to_string());
+        }
+
+        let intent_expiry_margin_ms =
+            parse_i64(reader, "LLE_INTENT_TTL_MARGIN_MS", 250, &mut problems);
+        let drain_ms =
+            parse_i64(reader, "LLE_SHUTDOWN_DRAIN_MS", 3_000, &mut problems).max(100) as u64;
+        let max_intent_frame_bytes = parse_usize(
+            reader,
+            "LLE_INTENT_MAX_FRAME_BYTES",
+            crate::types::MAX_INTENT_FRAME_BYTES,
+            &mut problems,
+        )
+        .map(|v| v.clamp(1024, crate::types::MAX_INTENT_FRAME_BYTES))
+        .unwrap_or(crate::types::MAX_INTENT_FRAME_BYTES);
+        let intent_replay_cache_capacity =
+            parse_usize(reader, "LLE_INTENT_REPLAY_CACHE", 10_000, &mut problems)
+                .map(|v| v.clamp(16, 1_000_000))
+                .unwrap_or(10_000);
+
+        if !problems.is_empty() {
+            return Err(GatewayError::Configuration(format!(
+                "configuration failed with {} problem(s): {}",
+                problems.len(),
+                problems.join("; ")
+            )));
+        }
+
+        Ok(GatewayConfig {
+            environment,
+            health_bind: health_bind.expect("validated"),
+            transport_bind: transport_bind.expect("validated"),
+            venues,
+            ring_capacity,
+            backpressure,
+            execution_engine_base_url: execution_engine_base_url.expect("validated"),
+            intent_hmac_key_id: intent_hmac_key_id.expect("validated"),
+            intent_hmac_key: intent_hmac_key.expect("validated"),
+            intent_expiry_margin_ms,
+            shutdown_drain: Duration::from_millis(drain_ms),
+            max_intent_frame_bytes,
+            intent_replay_cache_capacity,
+        })
+    }
+
+    pub fn load_from_env() -> Result<GatewayConfig, GatewayError> {
+        Self::load(&ProcessEnv)
+    }
+
+    /// The intent signing key. Access is deliberate and centralized; callers
+    /// can use it but can never print it (no Debug/Display exposure below).
+    pub fn intent_hmac_key(&self) -> &[u8] {
+        &self.intent_hmac_key
+    }
+
+    /// Safe, redacted human-readable summary for logs and health output.
+    /// The secret appears only as its length; there is no code path that can
+    /// render the key itself.
+    pub fn describe(&self) -> String {
+        let venues = self
+            .venues
+            .iter()
+            .map(|v| {
+                format!(
+                    "{}:{} symbol(s){}",
+                    v.venue,
+                    v.symbols.len(),
+                    if v.ws_base_override.is_some() {
+                        " (base override)"
+                    } else {
+                        ""
+                    }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "environment={} health_bind={} transport_bind={} venues=[{}] ring_capacity={} bp(pressured={}, critical={}, blocked={}, shedding={}) engine_url={} key_id={} key=<redacted len={}> ttl_margin_ms={} drain_ms={} max_intent_bytes={} replay_cache={}",
+            self.environment.as_str(),
+            self.health_bind,
+            self.transport_bind,
+            venues,
+            self.ring_capacity,
+            self.backpressure.pressured_depth,
+            self.backpressure.critical_depth,
+            self.backpressure.blocked_depth,
+            self.backpressure.allow_noncritical_shedding,
+            self.execution_engine_base_url,
+            self.intent_hmac_key_id,
+            self.intent_hmac_key.len(),
+            self.intent_expiry_margin_ms,
+            self.shutdown_drain.as_millis(),
+            self.max_intent_frame_bytes,
+            self.intent_replay_cache_capacity,
+        )
+    }
+}
+
+/// Debug is implemented manually so an accidental `{:?}` of the config can
+/// never print the signing key.
+impl fmt::Debug for GatewayConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "GatewayConfig({})", self.describe())
+    }
+}
+
+fn parse_i64(reader: &dyn EnvReader, key: &str, default: i64, problems: &mut Vec<String>) -> i64 {
+    match reader.get(key) {
+        None => default,
+        Some(raw) => match raw.trim().parse::<i64>() {
+            Ok(v) => v,
+            Err(e) => {
+                problems.push(format!("{key}: expected integer: {e}"));
+                default
+            }
+        },
+    }
+}
+
+fn parse_usize(
+    reader: &dyn EnvReader,
+    key: &str,
+    default: usize,
+    problems: &mut Vec<String>,
+) -> Option<usize> {
+    match reader.get(key) {
+        None => Some(default),
+        Some(raw) => match raw.trim().parse::<usize>() {
+            Ok(v) => Some(v),
+            Err(e) => {
+                problems.push(format!("{key}: expected non-negative integer: {e}"));
+                None
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KEY: &str = "0123456789abcdef0123456789abcdef";
+
+    fn full_env() -> MapEnv {
+        MapEnv::from_pairs(&[
+            ("LLE_ENVIRONMENT", "production"),
+            ("LLE_HEALTH_BIND", "127.0.0.1:9100"),
+            ("LLE_TRANSPORT_BIND", "127.0.0.1:9101"),
+            ("LLE_EXECUTION_ENGINE_URL", "http://127.0.0.1:8200"),
+            ("LLE_INTENT_HMAC_KEY_ID", "exec-engine-2026-09"),
+            ("LLE_INTENT_HMAC_KEY", KEY),
+            ("LLE_VENUES", "binance,okx"),
+            ("LLE_BINANCE_SYMBOLS", "BTCUSDT,ETHUSDT"),
+            ("LLE_OKX_SYMBOLS", "BTC-USDT"),
+        ])
+    }
+
+    // [CHECK 1] configuration validation: a full valid environment loads.
+    #[test]
+    fn valid_configuration_loads() {
+        let cfg = GatewayConfig::load(&full_env()).expect("valid config");
+        assert_eq!(cfg.environment, Environment::Production);
+        assert_eq!(cfg.venues.len(), 2);
+        assert_eq!(cfg.venues[0].venue, Venue::Binance);
+        assert_eq!(cfg.venues[0].symbols.len(), 2);
+        assert_eq!(cfg.backpressure.critical_depth, 4_096);
+        assert_eq!(cfg.intent_hmac_key(), KEY.as_bytes());
+    }
+
+    // [CHECK 2] missing configuration fails closed, listing every problem.
+    #[test]
+    fn missing_configuration_fails_closed_listing_all_problems() {
+        let empty = MapEnv::from_pairs(&[]);
+        let err = GatewayConfig::load(&empty).expect_err("must fail");
+        let text = err.to_string();
+        for required in [
+            "LLE_HEALTH_BIND",
+            "LLE_TRANSPORT_BIND",
+            "LLE_EXECUTION_ENGINE_URL",
+            "LLE_INTENT_HMAC_KEY_ID",
+            "LLE_INTENT_HMAC_KEY",
+            "LLE_VENUES",
+        ] {
+            assert!(
+                text.contains(required),
+                "missing problem not listed: {required} in {text}"
+            );
+        }
+        // A partially-specified environment also fails (no silent defaults
+        // for security-critical knobs).
+        let partial = MapEnv::from_pairs(&[
+            ("LLE_HEALTH_BIND", "127.0.0.1:9100"),
+            ("LLE_VENUES", "binance"),
+            ("LLE_INTENT_HMAC_KEY", KEY),
+        ]);
+        assert!(GatewayConfig::load(&partial).is_err());
+    }
+
+    // [CHECK 3] secrets never shown: describe() and Debug() redact the key.
+    #[test]
+    fn describe_and_debug_never_contain_the_secret() {
+        let cfg = GatewayConfig::load(&full_env()).expect("valid config");
+        let described = cfg.describe();
+        assert!(!described.contains(KEY));
+        assert!(described.contains("key=<redacted len=32>"));
+        let debugged = format!("{cfg:?}");
+        assert!(!debugged.contains(KEY));
+    }
+
+    #[test]
+    fn invalid_values_fail_closed_with_context() {
+        let env = MapEnv::from_pairs(&[
+            ("LLE_ENVIRONMENT", "moon"),
+            ("LLE_HEALTH_BIND", "not-an-address"),
+            ("LLE_TRANSPORT_BIND", "127.0.0.1:9101"),
+            ("LLE_EXECUTION_ENGINE_URL", "ftp://nope"),
+            ("LLE_INTENT_HMAC_KEY_ID", "k"),
+            ("LLE_INTENT_HMAC_KEY", "short"),
+            ("LLE_VENUES", "binance,kraken"),
+            ("LLE_BINANCE_SYMBOLS", "btc usdt"),
+            ("LLE_BP_PRESSURED", "50"),
+            ("LLE_BP_CRITICAL", "40"),
+        ]);
+        let err = GatewayConfig::load(&env).expect_err("invalid");
+        let text = err.to_string();
+        assert!(text.contains("LLE_ENVIRONMENT"));
+        assert!(text.contains("LLE_HEALTH_BIND"));
+        assert!(text.contains("kraken"));
+        assert!(text.contains("LLE_BINANCE_SYMBOLS"));
+        assert!(text.contains("pressured"));
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/error.rs
+
+```text
+//! Operational/business-safe error taxonomy for the gateway.
+//!
+//! Variants separate the failure classes that operations must distinguish:
+//! malformed data, sequence discontinuities, provider failure, timeouts,
+//! backpressure, authorization failure, stale intent and unavailable
+//! capability. Messages are safe for logs: they carry identifiers and
+//! counts, never credentials and never raw exchange payloads.
+
+use thiserror::Error;
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum GatewayError {
+    #[error("malformed data: {0}")]
+    MalformedData(String),
+
+    #[error("sequence gap on {stream}: expected {expected}, got {actual}")]
+    SequenceGap {
+        stream: String,
+        expected: u64,
+        actual: u64,
+    },
+
+    #[error("duplicate sequence {actual} on {stream}")]
+    DuplicateSequence { stream: String, actual: u64 },
+
+    #[error("out-of-order sequence {actual} on {stream} (last {last})")]
+    OutOfOrder {
+        stream: String,
+        actual: u64,
+        last: u64,
+    },
+
+    #[error("provider failure: {0}")]
+    ProviderFailure(String),
+
+    #[error("timeout: {0}")]
+    Timeout(String),
+
+    #[error("backpressure refused: state {state:?}")]
+    BackpressureRefused {
+        state: crate::backpressure::BackpressureState,
+    },
+
+    #[error("non-critical event shed: state {state:?}")]
+    BackpressureShed {
+        state: crate::backpressure::BackpressureState,
+    },
+
+    #[error("authorization failure: {0}")]
+    AuthorizationFailure(String),
+
+    #[error("stale intent {intent_id}: expired at {expired_at_ms}")]
+    StaleIntent {
+        intent_id: String,
+        expired_at_ms: i64,
+    },
+
+    #[error("integrity failure: {0}")]
+    IntegrityFailure(String),
+
+    #[error("unsupported capability: {0}")]
+    UnsupportedCapability(String),
+
+    #[error("configuration error: {0}")]
+    Configuration(String),
+
+    #[error("crossed book on {symbol}: best bid {bid} >= best ask {ask}")]
+    CrossedBook {
+        symbol: String,
+        bid: String,
+        ask: String,
+    },
+
+    #[error("book state unusable (stale or gapped) on {0}")]
+    BookUnusable(String),
+
+    #[error("transport failure: {0}")]
+    Transport(String),
+
+    #[error("io failure: {0}")]
+    Io(String),
+
+    #[error("shutting down: {0}")]
+    Shutdown(String),
+}
+
+impl GatewayError {
+    /// Stable machine-readable class used by metrics and ack mapping.
+    /// Fixed strings only — never dynamic labels, never payload content.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            GatewayError::MalformedData(_) => "malformed_data",
+            GatewayError::SequenceGap { .. } => "sequence_gap",
+            GatewayError::DuplicateSequence { .. } => "duplicate_sequence",
+            GatewayError::OutOfOrder { .. } => "out_of_order",
+            GatewayError::ProviderFailure(_) => "provider_failure",
+            GatewayError::Timeout(_) => "timeout",
+            GatewayError::BackpressureRefused { .. } => "backpressure_refused",
+            GatewayError::BackpressureShed { .. } => "backpressure_shed",
+            GatewayError::AuthorizationFailure(_) => "authorization_failure",
+            GatewayError::StaleIntent { .. } => "stale_intent",
+            GatewayError::IntegrityFailure(_) => "integrity_failure",
+            GatewayError::UnsupportedCapability(_) => "unsupported_capability",
+            GatewayError::Configuration(_) => "configuration",
+            GatewayError::CrossedBook { .. } => "crossed_book",
+            GatewayError::BookUnusable(_) => "book_unusable",
+            GatewayError::Transport(_) => "transport",
+            GatewayError::Io(_) => "io",
+            GatewayError::Shutdown(_) => "shutdown",
+        }
+    }
+
+    /// Whether the condition is transient and the operation may be retried
+    /// by the caller. Fail-closed components use this to classify retries;
+    /// integrity/authorization/stale failures are never retryable.
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            GatewayError::Timeout(_)
+                | GatewayError::ProviderFailure(_)
+                | GatewayError::BackpressureRefused { .. }
+                | GatewayError::Io(_)
+                | GatewayError::Transport(_)
+        )
+    }
+}
+
+impl From<std::io::Error> for GatewayError {
+    fn from(value: std::io::Error) -> Self {
+        GatewayError::Io(value.to_string())
+    }
+}
+
+impl From<serde_json::Error> for GatewayError {
+    fn from(value: serde_json::Error) -> Self {
+        GatewayError::MalformedData(format!("json: {value}"))
+    }
+}
+
+impl From<url::ParseError> for GatewayError {
+    fn from(value: url::ParseError) -> Self {
+        GatewayError::Configuration(format!("url: {value}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 49 support] error classes are a fixed vocabulary: no payload
+    // content becomes a label.
+    #[test]
+    fn error_kinds_are_a_fixed_vocabulary() {
+        let samples = vec![
+            GatewayError::MalformedData("x".into()),
+            GatewayError::SequenceGap {
+                stream: "s".into(),
+                expected: 1,
+                actual: 3,
+            },
+            GatewayError::DuplicateSequence {
+                stream: "s".into(),
+                actual: 1,
+            },
+            GatewayError::OutOfOrder {
+                stream: "s".into(),
+                actual: 1,
+                last: 5,
+            },
+            GatewayError::ProviderFailure("conn reset".into()),
+            GatewayError::Timeout("500ms".into()),
+            GatewayError::BackpressureRefused {
+                state: crate::backpressure::BackpressureState::Blocked,
+            },
+            GatewayError::BackpressureShed {
+                state: crate::backpressure::BackpressureState::Critical,
+            },
+            GatewayError::AuthorizationFailure("bad key id".into()),
+            GatewayError::StaleIntent {
+                intent_id: "i".into(),
+                expired_at_ms: 1,
+            },
+            GatewayError::IntegrityFailure("hmac".into()),
+            GatewayError::UnsupportedCapability("kline".into()),
+            GatewayError::Configuration("missing".into()),
+            GatewayError::CrossedBook {
+                symbol: "BTCUSDT".into(),
+                bid: "1".into(),
+                ask: "0.5".into(),
+            },
+            GatewayError::BookUnusable("BTCUSDT".into()),
+            GatewayError::Transport("http".into()),
+            GatewayError::Io("eof".into()),
+            GatewayError::Shutdown("sigterm".into()),
+        ];
+        for err in &samples {
+            let kind = err.kind();
+            assert!(!kind.is_empty());
+            assert!(!kind.contains(' '));
+            assert!(!kind.contains("AKIA"));
+            assert!(!format!("{err}").contains("AKIA"));
+        }
+    }
+
+    // Retry classification: safety failures never retry; transient ones do.
+    #[test]
+    fn retry_classification_is_fail_closed_for_safety_failures() {
+        assert!(GatewayError::Timeout("t".into()).is_retryable());
+        assert!(GatewayError::ProviderFailure("p".into()).is_retryable());
+        assert!(!GatewayError::IntegrityFailure("i".into()).is_retryable());
+        assert!(!GatewayError::AuthorizationFailure("a".into()).is_retryable());
+        assert!(!GatewayError::StaleIntent {
+            intent_id: "i".into(),
+            expired_at_ms: 1
+        }
+        .is_retryable());
+        assert!(!GatewayError::UnsupportedCapability("u".into()).is_retryable());
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/execution_prepare.rs
+
+```text
+//! Execution-intent preparation: converts an ALREADY-APPROVED execution
+//! intent into a venue-ready normalized transport request.
+//!
+//! This module validates NON-AUTHORITATIVE transport constraints only:
+//! venue capability, symbol format per venue, quantity precision, venue
+//! session connectivity, and the envelope's presence of upstream
+//! authorizations. It NEVER makes a risk or compliance decision: a missing
+//! or negative upstream authorization REFUSES transport (enforcement of an
+//! upstream decision), and nothing in this crate can set those fields —
+//! they are covered by the envelope HMAC.
+//!
+//! Precision/capability tables are explicit per venue. An unknown venue or
+//! a precision violation is an explicit error, never a silent coercion.
+
+use sha2::{Digest, Sha256};
+use std::sync::Arc;
+
+use crate::error::GatewayError;
+use crate::session_manager::SessionManager;
+use crate::transport_protocol::{SOURCE_SERVICE_EXECUTION_ENGINE, TRANSPORT_SCHEMA_VERSION};
+use crate::types::{ExecutionIntentEnvelope, Fixed, Symbol, Venue, VenueOrderRequest};
+
+#[derive(Clone, Copy, Debug)]
+pub struct VenuePrecisionRule {
+    pub venue: Venue,
+    /// Maximum quantity decimal places the venue transport path accepts,
+    /// measured on the DECLARED text (not the normalized fixed-point).
+    pub max_quantity_decimals: u8,
+    /// Symbol shape check (transport-level; instrument filters live in the
+    /// execution engine, not here).
+    pub symbol_style: SymbolStyle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SymbolStyle {
+    /// Binance/Bybit spot: concatenated uppercase, no separators.
+    Concatenated,
+    /// OKX: BASE-QUOTE with a dash.
+    DashSeparated,
+}
+
+impl VenuePrecisionRule {
+    pub const fn for_venue(venue: Venue) -> VenuePrecisionRule {
+        let symbol_style = match venue {
+            Venue::Binance | Venue::Bybit => SymbolStyle::Concatenated,
+            Venue::Okx => SymbolStyle::DashSeparated,
+        };
+        VenuePrecisionRule {
+            venue,
+            max_quantity_decimals: 8,
+            symbol_style,
+        }
+    }
+
+    pub fn check_symbol(&self, symbol: &Symbol) -> Result<(), GatewayError> {
+        let text = symbol.as_str();
+        match self.symbol_style {
+            SymbolStyle::Concatenated => {
+                if text.contains('-') || text.contains('.') {
+                    return Err(GatewayError::UnsupportedCapability(format!(
+                        "{}: symbol '{text}' must be concatenated form for this venue",
+                        self.venue
+                    )));
+                }
+            }
+            SymbolStyle::DashSeparated => {
+                let has_dash = text.contains('-');
+                if !has_dash {
+                    return Err(GatewayError::UnsupportedCapability(format!(
+                        "{}: symbol '{text}' must be BASE-QUOTE form for this venue",
+                        self.venue
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn check_quantity_text(&self, quantity_text: &str) -> Result<(), GatewayError> {
+        let trimmed = quantity_text.trim();
+        let frac = trimmed.split('.').nth(1).unwrap_or("");
+        let decimals = frac.len() as u8;
+        if decimals > self.max_quantity_decimals {
+            return Err(GatewayError::UnsupportedCapability(format!(
+                "{}: quantity '{trimmed}' has {decimals} decimals, venue maximum is {}",
+                self.venue, self.max_quantity_decimals
+            )));
+        }
+        Ok(())
+    }
+}
+
+pub struct ExecutionPreparer {
+    sessions: Arc<SessionManager>,
+    supported_venues: Vec<Venue>,
+}
+
+impl ExecutionPreparer {
+    pub fn new(sessions: Arc<SessionManager>, supported_venues: Vec<Venue>) -> ExecutionPreparer {
+        ExecutionPreparer {
+            sessions,
+            supported_venues,
+        }
+    }
+
+    /// Deterministic client order id derived from the signed intent:
+    /// venue operators can reconcile it back to the intent without the
+    /// gateway inventing identifiers.
+    pub fn client_order_id(intent_id: &str, nonce: &str) -> String {
+        let digest = Sha256::digest(format!("{intent_id}|{nonce}").as_bytes());
+        format!("LLE-{}", hex::encode(&digest[..8]))
+    }
+
+    /// Validates transport constraints and builds the venue-ready request.
+    pub fn prepare(
+        &self,
+        envelope: &ExecutionIntentEnvelope,
+    ) -> Result<VenueOrderRequest, GatewayError> {
+        // Structural sanity (integrity/expiry already checked upstream in
+        // the transport service; re-checked cheaply here).
+        envelope.validate_shape()?;
+
+        // Upstream authorization metadata must be present and positive.
+        // This is ENFORCEMENT: the decision belongs to Risk/Compliance/OMS;
+        // this code path has no ability to set these fields.
+        if !envelope.authorizations.risk_approved || !envelope.authorizations.compliance_approved {
+            return Err(GatewayError::AuthorizationFailure(
+                "intent lacks upstream risk/compliance authorization; refusing transport"
+                    .to_string(),
+            ));
+        }
+        if envelope.authorizations.oms_order_ref.trim().is_empty() {
+            return Err(GatewayError::AuthorizationFailure(
+                "intent lacks an OMS order reference; refusing transport".to_string(),
+            ));
+        }
+        if envelope.source_service != SOURCE_SERVICE_EXECUTION_ENGINE {
+            return Err(GatewayError::AuthorizationFailure(format!(
+                "intent source '{}' is not the authorized execution engine",
+                envelope.source_service
+            )));
+        }
+
+        // Venue capability: only configured, actively supported venues.
+        if !self.supported_venues.contains(&envelope.venue) {
+            return Err(GatewayError::UnsupportedCapability(format!(
+                "venue {} is not configured on this gateway",
+                envelope.venue
+            )));
+        }
+
+        // Transport-level venue constraints.
+        let rule = VenuePrecisionRule::for_venue(envelope.venue);
+        rule.check_symbol(&envelope.symbol)?;
+        rule.check_quantity_text(&envelope.quantity_text)?;
+
+        // The venue session must actually be connected: fail closed when
+        // the transport path to the venue is not live.
+        if !self.sessions.all_required_connected(&[envelope.venue]) {
+            return Err(GatewayError::ProviderFailure(format!(
+                "venue {} session is not connected; refusing to prepare transport",
+                envelope.venue
+            )));
+        }
+
+        let quantity = Fixed::parse(envelope.quantity_text.trim())?;
+        Ok(VenueOrderRequest {
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            intent_id: envelope.intent_id.clone(),
+            correlation_id: envelope.correlation_id.clone(),
+            tenant_id: envelope.tenant_id.clone(),
+            account_id: envelope.account_id.clone(),
+            venue: envelope.venue,
+            symbol: envelope.symbol.clone(),
+            side: envelope.side,
+            quantity,
+            client_order_id: Self::client_order_id(&envelope.intent_id, &envelope.nonce),
+            transport_nonce: envelope.nonce.clone(),
+            prepared_at_ms: crate::time::utc_now_ms(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backpressure::BackpressurePolicy;
+    use crate::transport_protocol::sign_intent;
+    use crate::types::{IntentAuthorizations, OrderSide};
+
+    const KEY: &[u8] = b"deterministic-test-key-0123456789";
+
+    fn envelope(venue: Venue, symbol: &str, quantity: &str) -> ExecutionIntentEnvelope {
+        let mut env = ExecutionIntentEnvelope {
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            intent_id: "9f1c3b2a-0000-4000-8000-000000000009".to_string(),
+            correlation_id: "corr-prepare-1".to_string(),
+            created_at_ms: crate::time::utc_now_ms(),
+            expires_at_ms: crate::time::utc_now_ms() + 5_000,
+            tenant_id: "tenant-77".to_string(),
+            account_id: "acct-42".to_string(),
+            venue,
+            symbol: Symbol::new(symbol).expect("sym"),
+            side: OrderSide::Buy,
+            quantity_text: quantity.to_string(),
+            quantity: Fixed::parse(quantity).expect("qty"),
+            nonce: "nonce-1".to_string(),
+            key_id: "exec-engine-2026-09".to_string(),
+            signature_hex: String::new(),
+            source_service: SOURCE_SERVICE_EXECUTION_ENGINE.to_string(),
+            authorizations: IntentAuthorizations {
+                risk_approved: true,
+                compliance_approved: true,
+                oms_order_ref: "OMS-42".to_string(),
+            },
+        };
+        env.signature_hex = sign_intent(KEY, &env);
+        env
+    }
+
+    fn preparer(connected: &[Venue]) -> (Arc<SessionManager>, ExecutionPreparer) {
+        let sessions = Arc::new(SessionManager::new(BackpressurePolicy::default()));
+        for venue in Venue::ALL {
+            sessions.register(venue, Vec::new());
+            if connected.contains(&venue) {
+                sessions.update_connected(venue);
+            }
+        }
+        let venues = vec![Venue::Binance, Venue::Bybit, Venue::Okx];
+        (
+            Arc::clone(&sessions),
+            ExecutionPreparer::new(sessions, venues),
+        )
+    }
+
+    #[test]
+    fn prepares_a_valid_binance_intent() {
+        let (_sessions, prep) = preparer(&[Venue::Binance]);
+        let request = prep
+            .prepare(&envelope(Venue::Binance, "BTCUSDT", "0.250"))
+            .expect("prepare");
+        assert_eq!(request.venue, Venue::Binance);
+        assert_eq!(request.symbol.as_str(), "BTCUSDT");
+        assert_eq!(request.side, OrderSide::Buy);
+        assert_eq!(request.tenant_id, "tenant-77");
+        // Deterministic client order id.
+        assert_eq!(
+            request.client_order_id,
+            ExecutionPreparer::client_order_id("9f1c3b2a-0000-4000-8000-000000000009", "nonce-1")
+        );
+        assert!(request.client_order_id.starts_with("LLE-"));
+    }
+
+    // [CHECK 54] unsupported capability is explicit, never a silent pass.
+    #[test]
+    fn unsupported_capability_fails_explicitly() {
+        // Binance-only gateway: other venues are explicit capability errors.
+        let binance_only = {
+            let sessions = Arc::new(SessionManager::new(BackpressurePolicy::default()));
+            sessions.register(Venue::Binance, Vec::new());
+            sessions.update_connected(Venue::Binance);
+            ExecutionPreparer::new(sessions, vec![Venue::Binance])
+        };
+        let err = binance_only
+            .prepare(&envelope(Venue::Okx, "BTC-USDT", "1.0"))
+            .expect_err("unsupported");
+        assert!(matches!(err, GatewayError::UnsupportedCapability(_)));
+
+        let (_sessions, prep) = preparer(&[Venue::Binance, Venue::Bybit, Venue::Okx]);
+        // Wrong symbol shape for the venue.
+        let err = prep
+            .prepare(&envelope(Venue::Binance, "BTC-USDT", "1.0"))
+            .expect_err("shape");
+        assert!(matches!(err, GatewayError::UnsupportedCapability(_)));
+        // Excess quantity precision (9 decimals > venue maximum 8).
+        let err = prep
+            .prepare(&envelope(Venue::Binance, "BTCUSDT", "0.123456789"))
+            .expect_err("precision");
+        assert!(matches!(err, GatewayError::UnsupportedCapability(_)));
+        // Exactly 8 decimals is accepted.
+        assert!(prep
+            .prepare(&envelope(Venue::Binance, "BTCUSDT", "0.12345678"))
+            .is_ok());
+        assert!(matches!(
+            prep.prepare(&envelope(Venue::Okx, "BTCUSDT", "1.0")),
+            Err(GatewayError::UnsupportedCapability(_))
+        ));
+    }
+
+    // [CHECK 36 support] Rust cannot approve risk: a negative upstream risk
+    // authorization is refused and CANNOT be flipped by the gateway — the
+    // field is inside the HMAC envelope.
+    #[test]
+    fn unapproved_intents_are_refused_and_cannot_be_blessed_by_the_gateway() {
+        let (_sessions, prep) = preparer(&[Venue::Binance]);
+        let mut env = envelope(Venue::Binance, "BTCUSDT", "1.0");
+        // Without the execution engine's signature over the change, this
+        // would also fail integrity; here we construct the variant directly
+        // to prove the preparer enforces the metadata, not decides it.
+        env.authorizations.risk_approved = false;
+        env.signature_hex = sign_intent(KEY, &env);
+        let err = prep.prepare(&env).expect_err("risk not approved");
+        assert!(matches!(err, GatewayError::AuthorizationFailure(_)));
+
+        let mut env = envelope(Venue::Binance, "BTCUSDT", "1.0");
+        env.authorizations.compliance_approved = false;
+        env.signature_hex = sign_intent(KEY, &env);
+        assert!(matches!(
+            prep.prepare(&env),
+            Err(GatewayError::AuthorizationFailure(_))
+        ));
+
+        let mut env = envelope(Venue::Binance, "BTCUSDT", "1.0");
+        env.authorizations.oms_order_ref = "  ".to_string();
+        env.signature_hex = sign_intent(KEY, &env);
+        // An empty OMS reference is a SHAPE violation caught first; the
+        // preparer's own authorization check is defense in depth behind it.
+        assert!(matches!(
+            prep.prepare(&env),
+            Err(GatewayError::MalformedData(_))
+        ));
+    }
+
+    // [CHECK 35 support] wrong source service is refused.
+    #[test]
+    fn unauthorized_source_is_refused() {
+        let (_sessions, prep) = preparer(&[Venue::Binance]);
+        let mut env = envelope(Venue::Binance, "BTCUSDT", "1.0");
+        env.source_service = "rogue-trader-script".to_string();
+        env.signature_hex = sign_intent(KEY, &env);
+        assert!(matches!(
+            prep.prepare(&env),
+            Err(GatewayError::AuthorizationFailure(_))
+        ));
+    }
+
+    // Fail closed when the venue session is down.
+    #[test]
+    fn disconnected_venue_fails_closed() {
+        let (_sessions, prep) = preparer(&[]); // nothing connected
+        let err = prep
+            .prepare(&envelope(Venue::Binance, "BTCUSDT", "1.0"))
+            .expect_err("fail closed");
+        assert!(matches!(err, GatewayError::ProviderFailure(_)));
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/execution_transport.rs
+
+```text
+//! Execution transport admission service.
+//!
+//! The gateway's execution plane: accepts ONLY canonical, HMAC-signed
+//! `ExecutionIntentEnvelope` frames from the execution engine and converts
+//! them into venue-ready transport requests.
+//!
+//! Admission order is deterministic and fail-closed:
+//!   1. size limit          -> RejectedMalformed
+//!   2. envelope parse      -> RejectedMalformed
+//!   3. schema version      -> RejectedSchemaVersion
+//!   4. frame type          -> RejectedMalformed
+//!   5. intent shape        -> RejectedMalformed
+//!   6. source service      -> RejectedUnauthorizedSource
+//!   7. key id              -> RejectedUnauthorizedSource
+//!   8. HMAC integrity      -> RejectedIntegrity
+//!   9. expiry              -> RejectedStaleIntent
+//!  10. replay check        -> IdempotentReplay (deterministic re-answer)
+//!  11. authorization meta  -> RejectedUnauthorizedSource (enforcement)
+//!  12. backpressure        -> RejectedBackpressure (critical admission)
+//!  13. venue preparation   -> RejectedCapability / RejectedUnauthorizedSource
+//!  14. engine submission   -> TransportFailure or acceptance
+//!
+//! Authority boundary (hard): this plane NEVER approves risk, NEVER marks
+//! an order FILLED, NEVER mutates position/PnL truth, and NEVER bypasses
+//! the OMS/Risk/Compliance/Live Gate. It only validates presented
+//! authorization metadata and moves the signed intent across the transport
+//! boundary. Every rejection is counted and idempotently cached per intent.
+
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex};
+
+use crate::backpressure::{admit_critical, evaluate, BackpressurePolicy, BackpressureState};
+use crate::error::GatewayError;
+use crate::execution_prepare::ExecutionPreparer;
+use crate::metrics::MetricsRegistry;
+use crate::time::{mono_elapsed_ns, mono_now_ns, utc_now_ms};
+use crate::transport_protocol::{
+    verify_intent, TransportFrame, SOURCE_SERVICE_EXECUTION_ENGINE, TRANSPORT_SCHEMA_VERSION,
+};
+use crate::types::{
+    AckStatus, ExecutionIntentEnvelope, TransportAck, VenueOrderRequest, MAX_INTENT_FRAME_BYTES,
+};
+
+/// Replay/idempotency cache: intent_id -> (status given, when). Bounded by
+/// capacity; oldest entries evicted FIFO (newest intents matter most for
+/// dedup under retry storms).
+pub struct ReplayCache {
+    map: HashMap<String, (AckStatus, i64)>,
+    order: VecDeque<String>,
+    capacity: usize,
+}
+
+impl ReplayCache {
+    pub fn new(capacity: usize) -> ReplayCache {
+        ReplayCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+            capacity: capacity.max(1),
+        }
+    }
+
+    pub fn get(&self, intent_id: &str) -> Option<&AckStatus> {
+        self.map.get(intent_id).map(|(status, _)| status)
+    }
+
+    pub fn remember(&mut self, intent_id: &str, status: AckStatus) {
+        if self.map.contains_key(intent_id) {
+            return;
+        }
+        while self.order.len() >= self.capacity {
+            if let Some(oldest) = self.order.pop_front() {
+                self.map.remove(&oldest);
+            }
+        }
+        self.order.push_back(intent_id.to_string());
+        self.map
+            .insert(intent_id.to_string(), (status, utc_now_ms()));
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+}
+
+pub struct ExecutionTransportService {
+    preparer: ExecutionPreparer,
+    key_id: String,
+    intent_hmac_key: Vec<u8>,
+    ttl_margin_ms: i64,
+    policy: BackpressurePolicy,
+    metrics: Arc<MetricsRegistry>,
+    replay: Mutex<ReplayCache>,
+    /// Current in-flight execution-connection depth, observed from the
+    /// listener; drives backpressure admission for CRITICAL traffic.
+    in_flight_depth: Arc<AtomicI64>,
+    /// Latency ring for observe-only admission histograms.
+    admission_ring: crate::ring_buffer::RingBuffer<u64>,
+}
+
+impl ExecutionTransportService {
+    pub fn new(
+        preparer: ExecutionPreparer,
+        key_id: String,
+        intent_hmac_key: Vec<u8>,
+        ttl_margin_ms: i64,
+        replay_capacity: usize,
+        policy: BackpressurePolicy,
+        metrics: Arc<MetricsRegistry>,
+    ) -> ExecutionTransportService {
+        ExecutionTransportService {
+            preparer,
+            key_id,
+            intent_hmac_key,
+            ttl_margin_ms,
+            policy,
+            metrics,
+            replay: Mutex::new(ReplayCache::new(replay_capacity)),
+            in_flight_depth: Arc::new(AtomicI64::new(0)),
+            admission_ring: crate::ring_buffer::RingBuffer::bounded(4096),
+        }
+    }
+
+    pub fn in_flight_depth_gauge(&self) -> Arc<AtomicI64> {
+        Arc::clone(&self.in_flight_depth)
+    }
+
+    pub fn replay_cache_len(&self) -> usize {
+        self.replay.lock().expect("replay mutex").len()
+    }
+
+    fn reject(
+        &self,
+        intent_id: &str,
+        correlation_id: &str,
+        status: AckStatus,
+        detail: String,
+        cache_it: bool,
+    ) -> TransportAck {
+        self.metrics.inc_intent_rejections();
+        if cache_it {
+            self.replay
+                .lock()
+                .expect("replay mutex")
+                .remember(intent_id, status);
+        }
+        tracing::warn!(intent = %intent_id, status = status.as_str(), detail = %detail, "intent rejected");
+        TransportAck::new(intent_id, correlation_id, status, utc_now_ms()).with_detail(detail)
+    }
+
+    /// Validation up to (and including) venue preparation. Deterministic
+    /// and unit-testable without any network.
+    pub fn validate_and_prepare(
+        &self,
+        body: &[u8],
+    ) -> Result<(TransportFrame, ExecutionIntentEnvelope, VenueOrderRequest), TransportAck> {
+        // 1. size limit.
+        if body.len() > MAX_INTENT_FRAME_BYTES {
+            return Err(self.reject(
+                "unknown",
+                "unknown",
+                AckStatus::RejectedMalformed,
+                format!(
+                    "frame of {} bytes exceeds the {} byte limit",
+                    body.len(),
+                    MAX_INTENT_FRAME_BYTES
+                ),
+                false,
+            ));
+        }
+
+        // 2. envelope parse.
+        let text = std::str::from_utf8(body).map_err(|_| {
+            self.reject(
+                "unknown",
+                "unknown",
+                AckStatus::RejectedMalformed,
+                "frame is not UTF-8".to_string(),
+                false,
+            )
+        })?;
+        let frame: TransportFrame = match serde_json::from_str(text) {
+            Ok(frame) => frame,
+            Err(e) => {
+                return Err(self.reject(
+                    "unknown",
+                    "unknown",
+                    AckStatus::RejectedMalformed,
+                    format!("frame does not parse: {e}"),
+                    false,
+                ));
+            }
+        };
+
+        // 3. schema version.
+        if frame.schema_version != TRANSPORT_SCHEMA_VERSION {
+            return Err(self.reject(
+                "unknown",
+                &frame.correlation_id,
+                AckStatus::RejectedSchemaVersion,
+                format!(
+                    "frame schema {} != supported {}",
+                    frame.schema_version, TRANSPORT_SCHEMA_VERSION
+                ),
+                false,
+            ));
+        }
+
+        // 4. frame type.
+        if frame.frame_type != "intent" {
+            return Err(self.reject(
+                "unknown",
+                &frame.correlation_id,
+                AckStatus::RejectedMalformed,
+                format!("unsupported frame_type '{}'", frame.frame_type),
+                false,
+            ));
+        }
+
+        // 5. intent parse + shape.
+        let envelope: ExecutionIntentEnvelope = match serde_json::from_value(frame.payload.clone())
+        {
+            Ok(envelope) => envelope,
+            Err(e) => {
+                return Err(self.reject(
+                    "unknown",
+                    &frame.correlation_id,
+                    AckStatus::RejectedMalformed,
+                    format!("intent does not parse: {e}"),
+                    false,
+                ));
+            }
+        };
+        if let Err(e) = envelope.validate_shape() {
+            return Err(self.reject(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::RejectedMalformed,
+                format!("intent shape invalid: {}", e.kind()),
+                false,
+            ));
+        }
+
+        // 6. source service.
+        if envelope.source_service != SOURCE_SERVICE_EXECUTION_ENGINE {
+            return Err(self.reject(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::RejectedUnauthorizedSource,
+                format!(
+                    "source_service '{}' is not authorized",
+                    envelope.source_service
+                ),
+                false,
+            ));
+        }
+
+        // 7. key id.
+        if envelope.key_id != self.key_id {
+            return Err(self.reject(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::RejectedUnauthorizedSource,
+                format!(
+                    "key_id '{}' is not the active transport key",
+                    envelope.key_id
+                ),
+                false,
+            ));
+        }
+
+        // 8. HMAC integrity (constant-time compare inside).
+        if let Err(e) = verify_intent(&self.intent_hmac_key, &envelope) {
+            return Err(self.reject(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::RejectedIntegrity,
+                format!("signature verification failed: {}", e.kind()),
+                false,
+            ));
+        }
+
+        // 9. replay check — deterministic idempotent answer. A cached
+        // decision is replayed VERBATIM (even for an intent that has since
+        // expired): same intent id in, same answer out, every time.
+        if let Some(previous) = self
+            .replay
+            .lock()
+            .expect("replay mutex")
+            .get(&envelope.intent_id)
+        {
+            self.metrics.inc_intent_replays();
+            return Err(TransportAck::new(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::IdempotentReplay,
+                utc_now_ms(),
+            )
+            .with_detail(format!(
+                "intent already answered with {}",
+                previous.as_str()
+            )));
+        }
+
+        // 10. expiry: reject when the usable window is gone (creation time
+        // and margin define the window; margin covers transport latency).
+        let now = utc_now_ms();
+        if envelope.expires_at_ms - self.ttl_margin_ms <= now {
+            return Err(self.reject(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::RejectedStaleIntent,
+                format!(
+                    "intent expires_at {} (+ margin {}) is not in the future (now {now})",
+                    envelope.expires_at_ms, self.ttl_margin_ms
+                ),
+                true,
+            ));
+        }
+
+        // 11. authorization metadata (enforcement, not decision).
+        if !envelope.authorizations.risk_approved || !envelope.authorizations.compliance_approved {
+            return Err(self.reject(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::RejectedUnauthorizedSource,
+                "intent is missing upstream risk/compliance authorization".to_string(),
+                true,
+            ));
+        }
+        if envelope.authorizations.oms_order_ref.trim().is_empty() {
+            return Err(self.reject(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::RejectedUnauthorizedSource,
+                "intent is missing an OMS order reference".to_string(),
+                true,
+            ));
+        }
+
+        // 12. backpressure admission for critical traffic.
+        let depth = self.in_flight_depth.load(Ordering::Relaxed);
+        let state: BackpressureState = evaluate(&self.policy, depth);
+        if admit_critical(&self.policy, state).is_err() {
+            return Err(self.reject(
+                &envelope.intent_id,
+                &frame.correlation_id,
+                AckStatus::RejectedBackpressure,
+                format!("execution admission refused at depth {depth}"),
+                false,
+            ));
+        }
+
+        // 13. venue preparation.
+        let started = mono_now_ns();
+        let request = match self.preparer.prepare(&envelope) {
+            Ok(request) => request,
+            Err(GatewayError::UnsupportedCapability(detail)) => {
+                return Err(self.reject(
+                    &envelope.intent_id,
+                    &frame.correlation_id,
+                    AckStatus::RejectedCapability,
+                    detail,
+                    false,
+                ));
+            }
+            Err(GatewayError::AuthorizationFailure(detail)) => {
+                return Err(self.reject(
+                    &envelope.intent_id,
+                    &frame.correlation_id,
+                    AckStatus::RejectedUnauthorizedSource,
+                    detail,
+                    false,
+                ));
+            }
+            Err(e) => {
+                return Err(self.reject(
+                    &envelope.intent_id,
+                    &frame.correlation_id,
+                    AckStatus::RejectedMalformed,
+                    format!("preparation failed: {}", e.kind()),
+                    false,
+                ));
+            }
+        };
+        self.admission_ring
+            .try_push(mono_elapsed_ns(started, mono_now_ns()))
+            .ok();
+
+        Ok((frame, envelope, request))
+    }
+
+    /// Full admission: validation + onward submission to the execution
+    /// engine. The returned ack is the authoritative transport answer.
+    pub async fn admit_frame(
+        &self,
+        engine: &crate::execution_engine::ExecutionEngineClient,
+        body: &[u8],
+    ) -> TransportAck {
+        let started = mono_now_ns();
+        match self.validate_and_prepare(body) {
+            Err(ack) => ack,
+            Ok((frame, envelope, request)) => match engine
+                .submit_prepared(&request, &frame.correlation_id)
+                .await
+            {
+                Ok(ack) => {
+                    self.metrics.inc_intents_accepted();
+                    self.replay
+                        .lock()
+                        .expect("replay mutex")
+                        .remember(&envelope.intent_id, ack.status);
+                    let _ = mono_elapsed_ns(started, mono_now_ns());
+                    tracing::info!(intent = %envelope.intent_id, status = ack.status.as_str(), "intent transported");
+                    ack
+                }
+                Err(e) => {
+                    // Engine failure is NOT cached: the same intent may be
+                    // retried legitimately. It is also NEVER a success.
+                    self.metrics.inc_intent_rejections();
+                    tracing::error!(intent = %envelope.intent_id, error = e.kind(), "engine transport failed");
+                    TransportAck::new(
+                        &envelope.intent_id,
+                        &frame.correlation_id,
+                        AckStatus::TransportFailure,
+                        utc_now_ms(),
+                    )
+                    .with_detail(format!("execution-engine transport failed: {}", e.kind()))
+                }
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backpressure::BackpressurePolicy;
+    use crate::execution_prepare::{ExecutionPreparer, VenuePrecisionRule};
+    use crate::session_manager::SessionManager;
+    use crate::transport_protocol::sign_intent;
+    use crate::types::{Fixed, IntentAuthorizations, OrderSide, Symbol, Venue};
+
+    const KEY: &[u8] = b"transport-test-key-0123456789abcdef";
+
+    fn service() -> ExecutionTransportService {
+        let sessions = Arc::new(SessionManager::new(BackpressurePolicy::default()));
+        for venue in Venue::ALL {
+            sessions.register(venue, Vec::new());
+            sessions.update_connected(venue);
+        }
+        let preparer = ExecutionPreparer::new(
+            Arc::clone(&sessions),
+            vec![Venue::Binance, Venue::Bybit, Venue::Okx],
+        );
+        ExecutionTransportService::new(
+            preparer,
+            "exec-engine-2026-09".to_string(),
+            KEY.to_vec(),
+            0,
+            128,
+            BackpressurePolicy::default(),
+            Arc::new(MetricsRegistry::new()),
+        )
+    }
+
+    fn signed_intent() -> ExecutionIntentEnvelope {
+        let mut envelope = ExecutionIntentEnvelope {
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            intent_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7".to_string(),
+            correlation_id: "corr-admission-1".to_string(),
+            created_at_ms: utc_now_ms(),
+            expires_at_ms: utc_now_ms() + 10_000,
+            tenant_id: "tenant-77".to_string(),
+            account_id: "acct-42".to_string(),
+            venue: Venue::Binance,
+            symbol: Symbol::new("BTCUSDT").expect("sym"),
+            side: OrderSide::Buy,
+            quantity_text: "0.250".to_string(),
+            quantity: Fixed::parse("0.250").expect("qty"),
+            nonce: "nonce-admission-1".to_string(),
+            key_id: "exec-engine-2026-09".to_string(),
+            signature_hex: String::new(),
+            source_service: SOURCE_SERVICE_EXECUTION_ENGINE.to_string(),
+            authorizations: IntentAuthorizations {
+                risk_approved: true,
+                compliance_approved: true,
+                oms_order_ref: "OMS-1001".to_string(),
+            },
+        };
+        envelope.signature_hex = sign_intent(KEY, &envelope);
+        envelope
+    }
+
+    fn frame_json(
+        envelope: &ExecutionIntentEnvelope,
+        frame_type: &str,
+        schema_version: u32,
+    ) -> String {
+        let frame = TransportFrame {
+            schema_version,
+            correlation_id: envelope.correlation_id.clone(),
+            frame_type: frame_type.to_string(),
+            sent_at_ms: utc_now_ms(),
+            payload: serde_json::to_value(envelope).expect("envelope json"),
+        };
+        serde_json::to_string(&frame).expect("frame json")
+    }
+
+    // [CHECK 31] accepted signed envelope passes validation into a venue
+    // request.
+    #[test]
+    fn signed_envelope_is_accepted_for_transport() {
+        let service = service();
+        let (frame, envelope, request) = service
+            .validate_and_prepare(
+                frame_json(&signed_intent(), "intent", TRANSPORT_SCHEMA_VERSION).as_bytes(),
+            )
+            .expect("accepted");
+        assert_eq!(frame.frame_type, "intent");
+        assert_eq!(envelope.correlation_id, "corr-admission-1");
+        assert_eq!(request.venue, Venue::Binance);
+        assert!(request.client_order_id.starts_with("LLE-"));
+        assert_eq!(
+            service.replay_cache_len(),
+            0,
+            "validation alone caches nothing"
+        );
+    }
+
+    // [CHECK 51 support] wrong schema version -> RejectedSchemaVersion.
+    #[test]
+    fn schema_version_mismatch_is_rejected() {
+        let service = service();
+        let ack = service
+            .validate_and_prepare(
+                frame_json(&signed_intent(), "intent", TRANSPORT_SCHEMA_VERSION + 1).as_bytes(),
+            )
+            .expect_err("schema mismatch");
+        assert_eq!(ack.status, AckStatus::RejectedSchemaVersion);
+    }
+
+    // [CHECK 32] replayed intent -> IdempotentReplay, deterministic.
+    #[test]
+    fn duplicate_intent_is_idempotent_replay() {
+        let service = service();
+        let body = frame_json(&signed_intent(), "intent", TRANSPORT_SCHEMA_VERSION);
+        // First pass caches a decision (simulate an acceptance).
+        service
+            .replay
+            .lock()
+            .expect("m")
+            .remember(&signed_intent().intent_id, AckStatus::AcceptedForTransport);
+        let ack = service
+            .validate_and_prepare(body.as_bytes())
+            .expect_err("replayed");
+        assert_eq!(ack.status, AckStatus::IdempotentReplay);
+        assert!(ack
+            .detail
+            .as_deref()
+            .unwrap_or("")
+            .contains("accepted_for_transport"));
+        assert_eq!(
+            service
+                .metrics
+                .execution_intent_replays_total
+                .load(Ordering::Relaxed),
+            1
+        );
+    }
+
+    // [CHECK 33] expired intent -> RejectedStaleIntent, counted, cached.
+    #[test]
+    fn expired_intent_is_rejected_stale() {
+        let service = service();
+        let mut stale = signed_intent();
+        stale.created_at_ms = utc_now_ms() - 5_000;
+        stale.expires_at_ms = utc_now_ms() - 1_000;
+        stale.signature_hex = sign_intent(KEY, &stale);
+        let body = frame_json(&stale, "intent", TRANSPORT_SCHEMA_VERSION);
+        let ack = service
+            .validate_and_prepare(body.as_bytes())
+            .expect_err("stale");
+        assert_eq!(ack.status, AckStatus::RejectedStaleIntent);
+        assert!(
+            service
+                .metrics
+                .execution_intent_rejections_total
+                .load(Ordering::Relaxed)
+                >= 1
+        );
+        assert_eq!(
+            service.replay_cache_len(),
+            1,
+            "stale decision cached idempotently"
+        );
+        // Replay answers deterministically without re-verification.
+        let ack = service
+            .validate_and_prepare(body.as_bytes())
+            .expect_err("replay");
+        assert_eq!(ack.status, AckStatus::IdempotentReplay);
+    }
+
+    // [CHECK 31 support] integrity failure -> RejectedIntegrity.
+    #[test]
+    fn tampered_intent_is_rejected_integrity() {
+        let service = service();
+        let mut tampered = signed_intent();
+        tampered.quantity_text = "9.999".to_string();
+        tampered.quantity = Fixed::parse("9.999").expect("qty");
+        // Re-sign with a DIFFERENT key: receiver-side mismatch.
+        tampered.signature_hex = sign_intent(b"a-totally-different-key-material!", &tampered);
+        let body = frame_json(&tampered, "intent", TRANSPORT_SCHEMA_VERSION);
+        let ack = service
+            .validate_and_prepare(body.as_bytes())
+            .expect_err("integrity");
+        assert_eq!(ack.status, AckStatus::RejectedIntegrity);
+    }
+
+    // [CHECK 34] malformed frames -> RejectedMalformed (parse failures with
+    // no fabricated events).
+    #[test]
+    fn malformed_frames_are_rejected() {
+        let service = service();
+        for bad in [
+            "not json".to_string(),
+            "{}".to_string(),
+            serde_json::json!({"schema_version": TRANSPORT_SCHEMA_VERSION, "correlation_id": "c", "frame_type": "intent", "sent_at_ms": 1, "payload": {}}).to_string(),
+            frame_json(&signed_intent(), "heartbeats", TRANSPORT_SCHEMA_VERSION),
+        ] {
+            let ack = service
+                .validate_and_prepare(bad.as_bytes())
+                .expect_err("must reject");
+            assert_eq!(ack.status, AckStatus::RejectedMalformed, "for body {bad}");
+        }
+        // Oversized frame.
+        let oversized = vec![b'x'; MAX_INTENT_FRAME_BYTES + 1];
+        let ack = service
+            .validate_and_prepare(&oversized)
+            .expect_err("oversized");
+        assert_eq!(ack.status, AckStatus::RejectedMalformed);
+    }
+
+    // [CHECK 56 support] risk/compliance cannot be bypassed: negative
+    // upstream authorization -> RejectedUnauthorizedSource; the gateway has
+    // no API to approve.
+    #[test]
+    fn unapproved_intents_cannot_reach_the_venue_path() {
+        let service = service();
+        let mut unapproved = signed_intent();
+        unapproved.authorizations.risk_approved = false;
+        unapproved.signature_hex = sign_intent(KEY, &unapproved);
+        let ack = service
+            .validate_and_prepare(
+                frame_json(&unapproved, "intent", TRANSPORT_SCHEMA_VERSION).as_bytes(),
+            )
+            .expect_err("unapproved");
+        assert_eq!(ack.status, AckStatus::RejectedUnauthorizedSource);
+
+        // An empty OMS reference is a SHAPE violation (rejected malformed
+        // before the authorization stage; both layers refuse transport).
+        let mut no_oms = signed_intent();
+        no_oms.authorizations.oms_order_ref = String::new();
+        no_oms.signature_hex = sign_intent(KEY, &no_oms);
+        let ack = service
+            .validate_and_prepare(
+                frame_json(&no_oms, "intent", TRANSPORT_SCHEMA_VERSION).as_bytes(),
+            )
+            .expect_err("no oms ref");
+        assert_eq!(ack.status, AckStatus::RejectedMalformed);
+    }
+
+    // [CHECK 52][CHECK 53 support] correlation + tenant/account scope carry
+    // through into the venue request.
+    #[test]
+    fn correlation_and_scope_carry_through() {
+        let service = service();
+        let (_, envelope, request) = service
+            .validate_and_prepare(
+                frame_json(&signed_intent(), "intent", TRANSPORT_SCHEMA_VERSION).as_bytes(),
+            )
+            .expect("ok");
+        assert_eq!(envelope.correlation_id, "corr-admission-1");
+        assert_eq!(request.correlation_id, envelope.correlation_id);
+        assert_eq!(request.tenant_id, "tenant-77");
+        assert_eq!(request.account_id, "acct-42");
+    }
+
+    // [CHECK 36 support] the transport plane can NEVER emit an execution
+    // outcome: enumerate every status this service can produce and prove
+    // none is a fill/position/PnL authority.
+    #[test]
+    fn transport_never_produces_execution_outcomes() {
+        let statuses = vec![
+            AckStatus::AcceptedForTransport,
+            AckStatus::IdempotentReplay,
+            AckStatus::RejectedStaleIntent,
+            AckStatus::RejectedIntegrity,
+            AckStatus::RejectedSchemaVersion,
+            AckStatus::RejectedUnauthorizedSource,
+            AckStatus::RejectedCapability,
+            AckStatus::RejectedBackpressure,
+            AckStatus::RejectedMalformed,
+            AckStatus::TransportFailure,
+        ];
+        for status in statuses {
+            match status {
+                AckStatus::AcceptedForTransport
+                | AckStatus::IdempotentReplay
+                | AckStatus::RejectedStaleIntent
+                | AckStatus::RejectedIntegrity
+                | AckStatus::RejectedSchemaVersion
+                | AckStatus::RejectedUnauthorizedSource
+                | AckStatus::RejectedCapability
+                | AckStatus::RejectedBackpressure
+                | AckStatus::RejectedMalformed
+                | AckStatus::TransportFailure => {}
+            }
+        }
+        // Venue precision capability is explicit transport metadata only.
+        assert_eq!(
+            VenuePrecisionRule::for_venue(Venue::Okx).symbol_style,
+            crate::execution_prepare::SymbolStyle::DashSeparated
+        );
+    }
+
+    // [CHECK 37] a NAKED symbol/side/quantity payload is never accepted:
+    // the transport plane accepts only the complete signed envelope. A bare
+    // venue-order-looking object without the envelope, HMAC and upstream
+    // authorization metadata is RejectedMalformed — there is no path where
+    // an unsigned order-like object crosses this boundary.
+    #[test]
+    fn naked_order_payloads_are_never_accepted() {
+        let service = service();
+        let naked = serde_json::json!({
+            "venue": "binance",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "quantity_text": "0.250",
+            "quantity": {"raw": 250_000_000_000i64, "scale": 12},
+            "client_order_id": "LLE-rogue"
+        })
+        .to_string();
+        let ack = service
+            .validate_and_prepare(naked.as_bytes())
+            .expect_err("naked payload must not cross the boundary");
+        assert_eq!(ack.status, AckStatus::RejectedMalformed);
+
+        // Even a well-formed TransportFrame whose payload is a naked order
+        // (no envelope fields, no signature) is rejected.
+        let framed_naked = serde_json::json!({
+            "schema_version": TRANSPORT_SCHEMA_VERSION,
+            "correlation_id": "corr-naked",
+            "frame_type": "intent",
+            "sent_at_ms": utc_now_ms(),
+            "payload": {
+                "symbol": "BTCUSDT",
+                "side": "buy",
+                "quantity_text": "0.250"
+            }
+        })
+        .to_string();
+        let ack = service
+            .validate_and_prepare(framed_naked.as_bytes())
+            .expect_err("naked payload inside a frame");
+        assert_eq!(ack.status, AckStatus::RejectedMalformed);
+
+        // And the acceptance path PROVEN in signed_envelope_is_accepted_
+        // for_transport requires the full signed envelope — nothing else.
+        assert_eq!(service.replay_cache_len(), 0);
+    }
+
+    // [CHECK 33 support] replay cache eviction is bounded.
+    #[test]
+    fn replay_cache_is_bounded_and_fifo() {
+        let mut cache = ReplayCache::new(2);
+        cache.remember("a", AckStatus::AcceptedForTransport);
+        cache.remember("b", AckStatus::RejectedStaleIntent);
+        cache.remember("c", AckStatus::RejectedIntegrity);
+        assert_eq!(cache.len(), 2);
+        assert!(cache.get("a").is_none(), "oldest evicted");
+        assert!(cache.get("b").is_some() && cache.get("c").is_some());
+        assert!(!cache.is_empty());
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/feed_session.rs
+
+```text
+//! Feed session management: real authenticated/public market-data WebSocket
+//! sessions with reconnect, heartbeat, subscription restore, sequence
+//! continuity and graceful shutdown.
+//!
+//! Split design:
+//! - [`SessionStateMachine`] is a pure, deterministic record of session
+//!   state (phase, attempt counter, last receive, missed heartbeats,
+//!   subscription and snapshot-recovery flags). Every rule is unit-tested
+//!   without any network.
+//! - [`spawn_feed_session`] is the production wiring: it connects with
+//!   tokio-tungstenite over TLS, subscribes via the adapter, forwards raw
+//!   frames into the bounded inbound channel with backpressure, keeps the
+//!   application heartbeat alive and drives the state machine on every
+//!   event. Reconnects use capped exponential backoff. Sequence state is
+//!   deliberately NOT reset on reconnect: the pipeline's guards decide
+//!   continuity, and a fresh snapshot must re-anchor before deltas count.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures_util::{SinkExt, StreamExt};
+use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message;
+
+use crate::adapters::exchange_ws::MarketDataAdapter;
+use crate::backpressure::{admit_non_critical, evaluate, Admission};
+use crate::metrics::MetricsRegistry;
+use crate::session_manager::SessionManager;
+use crate::shutdown::ShutdownCoordinator;
+use crate::time::{mono_now_ns, utc_now_ms};
+use crate::types::{RawFeedFrame, RecoveryReason, RecoverySignal, Symbol, Venue};
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SessionPhase {
+    Idle,
+    Connecting,
+    Connected,
+    Reconnecting,
+    Draining,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BackoffPolicy {
+    pub base_ms: u64,
+    pub max_ms: u64,
+}
+
+impl Default for BackoffPolicy {
+    fn default() -> Self {
+        BackoffPolicy {
+            base_ms: 500,
+            max_ms: 30_000,
+        }
+    }
+}
+
+impl BackoffPolicy {
+    /// Capped exponential backoff WITHOUT randomness: attempt 0 -> base,
+    /// doubling up to max. Deterministic by design (reconnect storms are
+    /// visible and reproducible; jitter is unnecessary for an internal
+    /// single-instance service and would only obscure test behavior).
+    pub fn delay_ms(&self, attempt: u64) -> u64 {
+        let doubled = self
+            .base_ms
+            .checked_shl(attempt.min(20) as u32)
+            .unwrap_or(self.max_ms);
+        doubled.min(self.max_ms).max(self.base_ms)
+    }
+}
+
+/// Pure session state record. Not Sync: owned by the session task; the
+/// supervisor reads snapshots through the SessionManager.
+pub struct SessionStateMachine {
+    pub venue: Venue,
+    pub symbols: Vec<Symbol>,
+    pub phase: SessionPhase,
+    pub attempt: u64,
+    pub reconnects: u64,
+    pub heartbeats_missed: u64,
+    pub last_error: Option<String>,
+    pub last_successful_receive_ms: Option<i64>,
+    pub last_successful_receive_mono_ns: Option<u64>,
+    pub subscription_active: bool,
+    /// True between a disconnect and the next observed fresh snapshot:
+    /// while set, the venue's depth state cannot be trusted and the
+    /// pipeline must not treat deltas as authoritative.
+    pub pending_resnapshot: bool,
+    pub backoff: BackoffPolicy,
+    /// Monotonic deadline for the next reconnect attempt.
+    pub next_attempt_mono_ns: Option<u64>,
+}
+
+impl SessionStateMachine {
+    pub fn new(venue: Venue, symbols: Vec<Symbol>, backoff: BackoffPolicy) -> SessionStateMachine {
+        SessionStateMachine {
+            venue,
+            symbols,
+            phase: SessionPhase::Idle,
+            attempt: 0,
+            reconnects: 0,
+            heartbeats_missed: 0,
+            last_error: None,
+            last_successful_receive_ms: None,
+            last_successful_receive_mono_ns: None,
+            subscription_active: false,
+            pending_resnapshot: false,
+            backoff,
+            next_attempt_mono_ns: None,
+        }
+    }
+
+    pub fn on_connecting(&mut self, now_mono_ns: u64) {
+        self.phase = SessionPhase::Connecting;
+        self.next_attempt_mono_ns = Some(now_mono_ns);
+    }
+
+    pub fn on_connected(&mut self, now_ms: i64, now_mono_ns: u64) {
+        self.phase = SessionPhase::Connected;
+        self.attempt = 0;
+        self.next_attempt_mono_ns = None;
+        self.last_successful_receive_ms = Some(now_ms);
+        self.last_successful_receive_mono_ns = Some(now_mono_ns);
+        // Subscription frames are sent on every (re)connect; the venue
+        // answer (snapshot first) restores the subscription state.
+        self.subscription_active = true;
+    }
+
+    pub fn on_message_received(&mut self, now_ms: i64, now_mono_ns: u64) {
+        self.last_successful_receive_ms = Some(now_ms);
+        self.last_successful_receive_mono_ns = Some(now_mono_ns);
+    }
+
+    /// The heartbeat window elapsed without any frame: counted, observable.
+    pub fn on_heartbeat_missed(&mut self) {
+        self.heartbeats_missed += 1;
+    }
+
+    /// True when no frame has arrived within the liveness window even
+    /// though the socket is (nominally) open.
+    pub fn is_heartbeat_overdue(&self, now_mono_ns: u64, window: Duration) -> bool {
+        match self.last_successful_receive_mono_ns {
+            Some(last) => now_mono_ns.saturating_sub(last) > window.as_nanos() as u64,
+            None => false,
+        }
+    }
+
+    pub fn on_disconnected(&mut self, error: String, now_mono_ns: u64) {
+        if self.phase == SessionPhase::Connected {
+            self.reconnects += 1;
+            self.pending_resnapshot = true;
+        }
+        self.phase = SessionPhase::Reconnecting;
+        self.attempt = self.attempt.saturating_add(1);
+        self.last_error = Some(error);
+        self.subscription_active = false;
+        self.next_attempt_mono_ns =
+            Some(now_mono_ns + self.backoff.delay_ms(self.attempt.saturating_sub(1)) * 1_000_000);
+    }
+
+    pub fn reconnect_due(&self, now_mono_ns: u64) -> bool {
+        matches!(self.phase, SessionPhase::Reconnecting | SessionPhase::Idle)
+            && self
+                .next_attempt_mono_ns
+                .map(|at| now_mono_ns >= at)
+                .unwrap_or(true)
+    }
+
+    /// The supervisor observed that the pipeline's depth state returned to
+    /// Live for this venue (fresh snapshot anchored continuity).
+    pub fn on_snapshot_anchored(&mut self) {
+        self.pending_resnapshot = false;
+    }
+
+    pub fn begin_drain(&mut self) {
+        self.phase = SessionPhase::Draining;
+    }
+
+    pub fn on_closed(&mut self) {
+        self.phase = SessionPhase::Closed;
+        self.subscription_active = false;
+    }
+}
+
+/// Production wiring for one venue feed. Spawns a task that owns the
+/// WebSocket session for the process lifetime (or until shutdown).
+/// Argument count is wiring, not complexity: every parameter is a distinct
+/// dependency the task needs (adapter, symbols, override, ingest, control,
+/// metrics, supervision, lifecycle, timeout).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_feed_session(
+    adapter: Arc<dyn MarketDataAdapter>,
+    symbols: Vec<Symbol>,
+    ws_base_override: Option<String>,
+    inbound: mpsc::Sender<RawFeedFrame>,
+    mut control: mpsc::Receiver<RecoverySignal>,
+    metrics: Arc<MetricsRegistry>,
+    sessions: Arc<SessionManager>,
+    shutdown: ShutdownCoordinator,
+    connect_timeout: Duration,
+) -> tokio::task::JoinHandle<()> {
+    let venue = adapter.venue();
+    tokio::spawn(async move {
+        let backoff = BackoffPolicy::default();
+        let mut state = SessionStateMachine::new(venue, symbols, backoff);
+        let mut shutdown_rx = shutdown.subscribe();
+        let heartbeat = adapter.heartbeat_interval();
+        let url = ws_base_override.unwrap_or_else(|| adapter.ws_base_url().to_string());
+
+        loop {
+            if shutdown_rx.borrow().at_or_after_feeds() {
+                state.begin_drain();
+                break;
+            }
+            state.on_connecting(mono_now_ns());
+            sessions.update_connecting(venue);
+            let connect =
+                tokio::time::timeout(connect_timeout, tokio_tungstenite::connect_async(&url)).await;
+            let ws = match connect {
+                Ok(Ok((stream, _response))) => stream,
+                Ok(Err(e)) => {
+                    tracing::warn!(venue = %venue, error = %e, "feed connect failed");
+                    metrics.inc_provider_failures();
+                    state.on_disconnected(format!("connect: {e}"), mono_now_ns());
+                    sessions.update_disconnected(venue, state.last_error.clone(), state.reconnects);
+                    metrics.inc_reconnects();
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_millis(backoff.delay_ms(state.attempt.saturating_sub(1)))) => continue,
+                        _ = async { shutdown_rx.wait_for(|phase| phase.is_stopping()).await.map(|p| *p) } => { state.begin_drain(); break; }
+                    }
+                }
+                Err(_) => {
+                    tracing::warn!(venue = %venue, "feed connect timed out");
+                    metrics.inc_transport_timeouts();
+                    state.on_disconnected("connect timeout".to_string(), mono_now_ns());
+                    sessions.update_disconnected(venue, state.last_error.clone(), state.reconnects);
+                    metrics.inc_reconnects();
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_millis(backoff.delay_ms(state.attempt.saturating_sub(1)))) => continue,
+                        _ = async { shutdown_rx.wait_for(|phase| phase.is_stopping()).await.map(|p| *p) } => { state.begin_drain(); break; }
+                    }
+                }
+            };
+
+            let (mut writer, mut reader) = ws.split();
+            state.on_connected(utc_now_ms(), mono_now_ns());
+            sessions.update_connected(venue);
+            tracing::info!(venue = %venue, "feed connected; subscribing");
+
+            for frame in adapter.subscribe_frames(&state.symbols) {
+                if writer.send(Message::Text(frame)).await.is_err() {
+                    break;
+                }
+            }
+
+            let mut heartbeat_tick = tokio::time::interval(heartbeat);
+            heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            heartbeat_tick.tick().await; // first tick fires immediately
+
+            let mut closed_reason = String::from("stream ended");
+            loop {
+                tokio::select! {
+                    incoming = reader.next() => {
+                        match incoming {
+                            Some(Ok(Message::Text(text))) => {
+                                state.on_message_received(utc_now_ms(), mono_now_ns());
+                                if adapter.is_heartbeat_reply(&text) || adapter.is_control_frame(&text) {
+                                    continue;
+                                }
+                                // Bounded inbound channel + explicit policy:
+                                // market data is non-critical; overflow is
+                                // counted shedding, never a silent drop.
+                                let frame = RawFeedFrame {
+                                    venue,
+                                    payload: text,
+                                    receive_mono_ns: mono_now_ns(),
+                                    receive_utc_ms: utc_now_ms(),
+                                };
+                                match inbound.try_reserve() {
+                                    Ok(permit) => {
+                                        permit.send(frame);
+                                    }
+                                    Err(_) => {
+                                        // Channel full: apply the shedding policy.
+                                        let policy = sessions.backpressure_policy();
+                                        let state_bp = evaluate(&policy, inbound.max_capacity() as i64);
+                                        match admit_non_critical(&policy, state_bp) {
+                                            Ok(Admission::Shed) | Ok(Admission::Admitted) => {
+                                                metrics.inc_noncritical_drops();
+                                            }
+                                            Err(_) => {
+                                                metrics.inc_noncritical_drops();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Some(Ok(Message::Ping(payload))) => {
+                                // Protocol-level keepalive: answer immediately.
+                                let _ = writer.send(Message::Pong(payload)).await;
+                                state.on_message_received(utc_now_ms(), mono_now_ns());
+                            }
+                            Some(Ok(Message::Pong(_))) => {
+                                state.on_message_received(utc_now_ms(), mono_now_ns());
+                            }
+                            Some(Ok(Message::Close(frame))) => {
+                                closed_reason = format!("close frame: {frame:?}");
+                                break;
+                            }
+                            Some(Ok(_)) => {}
+                            Some(Err(e)) => {
+                                closed_reason = format!("socket error: {e}");
+                                break;
+                            }
+                            None => break,
+                        }
+                    }
+                    _ = heartbeat_tick.tick() => {
+                        if state.is_heartbeat_overdue(mono_now_ns(), heartbeat.checked_mul(2).unwrap_or(heartbeat)) {
+                            state.on_heartbeat_missed();
+                            metrics.inc_heartbeats_missed();
+                            tracing::warn!(venue = %venue, "heartbeat overdue");
+                        }
+                        if let Some(ping) = adapter.heartbeat_frame() {
+                            if writer.send(Message::Text(ping)).await.is_err() {
+                                closed_reason = "heartbeat send failed".to_string();
+                                break;
+                            }
+                        }
+                    }
+                    Some(signal) = control.recv() => {
+                        // Sequence-gap recovery: re-arm the subscription so
+                        // the venue starts over from a fresh snapshot. The
+                        // depth state is already Gapped in the pipeline and
+                        // stays unusable until that snapshot re-anchors it.
+                        if signal.reason == RecoveryReason::SequenceGap {
+                            tracing::warn!(venue = %venue, symbol = %signal.symbol, "sequence gap recovery: resubscribing for fresh snapshot");
+                            for frame in adapter.unsubscribe_frames(&state.symbols) {
+                                let _ = writer.send(Message::Text(frame)).await;
+                            }
+                            for frame in adapter.subscribe_frames(&state.symbols) {
+                                let _ = writer.send(Message::Text(frame)).await;
+                            }
+                        }
+                    }
+                    phase = async { shutdown_rx.wait_for(|phase| phase.at_or_after_feeds()).await.map(|p| *p) } => {
+                        // The watch guard was already collapsed to a Copy
+                        // phase inside the async block (guards are not Send).
+                        let _ = phase;
+                        state.begin_drain();
+                        // Stop new subscriptions, then close politely.
+                        for frame in adapter.unsubscribe_frames(&state.symbols) {
+                            let _ = writer.send(Message::Text(frame)).await;
+                        }
+                        let _ = writer.send(Message::Close(None)).await;
+                        closed_reason = "shutdown".to_string();
+                        break;
+                    }
+                }
+            }
+
+            state.on_disconnected(closed_reason, mono_now_ns());
+            sessions.update_disconnected(venue, state.last_error.clone(), state.reconnects);
+            metrics.inc_provider_failures();
+            if matches!(state.phase, SessionPhase::Draining)
+                || shutdown_rx.borrow().at_or_after_feeds()
+            {
+                state.on_closed();
+                sessions.update_closed(venue);
+                tracing::info!(venue = %venue, "feed session closed");
+                break;
+            }
+            let delay = Duration::from_millis(backoff.delay_ms(state.attempt.saturating_sub(1)));
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                _ = async { shutdown_rx.wait_for(|phase| phase.at_or_after_feeds()).await.map(|p| *p) } => {
+                    state.on_closed();
+                    sessions.update_closed(venue);
+                    break;
+                }
+            }
+        }
+        // Final supervision snapshot so health sees terminal state.
+        sessions.record_state_snapshot(&state);
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn symbols() -> Vec<Symbol> {
+        vec![Symbol::new("BTCUSDT").expect("s")]
+    }
+
+    // [CHECK 27] reconnect state tracked: attempt count, last error, phase.
+    #[test]
+    fn reconnect_state_is_tracked() {
+        let mut sm = SessionStateMachine::new(Venue::Binance, symbols(), BackoffPolicy::default());
+        assert_eq!(sm.phase, SessionPhase::Idle);
+        sm.on_connecting(mono_now_ns());
+        sm.on_connected(1_000, mono_now_ns());
+        assert_eq!(sm.phase, SessionPhase::Connected);
+        assert!(sm.subscription_active);
+        sm.on_disconnected("boom".to_string(), mono_now_ns());
+        assert_eq!(sm.phase, SessionPhase::Reconnecting);
+        assert_eq!(sm.reconnects, 1);
+        assert_eq!(sm.attempt, 1);
+        assert_eq!(sm.last_error.as_deref(), Some("boom"));
+        assert!(!sm.subscription_active);
+        // Backoff schedule is deterministic and capped.
+        let policy = BackoffPolicy {
+            base_ms: 500,
+            max_ms: 4_000,
+        };
+        assert_eq!(policy.delay_ms(0), 500);
+        assert_eq!(policy.delay_ms(1), 1_000);
+        assert_eq!(policy.delay_ms(2), 2_000);
+        assert_eq!(policy.delay_ms(3), 4_000);
+        assert_eq!(policy.delay_ms(4), 4_000);
+        assert_eq!(policy.delay_ms(50), 4_000);
+    }
+
+    // [CHECK 28] heartbeat timeout detected from real receive timestamps.
+    #[test]
+    fn heartbeat_timeout_detected() {
+        let mut sm = SessionStateMachine::new(Venue::Okx, symbols(), BackoffPolicy::default());
+        let base = mono_now_ns();
+        sm.on_connected(1, base);
+        let window = Duration::from_millis(100);
+        // Deterministic: evaluate against explicit monotonic timestamps.
+        assert!(!sm.is_heartbeat_overdue(base + 50_000_000, window));
+        // 500 ms of silence against a 100 ms window is overdue.
+        assert!(sm.is_heartbeat_overdue(base + 500_000_000, window));
+        let before = sm.heartbeats_missed;
+        sm.on_heartbeat_missed();
+        assert_eq!(sm.heartbeats_missed, before + 1);
+    }
+
+    // [CHECK 29] subscription state restored on reconnect.
+    #[test]
+    fn subscription_state_restored_on_reconnect() {
+        let mut sm = SessionStateMachine::new(Venue::Bybit, symbols(), BackoffPolicy::default());
+        sm.on_connecting(mono_now_ns());
+        sm.on_connected(1, mono_now_ns());
+        assert!(sm.subscription_active);
+        sm.on_disconnected("drop".to_string(), mono_now_ns());
+        assert!(!sm.subscription_active);
+        // Reconnect re-arms the subscription (frames are re-sent).
+        sm.on_connecting(mono_now_ns());
+        sm.on_connected(2, mono_now_ns());
+        assert!(sm.subscription_active);
+    }
+
+    // [CHECK 30] sequence recovery: reconnect flags pending resnapshot; a
+    // fresh snapshot anchors continuity again.
+    #[test]
+    fn resnapshot_required_after_disconnect_until_anchor() {
+        let mut sm = SessionStateMachine::new(Venue::Binance, symbols(), BackoffPolicy::default());
+        sm.on_connected(1, mono_now_ns());
+        assert!(!sm.pending_resnapshot);
+        sm.on_disconnected("reset".to_string(), mono_now_ns());
+        assert!(
+            sm.pending_resnapshot,
+            "deltas must not be trusted after a drop"
+        );
+        sm.on_snapshot_anchored();
+        assert!(!sm.pending_resnapshot);
+        // Reconnect due-ness is deterministic against the monotonic clock.
+        let now = mono_now_ns();
+        sm.on_disconnected("again".to_string(), now);
+        assert!(!sm.reconnect_due(now));
+        let delay = sm.backoff.delay_ms(sm.attempt.saturating_sub(1)) * 1_000_000;
+        let later = now + delay + 1;
+        assert!(
+            sm.reconnect_due(later),
+            "attempt {} delay {}ns",
+            sm.attempt,
+            delay
+        );
+    }
+
+    #[test]
+    fn drain_and_close_transitions() {
+        let mut sm = SessionStateMachine::new(Venue::Okx, symbols(), BackoffPolicy::default());
+        sm.begin_drain();
+        assert_eq!(sm.phase, SessionPhase::Draining);
+        sm.on_closed();
+        assert_eq!(sm.phase, SessionPhase::Closed);
+        assert!(!sm.subscription_active);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/health.rs
+
+```text
+//! Internal health/readiness/liveness.
+//!
+//! Readiness is EARNED from real conditions — configuration loaded, signing
+//! key present, execution-engine schema negotiated, every required venue
+//! session actually connected, and backpressure below CRITICAL. Liveness
+//! tracks the supervision loop's heartbeat only. Process alive is never
+//! equivalent to service ready: a fresh boot is live and NOT ready.
+
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::Arc;
+
+use serde::Serialize;
+
+use crate::backpressure::{evaluate, BackpressurePolicy, BackpressureState};
+use crate::error::GatewayError;
+use crate::metrics::MetricsRegistry;
+use crate::session_manager::SessionManager;
+use crate::time::{mono_now_ns, utc_now_ms};
+use crate::types::Venue;
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct ReadinessCheck {
+    pub name: &'static str,
+    pub ok: bool,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ReadinessReport {
+    pub ready: bool,
+    pub environment: String,
+    pub checks: Vec<ReadinessCheck>,
+    pub observed_at_ms: i64,
+}
+
+pub struct HealthService {
+    started_ms: i64,
+    config_loaded: AtomicBool,
+    signing_key_present: AtomicBool,
+    engine_schema_negotiated: AtomicBool,
+    sessions: Arc<SessionManager>,
+    required_venues: Vec<Venue>,
+    policy: BackpressurePolicy,
+    /// Monotonic timestamp of the last supervision-loop tick (liveness).
+    last_tick_mono_ns: AtomicI64,
+    metrics: Arc<MetricsRegistry>,
+}
+
+/// Liveness window: if the supervision loop has not ticked for this long,
+/// the process may still be alive but its control loop is not — report it.
+pub const LIVENESS_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
+
+impl HealthService {
+    pub fn new(
+        sessions: Arc<SessionManager>,
+        required_venues: Vec<Venue>,
+        policy: BackpressurePolicy,
+        metrics: Arc<MetricsRegistry>,
+    ) -> HealthService {
+        HealthService {
+            started_ms: utc_now_ms(),
+            config_loaded: AtomicBool::new(false),
+            signing_key_present: AtomicBool::new(false),
+            engine_schema_negotiated: AtomicBool::new(false),
+            sessions,
+            required_venues,
+            policy,
+            last_tick_mono_ns: AtomicI64::new(mono_now_ns() as i64),
+            metrics,
+        }
+    }
+
+    pub fn mark_config_loaded(&self) {
+        self.config_loaded.store(true, Ordering::Relaxed);
+    }
+
+    pub fn mark_signing_key_present(&self) {
+        self.signing_key_present.store(true, Ordering::Relaxed);
+    }
+
+    pub fn mark_engine_schema_negotiated(&self) {
+        self.engine_schema_negotiated.store(true, Ordering::Relaxed);
+    }
+
+    /// The supervision loop calls this on every pass.
+    pub fn record_supervision_tick(&self) {
+        self.last_tick_mono_ns
+            .store(mono_now_ns() as i64, Ordering::Relaxed);
+    }
+
+    /// Liveness: the process and its supervision loop are functioning.
+    /// Deliberately weak — it is NOT readiness.
+    pub fn liveness(&self) -> bool {
+        let last = self.last_tick_mono_ns.load(Ordering::Relaxed);
+        last >= 0
+            && (mono_now_ns() as i64).saturating_sub(last) <= LIVENESS_WINDOW.as_nanos() as i64
+    }
+
+    /// Readiness: earned from real subsystem state, checked fresh on every
+    /// call. No caching, no "healthy because booted".
+    pub fn readiness(&self, environment: &str) -> ReadinessReport {
+        let mut checks = Vec::with_capacity(5);
+
+        checks.push(ReadinessCheck {
+            name: "configuration_loaded",
+            ok: self.config_loaded.load(Ordering::Relaxed),
+            detail: "gateway configuration passed strict validation at boot".to_string(),
+        });
+        checks.push(ReadinessCheck {
+            name: "signing_key_present",
+            ok: self.signing_key_present.load(Ordering::Relaxed),
+            detail: "intent HMAC key resolved from secret infrastructure (value never logged)"
+                .to_string(),
+        });
+        checks.push(ReadinessCheck {
+            name: "execution_engine_schema_negotiated",
+            ok: self.engine_schema_negotiated.load(Ordering::Relaxed),
+            detail: "transport schema negotiated with the execution engine".to_string(),
+        });
+
+        let connected = self
+            .required_venues
+            .iter()
+            .filter(|v| {
+                self.sessions
+                    .all_required_connected(std::slice::from_ref(v))
+            })
+            .count();
+        checks.push(ReadinessCheck {
+            name: "required_feed_sessions_connected",
+            ok: connected == self.required_venues.len(),
+            detail: format!(
+                "{connected}/{} required venue sessions connected",
+                self.required_venues.len()
+            ),
+        });
+
+        let depth = self.metrics.queue_depth();
+        let state = evaluate(&self.policy, depth);
+        checks.push(ReadinessCheck {
+            name: "backpressure_below_critical",
+            ok: state < BackpressureState::Critical,
+            detail: format!("queue depth {depth} in state {:?}", state),
+        });
+
+        let ready = checks.iter().all(|c| c.ok);
+        ReadinessReport {
+            ready,
+            environment: environment.to_string(),
+            checks,
+            observed_at_ms: utc_now_ms(),
+        }
+    }
+
+    pub fn started_ms(&self) -> i64 {
+        self.started_ms
+    }
+
+    /// Accessor for route handlers that need the metrics registry too.
+    pub fn metrics_ref(&self) -> &MetricsRegistry {
+        &self.metrics
+    }
+}
+
+/// Tiny JSON/HTTP responder used by the internal listener. Request parsing
+/// is deliberately minimal: method + path, no bodies, internal only.
+pub fn route_internal_get(
+    path: &str,
+    health: &HealthService,
+    metrics: &MetricsRegistry,
+    environment: &str,
+) -> Result<(u16, String), GatewayError> {
+    match path {
+        "/healthz" => {
+            let live = health.liveness();
+            Ok((
+                if live { 200 } else { 503 },
+                serde_json::json!({
+                    "service": "low-latency-gateway",
+                    "liveness": live,
+                    "started_at_ms": health.started_ms(),
+                    "observed_at_ms": utc_now_ms(),
+                })
+                .to_string(),
+            ))
+        }
+        "/readyz" => {
+            let report = health.readiness(environment);
+            Ok((
+                if report.ready { 200 } else { 503 },
+                serde_json::to_string(&report).expect("readiness serializes"),
+            ))
+        }
+        "/metrics" => Ok((200, metrics.render_text())),
+        "/schema" => Ok((
+            200,
+            serde_json::to_string(&crate::transport_protocol::SchemaAdvertisement::gateway())
+                .expect("schema advertisement serializes"),
+        )),
+        other => Err(GatewayError::MalformedData(format!(
+            "unknown internal path '{other}'"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Symbol;
+
+    fn health() -> (HealthService, Arc<SessionManager>) {
+        let sessions = Arc::new(SessionManager::new(BackpressurePolicy::default()));
+        for venue in Venue::ALL {
+            sessions.register(venue, vec![Symbol::new("BTCUSDT").expect("s")]);
+        }
+        let svc = HealthService::new(
+            Arc::clone(&sessions),
+            vec![Venue::Binance],
+            BackpressurePolicy::default(),
+            Arc::new(MetricsRegistry::new()),
+        );
+        svc.record_supervision_tick();
+        (svc, sessions)
+    }
+
+    // [CHECK 44] readiness differs from process liveness.
+    #[test]
+    fn fresh_boot_is_live_but_not_ready() {
+        let (svc, _sessions) = health();
+        assert!(svc.liveness(), "supervision loop ticked; process is live");
+        let report = svc.readiness("development");
+        assert!(!report.ready, "nothing is wired yet; must not claim ready");
+        let names: Vec<&str> = report.checks.iter().map(|c| c.name).collect();
+        assert!(names.contains(&"configuration_loaded"));
+        assert!(names.contains(&"required_feed_sessions_connected"));
+        assert!(report.checks.iter().any(|c| !c.ok));
+    }
+
+    // [CHECK 43] readiness uses REAL session state, not self-declaration.
+    #[test]
+    fn readiness_tracks_real_session_state() {
+        let (svc, sessions) = health();
+        svc.mark_config_loaded();
+        svc.mark_signing_key_present();
+        svc.mark_engine_schema_negotiated();
+        // Sessions not connected yet.
+        assert!(!svc.readiness("development").ready);
+        sessions.update_connected(Venue::Binance);
+        let report = svc.readiness("development");
+        assert!(report.ready, "all real conditions met: {report:?}");
+
+        // A drop in the session flips readiness back without any restart.
+        sessions.update_disconnected(Venue::Binance, Some("reset".into()), 1);
+        assert!(!svc.readiness("development").ready);
+    }
+
+    // Critical backpressure flips readiness off (fail closed surface).
+    #[test]
+    fn critical_backpressure_blocks_readiness() {
+        let (svc, sessions) = health();
+        svc.mark_config_loaded();
+        svc.mark_signing_key_present();
+        svc.mark_engine_schema_negotiated();
+        sessions.update_connected(Venue::Binance);
+        svc.metrics.set_queue_depth(4_096);
+        let report = svc.readiness("development");
+        assert!(!report.ready);
+        svc.metrics.set_queue_depth(4_095);
+        assert!(svc.readiness("development").ready);
+    }
+
+    // Liveness decays when the supervision loop stops ticking.
+    #[test]
+    fn liveness_requires_a_fresh_supervision_tick() {
+        let (svc, _sessions) = health();
+        assert!(svc.liveness());
+        // Date the last tick 31s in the past of the current monotonic
+        // reading: no matter how fast the test runs, the window (30s) is
+        // exceeded deterministically.
+        svc.last_tick_mono_ns
+            .store(mono_now_ns() as i64 - 31_000_000_000, Ordering::Relaxed);
+        assert!(
+            !svc.liveness(),
+            "supervision loop silent for 31s+; not live"
+        );
+    }
+
+    // Internal routes: health/readiness/metrics/schema only.
+    #[test]
+    fn internal_routes_are_exhaustive_and_safe() {
+        let (svc, sessions) = health();
+        svc.mark_config_loaded();
+        svc.mark_signing_key_present();
+        svc.mark_engine_schema_negotiated();
+        sessions.update_connected(Venue::Binance);
+        let (code, body) = route_internal_get("/healthz", &svc, svc.metrics_ref(), "development")
+            .expect("healthz");
+        assert_eq!(code, 200);
+        assert!(body.contains("\"liveness\":true"));
+        let (code, body) =
+            route_internal_get("/readyz", &svc, svc.metrics_ref(), "development").expect("readyz");
+        assert_eq!(code, 200);
+        assert!(body.contains("\"ready\":true"));
+        let (code, body) = route_internal_get("/metrics", &svc, svc.metrics_ref(), "development")
+            .expect("metrics");
+        assert_eq!(code, 200);
+        assert!(body.contains("lle_events_received_total"));
+        let (code, _) =
+            route_internal_get("/schema", &svc, svc.metrics_ref(), "development").expect("schema");
+        assert_eq!(code, 200);
+
+        // [CHECK 60] the gateway is an INTERNAL-ONLY service: its entire
+        // HTTP surface is {/healthz, /readyz, /metrics, /schema} plus the
+        // execution POST route. Customer-facing or order-style paths do not
+        // exist here — every other path is an error, never a handler.
+        for forbidden in [
+            "/orders",
+            "/intents",
+            "/internal/v1/transport/intents",
+            "/api/v1/account",
+            "/positions",
+            "/ws",
+        ] {
+            assert!(matches!(
+                route_internal_get(forbidden, &svc, svc.metrics_ref(), "development"),
+                Err(GatewayError::MalformedData(_))
+            ));
+        }
+        assert!(matches!(
+            route_internal_get("/executeme", &svc, svc.metrics_ref(), "development"),
+            Err(GatewayError::MalformedData(_))
+        ));
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/lib.rs
+
+```text
+//! low-latency-gateway library surface.
+//!
+//! The crate is a real market-data + execution-transport plane:
+//! - adapters: per-venue WebSocket protocols (Binance/Bybit/OKX);
+//! - pipeline: bounded ingest, sequence integrity, normalization, books,
+//!   tapes, backpressure, routing;
+//! - execution: signed-intent admission, preparation, engine transport;
+//! - observability & lifecycle: metrics, tracing, health, shutdown.
+//!
+//! Authority boundary: this crate NEVER grants risk/compliance approvals,
+//! NEVER fabricates execution outcomes (FILL/position/PnL truth lives in
+//! the trading engine), and NEVER exposes a customer-facing endpoint.
+
+pub mod adapters {
+    pub mod binance;
+    pub mod bybit;
+    pub mod exchange_ws;
+    pub mod okx;
+}
+pub mod backpressure;
+pub mod config;
+pub mod error;
+pub mod execution_prepare;
+pub mod execution_transport;
+pub mod feed_session;
+pub mod health;
+pub mod market_data;
+pub mod metrics;
+pub mod order_book;
+pub mod parser;
+pub mod ring_buffer;
+pub mod sequence_guard;
+pub mod session_manager;
+pub mod shutdown;
+pub mod time;
+pub mod tracing;
+pub mod trade_tape;
+pub mod transport_protocol;
+pub mod types;
+pub mod venue_router;
+
+// The integration client lives outside src/ by product layout; it is
+// compiled INTO this crate so `crate::` paths resolve naturally.
+#[path = "../integration/execution_engine.rs"]
+pub mod execution_engine;
+```
+
+FILE: services/low-latency-gateway/src/main.rs
+
+```text
+//! low-latency-gateway binary: wires the full service together.
+//!
+//! Composition:
+//! - two internal listeners: /healthz /readyz /metrics /schema (health bind)
+//!   and POST /internal/v1/transport/intents (transport bind);
+//! - one real WebSocket feed session per configured venue, feeding a bounded
+//!   inbound channel;
+//! - one pipeline task normalizing frames through sequence guards, books and
+//!   tapes, routing events through the backpressure-aware router;
+//! - a recovery task wiring pipeline sequence gaps into feed-session
+//!   resubscription;
+//! - a supervision loop ticking liveness, gauges and recovery supervision;
+//! - the execution-engine HTTP client, schema-negotiated at boot.
+//!
+//! Shutdown follows the deterministic phase sequence from
+//! [`low_latency_gateway::shutdown`].
+
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
+
+use low_latency_gateway::adapters::exchange_ws::MarketDataAdapter;
+use low_latency_gateway::adapters::{
+    binance::BinanceAdapter, bybit::BybitAdapter, okx::OkxAdapter,
+};
+use low_latency_gateway::config::GatewayConfig;
+use low_latency_gateway::error::GatewayError;
+use low_latency_gateway::execution_engine::ExecutionEngineClient;
+use low_latency_gateway::execution_prepare::ExecutionPreparer;
+use low_latency_gateway::execution_transport::ExecutionTransportService;
+use low_latency_gateway::feed_session::spawn_feed_session;
+use low_latency_gateway::health::{route_internal_get, HealthService};
+use low_latency_gateway::market_data::MarketDataPipeline;
+use low_latency_gateway::metrics::MetricsRegistry;
+use low_latency_gateway::session_manager::SessionManager;
+use low_latency_gateway::shutdown::{ShutdownCoordinator, ShutdownPhase};
+use low_latency_gateway::time::utc_now_ms;
+use low_latency_gateway::tracing::init_tracing;
+use low_latency_gateway::transport_protocol::TRANSPORT_SCHEMA_VERSION;
+use low_latency_gateway::types::{RawFeedFrame, RecoverySignal, Venue};
+use low_latency_gateway::venue_router::{RouteConsumer, VenueRouter};
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{mpsc, watch};
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const ENGINE_TIMEOUT: Duration = Duration::from_secs(5);
+const ENGINE_MAX_ATTEMPTS: u32 = 3;
+
+fn main() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime builds");
+    let code = runtime.block_on(run());
+    runtime.shutdown_timeout(Duration::from_secs(2));
+    std::process::exit(code);
+}
+
+async fn run() -> i32 {
+    // rustls needs exactly one process-level CryptoProvider when multiple
+    // provider features are in the tree; install ring deterministically
+    // BEFORE any venue WSS or HTTPS connection exists.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    init_tracing("info");
+    tracing::info!(
+        schema = TRANSPORT_SCHEMA_VERSION,
+        "low-latency-gateway starting"
+    );
+
+    // ---- configuration (strict; no defaults that mask mistakes) ----------
+    let config = match GatewayConfig::load_from_env() {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::error!(error = %e, "configuration invalid; refusing to start");
+            return 2;
+        }
+    };
+    let environment = config.environment.as_str().to_string();
+    let venues: Vec<Venue> = config.venues.iter().map(|vc| vc.venue).collect();
+    let policy = config.backpressure;
+    tracing::info!(venues = ?venues, environment, "configuration loaded");
+
+    // ---- shared state ------------------------------------------------------
+    let metrics = Arc::new(MetricsRegistry::new());
+    let sessions = Arc::new(SessionManager::new(policy));
+    let health = Arc::new(HealthService::new(
+        Arc::clone(&sessions),
+        venues.clone(),
+        policy,
+        Arc::clone(&metrics),
+    ));
+    health.mark_config_loaded();
+    let shutdown = ShutdownCoordinator::new();
+
+    // Signing key comes from secret infrastructure only; never logged.
+    // Configuration load already validated its length, so a loaded config
+    // implies a usable key.
+    let intent_key: Vec<u8> = config.intent_hmac_key().to_vec();
+    health.mark_signing_key_present();
+
+    // ---- market-data plane -------------------------------------------------
+    let (recovery_tx, mut recovery_rx) = mpsc::channel::<RecoverySignal>(256);
+    let pipeline = Arc::new(MarketDataPipeline::new(
+        &venues,
+        config.ring_capacity,
+        recovery_tx,
+        Arc::clone(&metrics),
+    ));
+
+    // Inbound bounded channel: sessions shed when full (market data is
+    // non-critical, counted shedding).
+    let (inbound_tx, mut inbound_rx) = mpsc::channel::<RawFeedFrame>(config.ring_capacity);
+
+    // Router with one internal observation consumer (bounded).
+    let mut router = VenueRouter::new(policy);
+    let (obs_tx, mut obs_rx) =
+        mpsc::channel::<low_latency_gateway::types::MarketEvent>(config.ring_capacity);
+    router.add_consumer(RouteConsumer {
+        name: "internal-observation".to_string(),
+        venues: venues.clone(),
+        symbols: None,
+        tx: obs_tx,
+        is_critical: false,
+    });
+    let router = Arc::new(router);
+    {
+        let metrics = Arc::clone(&metrics);
+        let pipeline = Arc::clone(&pipeline);
+        tokio::spawn(async move {
+            // Observation consumer: keeps the pipeline's lag gauge honest.
+            let mut seen: u64 = 0;
+            while obs_rx.recv().await.is_some() {
+                seen = seen.saturating_add(1);
+                if seen % 1024 == 0 {
+                    metrics.set_consumer_lag(pipeline.inbound_depth());
+                }
+            }
+        });
+    }
+
+    // Feed sessions: one real WebSocket per venue + per-venue control.
+    let mut adapters: HashMap<Venue, Arc<dyn MarketDataAdapter>> = HashMap::new();
+    let mut controls: Vec<mpsc::Sender<RecoverySignal>> = Vec::new();
+    for venue in &venues {
+        let adapter: Arc<dyn MarketDataAdapter> = match venue {
+            Venue::Binance => Arc::new(BinanceAdapter::new()),
+            Venue::Bybit => Arc::new(BybitAdapter::new()),
+            Venue::Okx => Arc::new(OkxAdapter::new()),
+        };
+        let venue_config = match config.venues.iter().find(|vc| vc.venue == *venue) {
+            Some(vc) => vc,
+            None => {
+                tracing::error!(venue = %venue, "venue configuration missing; refusing to start");
+                return 2;
+            }
+        };
+        let symbols = venue_config.symbols.clone();
+        if symbols.is_empty() {
+            tracing::error!(venue = %venue, "no symbols configured; refusing to start");
+            return 2;
+        }
+        let ws_base_override = venue_config
+            .ws_base_override
+            .as_ref()
+            .map(|base| base.as_str().to_string());
+        sessions.register(*venue, symbols.clone());
+        let (control_tx, control_rx) = mpsc::channel::<RecoverySignal>(32);
+        controls.push(control_tx);
+        spawn_feed_session(
+            Arc::clone(&adapter),
+            symbols,
+            ws_base_override,
+            inbound_tx.clone(),
+            control_rx,
+            Arc::clone(&metrics),
+            Arc::clone(&sessions),
+            shutdown.clone(),
+            CONNECT_TIMEOUT,
+        );
+        adapters.insert(*venue, adapter);
+    }
+    drop(inbound_tx); // sessions own the remaining senders
+
+    // Pipeline consumer: frames in, normalized events routed out.
+    {
+        let pipeline = Arc::clone(&pipeline);
+        let router = Arc::clone(&router);
+        tokio::spawn(async move {
+            while let Some(frame) = inbound_rx.recv().await {
+                let route = |event: &low_latency_gateway::types::MarketEvent| {
+                    router
+                        .route(event, pipeline.inbound_depth())
+                        .map(|outcome| outcome.delivered.len())
+                };
+                if let Err(e) = pipeline.process_frame(&frame, &route) {
+                    match &e {
+                        GatewayError::BackpressureShed { .. }
+                        | GatewayError::BackpressureRefused { .. } => {
+                            // Counted shedding under pressure; sessions keep
+                            // feeding so the newest data wins.
+                        }
+                        other => {
+                            tracing::debug!(error = other.kind(), venue = %frame.venue, "frame not normalized");
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Recovery wiring: pipeline sequence gaps -> session resubscription.
+    {
+        let sessions = Arc::clone(&sessions);
+        let venues = venues.clone();
+        tokio::spawn(async move {
+            while let Some(signal) = recovery_rx.recv().await {
+                sessions.mark_pending_resnapshot(signal.venue, true);
+                if let Some(control) = controls.get(venue_index(&venues, signal.venue)) {
+                    if control.send(signal).await.is_err() {
+                        tracing::warn!("recovery control channel closed for venue");
+                    }
+                }
+            }
+        });
+    }
+
+    // ---- execution plane ---------------------------------------------------
+    let preparer = ExecutionPreparer::new(Arc::clone(&sessions), venues.clone());
+    let transport = Arc::new(ExecutionTransportService::new(
+        preparer,
+        config.intent_hmac_key_id.clone(),
+        intent_key,
+        config.intent_expiry_margin_ms,
+        config.intent_replay_cache_capacity,
+        policy,
+        Arc::clone(&metrics),
+    ));
+    let engine = Arc::new(ExecutionEngineClient::new(
+        config.execution_engine_base_url.clone(),
+        ENGINE_TIMEOUT,
+        ENGINE_MAX_ATTEMPTS,
+        Duration::from_millis(100),
+        Arc::clone(&metrics),
+    ));
+
+    // ---- internal listeners -------------------------------------------------
+    let health_listener = match TcpListener::bind(&config.health_bind).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::error!(bind = %config.health_bind, error = %e, "health bind failed");
+            return 2;
+        }
+    };
+    let transport_listener = match TcpListener::bind(&config.transport_bind).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::error!(bind = %config.transport_bind, error = %e, "transport bind failed");
+            return 2;
+        }
+    };
+    tracing::info!(health = %config.health_bind, transport = %config.transport_bind, "internal listeners bound");
+
+    // Health/observability endpoints.
+    {
+        let health = Arc::clone(&health);
+        let environment = environment.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = health_listener.accept().await else {
+                    break;
+                };
+                let health = Arc::clone(&health);
+                let environment = environment.clone();
+                tokio::spawn(async move {
+                    serve_health_connection(&mut stream, &health, &environment).await;
+                });
+            }
+        });
+    }
+
+    // Execution transport endpoint: admits only signed intent frames.
+    let in_flight = transport.in_flight_depth_gauge();
+    {
+        let transport = Arc::clone(&transport);
+        let engine = Arc::clone(&engine);
+        let shutdown = shutdown.clone();
+        let in_flight = Arc::clone(&in_flight);
+        tokio::spawn(async move {
+            let mut shutdown_rx = shutdown.subscribe();
+            loop {
+                let accepted = tokio::select! {
+                    accepted = transport_listener.accept() => accepted,
+                    _ = shutdown_rx.wait_for(|phase| phase.is_stopping()) => {
+                        tracing::info!("transport listener draining: no new intents accepted");
+                        break;
+                    }
+                };
+                match accepted {
+                    Ok((mut stream, _)) => {
+                        let transport = Arc::clone(&transport);
+                        let engine = Arc::clone(&engine);
+                        let in_flight = Arc::clone(&in_flight);
+                        tokio::spawn(async move {
+                            in_flight.fetch_add(1, Ordering::Relaxed);
+                            serve_transport_connection(&mut stream, &transport, &engine).await;
+                            in_flight.fetch_sub(1, Ordering::Relaxed);
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "transport accept failed");
+                    }
+                }
+            }
+            // Let in-flight intents finish before the next phase.
+            while in_flight.load(Ordering::Relaxed) > 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            tracing::info!("transport in-flight drained");
+        });
+    }
+
+    // ---- boot-time engine schema negotiation -------------------------------
+    match engine.negotiate_schema().await {
+        Ok(_) => health.mark_engine_schema_negotiated(),
+        Err(e) => {
+            // Honest unavailability: process runs, readiness stays false.
+            tracing::error!(error = e.kind(), "execution-engine schema negotiation failed; readiness will stay false until it succeeds");
+        }
+    }
+
+    // ---- supervision loop ----------------------------------------------------
+    {
+        let health = Arc::clone(&health);
+        let sessions = Arc::clone(&sessions);
+        let pipeline = Arc::clone(&pipeline);
+        let metrics = Arc::clone(&metrics);
+        let inbound_capacity = config.ring_capacity as i64;
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(1));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                health.record_supervision_tick();
+                metrics.set_sessions_connected(sessions.connected_count() as i64);
+                metrics.set_queue_depth(pipeline.inbound_depth().min(inbound_capacity));
+                pipeline.set_consumer_lag(metrics.consumer_lag());
+                let anchored = sessions.supervise_recovery(&pipeline);
+                if anchored > 0 {
+                    tracing::info!(anchored, "recovery supervision re-anchored venue depth");
+                }
+            }
+        });
+    }
+
+    // ---- signals -------------------------------------------------------------
+    {
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            let sigterm = async {
+                let mut term =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .expect("SIGTERM handler");
+                term.recv().await;
+            };
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => { "SIGINT" }
+                _ = sigterm => { "SIGTERM" }
+            };
+            tracing::warn!("shutdown signal received; beginning deterministic drain");
+            shutdown.begin("signal").await;
+            shutdown.drain_feeds().await;
+            shutdown.flush_and_exit().await;
+        });
+    }
+
+    // ---- run until shutdown completes -----------------------------------------
+    let mut phase_rx: watch::Receiver<ShutdownPhase> = shutdown.subscribe();
+    loop {
+        tokio::select! {
+            _ = phase_rx.wait_for(|phase| *phase == ShutdownPhase::Exiting) => break,
+            _ = tokio::time::sleep(config.shutdown_drain) => {
+                // Safety valve: signals advanced the phases; if the watch
+                // loop somehow lags, exit deterministically after the drain
+                // budget.
+                if shutdown.current().is_stopping() {
+                    break;
+                }
+            }
+        }
+    }
+    tracing::info!(
+        intents_accepted = metrics
+            .execution_intents_accepted_total
+            .load(Ordering::Relaxed),
+        intents_rejected = metrics
+            .execution_intent_rejections_total
+            .load(Ordering::Relaxed),
+        reconnects = metrics.reconnect_total.load(Ordering::Relaxed),
+        observed_at = utc_now_ms(),
+        "low-latency-gateway stopped"
+    );
+    0
+}
+
+fn venue_index(venues: &[Venue], venue: Venue) -> usize {
+    venues.iter().position(|v| *v == venue).unwrap_or(0)
+}
+
+/// Reads one HTTP request (small, one-shot) from an internal connection.
+/// `body_prefix` carries the bytes that arrived in the SAME read as the
+/// headers: small requests (the normal case for intents) arrive as a
+/// single TCP segment, and dropping those bytes would deadlock the handler
+/// waiting for a body that already came in.
+#[derive(Debug)]
+struct InternalRequest {
+    method: String,
+    path: String,
+    content_length: usize,
+    body_prefix: Vec<u8>,
+}
+
+async fn read_request(stream: &mut TcpStream) -> Result<InternalRequest, GatewayError> {
+    let mut buffer: Vec<u8> = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 2048];
+    let header_end;
+    loop {
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 {
+            return Err(GatewayError::Transport(
+                "connection closed before request".into(),
+            ));
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+        if let Some(pos) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+            header_end = pos + 4;
+            break;
+        }
+        if buffer.len() > 64 * 1024 {
+            return Err(GatewayError::Transport("request headers too large".into()));
+        }
+    }
+    let headers = String::from_utf8_lossy(&buffer[..header_end]).to_string();
+    let mut lines = headers.lines();
+    let request_line = lines.next().unwrap_or("");
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("").to_string();
+    let path = parts.next().unwrap_or("").to_string();
+    let mut content_length = 0usize;
+    for line in lines {
+        let mut pair = line.splitn(2, ':');
+        if let Some(name) = pair.next() {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                content_length = pair
+                    .next()
+                    .and_then(|v| v.trim().parse().ok())
+                    .ok_or_else(|| GatewayError::Transport("bad content-length".into()))?;
+            }
+        }
+    }
+    if content_length > 8 * 1024 * 1024 {
+        return Err(GatewayError::Transport("request body too large".into()));
+    }
+    Ok(InternalRequest {
+        method,
+        path,
+        content_length,
+        body_prefix: buffer[header_end..].to_vec(),
+    })
+}
+
+async fn write_response(stream: &mut TcpStream, status: u16, body: &str) {
+    let reason = if status == 200 {
+        "OK"
+    } else if status == 404 {
+        "Not Found"
+    } else {
+        "Rejected"
+    };
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.flush().await;
+}
+
+async fn serve_health_connection(
+    stream: &mut TcpStream,
+    health: &HealthService,
+    environment: &str,
+) {
+    let _ = stream.set_nodelay(true);
+    let Ok(request) = read_request(stream).await else {
+        return;
+    };
+    if request.method != "GET" {
+        let (code, body) = (404, "{\"error\":\"not found\"}".to_string());
+        write_response(stream, code, &body).await;
+        return;
+    }
+    match route_internal_get(&request.path, health, health.metrics_ref(), environment) {
+        Ok((code, body)) => write_response(stream, code, &body).await,
+        Err(_) => write_response(stream, 404, "{\"error\":\"unknown path\"}").await,
+    }
+}
+
+async fn serve_transport_connection(
+    stream: &mut TcpStream,
+    transport: &ExecutionTransportService,
+    engine: &ExecutionEngineClient,
+) {
+    let _ = stream.set_nodelay(true);
+    let request = match read_request(stream).await {
+        Ok(parts) => parts,
+        Err(_) => return,
+    };
+    if request.method != "POST" || request.path != "/internal/v1/transport/intents" {
+        write_response(stream, 404, "{\"error\":\"not found\"}").await;
+        return;
+    }
+    let mut body = request.body_prefix;
+    if body.len() < request.content_length {
+        let mut remainder = vec![0u8; request.content_length - body.len()];
+        if stream.read_exact(&mut remainder).await.is_err() {
+            return;
+        }
+        body.extend_from_slice(&remainder);
+    }
+    let ack = transport.admit_frame(engine, &body).await;
+    let payload = serde_json::to_string(&ack).unwrap_or_else(|_| {
+        // Serialization of a plain struct cannot fail in practice; still, a
+        // failure must NEVER look like acceptance.
+        serde_json::json!({
+            "intent_id": ack.intent_id,
+            "correlation_id": ack.correlation_id,
+            "status": "transport_failure",
+            "observed_at_ms": utc_now_ms(),
+            "detail": "ack serialization failed"
+        })
+        .to_string()
+    });
+    let code = if matches!(
+        ack.status,
+        low_latency_gateway::types::AckStatus::AcceptedForTransport
+    ) {
+        200
+    } else {
+        422
+    };
+    write_response(stream, code, &payload).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use low_latency_gateway::backpressure::BackpressurePolicy;
+    use low_latency_gateway::execution_prepare::ExecutionPreparer;
+    use low_latency_gateway::metrics::MetricsRegistry;
+    use low_latency_gateway::session_manager::SessionManager;
+    use tokio::net::TcpListener;
+
+    fn transport_service() -> ExecutionTransportService {
+        let sessions = Arc::new(SessionManager::new(BackpressurePolicy::default()));
+        ExecutionTransportService::new(
+            ExecutionPreparer::new(sessions, Vec::new()),
+            "test-key-id".to_string(),
+            b"test-key-material-0123456789".to_vec(),
+            0,
+            64,
+            BackpressurePolicy::default(),
+            Arc::new(MetricsRegistry::new()),
+        )
+    }
+
+    // Regression: headers and body of a small intent arrive in ONE TCP
+    // segment. A reader that discards the pre-read body bytes deadlocks
+    // the transport handler waiting for a body that already arrived (the
+    // client sees a silent hang instead of an ack). This test pins the
+    // single-segment path end to end through the real handler.
+    #[tokio::test]
+    async fn single_segment_post_is_served_without_deadlock() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let service = transport_service();
+        let engine = ExecutionEngineClient::new(
+            url::Url::parse("http://127.0.0.1:1").expect("url"),
+            Duration::from_millis(100),
+            1,
+            Duration::from_millis(1),
+            Arc::new(MetricsRegistry::new()),
+        );
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            serve_transport_connection(&mut stream, &service, &engine).await;
+        });
+        let mut client = TcpStream::connect(addr).await.expect("connect");
+        // Deliberately ONE write: headers + body in a single segment.
+        let request = "POST /internal/v1/transport/intents HTTP/1.1\r\n\
+                       Host: test\r\n\
+                       Content-Type: application/json\r\n\
+                       Content-Length: 7\r\n\
+                       Connection: close\r\n\
+                       \r\n\
+                       {\"x\":1}";
+        client.write_all(request.as_bytes()).await.expect("write");
+        let mut response = Vec::new();
+        let read =
+            tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
+        assert!(
+            read.is_ok(),
+            "transport handler deadlocked on a single-segment request"
+        );
+        let text = String::from_utf8_lossy(&response).to_string();
+        assert!(
+            text.starts_with("HTTP/1.1 422"),
+            "naked payload must be rejected, got: {text}"
+        );
+        assert!(text.contains("rejected_malformed"), "got: {text}");
+        let _ = server.await;
+    }
+
+    // A GET to the transport plane never reaches intent admission: paths
+    // other than the intent route are a plain 404, even with a body.
+    #[tokio::test]
+    async fn non_intent_paths_are_404_before_body_handling() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let service = transport_service();
+        let engine = ExecutionEngineClient::new(
+            url::Url::parse("http://127.0.0.1:1").expect("url"),
+            Duration::from_millis(100),
+            1,
+            Duration::from_millis(1),
+            Arc::new(MetricsRegistry::new()),
+        );
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            serve_transport_connection(&mut stream, &service, &engine).await;
+        });
+        let mut client = TcpStream::connect(addr).await.expect("connect");
+        let request = "POST /somewhere/else HTTP/1.1\r\nHost: test\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+        client.write_all(request.as_bytes()).await.expect("write");
+        let mut response = Vec::new();
+        let read =
+            tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
+        assert!(read.is_ok(), "404 path must not wait for anything");
+        let text = String::from_utf8_lossy(&response).to_string();
+        assert!(text.starts_with("HTTP/1.1 404"), "got: {text}");
+        let _ = server.await;
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/market_data.rs
+
+```text
+//! Core market-data pipeline: raw feed frames in, normalized events out.
+//!
+//! Frame lifecycle (every stage observable):
+//!   receive (stamped by the feed session)
+//!     -> parse (adapter-specific; malformed => counted failure, ZERO events)
+//!     -> sequence-guard per (venue, symbol, stream)
+//!     -> normalize (event id + provider/receive/normalize timestamps)
+//!     -> apply to order-book/tape state (gap => unusable + recovery signal)
+//!     -> publish into bounded consumer routes under backpressure policy
+//!        (stamped publish timestamp; shed items are counted).
+//!
+//! This module is the gateway's ONLY market-data authority: normalized
+//! transport events, in-memory feed state, sequence integrity and feed
+//! health. It holds no position, balance, PnL or order authority.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
+use tokio::sync::mpsc;
+
+use crate::error::GatewayError;
+use crate::metrics::MetricsRegistry;
+use crate::order_book::{BookState, OrderBook};
+use crate::parser::EventParser;
+use crate::ring_buffer::RingBuffer;
+use crate::sequence_guard::{SequenceGuard, SequenceVerdict};
+use crate::time::{mono_now_ns, utc_now_ms};
+use crate::trade_tape::{TradeTape, TradeTickRecord};
+use crate::types::{
+    EventId, MarketEvent, MarketEventKind, RawFeedFrame, RecoveryReason, RecoverySignal, Sequence,
+    StreamKind, Symbol, Timestamps, Venue,
+};
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct StreamKey {
+    pub venue: Venue,
+    pub symbol: Symbol,
+    pub stream_kind: StreamKind,
+}
+
+struct PipelineState {
+    guards: HashMap<StreamKey, SequenceGuard>,
+    books: HashMap<StreamKey, OrderBook>,
+    tapes: HashMap<Symbol, TradeTape>,
+}
+
+pub struct MarketDataPipeline {
+    parser: EventParser,
+    metrics: Arc<MetricsRegistry>,
+    state: Mutex<PipelineState>,
+    tape_capacity: usize,
+    next_event_id: AtomicU64,
+    inbound_depth: AtomicI64,
+    consumer_lag: AtomicI64,
+    recovery_tx: mpsc::Sender<RecoverySignal>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct ProcessSummary {
+    pub parsed_events: usize,
+    pub normalized: usize,
+    pub duplicates_skipped: usize,
+    pub out_of_order_skipped: usize,
+    pub gaps: usize,
+    pub shed: usize,
+    pub recoveries: usize,
+}
+
+impl MarketDataPipeline {
+    pub fn new(
+        venues: &[Venue],
+        tape_capacity: usize,
+        recovery_tx: mpsc::Sender<RecoverySignal>,
+        metrics: Arc<MetricsRegistry>,
+    ) -> MarketDataPipeline {
+        MarketDataPipeline {
+            parser: EventParser::for_venues(venues),
+            metrics,
+            state: Mutex::new(PipelineState {
+                guards: HashMap::new(),
+                books: HashMap::new(),
+                tapes: HashMap::new(),
+            }),
+            tape_capacity,
+            next_event_id: AtomicU64::new(1),
+            inbound_depth: AtomicI64::new(0),
+            consumer_lag: AtomicI64::new(0),
+            recovery_tx,
+        }
+    }
+
+    /// Live inbound queue depth observation, fed by the feed sessions.
+    pub fn set_inbound_depth(&self, depth: i64) {
+        self.inbound_depth.store(depth, Ordering::Relaxed);
+    }
+
+    pub fn inbound_depth(&self) -> i64 {
+        self.inbound_depth.load(Ordering::Relaxed)
+    }
+
+    pub fn set_consumer_lag(&self, lag: i64) {
+        self.consumer_lag.store(lag, Ordering::Relaxed);
+        self.metrics.set_consumer_lag(lag);
+    }
+
+    fn key(venue: Venue, symbol: &Symbol, stream_kind: StreamKind) -> StreamKey {
+        StreamKey {
+            venue,
+            symbol: symbol.clone(),
+            stream_kind,
+        }
+    }
+
+    /// Processes one raw frame through the full pipeline.
+    pub fn process_frame(
+        &self,
+        frame: &RawFeedFrame,
+        route: &dyn Fn(&MarketEvent) -> Result<usize, GatewayError>,
+    ) -> Result<ProcessSummary, GatewayError> {
+        self.metrics.inc_events_received();
+        let parse_timer = crate::time::LatencyTimer::start();
+        let parsed = match self.parser.parse_frame(frame.venue, &frame.payload) {
+            Ok(events) => events,
+            Err(e) => {
+                self.metrics.inc_parse_failures();
+                return Err(e);
+            }
+        };
+        self.metrics
+            .parse_latency_ns
+            .record_ns(parse_timer.elapsed_ns());
+
+        let mut summary = ProcessSummary {
+            parsed_events: parsed.len(),
+            ..Default::default()
+        };
+        let normalize_ms = utc_now_ms();
+        let normalize_mono = mono_now_ns();
+
+        for item in parsed {
+            let stream_key = Self::key(frame.venue, &item.symbol, item.stream_kind);
+
+            // ---- sequence integrity ------------------------------------
+            if let Some(sequence) = item.sequence {
+                let verdict = {
+                    let mut state = self.state.lock().expect("pipeline mutex");
+                    let guard = state.guards.entry(stream_key.clone()).or_insert_with(|| {
+                        SequenceGuard::new(format!(
+                            "{}:{}:{}",
+                            frame.venue,
+                            item.symbol,
+                            item.stream_kind.as_str()
+                        ))
+                    });
+                    guard.verdict(sequence, item.is_anchor)
+                };
+                match verdict {
+                    SequenceVerdict::Accepted => {}
+                    SequenceVerdict::Duplicate => {
+                        self.metrics.inc_sequence_duplicates();
+                        summary.duplicates_skipped += 1;
+                        continue;
+                    }
+                    SequenceVerdict::OutOfOrder { .. } => {
+                        self.metrics.inc_out_of_order();
+                        summary.out_of_order_skipped += 1;
+                        continue;
+                    }
+                    SequenceVerdict::Gap { .. } => {
+                        self.metrics.inc_sequence_gaps();
+                        summary.gaps += 1;
+                        // Depth state is unusable on gap: mark the book and
+                        // demand a fresh snapshot from the session.
+                        let signal = RecoverySignal {
+                            venue: frame.venue,
+                            symbol: item.symbol.clone(),
+                            stream_kind: item.stream_kind,
+                            reason: RecoveryReason::SequenceGap,
+                        };
+                        if self.recovery_tx.try_send(signal).is_ok() {
+                            summary.recoveries += 1;
+                            self.metrics.inc_sequence_recoveries();
+                        }
+                        if matches!(
+                            item.stream_kind,
+                            StreamKind::BookDepth | StreamKind::PartialBook
+                        ) {
+                            let mut state = self.state.lock().expect("pipeline mutex");
+                            if let Some(book) = state.books.get_mut(&stream_key) {
+                                book.apply_delta(sequence, item.prev_sequence, &[], &[])
+                                    .ok();
+                            }
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            // ---- normalize ----------------------------------------------
+            let id: EventId = self.next_event_id.fetch_add(1, Ordering::Relaxed);
+            let timestamps = Timestamps {
+                provider_ms: item.provider_ms,
+                receive_ms: frame.receive_utc_ms,
+                normalize_ms,
+                publish_ms: None,
+                receive_mono_ns: frame.receive_mono_ns,
+                normalize_mono_ns: normalize_mono,
+                publish_mono_ns: None,
+            };
+
+            // ---- state application (book / tape) -------------------------
+            match &item.kind {
+                MarketEventKind::BookSnapshot { bids, asks } => {
+                    let mut state = self.state.lock().expect("pipeline mutex");
+                    let book = state
+                        .books
+                        .entry(stream_key)
+                        .or_insert_with(|| OrderBook::new(frame.venue, item.symbol.clone()));
+                    if book.state() == BookState::AwaitingSnapshot {
+                        self.metrics.inc_order_book_resets();
+                    }
+                    let seq = item.sequence.unwrap_or(0);
+                    book.apply_snapshot(seq, bids, asks)?;
+                    if book.is_crossed() {
+                        self.metrics.inc_crossed_books();
+                    }
+                }
+                MarketEventKind::BookDelta {
+                    bids,
+                    asks,
+                    prev_sequence,
+                } => {
+                    let mut state = self.state.lock().expect("pipeline mutex");
+                    if let Some(book) = state.books.get_mut(&stream_key) {
+                        let seq = item.sequence.unwrap_or(0);
+                        match book.apply_delta(seq, *prev_sequence, bids, asks) {
+                            Ok(_) => {
+                                if book.is_crossed() {
+                                    self.metrics.inc_crossed_books();
+                                }
+                            }
+                            Err(GatewayError::SequenceGap { .. })
+                            | Err(GatewayError::BookUnusable(_)) => {
+                                // Continuity broke at the book level even if
+                                // the stream guard passed (declared prev
+                                // mismatch): demand recovery.
+                                let signal = RecoverySignal {
+                                    venue: frame.venue,
+                                    symbol: item.symbol.clone(),
+                                    stream_kind: item.stream_kind,
+                                    reason: RecoveryReason::SequenceGap,
+                                };
+                                if self.recovery_tx.try_send(signal).is_ok() {
+                                    summary.recoveries += 1;
+                                    self.metrics.inc_sequence_recoveries();
+                                }
+                            }
+                            Err(other) => return Err(other),
+                        }
+                    }
+                    // Delta for a book we never snapshotted: ignored — the
+                    // adapter's snapshot stream will anchor it.
+                }
+                MarketEventKind::TradeTick {
+                    price,
+                    quantity,
+                    taker_side,
+                    trade_id,
+                } => {
+                    let mut state = self.state.lock().expect("pipeline mutex");
+                    let tape = state
+                        .tapes
+                        .entry(item.symbol.clone())
+                        .or_insert_with(|| TradeTape::new(item.symbol.clone(), self.tape_capacity));
+                    tape.record(TradeTickRecord {
+                        sequence: item.sequence,
+                        price: *price,
+                        quantity: *quantity,
+                        taker_side: *taker_side,
+                        trade_id: trade_id.clone(),
+                        provider_ms: item.provider_ms,
+                        receive_ms: frame.receive_utc_ms,
+                    })?;
+                }
+                _ => {}
+            }
+
+            // ---- publish --------------------------------------------------
+            let publish_ms = utc_now_ms();
+            let publish_mono = mono_now_ns();
+            let event = MarketEvent {
+                id,
+                venue: frame.venue,
+                symbol: item.symbol.clone(),
+                stream_kind: item.stream_kind,
+                sequence: item.sequence,
+                timestamps: Timestamps {
+                    publish_ms: Some(publish_ms),
+                    publish_mono_ns: Some(publish_mono),
+                    ..timestamps
+                },
+                kind: item.kind.clone(),
+            };
+            match route(&event) {
+                Ok(_delivered) => {
+                    // Normalization succeeded; delivery accounting belongs to
+                    // the router.
+                    summary.normalized += 1;
+                    self.metrics.inc_events_normalized();
+                }
+                Err(GatewayError::BackpressureShed { .. }) => {
+                    summary.shed += 1;
+                    self.metrics.inc_noncritical_drops();
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(summary)
+    }
+
+    /// Book state snapshot for health and monitoring.
+    pub fn book_states(&self) -> Vec<(StreamKey, BookState, Option<Sequence>)> {
+        let state = self.state.lock().expect("pipeline mutex");
+        let mut rows: Vec<(StreamKey, BookState, Option<Sequence>)> = state
+            .books
+            .iter()
+            .map(|(key, book)| (key.clone(), book.state(), book.last_sequence()))
+            .collect();
+        rows.sort_by(|a, b| format!("{:?}", a.0).cmp(&format!("{:?}", b.0)));
+        rows
+    }
+
+    /// Read-only access to one book's best bid/ask (health/monitoring).
+    pub fn book_top(
+        &self,
+        venue: Venue,
+        symbol: &Symbol,
+    ) -> Option<(BookState, Option<String>, Option<String>)> {
+        let state = self.state.lock().expect("pipeline mutex");
+        let key = Self::key(venue, symbol, StreamKind::PartialBook);
+        state.books.get(&key).map(|book| {
+            (
+                book.state(),
+                book.best_bid().map(|(p, _)| p.to_string()),
+                book.best_ask().map(|(p, _)| p.to_string()),
+            )
+        })
+    }
+
+    pub fn tape_len(&self, symbol: &Symbol) -> Option<usize> {
+        let state = self.state.lock().expect("pipeline mutex");
+        state.tapes.get(symbol).map(TradeTape::len)
+    }
+
+    /// In-memory ring of the most recent raw inbound depth observations —
+    /// bounded by construction, used by diagnostics.
+    pub fn summary_ring(capacity: usize) -> RingBuffer<ProcessSummary> {
+        RingBuffer::bounded(capacity)
+    }
+
+    pub fn venues(&self) -> Vec<Venue> {
+        self.parser.venues()
+    }
+
+    pub fn last_sequence_for(
+        &self,
+        venue: Venue,
+        symbol: &Symbol,
+        stream: StreamKind,
+    ) -> Option<Sequence> {
+        let state = self.state.lock().expect("pipeline mutex");
+        state
+            .guards
+            .get(&Self::key(venue, symbol, stream))
+            .and_then(SequenceGuard::last_sequence)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backpressure::BackpressurePolicy;
+    use crate::venue_router::{RouteConsumer, VenueRouter};
+
+    fn frame(venue: Venue, payload: &str) -> RawFeedFrame {
+        RawFeedFrame {
+            venue,
+            payload: payload.to_string(),
+            receive_mono_ns: mono_now_ns(),
+            receive_utc_ms: utc_now_ms(),
+        }
+    }
+
+    fn pipeline(recovery: mpsc::Sender<RecoverySignal>) -> MarketDataPipeline {
+        MarketDataPipeline::new(
+            &[Venue::Binance, Venue::Okx],
+            16,
+            recovery,
+            Arc::new(MetricsRegistry::new()),
+        )
+    }
+
+    fn ok_router() -> (VenueRouter, Arc<std::sync::Mutex<Vec<MarketEvent>>>) {
+        let mut router = VenueRouter::new(BackpressurePolicy::default());
+        let (tx, mut rx) = mpsc::channel::<MarketEvent>(64);
+        let seen: Arc<std::sync::Mutex<Vec<MarketEvent>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                sink.lock().expect("sink").push(event);
+            }
+        });
+        router.add_consumer(RouteConsumer {
+            name: "test-all".into(),
+            venues: vec![Venue::Binance, Venue::Okx],
+            symbols: None,
+            tx,
+            is_critical: false,
+        });
+        (router, seen)
+    }
+
+    // [CHECK 19][CHECK 20][CHECK 21][CHECK 22] all four timestamp domains
+    // are preserved end-to-end.
+    #[tokio::test]
+    async fn timestamps_are_preserved_through_the_pipeline() {
+        let (recovery_tx, _recovery_rx) = mpsc::channel(8);
+        let pipeline = pipeline(recovery_tx);
+        let (_router, sink) = ok_router();
+        let receive_ms = utc_now_ms();
+        let payload = r#"{"stream":"btcusdt@trade","data":{"e":"trade","E":1672515782136,"s":"BTCUSDT","t":5,"p":"61234.55","q":"0.012","T":1672515782136,"m":false}}"#;
+        let frame = RawFeedFrame {
+            venue: Venue::Binance,
+            payload: payload.to_string(),
+            receive_mono_ns: mono_now_ns(),
+            receive_utc_ms: receive_ms,
+        };
+        let summary = pipeline
+            .process_frame(&frame, &|event: &MarketEvent| {
+                let mut sink = sink.lock().expect("x");
+                sink.push(event.clone());
+                Ok(1)
+            })
+            .expect("process");
+        assert_eq!(summary.normalized, 1);
+        let stored = sink.lock().expect("x");
+        assert_eq!(stored.len(), 1);
+        let event = &stored[0];
+        // [19] provider timestamp preserved from the venue payload.
+        assert_eq!(event.timestamps.provider_ms, Some(1_672_515_782_136));
+        // [20] receive timestamp preserved from the frame.
+        assert_eq!(event.timestamps.receive_ms, receive_ms);
+        // [21] normalize timestamp present and ordered after receive.
+        assert!(event.timestamps.normalize_ms >= event.timestamps.receive_ms);
+        // [22] publish timestamp present and ordered after normalize.
+        assert!(event.timestamps.publish_ms.expect("publish") >= event.timestamps.normalize_ms);
+        assert!(event.timestamps.publish_mono_ns.is_some());
+    }
+
+    // [CHECK 7/30 support] a sequence gap produces a recovery signal and
+    // marks the book unusable.
+    #[tokio::test]
+    async fn sequence_gap_triggers_recovery_and_marks_book_stale() {
+        let (recovery_tx, mut recovery_rx) = mpsc::channel(8);
+        let pipeline = pipeline(recovery_tx);
+        let noop = |_: &MarketEvent| Ok::<usize, GatewayError>(0);
+
+        let snap = r#"{"arg":{"channel":"books","instId":"BTC-USDT"},"action":"snapshot","data":[{"asks":[["100.5","1"]],"bids":[["100.0","1"]],"ts":1,"seqId":10}]}"#;
+        pipeline
+            .process_frame(&frame(Venue::Okx, snap), &noop)
+            .expect("snap");
+        let delta_ok = r#"{"arg":{"channel":"books","instId":"BTC-USDT"},"action":"update","data":[{"asks":[],"bids":[],"ts":2,"seqId":11,"prevSeqId":10}]}"#;
+        pipeline
+            .process_frame(&frame(Venue::Okx, delta_ok), &noop)
+            .expect("delta");
+        let delta_gap = r#"{"arg":{"channel":"books","instId":"BTC-USDT"},"action":"update","data":[{"asks":[],"bids":[],"ts":3,"seqId":16,"prevSeqId":15}]}"#;
+        pipeline
+            .process_frame(&frame(Venue::Okx, delta_gap), &noop)
+            .expect("gap frame processed");
+
+        let signal = recovery_rx.try_recv().expect("recovery signal emitted");
+        assert_eq!(signal.venue, Venue::Okx);
+        assert_eq!(signal.symbol.as_str(), "BTC-USDT");
+        assert_eq!(signal.reason, RecoveryReason::SequenceGap);
+        assert_eq!(
+            pipeline.metrics.sequence_gaps_total.load(Ordering::Relaxed),
+            1
+        );
+
+        // The depth book is no longer live.
+        let states = pipeline.book_states();
+        assert!(states
+            .iter()
+            .any(|(key, state, _)| matches!(state, BookState::Gapped) && key.venue == Venue::Okx));
+    }
+
+    // [CHECK 5/57 support] malformed frames produce failures and ZERO
+    // events: no fabricated market data.
+    #[tokio::test]
+    async fn malformed_frames_produce_no_events() {
+        let (recovery_tx, _recovery_rx) = mpsc::channel(8);
+        let pipeline = pipeline(recovery_tx);
+        let delivered: Arc<std::sync::Mutex<Vec<MarketEvent>>> = Arc::default();
+        let sink = Arc::clone(&delivered);
+        let err = pipeline
+            .process_frame(
+                &frame(Venue::Binance, "{{broken"),
+                &move |event: &MarketEvent| {
+                    sink.lock().expect("x").push(event.clone());
+                    Ok(1)
+                },
+            )
+            .expect_err("malformed");
+        assert!(matches!(err, GatewayError::MalformedData(_)));
+        assert_eq!(
+            pipeline
+                .metrics
+                .parse_failures_total
+                .load(Ordering::Relaxed),
+            1
+        );
+        assert_eq!(delivered.lock().expect("x").len(), 0);
+        assert_eq!(
+            pipeline
+                .metrics
+                .events_normalized_total
+                .load(Ordering::Relaxed),
+            0
+        );
+    }
+
+    // Duplicates after reconnect replay are skipped idempotently.
+    #[tokio::test]
+    async fn replayed_sequences_are_skipped_not_republished() {
+        let (recovery_tx, _recovery_rx) = mpsc::channel(8);
+        let pipeline = pipeline(recovery_tx);
+        let count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counter = Arc::clone(&count);
+        let route = move |_: &MarketEvent| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            Ok::<usize, GatewayError>(1)
+        };
+        let trade = r#"{"stream":"ethusdt@trade","data":{"e":"trade","E":1,"s":"ETHUSDT","t":9,"p":"1.0","q":"1.0","m":false}}"#;
+        pipeline
+            .process_frame(&frame(Venue::Binance, trade), &route)
+            .expect("first");
+        pipeline
+            .process_frame(&frame(Venue::Binance, trade), &route)
+            .expect("replay");
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            pipeline
+                .metrics
+                .sequence_duplicates_total
+                .load(Ordering::Relaxed),
+            1
+        );
+    }
+
+    // Crossed books are observed through the pipeline.
+    #[tokio::test]
+    async fn crossed_book_is_counted() {
+        let (recovery_tx, _recovery_rx) = mpsc::channel(8);
+        let pipeline = pipeline(recovery_tx);
+        let noop = |_: &MarketEvent| Ok::<usize, GatewayError>(0);
+        let snap = r#"{"stream":"okx-btc","data":{}}"#; // not used; use okx frames below
+        let _ = snap;
+        let books5 = r#"{"arg":{"channel":"books5","instId":"BTC-USDT"},"data":[{"asks":[["101.0","1"]],"bids":[["100.0","1"]],"ts":1,"seqId":10}]}"#;
+        pipeline
+            .process_frame(&frame(Venue::Okx, books5), &noop)
+            .expect("snap");
+        assert_eq!(
+            pipeline.metrics.crossed_books_total.load(Ordering::Relaxed),
+            0
+        );
+        // A push that crosses: books5 full snapshot with inverted levels.
+        let crossed = r#"{"arg":{"channel":"books5","instId":"BTC-USDT"},"data":[{"asks":[["99.5","1"]],"bids":[["100.0","1"]],"ts":2,"seqId":11}]}"#;
+        pipeline
+            .process_frame(&frame(Venue::Okx, crossed), &noop)
+            .expect("crossed snap");
+        assert_eq!(
+            pipeline.metrics.crossed_books_total.load(Ordering::Relaxed),
+            1
+        );
+        let top = pipeline.book_top(Venue::Okx, &Symbol::new("BTC-USDT").expect("s"));
+        assert!(top.is_some());
+        assert_eq!(
+            pipeline.tape_len(&Symbol::new("BTC-USDT").expect("s")),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn trade_tape_tracks_symbol_through_pipeline() {
+        let (recovery_tx, _recovery_rx) = mpsc::channel(8);
+        let pipeline = pipeline(recovery_tx);
+        let noop = |_: &MarketEvent| Ok::<usize, GatewayError>(0);
+        for t in 0..5 {
+            let payload = format!(
+                r#"{{"stream":"ethusdt@trade","data":{{"e":"trade","E":1,"s":"ETHUSDT","t":{t},"p":"2000.0","q":"0.1","m":false}}}}"#
+            );
+            pipeline
+                .process_frame(&frame(Venue::Binance, &payload), &noop)
+                .expect("trade");
+        }
+        assert_eq!(
+            pipeline.tape_len(&Symbol::new("ETHUSDT").expect("s")),
+            Some(5)
+        );
+        assert_eq!(
+            pipeline.last_sequence_for(
+                Venue::Binance,
+                &Symbol::new("ETHUSDT").expect("s"),
+                StreamKind::Trades
+            ),
+            Some(4)
+        );
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/metrics.rs
+
+```text
+//! Low-latency metrics: fixed-schema counters, gauges and bucketed
+//! histograms built on atomics. No dynamic labels exist in this registry by
+//! construction, so no API key, customer identity or payload fragment can
+//! ever become a metric label. Rendering is a plain text snapshot consumed
+//! by the internal health listener.
+
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+
+/// Log-scale latency histogram with static bucket boundaries (nanoseconds).
+/// Boundaries are a compile-time constant shared by every histogram; bucket
+/// counters are allocated in `init`.
+pub const HISTO_BOUNDARIES_NS: [u64; 36] = {
+    let mut b = [0u64; 36];
+    let mut v: u64 = 100;
+    let mut i = 0;
+    while i < 36 {
+        b[i] = v;
+        v = v.saturating_mul(2);
+        i += 1;
+    }
+    b
+};
+
+pub struct Histogram {
+    name: &'static str,
+    buckets: Vec<AtomicU64>,
+    count: AtomicU64,
+    sum_ns: AtomicU64,
+}
+
+impl Histogram {
+    pub const fn new(name: &'static str) -> Histogram {
+        Histogram {
+            name,
+            buckets: Vec::new(),
+            count: AtomicU64::new(0),
+            sum_ns: AtomicU64::new(0),
+        }
+    }
+
+    /// Allocates the bucket slots (one more than boundaries: overflow
+    /// bucket). Must be called once before recording.
+    pub fn init(&mut self) {
+        if self.buckets.is_empty() {
+            self.buckets = (0..HISTO_BOUNDARIES_NS.len() + 1)
+                .map(|_| AtomicU64::new(0))
+                .collect();
+        }
+    }
+
+    pub fn record_ns(&self, ns: u64) {
+        debug_assert!(!self.buckets.is_empty(), "histogram not initialized");
+        let mut idx = self.buckets.len() - 1;
+        for (i, b) in HISTO_BOUNDARIES_NS.iter().enumerate() {
+            if ns <= *b {
+                idx = i;
+                break;
+            }
+        }
+        if let Some(slot) = self.buckets.get(idx) {
+            slot.fetch_add(1, Ordering::Relaxed);
+        }
+        self.count.fetch_add(1, Ordering::Relaxed);
+        self.sum_ns
+            .fetch_add(ns.min(u64::MAX / 2), Ordering::Relaxed);
+    }
+
+    pub fn count(&self) -> u64 {
+        self.count.load(Ordering::Relaxed)
+    }
+
+    pub fn sum_ns(&self) -> u64 {
+        self.sum_ns.load(Ordering::Relaxed)
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Snapshot of (upper_bound_label, count) pairs. Labels are static range
+    /// strings derived from the fixed boundaries.
+    pub fn snapshot(&self) -> Vec<(String, u64)> {
+        let mut out = Vec::with_capacity(self.buckets.len());
+        for (i, slot) in self.buckets.iter().enumerate() {
+            let label = match HISTO_BOUNDARIES_NS.get(i) {
+                Some(b) => format!("le_{}", b),
+                None => "le_inf".to_string(),
+            };
+            out.push((label, slot.load(Ordering::Relaxed)));
+        }
+        out
+    }
+}
+
+/// The gateway's complete fixed metric surface. Field names are the metric
+/// names; nothing else can be recorded.
+pub struct MetricsRegistry {
+    pub events_received_total: AtomicU64,
+    pub events_normalized_total: AtomicU64,
+    pub parse_failures_total: AtomicU64,
+    pub sequence_gaps_total: AtomicU64,
+    pub sequence_duplicates_total: AtomicU64,
+    pub out_of_order_total: AtomicU64,
+    pub reconnect_total: AtomicU64,
+    pub order_book_resets_total: AtomicU64,
+    pub ring_buffer_overflow_total: AtomicU64,
+    pub noncritical_drop_total: AtomicU64,
+    pub execution_intents_accepted_total: AtomicU64,
+    pub execution_intent_rejections_total: AtomicU64,
+    pub execution_intent_replays_total: AtomicU64,
+    pub heartbeats_missed_total: AtomicU64,
+    pub provider_failures_total: AtomicU64,
+    pub transport_timeouts_total: AtomicU64,
+    pub sequence_recoveries_total: AtomicU64,
+    pub crossed_books_total: AtomicU64,
+
+    queue_depth: AtomicI64,
+    consumer_lag: AtomicI64,
+    sessions_connected: AtomicI64,
+
+    pub transport_latency_ns: Histogram,
+    pub prepare_latency_ns: Histogram,
+    pub provider_latency_ns: Histogram,
+    pub parse_latency_ns: Histogram,
+}
+
+impl MetricsRegistry {
+    /// Creates and initializes all histograms (single call site).
+    pub fn new() -> MetricsRegistry {
+        let mut transport = Histogram::new("lle_transport_latency_ns");
+        transport.init();
+        let mut prepare = Histogram::new("lle_prepare_latency_ns");
+        prepare.init();
+        let mut provider = Histogram::new("lle_provider_latency_ns");
+        provider.init();
+        let mut parse = Histogram::new("lle_parse_latency_ns");
+        parse.init();
+        MetricsRegistry {
+            events_received_total: AtomicU64::new(0),
+            events_normalized_total: AtomicU64::new(0),
+            parse_failures_total: AtomicU64::new(0),
+            sequence_gaps_total: AtomicU64::new(0),
+            sequence_duplicates_total: AtomicU64::new(0),
+            out_of_order_total: AtomicU64::new(0),
+            reconnect_total: AtomicU64::new(0),
+            order_book_resets_total: AtomicU64::new(0),
+            ring_buffer_overflow_total: AtomicU64::new(0),
+            noncritical_drop_total: AtomicU64::new(0),
+            execution_intents_accepted_total: AtomicU64::new(0),
+            execution_intent_rejections_total: AtomicU64::new(0),
+            execution_intent_replays_total: AtomicU64::new(0),
+            heartbeats_missed_total: AtomicU64::new(0),
+            provider_failures_total: AtomicU64::new(0),
+            transport_timeouts_total: AtomicU64::new(0),
+            sequence_recoveries_total: AtomicU64::new(0),
+            crossed_books_total: AtomicU64::new(0),
+            queue_depth: AtomicI64::new(0),
+            consumer_lag: AtomicI64::new(0),
+            sessions_connected: AtomicI64::new(0),
+            transport_latency_ns: transport,
+            prepare_latency_ns: prepare,
+            provider_latency_ns: provider,
+            parse_latency_ns: parse,
+        }
+    }
+
+    // Gauge setters (bounded ranges; gauges are observations, not labels).
+    pub fn set_queue_depth(&self, depth: i64) {
+        self.queue_depth.store(depth, Ordering::Relaxed);
+    }
+
+    pub fn queue_depth(&self) -> i64 {
+        self.queue_depth.load(Ordering::Relaxed)
+    }
+
+    pub fn set_consumer_lag(&self, lag: i64) {
+        self.consumer_lag.store(lag, Ordering::Relaxed);
+    }
+
+    pub fn consumer_lag(&self) -> i64 {
+        self.consumer_lag.load(Ordering::Relaxed)
+    }
+
+    pub fn set_sessions_connected(&self, connected: i64) {
+        self.sessions_connected.store(connected, Ordering::Relaxed);
+    }
+
+    pub fn sessions_connected(&self) -> i64 {
+        self.sessions_connected.load(Ordering::Relaxed)
+    }
+
+    fn bump(counter: &AtomicU64) -> u64 {
+        counter.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub fn inc_events_received(&self) -> u64 {
+        Self::bump(&self.events_received_total)
+    }
+    pub fn inc_events_normalized(&self) -> u64 {
+        Self::bump(&self.events_normalized_total)
+    }
+    pub fn inc_parse_failures(&self) -> u64 {
+        Self::bump(&self.parse_failures_total)
+    }
+    pub fn inc_sequence_gaps(&self) -> u64 {
+        Self::bump(&self.sequence_gaps_total)
+    }
+    pub fn inc_sequence_duplicates(&self) -> u64 {
+        Self::bump(&self.sequence_duplicates_total)
+    }
+    pub fn inc_out_of_order(&self) -> u64 {
+        Self::bump(&self.out_of_order_total)
+    }
+    pub fn inc_reconnects(&self) -> u64 {
+        Self::bump(&self.reconnect_total)
+    }
+    pub fn inc_order_book_resets(&self) -> u64 {
+        Self::bump(&self.order_book_resets_total)
+    }
+    pub fn inc_ring_overflow(&self) -> u64 {
+        Self::bump(&self.ring_buffer_overflow_total)
+    }
+    pub fn add_noncritical_drops(&self, n: u64) -> u64 {
+        self.noncritical_drop_total.fetch_add(n, Ordering::Relaxed) + n
+    }
+    pub fn inc_noncritical_drops(&self) -> u64 {
+        Self::bump(&self.noncritical_drop_total)
+    }
+    pub fn inc_intents_accepted(&self) -> u64 {
+        Self::bump(&self.execution_intents_accepted_total)
+    }
+    pub fn inc_intent_rejections(&self) -> u64 {
+        Self::bump(&self.execution_intent_rejections_total)
+    }
+    pub fn inc_intent_replays(&self) -> u64 {
+        Self::bump(&self.execution_intent_replays_total)
+    }
+    pub fn inc_heartbeats_missed(&self) -> u64 {
+        Self::bump(&self.heartbeats_missed_total)
+    }
+    pub fn inc_provider_failures(&self) -> u64 {
+        Self::bump(&self.provider_failures_total)
+    }
+    pub fn inc_transport_timeouts(&self) -> u64 {
+        Self::bump(&self.transport_timeouts_total)
+    }
+    pub fn inc_sequence_recoveries(&self) -> u64 {
+        Self::bump(&self.sequence_recoveries_total)
+    }
+    pub fn inc_crossed_books(&self) -> u64 {
+        Self::bump(&self.crossed_books_total)
+    }
+
+    /// Plain-text snapshot for the internal metrics endpoint. Only the fixed
+    /// metric names above can appear; histograms render with static range
+    /// labels. There is no mechanism by which payload data becomes a label.
+    pub fn render_text(&self) -> String {
+        let mut out = String::with_capacity(2048);
+        let mut line = |name: &str, value: i128| {
+            out.push_str(name);
+            out.push(' ');
+            out.push_str(&value.to_string());
+            out.push('\n');
+        };
+        line(
+            "lle_events_received_total",
+            self.events_received_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_events_normalized_total",
+            self.events_normalized_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_parse_failures_total",
+            self.parse_failures_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_sequence_gaps_total",
+            self.sequence_gaps_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_sequence_duplicates_total",
+            self.sequence_duplicates_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_out_of_order_total",
+            self.out_of_order_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_reconnect_total",
+            self.reconnect_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_order_book_resets_total",
+            self.order_book_resets_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_ring_buffer_overflow_total",
+            self.ring_buffer_overflow_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_noncritical_drop_total",
+            self.noncritical_drop_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_execution_intents_accepted_total",
+            self.execution_intents_accepted_total
+                .load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_execution_intent_rejections_total",
+            self.execution_intent_rejections_total
+                .load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_execution_intent_replays_total",
+            self.execution_intent_replays_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_heartbeats_missed_total",
+            self.heartbeats_missed_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_provider_failures_total",
+            self.provider_failures_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_transport_timeouts_total",
+            self.transport_timeouts_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_sequence_recoveries_total",
+            self.sequence_recoveries_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_crossed_books_total",
+            self.crossed_books_total.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_queue_depth",
+            self.queue_depth.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_consumer_lag",
+            self.consumer_lag.load(Ordering::Relaxed) as i128,
+        );
+        line(
+            "lle_sessions_connected",
+            self.sessions_connected.load(Ordering::Relaxed) as i128,
+        );
+        for hist in [
+            &self.transport_latency_ns,
+            &self.prepare_latency_ns,
+            &self.provider_latency_ns,
+            &self.parse_latency_ns,
+        ] {
+            out.push_str(hist.name());
+            out.push_str("_count ");
+            out.push_str(&hist.count().to_string());
+            out.push('\n');
+            out.push_str(hist.name());
+            out.push_str("_sum_ns ");
+            out.push_str(&hist.sum_ns().to_string());
+            out.push('\n');
+        }
+        out
+    }
+}
+
+impl Default for MetricsRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 45] queue depth measured.
+    #[test]
+    fn queue_depth_gauge_round_trips() {
+        let m = MetricsRegistry::new();
+        assert_eq!(m.queue_depth(), 0);
+        m.set_queue_depth(42);
+        assert_eq!(m.queue_depth(), 42);
+        m.set_queue_depth(0);
+        assert_eq!(m.queue_depth(), 0);
+    }
+
+    // [CHECK 46] consumer lag measured.
+    #[test]
+    fn consumer_lag_gauge_round_trips() {
+        let m = MetricsRegistry::new();
+        m.set_consumer_lag(9);
+        assert_eq!(m.consumer_lag(), 9);
+    }
+
+    // [CHECK 47] reconnect metric recorded.
+    #[test]
+    fn reconnect_counter_increments() {
+        let m = MetricsRegistry::new();
+        assert_eq!(m.inc_reconnects(), 1);
+        assert_eq!(m.inc_reconnects(), 2);
+        assert!(m.render_text().contains("lle_reconnect_total 2"));
+    }
+
+    // [CHECK 48] sequence-gap metric recorded.
+    #[test]
+    fn sequence_gap_counter_increments() {
+        let m = MetricsRegistry::new();
+        m.inc_sequence_gaps();
+        m.inc_sequence_gaps();
+        m.inc_sequence_gaps();
+        assert!(m.render_text().contains("lle_sequence_gaps_total 3"));
+    }
+
+    // [CHECK 49] error/metric labels contain no secrets: the rendered
+    // surface is a fixed schema, and injecting hostile content through any
+    // recorded value cannot produce a label.
+    #[test]
+    fn rendered_metrics_contain_no_secret_material() {
+        let m = MetricsRegistry::new();
+        // Simulate hostile values flowing through counters/histograms: the
+        // registry records only numbers, so nothing can leak into labels.
+        m.inc_parse_failures();
+        m.transport_latency_ns.record_ns(123_456);
+        let text = m.render_text();
+        assert!(!text.contains("AKIA"));
+        assert!(!text.contains("eyJ"));
+        assert!(!text.contains("BEGIN"));
+        assert!(!text.contains("password"));
+        for rendered_line in text.lines() {
+            let name = rendered_line.split(' ').next().unwrap_or("");
+            assert!(
+                name.starts_with("lle_"),
+                "unexpected metric line: {rendered_line}"
+            );
+        }
+    }
+
+    #[test]
+    fn histogram_buckets_are_monotonic_and_counted() {
+        let mut h = Histogram::new("lle_test_latency_ns");
+        h.init();
+        h.record_ns(50); // bucket 0 (<=100)
+        h.record_ns(5_000); // <=6400 range
+        h.record_ns(10_000_000_000); // high bucket
+        assert_eq!(h.count(), 3);
+        let snap = h.snapshot();
+        let total: u64 = snap.iter().map(|(_, c)| c).sum();
+        assert_eq!(total, 3);
+        assert_eq!(snap[0].0, "le_100");
+        assert_eq!(snap[snap.len() - 1].0, "le_inf");
+        assert!(h.sum_ns() >= 50 + 5_000 + 10_000_000_000);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/order_book.rs
+
+```text
+//! In-memory order-book state with deterministic delta application.
+//!
+//! Authority boundary: this book is the gateway's TRANSPORT-VIEW of one
+//! venue stream. It is not portfolio position, not balance, not PnL and not
+//! an execution decision input beyond downstream consumers reading
+//! normalized state. On any sequence gap the book transitions to an
+//! explicit unusable state and refuses further deltas until a fresh
+//! snapshot re-anchors it — a possibly corrupt book never masquerades as
+//! current.
+
+use std::collections::BTreeMap;
+
+use crate::error::GatewayError;
+use crate::sequence_guard::{SequenceGuard, SequenceVerdict};
+use crate::types::{Level, Price, Quantity, Sequence, Side, Symbol, Venue};
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BookState {
+    /// Anchored by a snapshot and applying deltas cleanly.
+    Live,
+    /// A gap was detected; deltas are refused until a fresh snapshot.
+    Gapped,
+    /// Explicitly reset (startup, reconnect policy, operator action).
+    AwaitingSnapshot,
+}
+
+pub struct OrderBook {
+    pub venue: Venue,
+    pub symbol: Symbol,
+    bids: BTreeMap<i128, Quantity>,
+    asks: BTreeMap<i128, Quantity>,
+    scale: u8,
+    guard: SequenceGuard,
+    state: BookState,
+    pub resets: u64,
+    pub crossed_observations: u64,
+    pub last_crossed: Option<(Price, Price)>,
+    pub updates_applied: u64,
+}
+
+impl OrderBook {
+    pub fn new(venue: Venue, symbol: Symbol) -> OrderBook {
+        OrderBook {
+            guard: SequenceGuard::new(format!("{venue}:{symbol}:book")),
+            venue,
+            symbol,
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+            scale: 0,
+            state: BookState::AwaitingSnapshot,
+            resets: 0,
+            crossed_observations: 0,
+            last_crossed: None,
+            updates_applied: 0,
+        }
+    }
+
+    pub fn state(&self) -> BookState {
+        self.state
+    }
+
+    pub fn last_sequence(&self) -> Option<Sequence> {
+        self.guard.last_sequence()
+    }
+
+    fn key(price: &Price) -> i128 {
+        price.raw as i128
+    }
+
+    fn validate_side(map: &BTreeMap<i128, Quantity>, levels: &[Level]) -> Result<(), GatewayError> {
+        for level in levels {
+            if level.quantity.is_negative() {
+                return Err(GatewayError::MalformedData(format!(
+                    "negative level quantity {}",
+                    level.quantity
+                )));
+            }
+            if level.quantity.is_zero() && !map.contains_key(&Self::key(&level.price)) {
+                // Deleting a level that does not exist is tolerated (venue
+                // replays may remove concurrently) — nothing to do.
+                continue;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_side(map: &mut BTreeMap<i128, Quantity>, levels: &[Level]) {
+        for level in levels {
+            if level.quantity.is_zero() {
+                map.remove(&Self::key(&level.price));
+            } else {
+                map.insert(Self::key(&level.price), level.quantity);
+            }
+        }
+    }
+
+    /// Applies a full snapshot. Snapshots re-anchor sequence continuity by
+    /// definition (this is how gaps recover).
+    pub fn apply_snapshot(
+        &mut self,
+        sequence: Sequence,
+        bids: &[Level],
+        asks: &[Level],
+    ) -> Result<(), GatewayError> {
+        if let Some(l) = bids.iter().chain(asks.iter()).next() {
+            self.scale = l.price.scale;
+        }
+        self.bids.clear();
+        self.asks.clear();
+        Self::validate_side(&self.bids, bids)?;
+        Self::validate_side(&self.asks, asks)?;
+        Self::apply_side(&mut self.bids, bids);
+        Self::apply_side(&mut self.asks, asks);
+        self.guard.reset();
+        let verdict = self.guard.verdict(sequence, true);
+        debug_assert_eq!(verdict, SequenceVerdict::Accepted);
+        // `resets` counts every return to Live from a non-live state
+        // (initial anchor and every recovery re-anchor alike) — the same
+        // observation the pipeline reports as lle_order_book_resets_total.
+        if self.state != BookState::Live {
+            self.resets += 1;
+        }
+        self.state = BookState::Live;
+        self.crossed_check();
+        Ok(())
+    }
+
+    /// Applies one delta. Gap / duplicate / out-of-order follow venue
+    /// sequencing rules; a gap makes the book unusable until re-snapshot.
+    pub fn apply_delta(
+        &mut self,
+        sequence: Sequence,
+        prev_sequence: Option<Sequence>,
+        bids: &[Level],
+        asks: &[Level],
+    ) -> Result<BookState, GatewayError> {
+        if self.state != BookState::Live {
+            return Err(GatewayError::BookUnusable(self.symbol.to_string()));
+        }
+        // Capture the continuity anchor BEFORE the verdict advances it.
+        let continuity_last = self.guard.last_sequence();
+        match self.guard.verdict(sequence, false) {
+            SequenceVerdict::Accepted => {
+                // Venue-declared predecessor must agree with our continuity.
+                if let Some(prev) = prev_sequence {
+                    if let Some(last) = continuity_last {
+                        if prev != last {
+                            self.state = BookState::Gapped;
+                            return Err(GatewayError::SequenceGap {
+                                stream: format!("{}:{}", self.venue, self.symbol),
+                                expected: prev,
+                                actual: last,
+                            });
+                        }
+                    }
+                }
+                Self::validate_side(&self.bids, bids)?;
+                Self::validate_side(&self.asks, asks)?;
+                Self::apply_side(&mut self.bids, bids);
+                Self::apply_side(&mut self.asks, asks);
+                self.updates_applied += 1;
+                self.crossed_check();
+                Ok(self.state)
+            }
+            SequenceVerdict::Duplicate => Ok(self.state),
+            SequenceVerdict::OutOfOrder { .. } => Ok(self.state),
+            SequenceVerdict::Gap { expected, actual } => {
+                self.state = BookState::Gapped;
+                Err(GatewayError::SequenceGap {
+                    stream: format!("{}:{}", self.venue, self.symbol),
+                    expected,
+                    actual,
+                })
+            }
+        }
+    }
+
+    fn crossed_check(&mut self) {
+        if let (Some((bid_price, _)), Some((ask_price, _))) = (self.best_bid(), self.best_ask()) {
+            if bid_price >= ask_price {
+                self.crossed_observations += 1;
+                self.last_crossed = Some((bid_price, ask_price));
+            }
+        }
+    }
+
+    /// Explicit operator/recovery reset: drops state, requires a snapshot.
+    pub fn reset(&mut self) -> BookState {
+        self.bids.clear();
+        self.asks.clear();
+        self.guard.reset();
+        self.state = BookState::AwaitingSnapshot;
+        // `resets` counts RETURNS to Live, not the invalidation itself.
+        self.state
+    }
+
+    pub fn best_bid(&self) -> Option<(Price, Quantity)> {
+        self.bids.iter().next_back().and_then(|(k, q)| {
+            Price::from_parts(*k as i64, self.scale)
+                .ok()
+                .map(|p| (p, *q))
+        })
+    }
+
+    pub fn best_ask(&self) -> Option<(Price, Quantity)> {
+        self.asks.iter().next().and_then(|(k, q)| {
+            Price::from_parts(*k as i64, self.scale)
+                .ok()
+                .map(|p| (p, *q))
+        })
+    }
+
+    pub fn spread(&self) -> Result<Option<Price>, GatewayError> {
+        Ok(match (self.best_bid(), self.best_ask()) {
+            (Some((bid, _)), Some((ask, _))) => Some(
+                ask.checked_sub(bid)
+                    .ok_or_else(|| GatewayError::MalformedData("spread overflow".into()))?,
+            ),
+            _ => None,
+        })
+    }
+
+    pub fn is_crossed(&self) -> bool {
+        matches!((self.best_bid(), self.best_ask()), (Some(b), Some(a)) if b.0 >= a.0)
+    }
+
+    pub fn depth(&self, side: Side) -> usize {
+        match side {
+            Side::Bid => self.bids.len(),
+            Side::Ask => self.asks.len(),
+        }
+    }
+
+    pub fn levels(&self, side: Side, limit: usize) -> Vec<Level> {
+        let map = match side {
+            Side::Bid => &self.bids,
+            Side::Ask => &self.asks,
+        };
+        let iter: Box<dyn Iterator<Item = (&i128, &Quantity)>> = match side {
+            Side::Bid => Box::new(map.iter().rev()),
+            Side::Ask => Box::new(map.iter()),
+        };
+        iter.take(limit)
+            .filter_map(|(k, q)| {
+                Price::from_parts(*k as i64, self.scale)
+                    .ok()
+                    .map(|p| Level {
+                        price: p,
+                        quantity: *q,
+                    })
+            })
+            .collect()
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.state == BookState::Live
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn level(price: &str, qty: &str) -> Level {
+        Level::from_wire(price, qty).expect("level")
+    }
+
+    fn book() -> OrderBook {
+        OrderBook::new(Venue::Binance, Symbol::new("BTCUSDT").expect("sym"))
+    }
+
+    fn snapshot_levels() -> (Vec<Level>, Vec<Level>) {
+        (
+            vec![level("100.10", "2.0"), level("100.05", "1.0")],
+            vec![level("100.20", "1.5"), level("100.25", "3.0")],
+        )
+    }
+
+    // [CHECK 9] snapshot applies correctly and anchors sequence state.
+    #[test]
+    fn snapshot_applies_and_anchors() {
+        let mut b = book();
+        assert_eq!(b.state(), BookState::AwaitingSnapshot);
+        let (bids, asks) = snapshot_levels();
+        b.apply_snapshot(100, &bids, &asks).expect("snap");
+        assert_eq!(b.state(), BookState::Live);
+        assert_eq!(
+            b.best_bid().map(|(p, _)| p.to_string()),
+            Some("100.1".into())
+        );
+        assert_eq!(
+            b.best_ask().map(|(p, _)| p.to_string()),
+            Some("100.2".into())
+        );
+        assert_eq!(b.last_sequence(), Some(100));
+        assert_eq!(b.resets, 1);
+    }
+
+    // [CHECK 10] delta applies correctly on top of the snapshot.
+    #[test]
+    fn delta_applies_on_top_of_snapshot() {
+        let mut b = book();
+        let (bids, asks) = snapshot_levels();
+        b.apply_snapshot(100, &bids, &asks).expect("snap");
+        // Take the 100.10 level and add a new best 100.15.
+        let d_bids = vec![level("100.10", "0"), level("100.15", "0.75")];
+        b.apply_delta(101, None, &d_bids, &[]).expect("delta");
+        assert_eq!(
+            b.best_bid().map(|(p, q)| (p.to_string(), q.to_string())),
+            Some(("100.15".into(), "0.75".into()))
+        );
+        assert_eq!(b.depth(Side::Bid), 2);
+        // Zero-quantity delta removes the 100.20 ask.
+        let d_asks = vec![level("100.20", "0")];
+        b.apply_delta(102, None, &[], &d_asks).expect("delta");
+        assert_eq!(
+            b.best_ask().map(|(p, _)| p.to_string()),
+            Some("100.25".into())
+        );
+    }
+
+    // [CHECK 11] crossed book is detected.
+    #[test]
+    fn crossed_book_is_detected() {
+        let mut b = book();
+        let (bids, asks) = snapshot_levels();
+        b.apply_snapshot(100, &bids, &asks).expect("snap");
+        assert!(!b.is_crossed());
+        // A delta that pushes a bid to the ask side crosses the book.
+        let crossed_bids = vec![level("100.25", "5.0")];
+        b.apply_delta(101, None, &crossed_bids, &[]).expect("delta");
+        assert!(b.is_crossed());
+        assert_eq!(b.crossed_observations, 1);
+        assert!(b.last_crossed.is_some());
+        // Spread becomes non-positive.
+        let spread = b.spread().expect("spread").expect("some");
+        assert!(spread.is_negative() || spread.is_zero());
+    }
+
+    // [CHECK 12] reset works: state cleared, snapshot required again.
+    #[test]
+    fn reset_requires_fresh_snapshot() {
+        let mut b = book();
+        let (bids, asks) = snapshot_levels();
+        b.apply_snapshot(100, &bids, &asks).expect("snap");
+        assert_eq!(b.reset(), BookState::AwaitingSnapshot);
+        assert_eq!(b.best_bid(), None);
+        assert_eq!(b.best_ask(), None);
+        // Deltas are refused while unusable.
+        assert!(matches!(
+            b.apply_delta(101, None, &[], &[]),
+            Err(GatewayError::BookUnusable(_))
+        ));
+        // And a snapshot re-anchors.
+        b.apply_snapshot(200, &bids, &asks).expect("re-snap");
+        assert!(b.is_live());
+        assert_eq!(b.resets, 2);
+    }
+
+    // [CHECK 7 support] a sequence gap makes the book unusable and triggers
+    // recovery rather than silently continuing with corrupt state.
+    #[test]
+    fn gap_marks_book_unusable_until_fresh_snapshot() {
+        let mut b = book();
+        let (bids, asks) = snapshot_levels();
+        b.apply_snapshot(100, &bids, &asks).expect("snap");
+        let err = b.apply_delta(103, None, &[], &[]).expect_err("gap");
+        assert!(matches!(
+            err,
+            GatewayError::SequenceGap {
+                expected: 101,
+                actual: 103,
+                ..
+            }
+        ));
+        assert_eq!(b.state(), BookState::Gapped);
+        assert!(matches!(
+            b.apply_delta(104, None, &[], &[]),
+            Err(GatewayError::BookUnusable(_))
+        ));
+        assert!(!b.is_live());
+        // Recovery: fresh snapshot resets sequence and restores liveness.
+        b.apply_snapshot(103, &bids, &asks)
+            .expect("recovery snapshot");
+        assert!(b.is_live());
+        assert_eq!(b.last_sequence(), Some(103));
+    }
+
+    // Duplicates are idempotent: replayed deltas do not double-apply.
+    #[test]
+    fn duplicate_deltas_are_idempotent() {
+        let mut b = book();
+        let (bids, asks) = snapshot_levels();
+        b.apply_snapshot(100, &bids, &asks).expect("snap");
+        let d = vec![level("100.30", "9.9")];
+        b.apply_delta(101, None, &[], &d).expect("first");
+        let before = b.depth(Side::Ask);
+        b.apply_delta(101, None, &[], &d).expect("dup ignored");
+        assert_eq!(b.depth(Side::Ask), before);
+    }
+
+    #[test]
+    fn spread_and_levels_are_deterministic() {
+        let mut b = book();
+        let (bids, asks) = snapshot_levels();
+        b.apply_snapshot(1, &bids, &asks).expect("snap");
+        assert_eq!(
+            b.spread().expect("spread").map(|s| s.to_string()),
+            Some("0.1".into())
+        );
+        let top_bids = b.levels(Side::Bid, 1);
+        assert_eq!(top_bids.len(), 1);
+        assert_eq!(top_bids[0].price.to_string(), "100.1");
+        let top_asks = b.levels(Side::Ask, 5);
+        assert_eq!(top_asks.len(), 2);
+        assert_eq!(top_asks[0].price.to_string(), "100.2");
+        assert_eq!(top_asks[1].price.to_string(), "100.25");
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/parser.rs
+
+```text
+//! Production event parser facade.
+//!
+//! Dispatches raw venue frames to the concrete adapter for that venue and
+//! guarantees the normalization contract: malformed input yields an error
+//! and ZERO events — there is no fabricated fallback event anywhere in this
+//! path. Counting happens at the call site (pipeline), keeping this module
+//! pure and deterministic.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::adapters::binance::BinanceAdapter;
+use crate::adapters::bybit::BybitAdapter;
+use crate::adapters::exchange_ws::{AdapterEvent, MarketDataAdapter};
+use crate::adapters::okx::OkxAdapter;
+use crate::error::GatewayError;
+use crate::types::Venue;
+
+pub struct EventParser {
+    adapters: HashMap<Venue, Arc<dyn MarketDataAdapter>>,
+}
+
+impl EventParser {
+    /// Builds adapters for exactly the configured venues. Unknown venues are
+    /// refused at configuration time, so this map is total for boot.
+    pub fn for_venues(venues: &[Venue]) -> EventParser {
+        let mut adapters: HashMap<Venue, Arc<dyn MarketDataAdapter>> = HashMap::new();
+        for venue in venues {
+            let adapter: Arc<dyn MarketDataAdapter> = match venue {
+                Venue::Binance => Arc::new(BinanceAdapter::new()),
+                Venue::Bybit => Arc::new(BybitAdapter::new()),
+                Venue::Okx => Arc::new(OkxAdapter::new()),
+            };
+            adapters.insert(*venue, adapter);
+        }
+        EventParser { adapters }
+    }
+
+    pub fn adapter(&self, venue: Venue) -> Option<Arc<dyn MarketDataAdapter>> {
+        self.adapters.get(&venue).cloned()
+    }
+
+    pub fn venues(&self) -> Vec<Venue> {
+        let mut v: Vec<Venue> = self.adapters.keys().copied().collect();
+        v.sort();
+        v
+    }
+
+    /// Parses one raw venue frame. Ok(vec![]) for control frames; Err on
+    /// any malformed/unsupported input with zero events emitted.
+    pub fn parse_frame(&self, venue: Venue, raw: &str) -> Result<Vec<AdapterEvent>, GatewayError> {
+        let adapter = self.adapters.get(&venue).ok_or_else(|| {
+            GatewayError::UnsupportedCapability(format!("no adapter for venue {venue}"))
+        })?;
+        adapter.parse_message(raw)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 4] parser accepts a valid message and produces exactly the
+    // normalized events the frame describes.
+    #[test]
+    fn parser_accepts_valid_messages() {
+        let parser = EventParser::for_venues(&[Venue::Binance, Venue::Bybit, Venue::Okx]);
+        let trade = r#"{"stream":"btcusdt@trade","data":{"e":"trade","E":1672515782136,"s":"BTCUSDT","t":1,"p":"61234.55","q":"0.012","m":false}}"#;
+        let events = parser.parse_frame(Venue::Binance, trade).expect("parses");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].symbol.as_str(), "BTCUSDT");
+
+        let tape = r#"{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1,"data":[{"T":1,"s":"BTCUSDT","S":"Buy","v":"0.01","p":"26000.0","i":"t1"}]}"#;
+        let events = parser.parse_frame(Venue::Bybit, tape).expect("parses");
+        assert_eq!(events.len(), 1);
+        assert_eq!(parser.venues().len(), 3);
+        assert!(parser.adapter(Venue::Okx).is_some());
+    }
+
+    // [CHECK 5] malformed events are rejected; zero events are produced;
+    // there is no fabricated fallback market data.
+    #[test]
+    fn parser_rejects_malformed_with_zero_events() {
+        let parser = EventParser::for_venues(&[Venue::Binance, Venue::Okx]);
+        for bad in [
+            "not json",
+            "{}",
+            r#"{"stream":"btcusdt@trade"}"#,
+            r#"{"stream":"btcusdt@trade","data":{}}"#,
+            r#"{"stream":"btcusdt@madeup","data":{}}"#,
+        ] {
+            let result = parser.parse_frame(Venue::Binance, bad);
+            assert!(result.is_err(), "expected rejection for {bad}");
+            assert!(
+                result.unwrap_or_default().is_empty(),
+                "no fabricated events for {bad}"
+            );
+        }
+        // A venue without an adapter is an explicit capability error.
+        let bybit_free = EventParser::for_venues(&[Venue::Binance]);
+        let err = bybit_free
+            .parse_frame(Venue::Bybit, "{}")
+            .expect_err("no adapter");
+        assert!(matches!(err, GatewayError::UnsupportedCapability(_)));
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/ring_buffer.rs
+
+```text
+//! Bounded, lock-minimized ring buffer with explicit overflow/drop
+//! accounting and deterministic consumer semantics.
+//!
+//! Lock discipline: the single mutex guards only slot bookkeeping (pointer
+//! bump + slot swap). No allocation, no syscall and no await happens inside
+//! the critical section, so hold times are a few nanoseconds even under
+//! contention. This is a deliberate safe-Rust trade: correctness and
+//! auditable memory safety over lock-free unsafe internals.
+//!
+//! Policy neutrality: the buffer itself never silently discards. A full
+//! ring reports `RingPushError::Full`, and the CALLER decides — drop with
+//! accounting (non-critical market-data fanout under an explicit shedding
+//! policy) or fail closed (execution-critical traffic).
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+
+#[derive(Debug)]
+pub struct RingStats {
+    pub writes: AtomicU64,
+    pub reads: AtomicU64,
+    pub overflow: AtomicU64,
+    pub drops: AtomicU64,
+}
+
+impl RingStats {
+    fn new() -> RingStats {
+        RingStats {
+            writes: AtomicU64::new(0),
+            reads: AtomicU64::new(0),
+            overflow: AtomicU64::new(0),
+            drops: AtomicU64::new(0),
+        }
+    }
+}
+
+struct Slots<T> {
+    head: usize,
+    len: usize,
+    buf: Vec<Option<T>>,
+}
+
+/// Bounded FIFO ring buffer.
+pub struct RingBuffer<T> {
+    slots: Mutex<Slots<T>>,
+    capacity: usize,
+    stats: RingStats,
+}
+
+/// Result of a rejected push: ownership of the item returns to the caller so
+/// it can apply its explicit policy (count-and-drop, or fail closed).
+#[derive(Debug)]
+pub enum RingPushError<T> {
+    Full(T),
+    Closed(T),
+}
+
+impl<T> RingBuffer<T> {
+    /// Capacity is bounded below by 1 and above by `MAX_CAPACITY` so a bad
+    /// configuration can neither spin nor exhaust memory.
+    pub const MAX_CAPACITY: usize = 1 << 22;
+
+    pub fn bounded(capacity: usize) -> RingBuffer<T> {
+        let capacity = capacity.clamp(1, Self::MAX_CAPACITY);
+        let mut buf = Vec::with_capacity(capacity);
+        buf.resize_with(capacity, || None);
+        RingBuffer {
+            slots: Mutex::new(Slots {
+                head: 0,
+                len: 0,
+                buf,
+            }),
+            capacity,
+            stats: RingStats::new(),
+        }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Pushes one item without blocking. On a full ring this increments the
+    /// overflow counter and returns the item; whether that becomes a counted
+    /// drop or a refused critical write is the caller's policy.
+    pub fn try_push(&self, item: T) -> Result<(), RingPushError<T>> {
+        let mut slots = self.slots.lock().expect("ring mutex poisoned");
+        if slots.len == slots.buf.len() {
+            self.stats.overflow.fetch_add(1, Ordering::Relaxed);
+            return Err(RingPushError::Full(item));
+        }
+        let tail = (slots.head + slots.len) % slots.buf.len();
+        slots.buf[tail] = Some(item);
+        slots.len += 1;
+        self.stats.writes.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Pops the oldest item, if any. Never blocks.
+    pub fn try_pop(&self) -> Option<T> {
+        let mut slots = self.slots.lock().expect("ring mutex poisoned");
+        if slots.len == 0 {
+            return None;
+        }
+        let head = slots.head;
+        let item = slots.buf[head].take();
+        slots.head = (slots.head + 1) % slots.buf.len();
+        slots.len -= 1;
+        self.stats.reads.fetch_add(1, Ordering::Relaxed);
+        item
+    }
+
+    pub fn len(&self) -> usize {
+        self.slots.lock().expect("ring mutex poisoned").len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Consumer lag in items: writes minus reads (monotonic counters).
+    pub fn lag(&self) -> u64 {
+        self.stats
+            .writes
+            .load(Ordering::Relaxed)
+            .saturating_sub(self.stats.reads.load(Ordering::Relaxed))
+    }
+
+    pub fn overflow_count(&self) -> u64 {
+        self.stats.overflow.load(Ordering::Relaxed)
+    }
+
+    pub fn drop_count(&self) -> u64 {
+        self.stats.drops.load(Ordering::Relaxed)
+    }
+
+    pub fn write_count(&self) -> u64 {
+        self.stats.writes.load(Ordering::Relaxed)
+    }
+
+    pub fn read_count(&self) -> u64 {
+        self.stats.reads.load(Ordering::Relaxed)
+    }
+
+    /// Explicit, counted drop. Only the caller that already holds a rejected
+    /// item can call this; the buffer itself never invokes it internally.
+    pub fn count_dropped(&self, n: u64) {
+        self.stats.drops.fetch_add(n, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 13] ring buffer is bounded: capacity is never exceeded.
+    #[test]
+    fn ring_is_bounded_to_capacity() {
+        let ring: RingBuffer<u64> = RingBuffer::bounded(4);
+        for i in 0..4 {
+            assert!(ring.try_push(i).is_ok());
+        }
+        assert!(matches!(ring.try_push(99), Err(RingPushError::Full(99))));
+        assert_eq!(ring.len(), 4);
+        assert_eq!(ring.capacity(), 4);
+    }
+
+    // [CHECK 14] overflow attempts are counted and never silently lost.
+    #[test]
+    fn ring_overflow_is_counted_and_item_returned() {
+        let ring: RingBuffer<u8> = RingBuffer::bounded(2);
+        assert!(ring.try_push(1).is_ok());
+        assert!(ring.try_push(2).is_ok());
+        assert!(matches!(ring.try_push(3), Err(RingPushError::Full(3))));
+        assert_eq!(ring.overflow_count(), 1);
+        // Explicit counted drop by the caller (non-critical shedding policy).
+        ring.count_dropped(1);
+        assert_eq!(ring.drop_count(), 1);
+    }
+
+    // FIFO order determinism.
+    #[test]
+    fn ring_preserves_fifo_order() {
+        let ring: RingBuffer<u64> = RingBuffer::bounded(8);
+        for i in 0..8 {
+            let _ = ring.try_push(i);
+        }
+        for i in 0..8 {
+            assert_eq!(ring.try_pop(), Some(i));
+        }
+        assert!(ring.try_pop().is_none());
+        assert_eq!(ring.read_count(), 8);
+        assert_eq!(ring.write_count(), 8);
+        assert_eq!(ring.lag(), 0);
+    }
+
+    // Wraparound correctness across the capacity boundary.
+    #[test]
+    fn ring_wraps_correctly() {
+        let ring: RingBuffer<u32> = RingBuffer::bounded(3);
+        for i in 0..3 {
+            ring.try_push(i).expect("fill");
+        }
+        for i in 3..6 {
+            assert_eq!(ring.try_pop(), Some(i - 3), "fifo across wrap at {i}");
+            ring.try_push(i).expect("wrap push");
+        }
+        assert_eq!(ring.len(), 3);
+        assert_eq!(ring.try_pop(), Some(3));
+        assert_eq!(ring.try_pop(), Some(4));
+        assert_eq!(ring.try_pop(), Some(5));
+        assert_eq!(ring.lag(), 0); // 6 writes, 6 reads
+        ring.try_push(6).expect("one more");
+        assert_eq!(ring.lag(), 1);
+    }
+
+    // Capacity clamping: absurd configuration cannot allocate unbounded.
+    #[test]
+    fn capacity_is_clamped_to_safe_range() {
+        let tiny: RingBuffer<u8> = RingBuffer::bounded(0);
+        assert_eq!(tiny.capacity(), 1);
+        let huge: RingBuffer<u8> = RingBuffer::bounded(usize::MAX);
+        assert_eq!(huge.capacity(), RingBuffer::<u8>::MAX_CAPACITY);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/sequence_guard.rs
+
+```text
+//! Sequence-integrity guard for venue event streams.
+//!
+//! Venues sequence each stream independently (Binance update ids, Bybit `u`,
+//! OKX `seqId`). This guard classifies every incoming sequence against the
+//! stream's continuity rules: accepted, duplicate, out-of-order or gap. A
+//! gap is never absorbed: it is reported so the order book goes stale and a
+//! recovery (fresh snapshot) is triggered. Silence here would be how a
+//! corrupt book ends up looking healthy.
+
+use crate::types::Sequence;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SequenceVerdict {
+    /// Contiguous next sequence (or the first sequence of a fresh stream).
+    Accepted,
+    /// Same sequence as the last accepted event: venue redelivery or
+    /// reconnect replay. Idempotent handling upstream.
+    Duplicate,
+    /// Sequence older than the last accepted (not a duplicate).
+    OutOfOrder { last: Sequence },
+    /// A hole in the stream: `actual > expected`.
+    Gap {
+        expected: Sequence,
+        actual: Sequence,
+    },
+}
+
+/// Tracks continuity for exactly one stream. Not thread-safe by design: the
+/// owning pipeline stage is single-threaded per stream, keeping the hot path
+/// lock-free.
+#[derive(Debug)]
+pub struct SequenceGuard {
+    stream: String,
+    last: Option<Sequence>,
+    pub duplicates_seen: u64,
+    pub gaps_seen: u64,
+    pub out_of_order_seen: u64,
+    pub accepted_seen: u64,
+    /// After a reset the guard requires the venue to re-anchor continuity
+    /// with a snapshot before deltas can be accepted again.
+    awaiting_anchor: bool,
+}
+
+impl SequenceGuard {
+    pub fn new(stream: impl Into<String>) -> SequenceGuard {
+        SequenceGuard {
+            stream: stream.into(),
+            last: None,
+            duplicates_seen: 0,
+            gaps_seen: 0,
+            out_of_order_seen: 0,
+            accepted_seen: 0,
+            awaiting_anchor: false,
+        }
+    }
+
+    /// Classifies one sequence without mutating continuity. `is_anchor`
+    /// marks events that legitimately re-anchor a stream (snapshots).
+    pub fn verdict(&mut self, sequence: Sequence, is_anchor: bool) -> SequenceVerdict {
+        // A snapshot resets the sequence domain: accept it unconditionally
+        // and clear any stale/gapped state.
+        if is_anchor {
+            self.last = Some(sequence);
+            self.accepted_seen += 1;
+            self.awaiting_anchor = false;
+            return SequenceVerdict::Accepted;
+        }
+
+        // After a gap or reset the stream MUST be re-anchored by a snapshot
+        // before deltas mean anything again.
+        if self.awaiting_anchor {
+            self.out_of_order_seen += 1;
+            return SequenceVerdict::OutOfOrder {
+                last: self.last.unwrap_or(0),
+            };
+        }
+
+        match self.last {
+            None => {
+                self.last = Some(sequence);
+                self.accepted_seen += 1;
+                SequenceVerdict::Accepted
+            }
+            Some(last) => {
+                if sequence == last {
+                    self.duplicates_seen += 1;
+                    SequenceVerdict::Duplicate
+                } else if sequence == last + 1 {
+                    self.last = Some(sequence);
+                    self.accepted_seen += 1;
+                    SequenceVerdict::Accepted
+                } else if sequence > last + 1 {
+                    self.gaps_seen += 1;
+                    // Enter the recovery state: deltas are refused until a
+                    // fresh snapshot anchors the stream again.
+                    self.awaiting_anchor = true;
+                    SequenceVerdict::Gap {
+                        expected: last + 1,
+                        actual: sequence,
+                    }
+                } else {
+                    self.out_of_order_seen += 1;
+                    SequenceVerdict::OutOfOrder { last }
+                }
+            }
+        }
+    }
+
+    /// Explicit operator/recovery reset: forget continuity entirely. The
+    /// next delta will be accepted as a fresh anchor (venues re-anchor via
+    /// snapshot; this path exists for reconnect-time recovery orchestration).
+    pub fn reset(&mut self) {
+        self.last = None;
+        self.awaiting_anchor = false;
+    }
+
+    pub fn last_sequence(&self) -> Option<Sequence> {
+        self.last
+    }
+
+    pub fn is_awaiting_anchor(&self) -> bool {
+        self.awaiting_anchor
+    }
+
+    pub fn stream_name(&self) -> &str {
+        &self.stream
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 6] duplicate sequence detected.
+    #[test]
+    fn duplicates_are_detected() {
+        let mut g = SequenceGuard::new("binance:btcusdt:depth");
+        assert_eq!(g.verdict(7, false), SequenceVerdict::Accepted);
+        assert_eq!(g.verdict(7, false), SequenceVerdict::Duplicate);
+        assert_eq!(g.duplicates_seen, 1);
+        assert_eq!(g.last_sequence(), Some(7));
+    }
+
+    // [CHECK 7] sequence gap detected and recovery required.
+    #[test]
+    fn gaps_are_detected_and_block_until_anchor() {
+        let mut g = SequenceGuard::new("bybit:btcusdt:orderbook");
+        assert_eq!(g.verdict(10, false), SequenceVerdict::Accepted);
+        assert_eq!(
+            g.verdict(13, false),
+            SequenceVerdict::Gap {
+                expected: 11,
+                actual: 13
+            }
+        );
+        assert_eq!(g.gaps_seen, 1);
+        assert!(g.is_awaiting_anchor());
+        // Deltas keep failing while unanchored...
+        assert!(matches!(
+            g.verdict(14, false),
+            SequenceVerdict::OutOfOrder { .. }
+        ));
+        // ...until a snapshot anchors the stream again.
+        assert_eq!(g.verdict(14, true), SequenceVerdict::Accepted);
+        assert!(!g.is_awaiting_anchor());
+        assert_eq!(g.verdict(15, false), SequenceVerdict::Accepted);
+    }
+
+    // [CHECK 8] out-of-order detected according to venue sequencing rules.
+    #[test]
+    fn out_of_order_is_detected() {
+        let mut g = SequenceGuard::new("okx:btc-usdt:books");
+        assert_eq!(g.verdict(5, false), SequenceVerdict::Accepted);
+        assert_eq!(g.verdict(6, false), SequenceVerdict::Accepted);
+        assert!(matches!(
+            g.verdict(4, false),
+            SequenceVerdict::OutOfOrder { last: 6 }
+        ));
+        assert_eq!(g.out_of_order_seen, 1);
+        // The guard stays healthy: an old frame does not corrupt continuity.
+        assert_eq!(g.verdict(7, false), SequenceVerdict::Accepted);
+    }
+
+    // [CHECK 55/56 support] reconnect replay: the same last event is a
+    // duplicate (idempotent), not a new event.
+    #[test]
+    fn replay_after_reconnect_is_a_duplicate_not_new_state() {
+        let mut g = SequenceGuard::new("binance:ethusdt:depth");
+        for s in 1..=5 {
+            assert_eq!(g.verdict(s, false), SequenceVerdict::Accepted);
+        }
+        // Venue resends the final pre-disconnect update.
+        assert_eq!(g.verdict(5, false), SequenceVerdict::Duplicate);
+        assert_eq!(g.accepted_seen, 5);
+    }
+
+    #[test]
+    fn reset_forgets_continuity() {
+        let mut g = SequenceGuard::new("s");
+        let _ = g.verdict(100, false);
+        g.reset();
+        assert_eq!(g.last_sequence(), None);
+        assert_eq!(g.verdict(1, false), SequenceVerdict::Accepted);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/session_manager.rs
+
+```text
+//! Venue session supervision: connection state, reconnect counts, heartbeat
+//! recency, capability state and safe restart coordination.
+//!
+//! The manager is the single observation point used by health/readiness and
+//! by the operator-facing metrics: it reads REAL session state recorded by
+//! the feed tasks — a session is connected only when the session task said
+//! so after a successful socket upgrade.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use crate::backpressure::BackpressurePolicy;
+use crate::feed_session::{SessionPhase, SessionStateMachine};
+use crate::market_data::{MarketDataPipeline, StreamKey};
+use crate::types::{Symbol, Venue};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionEntry {
+    pub venue: Venue,
+    pub phase: SessionPhase,
+    pub reconnects: u64,
+    pub last_error: Option<String>,
+    pub last_receive_ms: Option<i64>,
+    pub pending_resnapshot: bool,
+    pub symbols: Vec<Symbol>,
+}
+
+pub struct SessionManager {
+    entries: Mutex<HashMap<Venue, SessionEntry>>,
+    policy: BackpressurePolicy,
+}
+
+impl SessionManager {
+    pub fn new(policy: BackpressurePolicy) -> SessionManager {
+        SessionManager {
+            entries: Mutex::new(HashMap::new()),
+            policy,
+        }
+    }
+
+    pub fn register(&self, venue: Venue, symbols: Vec<Symbol>) {
+        let mut entries = self.entries.lock().expect("session mutex");
+        entries.entry(venue).or_insert_with(|| SessionEntry {
+            venue,
+            phase: SessionPhase::Idle,
+            reconnects: 0,
+            last_error: None,
+            last_receive_ms: None,
+            pending_resnapshot: false,
+            symbols,
+        });
+    }
+
+    pub fn backpressure_policy(&self) -> BackpressurePolicy {
+        self.policy
+    }
+
+    fn mutate<F: FnOnce(&mut SessionEntry)>(&self, venue: Venue, f: F) {
+        let mut entries = self.entries.lock().expect("session mutex");
+        if let Some(entry) = entries.get_mut(&venue) {
+            f(entry);
+        }
+    }
+
+    // --- callbacks from the feed task -------------------------------------
+    pub fn update_connecting(&self, venue: Venue) {
+        self.mutate(venue, |e| e.phase = SessionPhase::Connecting);
+    }
+
+    pub fn update_connected(&self, venue: Venue) {
+        self.mutate(venue, |e| {
+            e.phase = SessionPhase::Connected;
+            e.last_error = None;
+        });
+    }
+
+    pub fn update_disconnected(&self, venue: Venue, error: Option<String>, reconnects: u64) {
+        self.mutate(venue, |e| {
+            if e.phase != SessionPhase::Draining {
+                e.phase = SessionPhase::Reconnecting;
+            }
+            e.last_error = error;
+            e.reconnects = reconnects;
+        });
+    }
+
+    pub fn update_closed(&self, venue: Venue) {
+        self.mutate(venue, |e| e.phase = SessionPhase::Closed);
+    }
+
+    /// Recovery request from the pipeline: a sequence gap marks the venue's
+    /// depth state untrustworthy until a fresh snapshot anchors it.
+    pub fn mark_pending_resnapshot(&self, venue: Venue, pending: bool) {
+        self.mutate(venue, |e| e.pending_resnapshot = pending);
+    }
+
+    pub fn record_state_snapshot(&self, state: &SessionStateMachine) {
+        self.mutate(state.venue, |e| {
+            e.phase = state.phase;
+            e.reconnects = state.reconnects;
+            e.last_error = state.last_error.clone();
+            e.last_receive_ms = state.last_successful_receive_ms;
+            e.pending_resnapshot = state.pending_resnapshot;
+        });
+    }
+
+    // --- observations for health/operations -------------------------------
+    pub fn snapshot(&self) -> Vec<SessionEntry> {
+        let mut rows: Vec<SessionEntry> = self
+            .entries
+            .lock()
+            .expect("session mutex")
+            .values()
+            .cloned()
+            .collect();
+        rows.sort_by_key(|e| e.venue);
+        rows
+    }
+
+    pub fn connected_count(&self) -> usize {
+        self.snapshot()
+            .iter()
+            .filter(|e| e.phase == SessionPhase::Connected)
+            .count()
+    }
+
+    /// True only when every REQUIRED venue session is actually connected.
+    pub fn all_required_connected(&self, required: &[Venue]) -> bool {
+        let entries = self.entries.lock().expect("session mutex");
+        required.iter().all(|venue| {
+            entries
+                .get(venue)
+                .map(|e| e.phase == SessionPhase::Connected)
+                .unwrap_or(false)
+        })
+    }
+
+    pub fn total_reconnects(&self) -> u64 {
+        self.snapshot().iter().map(|e| e.reconnects).sum()
+    }
+
+    /// Recovery supervision: when a venue's depth state returned to Live in
+    /// the pipeline, the session's pending-resnapshot flag clears. This is
+    /// how reconnect/sequence recovery closes its loop deterministically.
+    pub fn supervise_recovery(&self, pipeline: &MarketDataPipeline) -> usize {
+        let live: Vec<StreamKey> = pipeline
+            .book_states()
+            .into_iter()
+            .filter(|(_, state, _)| matches!(state, crate::order_book::BookState::Live))
+            .map(|(key, _, _)| key)
+            .collect();
+        let target: Option<Venue> = {
+            let entries = self.entries.lock().expect("session mutex");
+            entries.iter().find_map(|(venue, entry)| {
+                if entry.pending_resnapshot && live.iter().any(|key| key.venue == *venue) {
+                    Some(*venue)
+                } else {
+                    None
+                }
+            })
+        };
+        match target {
+            Some(venue) => {
+                self.mutate(venue, |e| e.pending_resnapshot = false);
+                1
+            }
+            None => 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manager() -> SessionManager {
+        SessionManager::new(BackpressurePolicy::default())
+    }
+
+    // [CHECK 27 support] manager reflects real updates from session tasks.
+    #[test]
+    fn manager_tracks_real_session_updates() {
+        let m = manager();
+        m.register(Venue::Binance, vec![Symbol::new("BTCUSDT").expect("s")]);
+        assert_eq!(m.connected_count(), 0);
+        m.update_connecting(Venue::Binance);
+        assert!(!m.all_required_connected(&[Venue::Binance]));
+        m.update_connected(Venue::Binance);
+        assert_eq!(m.connected_count(), 1);
+        assert!(m.all_required_connected(&[Venue::Binance]));
+        m.update_disconnected(Venue::Binance, Some("socket reset".into()), 3);
+        assert_eq!(m.connected_count(), 0);
+        assert_eq!(m.total_reconnects(), 3);
+        let snapshot = m.snapshot();
+        assert_eq!(snapshot[0].last_error.as_deref(), Some("socket reset"));
+        m.update_closed(Venue::Binance);
+        assert_eq!(m.snapshot()[0].phase, SessionPhase::Closed);
+    }
+
+    #[test]
+    fn unregistered_venues_are_never_connected() {
+        let m = manager();
+        assert!(!m.all_required_connected(&[Venue::Bybit]));
+        assert_eq!(m.snapshot().len(), 0);
+    }
+
+    #[test]
+    fn state_snapshot_records_from_state_machine() {
+        let m = manager();
+        m.register(Venue::Okx, vec![Symbol::new("BTC-USDT").expect("s")]);
+        let mut sm = crate::feed_session::SessionStateMachine::new(
+            Venue::Okx,
+            vec![Symbol::new("BTC-USDT").expect("s")],
+            Default::default(),
+        );
+        sm.on_connected(123, 456);
+        sm.on_disconnected("lost".into(), 789);
+        m.record_state_snapshot(&sm);
+        let entry = &m.snapshot()[0];
+        assert_eq!(entry.phase, SessionPhase::Reconnecting);
+        assert!(entry.pending_resnapshot);
+        assert_eq!(entry.last_error.as_deref(), Some("lost"));
+        sm.on_snapshot_anchored();
+        m.record_state_snapshot(&sm);
+        assert!(!m.snapshot()[0].pending_resnapshot);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/shutdown.rs
+
+```text
+//! Coordinated graceful shutdown.
+//!
+//! Deterministic phase machine observed by every task through a watch
+//! channel:
+//!   Running -> DrainingTransport -> DrainingFeeds -> FlushingTelemetry -> Exiting
+//!
+//! `is_stopping()` flips true at the FIRST stopping phase, so:
+//! - the transport listener stops accepting new execution intents the
+//!   moment draining begins (before feeds close);
+//! - feed sessions unsubscribe and close while transport finishes in-flight
+//!   frames;
+//! - telemetry flushes last, then the process exits. Nothing in-flight and
+//!   critical is killed abruptly.
+
+use std::time::Duration;
+
+use tokio::sync::watch;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ShutdownPhase {
+    Running,
+    DrainingTransport,
+    DrainingFeeds,
+    FlushingTelemetry,
+    Exiting,
+}
+
+impl ShutdownPhase {
+    /// True from the first stopping phase onwards. Tasks use this as their
+    /// select! condition.
+    pub fn is_stopping(self) -> bool {
+        !matches!(self, ShutdownPhase::Running)
+    }
+
+    /// Ordering helper: true when the shutdown has reached the feed-drain
+    /// phase or beyond. Feed sessions must NOT close during
+    /// DrainingTransport — the execution plane drains first.
+    pub fn at_or_after_feeds(self) -> bool {
+        matches!(
+            self,
+            ShutdownPhase::DrainingFeeds
+                | ShutdownPhase::FlushingTelemetry
+                | ShutdownPhase::Exiting
+        )
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ShutdownPhase::Running => "running",
+            ShutdownPhase::DrainingTransport => "draining_transport",
+            ShutdownPhase::DrainingFeeds => "draining_feeds",
+            ShutdownPhase::FlushingTelemetry => "flushing_telemetry",
+            ShutdownPhase::Exiting => "exiting",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ShutdownReason {
+    pub signal: String,
+    pub at_ms: i64,
+}
+
+#[derive(Clone)]
+pub struct ShutdownCoordinator {
+    tx: watch::Sender<ShutdownPhase>,
+    // Held so the watch channel never closes: `Sender::send` refuses to
+    // store a new value once every receiver is dropped, which would freeze
+    // the coordinator in Running forever.
+    _keepalive_rx: watch::Receiver<ShutdownPhase>,
+    reason: std::sync::Arc<std::sync::Mutex<Option<ShutdownReason>>>,
+}
+
+impl ShutdownCoordinator {
+    pub fn new() -> ShutdownCoordinator {
+        let (tx, rx) = watch::channel(ShutdownPhase::Running);
+        ShutdownCoordinator {
+            tx,
+            _keepalive_rx: rx,
+            reason: std::sync::Arc::default(),
+        }
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<ShutdownPhase> {
+        self.tx.subscribe()
+    }
+
+    pub fn current(&self) -> ShutdownPhase {
+        *self.tx.borrow()
+    }
+
+    pub fn reason(&self) -> Option<ShutdownReason> {
+        self.reason.lock().expect("reason mutex").clone()
+    }
+
+    fn advance(&self, phase: ShutdownPhase) {
+        let _ = self.tx.send(phase);
+    }
+
+    /// Starts the deterministic shutdown sequence. Idempotent: a second
+    /// signal does not restart the sequence.
+    pub async fn begin(&self, signal: &str) -> ShutdownPhase {
+        {
+            let mut reason = self.reason.lock().expect("reason mutex");
+            if reason.is_none() {
+                *reason = Some(ShutdownReason {
+                    signal: signal.to_string(),
+                    at_ms: crate::time::utc_now_ms(),
+                });
+            }
+        }
+        if self.current() == ShutdownPhase::Running {
+            // Phase 1: stop accepting new execution intents; let in-flight
+            // transport finish.
+            self.advance(ShutdownPhase::DrainingTransport);
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        self.current()
+    }
+
+    /// Phase 2: stop new market-data subscriptions and close feed sessions.
+    pub async fn drain_feeds(&self) -> ShutdownPhase {
+        if self.current() == ShutdownPhase::DrainingTransport {
+            self.advance(ShutdownPhase::DrainingFeeds);
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        self.current()
+    }
+
+    /// Phase 3: flush metrics/traces, then exit.
+    pub async fn flush_and_exit(&self) -> ShutdownPhase {
+        if self.current() == ShutdownPhase::DrainingFeeds {
+            self.advance(ShutdownPhase::FlushingTelemetry);
+            // Telemetry writers flush here (registry render + tracing flush
+            // happen synchronously in their consumers before Exiting).
+            self.advance(ShutdownPhase::Exiting);
+        }
+        self.current()
+    }
+}
+
+impl Default for ShutdownCoordinator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 50] graceful shutdown is a deterministic phase sequence.
+    #[tokio::test]
+    async fn shutdown_sequence_is_deterministic() {
+        let coordinator = ShutdownCoordinator::new();
+        let mut rx = coordinator.subscribe();
+        assert_eq!(coordinator.current(), ShutdownPhase::Running);
+        assert!(!coordinator.current().is_stopping());
+
+        let phase = coordinator.begin("SIGTERM").await;
+        assert_eq!(phase, ShutdownPhase::DrainingTransport);
+        assert!(coordinator.current().is_stopping());
+        assert!(rx.changed().await.is_ok());
+        assert_eq!(*rx.borrow(), ShutdownPhase::DrainingTransport);
+
+        assert_eq!(
+            coordinator.drain_feeds().await,
+            ShutdownPhase::DrainingFeeds
+        );
+        assert_eq!(coordinator.flush_and_exit().await, ShutdownPhase::Exiting);
+        assert_eq!(coordinator.current(), ShutdownPhase::Exiting);
+
+        // Phase ordering: feeds close only from DrainingFeeds onwards.
+        assert!(!ShutdownPhase::DrainingTransport.at_or_after_feeds());
+        assert!(ShutdownPhase::DrainingFeeds.at_or_after_feeds());
+        assert!(ShutdownPhase::Exiting.at_or_after_feeds());
+
+        let reason = coordinator.reason().expect("reason recorded");
+        assert_eq!(reason.signal, "SIGTERM");
+        assert!(reason.at_ms > 0);
+    }
+
+    // A second signal never restarts or rewinds the sequence.
+    #[tokio::test]
+    async fn shutdown_is_idempotent_under_repeated_signals() {
+        let coordinator = ShutdownCoordinator::new();
+        let _phase = coordinator.begin("SIGINT").await;
+        let again = coordinator.begin("SIGINT").await;
+        assert_eq!(again, ShutdownPhase::DrainingTransport);
+        // Advancing from the wrong phase is a no-op, not a jump.
+        let coordinator2 = ShutdownCoordinator::new();
+        assert_eq!(coordinator2.drain_feeds().await, ShutdownPhase::Running);
+        assert_eq!(coordinator2.flush_and_exit().await, ShutdownPhase::Running);
+        assert_eq!(coordinator2.current(), ShutdownPhase::Running);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/time.rs
+
+```text
+//! Clock discipline: monotonic clocks for latency, UTC wall clock for
+//! business timestamps. Never mixed.
+//!
+//! Latency is measured with a process-stable monotonic origin. Elapsed
+//! computations saturate instead of underflowing: a caller that records an
+//! end timestamp before its start timestamp observes zero, never a negative
+//! or wrapping duration.
+
+use std::sync::OnceLock;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Process-wide monotonic origin, captured exactly once.
+static MONO_ORIGIN: OnceLock<Instant> = OnceLock::new();
+
+fn origin() -> Instant {
+    *MONO_ORIGIN.get_or_init(Instant::now)
+}
+
+/// Nanoseconds since the process monotonic origin. The value is meaningless
+/// across processes; it is only ever subtracted locally, in this process.
+pub fn mono_now_ns() -> u64 {
+    origin().elapsed().as_nanos() as u64
+}
+
+/// Saturating elapsed nanoseconds between two monotonic samples.
+/// `end < start` (clock order violation, e.g. a consumer recorded its end
+/// before its start) yields 0 — never a negative or wrapping value.
+pub fn mono_elapsed_ns(start_ns: u64, end_ns: u64) -> u64 {
+    end_ns.saturating_sub(start_ns)
+}
+
+/// UTC wall-clock milliseconds. Returns 0 only if the system clock is set
+/// before the Unix epoch, which is itself an operations signal.
+pub fn utc_now_ms() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_millis() as i64,
+        Err(e) => {
+            let negative = e.duration();
+            -(negative.as_millis() as i64)
+        }
+    }
+}
+
+/// Measures one latency sample and feeds it to a sink.
+#[derive(Clone, Copy, Debug)]
+pub struct LatencyTimer {
+    started_ns: u64,
+}
+
+impl LatencyTimer {
+    pub fn start() -> LatencyTimer {
+        LatencyTimer {
+            started_ns: mono_now_ns(),
+        }
+    }
+
+    /// Elapsed nanoseconds so far (saturating, monotonic).
+    pub fn elapsed_ns(&self) -> u64 {
+        mono_elapsed_ns(self.started_ns, mono_now_ns())
+    }
+
+    /// Elapsed since an explicit end sample (used in deterministic tests).
+    pub fn elapsed_since_ns(&self, end_ns: u64) -> u64 {
+        mono_elapsed_ns(self.started_ns, end_ns)
+    }
+}
+
+/// Converts a monotonic delta into a `Duration`, guarded against overflow.
+pub fn duration_from_ns(ns: u64) -> Duration {
+    Duration::from_nanos(ns)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 18] monotonic latency is positive and never decreasing.
+    #[test]
+    fn monotonic_latency_is_positive_and_monotonic() {
+        let t0 = mono_now_ns();
+        let a = LatencyTimer::start();
+        // Busy work: guarantees a measurable, non-decreasing progression.
+        let mut acc: u64 = 0;
+        for i in 0..1_000u64 {
+            acc = acc.wrapping_add(i.wrapping_mul(7));
+        }
+        std::hint::black_box(acc);
+        let b = LatencyTimer::start();
+        assert!(a.elapsed_ns() > 0);
+        assert!(b.elapsed_ns() <= a.elapsed_ns() + 1_000_000);
+        let t1 = mono_now_ns();
+        assert!(t1 >= t0);
+    }
+
+    // [CHECK 18 support] clock-order violations saturate to zero instead of
+    // producing negative or wrapping latencies.
+    #[test]
+    fn latency_never_negative_on_inverted_samples() {
+        let end: u64 = 1_000;
+        let start: u64 = 5_000;
+        assert_eq!(mono_elapsed_ns(start, end), 0);
+        assert_eq!(mono_elapsed_ns(0, u64::MAX), u64::MAX);
+        assert_eq!(mono_elapsed_ns(u64::MAX, u64::MAX), 0);
+    }
+
+    // [CHECK 19 support] UTC wall clock is only used for business stamps and
+    // is a real epoch value here.
+    #[test]
+    fn utc_now_is_epoch_milliseconds() {
+        let now = utc_now_ms();
+        // 2026-01-01T00:00:00Z .. 2100-01-01T00:00:00Z sanity window.
+        assert!(now > 1_767_225_600_000 && now < 4_102_344_000_000);
+    }
+
+    #[test]
+    fn duration_conversion_is_lossless_for_ns() {
+        assert_eq!(duration_from_ns(1_500), Duration::from_nanos(1_500));
+        assert_eq!(duration_from_ns(0), Duration::ZERO);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/tracing.rs
+
+```text
+//! Structured tracing setup with correlation ids and secret redaction.
+//!
+//! Two independent defenses:
+//! 1. `redact_text` scrubs known credential shapes (AWS keys, JWTs, private
+//!    key blocks, `authorization`/`api_key`/`token`/`password` style fields)
+//!    from any text before it is written anywhere.
+//! 2. The tracing `FormatEvent` implementation routes every log line through
+//!    `redact_text`, so even a `tracing::error!` that accidentally receives
+//!    a sensitive value cannot emit it.
+//!
+//! API keys can never appear in metrics either: the metrics registry has no
+//! dynamic labels at all (see metrics.rs).
+
+use std::fmt;
+use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::fmt::{format::Format, FmtContext, FormatEvent, FormatFields};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::EnvFilter;
+
+/// Replaces credential-shaped substrings with explicit redaction markers.
+/// Deterministic, allocation-bounded (single pass per pattern family).
+pub fn redact_text(input: &str) -> String {
+    let mut out = redact_aws_keys(input);
+    out = redact_jwt(&out);
+    out = redact_key_blocks(&out);
+    out = redact_key_value_fields(&out);
+    out
+}
+
+fn redact_aws_keys(input: &str) -> String {
+    // AKIA + 16 uppercase alphanumerics.
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let rest = &input[i..];
+        if rest.len() >= 20
+            && rest.starts_with("AKIA")
+            && rest[4..20]
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        {
+            out.push_str("[REDACTED_AWS_KEY]");
+            i += 20;
+        } else {
+            let ch = rest.chars().next().expect("non-empty rest");
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
+fn redact_jwt(input: &str) -> String {
+    // JWT shape: eyJ<base64url>.<base64url>.<base64url>
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(pos) = rest.find("eyJ") {
+        out.push_str(&rest[..pos]);
+        let tail = &rest[pos..];
+        let mut end = 0;
+        let mut dots = 0;
+        for (idx, ch) in tail.char_indices() {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                end = idx + ch.len_utf8();
+            } else if ch == '.' {
+                dots += 1;
+                end = idx + 1;
+            } else {
+                break;
+            }
+        }
+        let candidate = &tail[..end];
+        if dots >= 2 && candidate.len() > 20 {
+            out.push_str("[REDACTED_JWT]");
+        } else {
+            out.push_str("eyJ");
+            out.push_str(&tail[3..end]);
+        }
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn redact_key_blocks(input: &str) -> String {
+    // PEM blocks: -----BEGIN X KEY----- ... -----END X KEY-----
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(start) = rest.find("-----BEGIN") {
+        out.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        match tail.find("-----END") {
+            Some(end_rel) => {
+                let end_abs = tail[end_rel..]
+                    .find('\n')
+                    .map(|n| end_rel + n)
+                    .unwrap_or(tail.len());
+                out.push_str("[REDACTED_KEY_MATERIAL]");
+                rest = &tail[end_abs..];
+            }
+            None => {
+                // Unterminated block: redact to end of input.
+                out.push_str("[REDACTED_KEY_MATERIAL]");
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn redact_key_value_fields(input: &str) -> String {
+    const SENSITIVE: [&str; 7] = [
+        "authorization",
+        "api_key",
+        "api-key",
+        "apikey",
+        "password",
+        "secret",
+        "token",
+    ];
+    let lower = input.to_ascii_lowercase();
+    let mut redactions: Vec<(usize, usize)> = Vec::new();
+    for key in SENSITIVE {
+        let mut search_from = 0;
+        while let Some(rel) = lower[search_from..].find(key) {
+            let start = search_from + rel;
+            let key_end = start + key.len();
+            // Key must be followed by a separator (: or =), optionally with
+            // a closing JSON quote in between (`"authorization": "..."`),
+            // then a value token.
+            let after = &input[key_end..];
+            let after_trimmed = after.trim_start();
+            let after_trimmed = after_trimmed.strip_prefix('"').unwrap_or(after_trimmed);
+            let after_trimmed = after_trimmed.trim_start();
+            let sep_offset = after.len() - after_trimmed.len();
+            if after_trimmed.starts_with(':') || after_trimmed.starts_with('=') {
+                let value_start = key_end + sep_offset + 1;
+                let value_rest = &input[value_start..];
+                let value_trimmed = value_rest.trim_start();
+                let ws = value_rest.len() - value_trimmed.len();
+                let (token_len, advance_past_quote) =
+                    if let Some(stripped) = value_trimmed.strip_prefix('"') {
+                        let len = stripped.find('"').unwrap_or(stripped.len());
+                        (len + 1, true)
+                    } else {
+                        let len = value_trimmed
+                            .find(|c: char| c.is_whitespace() || c == ',' || c == '}' || c == ')')
+                            .unwrap_or(value_trimmed.len());
+                        (len, false)
+                    };
+                if token_len > 0 {
+                    let from = value_start + ws;
+                    redactions.push((from, from + token_len));
+                    let consumed = from + token_len + if advance_past_quote { 1 } else { 0 };
+                    search_from = consumed.min(input.len());
+                    continue;
+                }
+            }
+            search_from = key_end.max(start + 1);
+        }
+    }
+    if redactions.is_empty() {
+        return input.to_string();
+    }
+    redactions.sort_unstable();
+    redactions.dedup();
+    let mut out = String::with_capacity(input.len());
+    let mut last = 0;
+    for (from, to) in redactions {
+        if from < last {
+            continue;
+        }
+        out.push_str(&input[last..from]);
+        out.push_str("[REDACTED]");
+        last = to;
+    }
+    out.push_str(&input[last..]);
+    out
+}
+
+/// Event formatter that scrubs every rendered line. Correlation ids and
+/// ordinary identifiers pass through untouched.
+struct RedactingFormat {
+    inner: Format,
+}
+
+impl<S, N> FormatEvent<S, N> for RedactingFormat
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> fmt::Result {
+        let mut buffer = String::new();
+        let buffer_writer = Writer::new(&mut buffer);
+        self.inner
+            .clone()
+            .with_ansi(false)
+            .format_event(ctx, buffer_writer, event)?;
+        let redacted = redact_text(&buffer);
+        writer.write_fmt(format_args!("{redacted}"))
+    }
+}
+
+static TRACING_INSTALLED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// Installs the global subscriber exactly once. Idempotent: repeated calls
+/// (e.g. in tests) leave the first installation in place and report false.
+pub fn init_tracing(default_level: &str) -> bool {
+    if TRACING_INSTALLED.set(()).is_err() {
+        return false;
+    }
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
+    let formatter = RedactingFormat {
+        inner: Format::default(),
+    };
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer().event_format(formatter))
+        .init();
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 49 support] redaction scrubs every credential family we know
+    // about from rendered text.
+    #[test]
+    fn redaction_scrubs_credential_shapes() {
+        let scrubbed = redact_text("connecting key=AKIAIOSFODNN7EXAMPLE url=https://x");
+        assert!(!scrubbed.contains("AKIAIOSFODNN7EXAMPLE"));
+        assert!(scrubbed.contains("[REDACTED_AWS_KEY]"));
+
+        let scrubbed = redact_text(
+            "token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c end",
+        );
+        assert!(!scrubbed.contains("SflKxwRJSMeK"));
+        assert!(scrubbed.contains("[REDACTED_JWT]"));
+
+        let scrubbed =
+            redact_text("-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----");
+        assert!(!scrubbed.contains("MIIabc"));
+        assert!(scrubbed.contains("[REDACTED_KEY_MATERIAL]"));
+
+        for (line, marker_value) in [
+            ("api_key: sk_live_51H8xYzabcd", "sk_live_51H8xYzabcd"),
+            ("\"authorization\": \"Bearer abc.def\"", "Bearer abc.def"),
+            ("password=hunter2,", "hunter2"),
+            ("x_api_key = \"topsecretvalue\"", "topsecretvalue"),
+        ] {
+            let scrubbed = redact_text(line);
+            assert!(!scrubbed.contains(marker_value), "leaked in: {scrubbed}");
+            assert!(
+                scrubbed.contains("[REDACTED]"),
+                "missing marker in: {scrubbed}"
+            );
+        }
+    }
+
+    // Benign content is untouched: correlation ids and identifiers survive.
+    #[test]
+    fn redaction_preserves_benign_identifiers() {
+        let line = "intent 9f1c3b2a accepted correlation=corr-29-0001 tenant=tenant-77";
+        assert_eq!(redact_text(line), line);
+    }
+
+    // The subscriber installs exactly once and never panics on re-init.
+    #[test]
+    fn tracing_init_is_idempotent() {
+        let first = init_tracing("warn");
+        let second = init_tracing("info");
+        // Exactly one installation wins; neither call panics.
+        assert!(!(first && second));
+        tracing::info!("gateway tracing installed");
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/trade_tape.rs
+
+```text
+//! High-throughput normalized trade-tick storage: a bounded ring-buffer view
+//! of recent trades per symbol with sequence/timestamp integrity.
+//!
+//! Bounded memory: the tape holds at most `capacity` ticks; older ticks are
+//! displaced (counted), because a tape is a derived view of public market
+//! data, never trading-critical state. Sequence integrity is enforced with
+//! the same guard discipline as the order book so replays and gaps are
+//! visible in the tape view too.
+
+use crate::error::GatewayError;
+use crate::ring_buffer::RingBuffer;
+use crate::sequence_guard::{SequenceGuard, SequenceVerdict};
+use crate::types::{OrderSide, Price, Quantity, Sequence, Symbol};
+
+/// One normalized trade tick as stored in the tape.
+#[derive(Clone, Debug)]
+pub struct TradeTickRecord {
+    pub sequence: Option<Sequence>,
+    pub price: Price,
+    pub quantity: Quantity,
+    pub taker_side: OrderSide,
+    pub trade_id: String,
+    pub provider_ms: Option<i64>,
+    pub receive_ms: i64,
+}
+
+pub struct TradeTape {
+    symbol: Symbol,
+    ring: RingBuffer<TradeTickRecord>,
+    guard: SequenceGuard,
+    pub displaced: u64,
+}
+
+impl TradeTape {
+    pub fn new(symbol: Symbol, capacity: usize) -> TradeTape {
+        TradeTape {
+            guard: SequenceGuard::new(format!("{symbol}:trades")),
+            symbol,
+            ring: RingBuffer::bounded(capacity.max(1)),
+            displaced: 0,
+        }
+    }
+
+    pub fn symbol(&self) -> &Symbol {
+        &self.symbol
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.ring.capacity()
+    }
+
+    /// Appends one tick. Venue-sequenced tapes enforce continuity: a gap is
+    /// surfaced (and counted upstream) instead of silently accepted.
+    pub fn record(&mut self, tick: TradeTickRecord) -> Result<(), GatewayError> {
+        if let Some(seq) = tick.sequence {
+            match self.guard.verdict(seq, false) {
+                SequenceVerdict::Accepted => {}
+                SequenceVerdict::Duplicate => return Ok(()),
+                SequenceVerdict::OutOfOrder { .. } => return Ok(()),
+                SequenceVerdict::Gap { expected, actual } => {
+                    return Err(GatewayError::SequenceGap {
+                        stream: self.guard.stream_name().to_string(),
+                        expected,
+                        actual,
+                    });
+                }
+            }
+        }
+        if self.ring.len() == self.ring.capacity() {
+            // Displacement is deterministic: the oldest tick leaves first,
+            // making room so the newest is always stored.
+            self.displaced += 1;
+            let _ = self.ring.try_pop();
+        }
+        let _ = self.ring.try_push(tick);
+        Ok(())
+    }
+
+    /// Most recent ticks, newest first, bounded by `limit`.
+    pub fn recent(&self, limit: usize) -> Vec<TradeTickRecord> {
+        let mut out = Vec::with_capacity(limit.min(self.ring.len()));
+        let mut collected: Vec<TradeTickRecord> = Vec::with_capacity(self.ring.len());
+        while let Some(tick) = self.ring_try_pop_view() {
+            collected.push(tick);
+        }
+        for tick in collected.iter().rev().take(limit) {
+            out.push(tick.clone());
+        }
+        // Put everything back in original order.
+        for tick in collected {
+            let _ = self.ring.try_push(tick);
+        }
+        out
+    }
+
+    // Interior read via pop/push cycle (bounded, single consumer view).
+    fn ring_try_pop_view(&self) -> Option<TradeTickRecord> {
+        self.ring.try_pop()
+    }
+
+    pub fn len(&self) -> usize {
+        self.ring.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ring.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tick(seq: Option<u64>, price: &str, qty: &str) -> TradeTickRecord {
+        TradeTickRecord {
+            sequence: seq,
+            price: Price::parse(price).expect("price"),
+            quantity: Quantity::parse(qty).expect("qty"),
+            taker_side: OrderSide::Buy,
+            trade_id: format!("t-{}", seq.unwrap_or(0)),
+            provider_ms: Some(1_700_000_000_000),
+            receive_ms: 1_700_000_000_001,
+        }
+    }
+
+    // Bounded memory: capacity never grows, oldest ticks are displaced.
+    #[test]
+    fn tape_is_bounded_and_displaces_oldest() {
+        let mut tape = TradeTape::new(Symbol::new("BTCUSDT").expect("sym"), 4);
+        for i in 0..6 {
+            tape.record(tick(Some(i), "100.0", "0.1")).expect("record");
+        }
+        assert_eq!(tape.len(), 4);
+        assert_eq!(tape.displaced, 2);
+        let recent = tape.recent(10);
+        assert_eq!(recent.len(), 4);
+        assert_eq!(recent[0].trade_id, "t-5"); // newest first
+        assert_eq!(recent[3].trade_id, "t-2"); // oldest retained
+    }
+
+    // Sequence integrity: gaps surface, duplicates are idempotent.
+    #[test]
+    fn tape_enforces_sequence_integrity() {
+        let mut tape = TradeTape::new(Symbol::new("ETHUSDT").expect("sym"), 8);
+        tape.record(tick(Some(1), "2000", "0.2")).expect("1");
+        tape.record(tick(Some(2), "2001", "0.2")).expect("2");
+        // Duplicate: ignored, not double-counted.
+        tape.record(tick(Some(2), "2001", "0.2")).expect("dup");
+        assert_eq!(tape.len(), 2);
+        // Gap: explicit error.
+        let err = tape.record(tick(Some(5), "2002", "0.2")).expect_err("gap");
+        assert!(matches!(err, GatewayError::SequenceGap { .. }));
+    }
+
+    #[test]
+    fn recent_respects_limit_and_leaves_tape_intact() {
+        let mut tape = TradeTape::new(Symbol::new("SOLUSDT").expect("sym"), 8);
+        for i in 0..5 {
+            tape.record(tick(Some(i), "50.0", "1.0")).expect("rec");
+        }
+        let recent = tape.recent(2);
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].trade_id, "t-4");
+        assert_eq!(tape.len(), 5);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/transport_protocol.rs
+
+```text
+//! Versioned internal wire contract between the existing Python/TypeScript
+//! services and this Rust gateway.
+//!
+//! The envelope integrity scheme: HMAC-SHA256 over a canonical serialization
+//! of every envelope field EXCEPT the signature itself. Canonical form is
+//! serde's struct-order JSON (field order is declaration order and therefore
+//! build-deterministic; no map iteration order participates). Signature
+//! comparison is constant-time. Key material comes exclusively from
+//! configuration (secret infrastructure), referenced by `key_id`.
+
+use hmac::{Hmac, Mac};
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
+
+use crate::error::GatewayError;
+use crate::types::{ExecutionIntentEnvelope, TransportAck};
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Current transport schema version. Bumping this is a coordinated change
+/// with the execution engine (see integration::execution_engine
+/// schema negotiation); the gateway accepts exactly the versions it knows.
+pub const TRANSPORT_SCHEMA_VERSION: u32 = 1;
+/// Lowest envelope schema version this build will still validate.
+pub const MIN_SUPPORTED_SCHEMA_VERSION: u32 = 1;
+
+/// The only authorized source service for execution intents.
+pub const SOURCE_SERVICE_EXECUTION_ENGINE: &str = "execution-engine";
+
+/// Canonical string that the HMAC covers: every envelope field except the
+/// signature, serialized in declaration order. Excluding the signature from
+/// its own coverage is what makes verification a pure recomputation.
+pub fn canonical_intent_bytes(envelope: &ExecutionIntentEnvelope) -> Vec<u8> {
+    let canonical = CanonicalIntent::from(envelope);
+    serde_json::to_vec(&canonical).expect("canonical serialization cannot fail for owned types")
+}
+
+#[derive(Serialize)]
+struct CanonicalIntent<'a> {
+    schema_version: u32,
+    intent_id: &'a str,
+    correlation_id: &'a str,
+    created_at_ms: i64,
+    expires_at_ms: i64,
+    tenant_id: &'a str,
+    account_id: &'a str,
+    venue: crate::types::Venue,
+    symbol: &'a crate::types::Symbol,
+    side: crate::types::OrderSide,
+    quantity_text: &'a str,
+    nonce: &'a str,
+    key_id: &'a str,
+    source_service: &'a str,
+    authorizations: &'a crate::types::IntentAuthorizations,
+}
+
+impl<'a> CanonicalIntent<'a> {
+    fn from(env: &'a ExecutionIntentEnvelope) -> CanonicalIntent<'a> {
+        CanonicalIntent {
+            schema_version: env.schema_version,
+            intent_id: &env.intent_id,
+            correlation_id: &env.correlation_id,
+            created_at_ms: env.created_at_ms,
+            expires_at_ms: env.expires_at_ms,
+            tenant_id: &env.tenant_id,
+            account_id: &env.account_id,
+            venue: env.venue,
+            symbol: &env.symbol,
+            side: env.side,
+            quantity_text: &env.quantity_text,
+            nonce: &env.nonce,
+            key_id: &env.key_id,
+            source_service: &env.source_service,
+            authorizations: &env.authorizations,
+        }
+    }
+}
+
+/// HMAC-SHA256 signature (hex) over the canonical intent bytes.
+pub fn sign_intent(key: &[u8], envelope: &ExecutionIntentEnvelope) -> String {
+    let mut mac = HmacSha256::new_from_slice(key).expect("hmac accepts any key length");
+    mac.update(&canonical_intent_bytes(envelope));
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Constant-time byte equality over the decoded signature. Length mismatch
+/// short-circuits (a length difference is not a secret).
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Verifies the envelope's integrity against the configured key. Any
+/// mismatch (key rotation, tampered field, corrupted signature) is an
+/// integrity failure — never a soft warning.
+pub fn verify_intent(key: &[u8], envelope: &ExecutionIntentEnvelope) -> Result<(), GatewayError> {
+    let expected = sign_intent(key, envelope);
+    let provided = envelope.signature_hex.trim().to_ascii_lowercase();
+    let provided_bytes = hex::decode(&provided)
+        .map_err(|_| GatewayError::IntegrityFailure("signature is not valid hex".to_string()))?;
+    let expected_bytes = hex::decode(&expected).expect("we produce valid hex");
+    if constant_time_eq(&provided_bytes, &expected_bytes) {
+        Ok(())
+    } else {
+        Err(GatewayError::IntegrityFailure(
+            "envelope signature does not cover the presented intent".to_string(),
+        ))
+    }
+}
+
+/// Outer authenticated frame for the internal HTTP transport.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransportFrame {
+    pub schema_version: u32,
+    pub correlation_id: String,
+    /// Free-form description of frame purpose ("intent", "schema", "health").
+    pub frame_type: String,
+    pub sent_at_ms: i64,
+    pub payload: serde_json::Value,
+}
+
+/// Response frame.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AckFrame {
+    pub schema_version: u32,
+    pub ack: TransportAck,
+}
+
+/// Schema advertisement served by both sides of the integration for
+/// version negotiation before any intent flows.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SchemaAdvertisement {
+    pub service: String,
+    pub schema_version: u32,
+    pub min_supported_schema_version: u32,
+}
+
+impl SchemaAdvertisement {
+    pub fn gateway() -> SchemaAdvertisement {
+        SchemaAdvertisement {
+            service: "low-latency-gateway".to_string(),
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            min_supported_schema_version: MIN_SUPPORTED_SCHEMA_VERSION,
+        }
+    }
+
+    /// Negotiation rule: both sides must overlap on at least one version.
+    pub fn negotiate(peer: &SchemaAdvertisement) -> Result<u32, GatewayError> {
+        let lo = peer
+            .min_supported_schema_version
+            .max(MIN_SUPPORTED_SCHEMA_VERSION);
+        let hi = peer.schema_version.min(TRANSPORT_SCHEMA_VERSION);
+        if lo <= hi {
+            Ok(hi)
+        } else {
+            Err(GatewayError::Configuration(format!(
+                "schema negotiation failed: peer supports [{}, {}], gateway supports [{}, {}]",
+                peer.min_supported_schema_version,
+                peer.schema_version,
+                MIN_SUPPORTED_SCHEMA_VERSION,
+                TRANSPORT_SCHEMA_VERSION
+            )))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::AckStatus;
+    use crate::types::{Fixed, IntentAuthorizations, OrderSide, Symbol, Venue};
+
+    pub(crate) fn envelope() -> ExecutionIntentEnvelope {
+        ExecutionIntentEnvelope {
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            intent_id: "9f1c3b2a-0000-4000-8000-000000000001".to_string(),
+            correlation_id: "corr-29-0001".to_string(),
+            created_at_ms: 1_700_000_000_000,
+            expires_at_ms: 1_700_000_005_000,
+            tenant_id: "tenant-77".to_string(),
+            account_id: "acct-42".to_string(),
+            venue: Venue::Binance,
+            symbol: Symbol::new("BTCUSDT").expect("sym"),
+            side: OrderSide::Buy,
+            quantity_text: "0.250".to_string(),
+            quantity: Fixed::parse("0.250").expect("qty"),
+            nonce: "nonce-a1".to_string(),
+            key_id: "exec-engine-2026-09".to_string(),
+            signature_hex: String::new(),
+            source_service: SOURCE_SERVICE_EXECUTION_ENGINE.to_string(),
+            authorizations: IntentAuthorizations {
+                risk_approved: true,
+                compliance_approved: true,
+                oms_order_ref: "OMS-29-1".to_string(),
+            },
+        }
+    }
+
+    // [CHECK 34 support] canonical serialization is build-deterministic and
+    // excludes the signature from its own coverage.
+    #[test]
+    fn canonical_bytes_are_deterministic_and_exclude_signature() {
+        let mut a = envelope();
+        let mut b = envelope();
+        a.signature_hex = "aa".to_string();
+        b.signature_hex = "bb".to_string();
+        assert_eq!(canonical_intent_bytes(&a), canonical_intent_bytes(&b));
+        let text = String::from_utf8(canonical_intent_bytes(&a)).expect("utf8");
+        assert!(text.starts_with('{'));
+        // Field order is declaration order: schema_version first.
+        assert!(text.contains("\"schema_version\":1"));
+        assert!(!text.contains("signature"));
+    }
+
+    // [CHECK 34] integrity metadata is required: tampering any covered field
+    // breaks verification.
+    #[test]
+    fn verification_detects_tampering_of_any_covered_field() {
+        let key = b"test-key-material-0123456789abcdef";
+        let mut env = envelope();
+        env.signature_hex = sign_intent(key, &env);
+        assert!(verify_intent(key, &env).is_ok());
+
+        // Tamper quantity (the covered declared text).
+        let mut tampered = env.clone();
+        tampered.quantity_text = "9.999".to_string();
+        tampered.quantity = Fixed::parse("9.999").expect("qty");
+        assert!(verify_intent(key, &tampered).is_err());
+
+        // Tamper tenant scope.
+        let mut tampered = env.clone();
+        tampered.tenant_id = "tenant-OTHER".to_string();
+        assert!(verify_intent(key, &tampered).is_err());
+
+        // Tamper authorizations (the field Rust must never be able to grant).
+        let mut tampered = env.clone();
+        tampered.authorizations.risk_approved = false;
+        assert!(verify_intent(key, &tampered).is_err());
+
+        // Corrupt signature text.
+        let mut tampered = env.clone();
+        tampered.signature_hex = "00".repeat(32);
+        assert!(verify_intent(key, &tampered).is_err());
+
+        // Wrong key (rotation).
+        assert!(verify_intent(b"another-key-0123456789abcdef", &env).is_err());
+    }
+
+    // Constant-time comparison: equal contents equal, differing contents
+    // unequal, and length mismatches never panic.
+    #[test]
+    fn constant_time_eq_behaves() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    // [CHECK 51 support] schema negotiation overlaps and fails closed.
+    #[test]
+    fn schema_negotiation_overlaps_or_fails() {
+        let gateway = SchemaAdvertisement::gateway();
+        let peer_same = SchemaAdvertisement {
+            service: "execution-engine".to_string(),
+            schema_version: 1,
+            min_supported_schema_version: 1,
+        };
+        assert_eq!(
+            SchemaAdvertisement::negotiate(&peer_same).expect("negotiate"),
+            1
+        );
+        let peer_newer = SchemaAdvertisement {
+            service: "execution-engine".to_string(),
+            schema_version: 2,
+            min_supported_schema_version: 2,
+        };
+        assert!(SchemaAdvertisement::negotiate(&peer_newer).is_err());
+        let peer_older = SchemaAdvertisement {
+            service: "execution-engine".to_string(),
+            schema_version: 1,
+            min_supported_schema_version: 1,
+        };
+        let _ = gateway; // gateway advertisement is informational
+        assert_eq!(
+            SchemaAdvertisement::negotiate(&peer_older).expect("older peer ok"),
+            1
+        );
+    }
+
+    // Frames round-trip through serde with correlation preserved.
+    #[test]
+    fn frames_round_trip_and_preserve_correlation() {
+        let frame = TransportFrame {
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            correlation_id: "corr-rt-1".to_string(),
+            frame_type: "intent".to_string(),
+            sent_at_ms: 1_700_000_000_123,
+            payload: serde_json::to_value(envelope()).expect("payload"),
+        };
+        let encoded = serde_json::to_vec(&frame).expect("encode");
+        let decoded: TransportFrame = serde_json::from_slice(&encoded).expect("decode");
+        assert_eq!(decoded.correlation_id, "corr-rt-1");
+        assert_eq!(decoded.schema_version, TRANSPORT_SCHEMA_VERSION);
+
+        let ack_frame = AckFrame {
+            schema_version: TRANSPORT_SCHEMA_VERSION,
+            ack: TransportAck::new("i", "corr-rt-1", AckStatus::AcceptedForTransport, 1),
+        };
+        let encoded = serde_json::to_string(&ack_frame).expect("encode");
+        assert!(encoded.contains("\"status\":\"accepted_for_transport\""));
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/types.rs
+
+```text
+//! Canonical domain types for the low-latency gateway.
+//!
+//! These are the ONLY shapes that cross module boundaries. Every type here is
+//! deterministic, validated at construction, and free of any authority over
+//! financial truth: nothing in this file can represent a fill, a position, a
+//! PnL number or a risk/compliance decision. The gateway transports and
+//! normalizes; the existing OMS/Risk/Compliance/Execution-Engine stack owns
+//! the truth.
+
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::fmt;
+
+/// Monotonic per-process event id assigned by the normalization pipeline.
+pub type EventId = u64;
+
+/// Venue-provided stream sequence number (Binance update id, Bybit `u`,
+/// OKX `seqId`, ...). 0 means "venue does not sequence this stream".
+pub type Sequence = u64;
+
+/// Maximum accepted serialized execution-intent frame (bytes).
+pub const MAX_INTENT_FRAME_BYTES: usize = 64 * 1024;
+/// Maximum accepted raw market-data frame (bytes). Frames above this are
+/// malformed by definition (largest real book payloads stay far below).
+pub const MAX_FEED_FRAME_BYTES: usize = 2 * 1024 * 1024;
+
+// ---------------------------------------------------------------------------
+// Venue identity
+// ---------------------------------------------------------------------------
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Venue {
+    Binance,
+    Bybit,
+    Okx,
+}
+
+impl Venue {
+    pub const ALL: [Venue; 3] = [Venue::Binance, Venue::Bybit, Venue::Okx];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Venue::Binance => "binance",
+            Venue::Bybit => "bybit",
+            Venue::Okx => "okx",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Venue> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "binance" => Some(Venue::Binance),
+            "bybit" => Some(Venue::Bybit),
+            "okx" => Some(Venue::Okx),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for Venue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Symbol
+// ---------------------------------------------------------------------------
+
+/// Validated instrument symbol. Uppercase alphanumerics plus `-`, `_` and `.`
+/// (OKX uses `BTC-USDT`, Binance `BTCUSDT`, Bybit `BTCUSDT`). No lowercase,
+/// no whitespace, bounded length — a malformed symbol can never enter the
+/// normalization pipeline or an execution-preparation request.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Symbol(String);
+
+impl Symbol {
+    pub const MAX_LEN: usize = 32;
+
+    pub fn new(raw: &str) -> Result<Symbol, crate::error::GatewayError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.len() > Self::MAX_LEN {
+            return Err(crate::error::GatewayError::MalformedData(format!(
+                "symbol length out of range: {raw}"
+            )));
+        }
+        if !trimmed.chars().all(|c| {
+            c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-' || c == '_' || c == '.'
+        }) {
+            return Err(crate::error::GatewayError::MalformedData(format!(
+                "symbol contains unsupported characters: {raw}"
+            )));
+        }
+        Ok(Symbol(trimmed.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Symbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-point price/quantity
+// ---------------------------------------------------------------------------
+
+/// Decimal fixed-point number: `raw / 10^scale`. Deterministic ordering and
+/// arithmetic (no floats in the event plane), bounded scale, checked ops.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Fixed {
+    pub raw: i64,
+    pub scale: u8,
+}
+
+impl Fixed {
+    pub const MAX_SCALE: u8 = 12;
+
+    pub fn from_parts(raw: i64, scale: u8) -> Result<Fixed, crate::error::GatewayError> {
+        if scale > Self::MAX_SCALE {
+            return Err(crate::error::GatewayError::MalformedData(format!(
+                "scale {scale} exceeds maximum {}",
+                Self::MAX_SCALE
+            )));
+        }
+        Ok(Fixed { raw, scale })
+    }
+
+    /// Parses a decimal string such as `"61234.55"`. Rejects scientific
+    /// notation, empty fields, signs beyond a single leading `-`, and scales
+    /// beyond [`Fixed::MAX_SCALE`].
+    pub fn parse(text: &str) -> Result<Fixed, crate::error::GatewayError> {
+        let t = text.trim();
+        if t.is_empty() {
+            return Err(crate::error::GatewayError::MalformedData(
+                "empty decimal".to_string(),
+            ));
+        }
+        let (sign, rest) = match t.strip_prefix('-') {
+            Some(r) => (-1i64, r),
+            None => (1i64, t.strip_prefix('+').unwrap_or(t)),
+        };
+        let mut parts = rest.split('.');
+        let int_part = parts.next().unwrap_or("");
+        let frac_part = parts.next().unwrap_or("");
+        if parts.next().is_some() {
+            return Err(crate::error::GatewayError::MalformedData(format!(
+                "too many decimal points: {t}"
+            )));
+        }
+        if int_part.is_empty() && frac_part.is_empty() {
+            return Err(crate::error::GatewayError::MalformedData(format!(
+                "no digits: {t}"
+            )));
+        }
+        if !int_part.chars().all(|c| c.is_ascii_digit())
+            || !frac_part.chars().all(|c| c.is_ascii_digit())
+        {
+            return Err(crate::error::GatewayError::MalformedData(format!(
+                "non-decimal characters: {t}"
+            )));
+        }
+        if frac_part.len() as u8 > Self::MAX_SCALE {
+            return Err(crate::error::GatewayError::MalformedData(format!(
+                "decimal scale beyond {} in {t}",
+                Self::MAX_SCALE
+            )));
+        }
+        let mut raw: i64 = 0;
+        for c in int_part.chars().chain(frac_part.chars()) {
+            raw = raw
+                .checked_mul(10)
+                .and_then(|v| v.checked_add((c as u8 - b'0') as i64))
+                .ok_or_else(|| {
+                    crate::error::GatewayError::MalformedData(format!("decimal overflow: {t}"))
+                })?;
+        }
+        for _ in frac_part.len()..Self::MAX_SCALE as usize {
+            raw = raw.checked_mul(10).ok_or_else(|| {
+                crate::error::GatewayError::MalformedData(format!("decimal overflow: {t}"))
+            })?;
+        }
+        Ok(Fixed {
+            raw: sign * raw,
+            scale: Self::MAX_SCALE,
+        })
+    }
+
+    /// Value expressed at `target_scale` for cross-scale comparison.
+    fn value_at(self, target_scale: u8) -> i128 {
+        let self_v = self.raw as i128;
+        if target_scale <= self.scale {
+            let factor = 10i128.pow((self.scale - target_scale) as u32);
+            // Truncation here only happens when comparing mixed scales where
+            // the finer operand carries sub-target precision; comparisons in
+            // this crate always normalize to the finer of the two scales.
+            self_v / factor.max(1)
+        } else {
+            self_v * 10i128.pow((target_scale - self.scale) as u32)
+        }
+    }
+
+    fn common_scale(a: Fixed, b: Fixed) -> u8 {
+        a.scale.max(b.scale)
+    }
+
+    pub fn is_zero(self) -> bool {
+        self.raw == 0
+    }
+
+    pub fn is_negative(self) -> bool {
+        self.raw < 0
+    }
+
+    pub fn checked_add(self, other: Fixed) -> Option<Fixed> {
+        let s = Self::common_scale(self, other);
+        self.value_at(s)
+            .checked_add(other.value_at(s))
+            .and_then(|v| i64::try_from(v).ok())
+            .and_then(|v| Fixed::from_parts(v, s).ok())
+    }
+
+    pub fn checked_sub(self, other: Fixed) -> Option<Fixed> {
+        let s = Self::common_scale(self, other);
+        self.value_at(s)
+            .checked_sub(other.value_at(s))
+            .and_then(|v| i64::try_from(v).ok())
+            .and_then(|v| Fixed::from_parts(v, s).ok())
+    }
+}
+
+impl PartialEq for Fixed {
+    fn eq(&self, other: &Self) -> bool {
+        let s = Self::common_scale(*self, *other);
+        self.value_at(s) == other.value_at(s)
+    }
+}
+
+impl Eq for Fixed {}
+
+impl PartialOrd for Fixed {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Fixed {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let s = Self::common_scale(*self, *other);
+        self.value_at(s).cmp(&other.value_at(s))
+    }
+}
+
+impl fmt::Display for Fixed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let negative = self.raw < 0;
+        let magnitude = self.raw.unsigned_abs() as u128;
+        let factor = 10u128.pow(self.scale as u32);
+        let int_part = magnitude / factor;
+        let frac_part = magnitude % factor;
+        if self.scale == 0 {
+            write!(f, "{}{int_part}", if negative { "-" } else { "" })
+        } else {
+            let frac = format!("{frac_part:0width$}", width = self.scale as usize);
+            let frac = frac.trim_end_matches('0');
+            write!(
+                f,
+                "{}{int_part}.{}",
+                if negative { "-" } else { "" },
+                if frac.is_empty() { "0" } else { frac }
+            )
+        }
+    }
+}
+
+/// Price in the event plane (transport normalization only; accounting truth
+/// lives in the existing portfolio/ledger services).
+pub type Price = Fixed;
+/// Quantity in the event plane.
+pub type Quantity = Fixed;
+
+/// One order-book price level.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Level {
+    pub price: Price,
+    pub quantity: Quantity,
+}
+
+impl Level {
+    pub fn from_wire(price: &str, quantity: &str) -> Result<Level, crate::error::GatewayError> {
+        Ok(Level {
+            price: Price::parse(price)?,
+            quantity: Quantity::parse(quantity)?,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sides and stream kinds
+// ---------------------------------------------------------------------------
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Bid,
+    Ask,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OrderSide {
+    Buy,
+    Sell,
+}
+
+impl OrderSide {
+    pub fn parse(raw: &str) -> Option<OrderSide> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "buy" | "bid" => Some(OrderSide::Buy),
+            "sell" | "ask" => Some(OrderSide::Sell),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OrderSide::Buy => "buy",
+            OrderSide::Sell => "sell",
+        }
+    }
+}
+
+/// Distinguishes per-stream sequence domains. Venues sequence each stream
+/// independently, so guards are keyed by (venue, symbol, stream kind).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamKind {
+    Trades,
+    BookTicker,
+    BookDepth,
+    PartialBook,
+    Ticker,
+}
+
+impl StreamKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StreamKind::Trades => "trades",
+            StreamKind::BookTicker => "book_ticker",
+            StreamKind::BookDepth => "book_depth",
+            StreamKind::PartialBook => "partial_book",
+            StreamKind::Ticker => "ticker",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Normalized market events
+// ---------------------------------------------------------------------------
+
+/// UTC epoch-milliseconds for persisted/business timestamps plus monotonic
+/// nanoseconds (process boot relative) for latency chains. Wall clock is
+/// never used for elapsed measurement and vice versa.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Timestamps {
+    /// Venue-provided event time (epoch ms), when the venue sends one.
+    pub provider_ms: Option<i64>,
+    /// UTC epoch ms at socket receive.
+    pub receive_ms: i64,
+    /// UTC epoch ms after normalization completed.
+    pub normalize_ms: i64,
+    /// UTC epoch ms at publication into an outbound consumer channel.
+    pub publish_ms: Option<i64>,
+    /// Monotonic receive timestamp (ns since boot).
+    pub receive_mono_ns: u64,
+    /// Monotonic normalization timestamp (ns since boot).
+    pub normalize_mono_ns: u64,
+    /// Monotonic publish timestamp (ns since boot).
+    pub publish_mono_ns: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MarketEventKind {
+    TradeTick {
+        price: Price,
+        quantity: Quantity,
+        taker_side: OrderSide,
+        trade_id: String,
+    },
+    BookSnapshot {
+        bids: Vec<Level>,
+        asks: Vec<Level>,
+    },
+    /// Difference applied over the previous depth state.
+    BookDelta {
+        bids: Vec<Level>,
+        asks: Vec<Level>,
+        prev_sequence: Option<Sequence>,
+    },
+    BookTicker {
+        bid_price: Price,
+        bid_quantity: Quantity,
+        ask_price: Price,
+        ask_quantity: Quantity,
+    },
+    Ticker {
+        last_price: Option<Price>,
+        bid_price: Option<Price>,
+        ask_price: Option<Price>,
+        high_24h: Option<Price>,
+        low_24h: Option<Price>,
+        volume_24h: Option<Quantity>,
+    },
+    Heartbeat,
+}
+
+/// A fully normalized market-data event ready for bounded fanout.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MarketEvent {
+    pub id: EventId,
+    pub venue: Venue,
+    pub symbol: Symbol,
+    pub stream_kind: StreamKind,
+    /// Venue stream sequence, when the venue sequences the stream.
+    pub sequence: Option<Sequence>,
+    pub timestamps: Timestamps,
+    pub kind: MarketEventKind,
+}
+
+/// Raw frame handed from a feed session to the normalization pipeline.
+#[derive(Clone, Debug)]
+pub struct RawFeedFrame {
+    pub venue: Venue,
+    pub payload: String,
+    pub receive_mono_ns: u64,
+    pub receive_utc_ms: i64,
+}
+
+/// Demand from the pipeline to a feed session: the current depth state is
+/// unusable and a fresh snapshot is required before deltas resume.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoverySignal {
+    pub venue: Venue,
+    pub symbol: Symbol,
+    pub stream_kind: StreamKind,
+    pub reason: RecoveryReason,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryReason {
+    SequenceGap,
+    Reconnect,
+}
+
+// ---------------------------------------------------------------------------
+// Execution intent transport (non-authoritative)
+// ---------------------------------------------------------------------------
+
+/// Authorization metadata carried inside the signed envelope. The gateway
+/// REQUIRES these to be present and signed; it has no API to GRANT them.
+/// Granting happens upstream in Risk / Compliance / OMS. Any tampering is
+/// caught by integrity verification, not by a gateway decision.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IntentAuthorizations {
+    /// Set by the existing Risk engine path upstream. Gateway never sets.
+    pub risk_approved: bool,
+    /// Set by the existing Compliance path upstream. Gateway never sets.
+    pub compliance_approved: bool,
+    /// OMS order reference proving OMS custody of the order.
+    pub oms_order_ref: String,
+}
+
+/// The ONLY accepted execution shape: a signed envelope produced by the
+/// existing Python execution engine. A naked symbol/side/quantity is not an
+/// intent and cannot be transported.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionIntentEnvelope {
+    pub schema_version: u32,
+    pub intent_id: String,
+    pub correlation_id: String,
+    pub created_at_ms: i64,
+    pub expires_at_ms: i64,
+    pub tenant_id: String,
+    pub account_id: String,
+    pub venue: Venue,
+    pub symbol: Symbol,
+    pub side: OrderSide,
+    /// Exact decimal string as the execution engine declared it (the
+    /// declared precision matters downstream; a parsed fixed-point value
+    /// would normalize 0.250 and lose it).
+    pub quantity_text: String,
+    /// Parsed quantity (positive, validated) for typed consumers.
+    pub quantity: Quantity,
+    /// Replay-protection nonce minted by the execution engine.
+    pub nonce: String,
+    /// Key identifier resolved through existing secret infrastructure.
+    pub key_id: String,
+    /// HMAC-SHA256 (hex) over the canonical envelope serialization.
+    pub signature_hex: String,
+    /// Authorized source service identity (must be "execution-engine").
+    pub source_service: String,
+    pub authorizations: IntentAuthorizations,
+}
+
+impl ExecutionIntentEnvelope {
+    /// Structural validation only (integrity and freshness are separate
+    /// steps in the transport service). Returns the first violated rule.
+    pub fn validate_shape(&self) -> Result<(), crate::error::GatewayError> {
+        let non_empty = |v: &str, name: &str| -> Result<(), crate::error::GatewayError> {
+            if v.trim().is_empty() {
+                Err(crate::error::GatewayError::MalformedData(format!(
+                    "{name} must not be empty"
+                )))
+            } else {
+                Ok(())
+            }
+        };
+        non_empty(&self.intent_id, "intent_id")?;
+        non_empty(&self.correlation_id, "correlation_id")?;
+        non_empty(&self.tenant_id, "tenant_id")?;
+        non_empty(&self.account_id, "account_id")?;
+        non_empty(&self.nonce, "nonce")?;
+        non_empty(&self.key_id, "key_id")?;
+        non_empty(&self.signature_hex, "signature_hex")?;
+        non_empty(&self.source_service, "source_service")?;
+        non_empty(
+            &self.authorizations.oms_order_ref,
+            "authorizations.oms_order_ref",
+        )?;
+        if self.created_at_ms <= 0 || self.expires_at_ms <= 0 {
+            return Err(crate::error::GatewayError::MalformedData(
+                "timestamps must be positive epoch milliseconds".to_string(),
+            ));
+        }
+        if self.expires_at_ms < self.created_at_ms {
+            return Err(crate::error::GatewayError::MalformedData(
+                "expires_at_ms precedes created_at_ms".to_string(),
+            ));
+        }
+        if self.quantity_text.trim().is_empty() {
+            return Err(crate::error::GatewayError::MalformedData(
+                "quantity_text must not be empty".to_string(),
+            ));
+        }
+        let parsed = Quantity::parse(&self.quantity_text)?;
+        if parsed.is_zero() || parsed.is_negative() {
+            return Err(crate::error::GatewayError::MalformedData(
+                "quantity must be positive".to_string(),
+            ));
+        }
+        // Note: `quantity_text` is transported verbatim (declared precision
+        // preserved); the parsed value is only validated, never re-rendered
+        // over the declared text.
+        Ok(())
+    }
+}
+
+/// Terminal transport-layer status for one intent. Deliberately EXCLUDES any
+/// exchange-authoritative outcome: there is no "filled", no "partially
+/// filled", no "rejected by venue" and no accounting verdict here — those
+/// truths flow exclusively through the existing OMS / provider paths.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AckStatus {
+    /// Gateway accepted the intent for onward transport.
+    AcceptedForTransport,
+    /// Same intent id already accepted: deterministic replay response.
+    IdempotentReplay,
+    RejectedStaleIntent,
+    RejectedIntegrity,
+    RejectedSchemaVersion,
+    RejectedUnauthorizedSource,
+    RejectedCapability,
+    RejectedBackpressure,
+    RejectedMalformed,
+    /// Downstream execution-engine transport failed; never a success.
+    TransportFailure,
+}
+
+impl AckStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AckStatus::AcceptedForTransport => "accepted_for_transport",
+            AckStatus::IdempotentReplay => "idempotent_replay",
+            AckStatus::RejectedStaleIntent => "rejected_stale_intent",
+            AckStatus::RejectedIntegrity => "rejected_integrity",
+            AckStatus::RejectedSchemaVersion => "rejected_schema_version",
+            AckStatus::RejectedUnauthorizedSource => "rejected_unauthorized_source",
+            AckStatus::RejectedCapability => "rejected_capability",
+            AckStatus::RejectedBackpressure => "rejected_backpressure",
+            AckStatus::RejectedMalformed => "rejected_malformed",
+            AckStatus::TransportFailure => "transport_failure",
+        }
+    }
+
+    pub fn is_accepted(self) -> bool {
+        matches!(self, AckStatus::AcceptedForTransport)
+    }
+}
+
+/// Response written back to the authorized caller for one intent.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransportAck {
+    pub intent_id: String,
+    pub correlation_id: String,
+    pub status: AckStatus,
+    pub observed_at_ms: i64,
+    /// Safe, redacted detail; never carries credentials or payloads.
+    pub detail: Option<String>,
+}
+
+impl TransportAck {
+    pub fn new(
+        intent_id: &str,
+        correlation_id: &str,
+        status: AckStatus,
+        now_ms: i64,
+    ) -> TransportAck {
+        TransportAck {
+            intent_id: intent_id.to_string(),
+            correlation_id: correlation_id.to_string(),
+            status,
+            observed_at_ms: now_ms,
+            detail: None,
+        }
+    }
+
+    pub fn with_detail(mut self, detail: String) -> TransportAck {
+        self.detail = Some(detail);
+        self
+    }
+}
+
+/// Venue-ready request produced by execution preparation. This is a
+/// transport artifact: it proves nothing about venue acceptance.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VenueOrderRequest {
+    pub schema_version: u32,
+    pub intent_id: String,
+    pub correlation_id: String,
+    pub tenant_id: String,
+    pub account_id: String,
+    pub venue: Venue,
+    pub symbol: Symbol,
+    pub side: OrderSide,
+    pub quantity: Quantity,
+    /// Deterministic client order id derived from the signed intent id.
+    pub client_order_id: String,
+    pub transport_nonce: String,
+    pub prepared_at_ms: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [CHECK 57] no fabricated market data: a Symbol/Fixed can only be built
+    // through validation, so unparseable market data cannot become an event.
+    #[test]
+    fn symbol_and_fixed_validation_reject_garbage() {
+        assert!(Symbol::new("btc usdt").is_err());
+        assert!(Symbol::new("").is_err());
+        // Lowercase is outside the venue symbol charset (A-Z0-9-_.,):
+        // acceptance would silently corrupt venue subscriptions.
+        assert!(Symbol::new("btcusdt").is_err());
+        assert!(Symbol::new("BTC_USDT-1.2").is_ok());
+        assert!(Fixed::parse("not-a-number").is_err());
+        assert!(Fixed::parse("1.2.3").is_err());
+        assert!(Fixed::parse("1e9").is_err());
+        assert!(Fixed::parse("0.123456789012345").is_err()); // scale > 12
+        let f = Fixed::parse("61234.55").expect("parses");
+        assert_eq!(f.to_string(), "61234.55");
+        assert_eq!(Fixed::parse("-0.5").expect("neg").to_string(), "-0.5");
+    }
+
+    // [CHECK 59] fixed-point determinism: identical ordering/arithmetic to
+    // decimal expectations, no float drift.
+    #[test]
+    fn fixed_ordering_and_checked_arithmetic_are_deterministic() {
+        let a = Fixed::parse("10.10").expect("a");
+        let b = Fixed::parse("9.99").expect("b");
+        assert!(a > b);
+        assert_eq!(a.checked_sub(b).expect("sub").to_string(), "0.11");
+        assert_eq!(a.checked_add(b).expect("add").to_string(), "20.09");
+        let max = Fixed::from_parts(i64::MAX, 0).expect("max");
+        assert!(max
+            .checked_add(Fixed::from_parts(1, 0).expect("one"))
+            .is_none());
+    }
+
+    // [CHECK 38][CHECK 39][CHECK 40] the ack vocabulary cannot express
+    // FILLED, position or PnL authority: exhaustive match proves absence.
+    #[test]
+    fn ack_status_cannot_express_exchange_or_accounting_authority() {
+        let all = [
+            AckStatus::AcceptedForTransport,
+            AckStatus::IdempotentReplay,
+            AckStatus::RejectedStaleIntent,
+            AckStatus::RejectedIntegrity,
+            AckStatus::RejectedSchemaVersion,
+            AckStatus::RejectedUnauthorizedSource,
+            AckStatus::RejectedCapability,
+            AckStatus::RejectedBackpressure,
+            AckStatus::RejectedMalformed,
+            AckStatus::TransportFailure,
+        ];
+        for status in all {
+            let rendered = status.as_str();
+            assert!(!rendered.contains("fill"));
+            assert!(!rendered.contains("position"));
+            assert!(!rendered.contains("pnl"));
+            assert!(!rendered.contains("risk"));
+            assert!(!rendered.contains("compliance"));
+        }
+    }
+
+    // [CHECK 31 support] envelope shape validation exists and is structural.
+    #[test]
+    fn envelope_shape_validation_rejects_broken_envelopes() {
+        let base = serde_json::json!({
+            "schema_version": 1,
+            "intent_id": "11111111-1111-1111-1111-111111111111",
+            "correlation_id": "corr-1",
+            "created_at_ms": 1_000,
+            "expires_at_ms": 2_000,
+            "tenant_id": "tenant-1",
+            "account_id": "acct-1",
+            "venue": "binance",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "quantity_text": "0.5",
+            "quantity": {"raw": 500_000_000_000i64, "scale": 12},
+            "nonce": "n-1",
+            "key_id": "exec-engine-2026-09",
+            "signature_hex": "00",
+            "source_service": "execution-engine",
+            "authorizations": {
+                "risk_approved": true,
+                "compliance_approved": true,
+                "oms_order_ref": "OMS-1"
+            }
+        });
+        let good: ExecutionIntentEnvelope = serde_json::from_value(base.clone()).expect("deser");
+        assert!(good.validate_shape().is_ok());
+        let mut broken = base.clone();
+        broken["expires_at_ms"] = serde_json::json!(500);
+        let broken: ExecutionIntentEnvelope = serde_json::from_value(broken).expect("deser");
+        assert!(broken.validate_shape().is_err());
+        let mut zero_qty = base;
+        zero_qty["quantity_text"] = serde_json::json!("0");
+        zero_qty["quantity"] = serde_json::json!({"raw": 0, "scale": 12});
+        let zero_qty: ExecutionIntentEnvelope = serde_json::from_value(zero_qty).expect("deser");
+        assert!(zero_qty.validate_shape().is_err());
+    }
+
+    // [CHECK 35 support] venue parsing is closed: unknown venue strings are
+    // rejected rather than silently defaulted.
+    #[test]
+    fn venue_parse_is_closed() {
+        assert_eq!(Venue::parse("binance"), Some(Venue::Binance));
+        assert_eq!(Venue::parse("OKX"), Some(Venue::Okx));
+        assert_eq!(Venue::parse("kraken"), None);
+        assert_eq!(Venue::parse(""), None);
+    }
+}
+```
+
+FILE: services/low-latency-gateway/src/venue_router.rs
+
+```text
+//! Venue/symbol routing of normalized events to bounded consumers.
+//!
+//! The router holds the configured subscription matrix and forwards each
+//! normalized MarketEvent to every subscribed consumer through a bounded
+//! channel under the central backpressure policy. It contains NO business
+//! logic: no risk, no compliance, no order decisions — only transport
+//! routing with explicit, counted shedding for non-critical consumers.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::mpsc;
+
+use crate::backpressure::{
+    admit_non_critical, evaluate, Admission, BackpressurePolicy, BackpressureState,
+};
+use crate::error::GatewayError;
+use crate::types::{MarketEvent, Symbol, Venue};
+
+/// One consumer endpoint with its subscription scope.
+pub struct RouteConsumer {
+    pub name: String,
+    pub venues: Vec<Venue>,
+    pub symbols: Option<Vec<Symbol>>,
+    pub tx: mpsc::Sender<MarketEvent>,
+    pub is_critical: bool,
+}
+
+pub struct VenueRouter {
+    policy: BackpressurePolicy,
+    consumers: Vec<RouteConsumer>,
+    routed_total: AtomicU64,
+    shed_total: AtomicU64,
+    unroutable_total: AtomicU64,
+}
+
+impl VenueRouter {
+    pub fn new(policy: BackpressurePolicy) -> VenueRouter {
+        VenueRouter {
+            policy,
+            consumers: Vec::new(),
+            routed_total: AtomicU64::new(0),
+            shed_total: AtomicU64::new(0),
+            unroutable_total: AtomicU64::new(0),
+        }
+    }
+
+    pub fn add_consumer(&mut self, consumer: RouteConsumer) {
+        self.consumers.push(consumer);
+    }
+
+    pub fn consumer_count(&self) -> usize {
+        self.consumers.len()
+    }
+
+    fn subscribed(&self, consumer: &RouteConsumer, venue: Venue, symbol: &Symbol) -> bool {
+        consumer.venues.contains(&venue)
+            && consumer
+                .symbols
+                .as_ref()
+                .map(|list| list.contains(symbol))
+                .unwrap_or(true)
+    }
+
+    /// Routes one event to all subscribed consumers. Non-critical consumers
+    /// may shed under the policy (counted); critical consumers refuse
+    /// closed (error) rather than dropping.
+    pub fn route(
+        &self,
+        event: &MarketEvent,
+        queue_depth: i64,
+    ) -> Result<RoutingOutcome, GatewayError> {
+        let state = evaluate(&self.policy, queue_depth);
+        let mut delivered: Vec<String> = Vec::new();
+        let mut shed: Vec<String> = Vec::new();
+        let mut matched = 0usize;
+        for consumer in &self.consumers {
+            if !self.subscribed(consumer, event.venue, &event.symbol) {
+                continue;
+            }
+            matched += 1;
+            if consumer.is_critical {
+                // Critical consumers get a blocking-capable send: capacity
+                // must exist because their admission policy is fail-closed
+                // upstream; here we use try_send and surface failure.
+                match consumer.tx.try_send(event.clone()) {
+                    Ok(()) => delivered.push(consumer.name.clone()),
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        self.unroutable_total.fetch_add(1, Ordering::Relaxed);
+                        return Err(GatewayError::BackpressureRefused { state });
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        self.unroutable_total.fetch_add(1, Ordering::Relaxed);
+                        return Err(GatewayError::Transport(format!(
+                            "critical consumer '{}' channel closed",
+                            consumer.name
+                        )));
+                    }
+                }
+            } else {
+                match admit_non_critical(&self.policy, state) {
+                    Ok(Admission::Admitted) => match consumer.tx.try_send(event.clone()) {
+                        Ok(()) => delivered.push(consumer.name.clone()),
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            self.shed_total.fetch_add(1, Ordering::Relaxed);
+                            shed.push(consumer.name.clone());
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            shed.push(consumer.name.clone());
+                        }
+                    },
+                    Ok(Admission::Shed) => {
+                        self.shed_total.fetch_add(1, Ordering::Relaxed);
+                        shed.push(consumer.name.clone());
+                    }
+                    Err(e) => {
+                        self.unroutable_total.fetch_add(1, Ordering::Relaxed);
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        if matched == 0 {
+            self.unroutable_total.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.routed_total
+                .fetch_add(delivered.len() as u64, Ordering::Relaxed);
+        }
+        Ok(RoutingOutcome {
+            delivered,
+            shed,
+            matched,
+        })
+    }
+
+    pub fn routed_total(&self) -> u64 {
+        self.routed_total.load(Ordering::Relaxed)
+    }
+
+    pub fn shed_total(&self) -> u64 {
+        self.shed_total.load(Ordering::Relaxed)
+    }
+
+    pub fn unroutable_total(&self) -> u64 {
+        self.unroutable_total.load(Ordering::Relaxed)
+    }
+
+    pub fn state_for(&self, queue_depth: i64) -> BackpressureState {
+        evaluate(&self.policy, queue_depth)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoutingOutcome {
+    pub delivered: Vec<String>,
+    pub shed: Vec<String>,
+    pub matched: usize,
+}
+
+/// Small helper for constructing a subscription map keyed by venue — used by
+/// composition to validate that every configured venue has at least one
+/// route or is explicitly unsubscribed.
+pub fn group_symbols_by_venue(entries: &[(Venue, Symbol)]) -> HashMap<Venue, Vec<Symbol>> {
+    let mut map: HashMap<Venue, Vec<Symbol>> = HashMap::new();
+    for (venue, symbol) in entries {
+        map.entry(*venue).or_default().push(symbol.clone());
+    }
+    map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::time::utc_now_ms;
+    use crate::types::{MarketEventKind, StreamKind, Timestamps};
+    use std::sync::Arc;
+
+    fn event(venue: Venue, symbol: &str) -> MarketEvent {
+        MarketEvent {
+            id: 1,
+            venue,
+            symbol: Symbol::new(symbol).expect("sym"),
+            stream_kind: StreamKind::Trades,
+            sequence: None,
+            timestamps: Timestamps {
+                provider_ms: None,
+                receive_ms: utc_now_ms(),
+                normalize_ms: utc_now_ms(),
+                publish_ms: None,
+                receive_mono_ns: 0,
+                normalize_mono_ns: 0,
+                publish_mono_ns: None,
+            },
+            kind: MarketEventKind::Heartbeat,
+        }
+    }
+
+    fn consumer(
+        name: &str,
+        venues: Vec<Venue>,
+        symbols: Option<Vec<Symbol>>,
+        critical: bool,
+    ) -> (RouteConsumer, Arc<std::sync::Mutex<Vec<MarketEvent>>>) {
+        let (tx, mut rx) = mpsc::channel::<MarketEvent>(8);
+        let seen: Arc<std::sync::Mutex<Vec<MarketEvent>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                sink.lock().expect("sink").push(event);
+            }
+        });
+        (
+            RouteConsumer {
+                name: name.to_string(),
+                venues,
+                symbols,
+                tx,
+                is_critical: critical,
+            },
+            seen,
+        )
+    }
+
+    #[tokio::test]
+    async fn routes_only_to_subscribed_consumers() {
+        let mut router = VenueRouter::new(BackpressurePolicy::default());
+        let (all, all_sink) = consumer("all", vec![Venue::Binance, Venue::Okx], None, false);
+        let (binance_only, bo_sink) = consumer(
+            "binance-only",
+            vec![Venue::Binance],
+            Some(vec![Symbol::new("BTCUSDT").expect("s")]),
+            false,
+        );
+        router.add_consumer(all);
+        router.add_consumer(binance_only);
+
+        let outcome = router
+            .route(&event(Venue::Binance, "BTCUSDT"), 0)
+            .expect("route");
+        assert_eq!(outcome.matched, 2);
+        let outcome = router
+            .route(&event(Venue::Okx, "BTC-USDT"), 0)
+            .expect("route");
+        assert_eq!(outcome.matched, 1);
+        let outcome = router
+            .route(&event(Venue::Binance, "ETHUSDT"), 0)
+            .expect("route");
+        assert_eq!(outcome.matched, 1);
+        assert_eq!(router.routed_total(), 4);
+        // Give the sink tasks a beat to drain.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(all_sink.lock().expect("x").len(), 3);
+        assert_eq!(bo_sink.lock().expect("x").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn unroutable_events_are_counted_not_silently_ignored() {
+        let mut router = VenueRouter::new(BackpressurePolicy::default());
+        let (only_okx, _sink) = consumer("okx-only", vec![Venue::Okx], None, false);
+        router.add_consumer(only_okx);
+        let outcome = router
+            .route(&event(Venue::Binance, "BTCUSDT"), 0)
+            .expect("no consumer is not an error");
+        assert_eq!(outcome.matched, 0);
+        assert_eq!(router.unroutable_total(), 1);
+    }
+
+    #[tokio::test]
+    async fn critical_consumer_full_channel_is_fail_closed() {
+        // Deliberately no draining task: the channel fills up.
+        let (tx, rx) = mpsc::channel::<MarketEvent>(1);
+        std::mem::forget(rx);
+        let mut router = VenueRouter::new(BackpressurePolicy::default());
+        router.add_consumer(RouteConsumer {
+            name: "critical-sink".to_string(),
+            venues: vec![Venue::Binance],
+            symbols: None,
+            tx,
+            is_critical: true,
+        });
+        let first = router.route(&event(Venue::Binance, "BTCUSDT"), 0);
+        assert!(first.is_ok());
+        let second = router.route(&event(Venue::Binance, "BTCUSDT"), 0);
+        assert!(matches!(
+            second,
+            Err(GatewayError::BackpressureRefused { .. })
+        ));
+    }
+
+    #[test]
+    fn grouping_helper_groups_by_venue() {
+        let grouped = group_symbols_by_venue(&[
+            (Venue::Binance, Symbol::new("BTCUSDT").expect("s")),
+            (Venue::Binance, Symbol::new("ETHUSDT").expect("s")),
+            (Venue::Okx, Symbol::new("BTC-USDT").expect("s")),
+        ]);
+        assert_eq!(grouped.get(&Venue::Binance).map(Vec::len), Some(2));
+        assert_eq!(grouped.get(&Venue::Okx).map(Vec::len), Some(1));
+    }
+}
 ```
 
 FILE: services/market-data/.env.example

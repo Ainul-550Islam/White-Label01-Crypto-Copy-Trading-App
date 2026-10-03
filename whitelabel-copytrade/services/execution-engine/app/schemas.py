@@ -4,8 +4,12 @@ Alias conventions match the trading engine: fields are snake_case
 internally, camelCase on the wire, populated by name on input so a worker
 cannot smuggle a mistyped payload past validation by coincidence.
 
-Everything here is a CONTROL shape. No model accepts an order to place;
-no model returns a credential, key or signed payload. Decimal-valued
+Everything here is a CONTROL shape, with one deliberate exception added in
+Phase 3: :class:`SubmitOrderRequest`, the OMS/copy-trading submission. It is
+served only by a runtime whose adapter is the paper simulator (build_runtime
+refuses EXECUTION_MODE=live), carries no credential, and names the API-side
+risk decision it was approved under. No model returns a credential, key or
+signed payload. Decimal-valued
 fields serialise as decimal STRINGS: a JSON float for a
 quantity or balance is a silent rounding decision, and money never takes
 one of those on the platform's behalf.
@@ -39,6 +43,10 @@ __all__ = [
     "RetentionRunResponse",
     "RetentionRunView",
     "StatusResponse",
+    "SubmitExposureView",
+    "SubmitOrderRequest",
+    "SubmitOrderResponse",
+    "SubmitSpecificationView",
     "VerifyResponse",
 ]
 
@@ -90,6 +98,155 @@ class CancelOrderRequest(_WireModel):
     symbol: str = Field(min_length=1, max_length=32)
     requested_by_user_id: str | None = Field(default=None, max_length=64)
     requested_at: str | None = Field(default=None, max_length=64)
+
+
+def _decimal_string(value: str, *, name: str, positive: bool = False, signed: bool = False) -> str:
+    """Validate a decimal STRING without converting it to a float, ever."""
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        parsed = Decimal(value)
+    except (InvalidOperation, TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a decimal string") from error
+    if not parsed.is_finite():
+        raise ValueError(f"{name} must be finite")
+    if positive and parsed <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    if not positive and not signed and parsed < 0:
+        raise ValueError(f"{name} must not be negative")
+    return value
+
+
+class SubmitSpecificationView(_WireModel):
+    """The instrument's trading rules, from the platform's TradingSymbol row.
+
+    Carried on the request because this runtime has no symbol catalogue of its
+    own; the engine still validates the order against it BEFORE any gate, so a
+    missing or inconsistent rule is a local rejection, never a guess.
+    """
+
+    base_asset: str = Field(min_length=1, max_length=16)
+    quote_asset: str = Field(min_length=1, max_length=16)
+    market_type: str = Field(pattern=r"^(SPOT|MARGIN|FUTURES_USDT|FUTURES_COIN)$")
+    price_tick: str
+    quantity_step: str
+    min_quantity: str
+    max_quantity: str | None = None
+    min_notional: str
+    is_tradeable: bool
+    price_precision: int = Field(ge=0, le=18)
+    quantity_precision: int = Field(ge=0, le=18)
+
+    @field_validator("price_tick", "quantity_step", "min_quantity", "min_notional")
+    @classmethod
+    def _non_negative(cls, value: str) -> str:
+        return _decimal_string(value, name="specification value")
+
+    @field_validator("max_quantity")
+    @classmethod
+    def _optional_positive(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _decimal_string(value, name="maxQuantity", positive=True)
+
+
+class SubmitExposureView(_WireModel):
+    """The account's exposure, computed by the API from its canonical ledger.
+
+    ``complete`` is the fail-closed flag: the API sets it to ``False`` when any
+    contributing position could not be marked, and the engine's risk check then
+    refuses the order rather than evaluating it against a partial picture.
+    """
+
+    position_quantity: str
+    symbol_exposure_notional: str
+    account_exposure_notional: str
+    realised_pnl_today: str | None = None
+    complete: bool
+
+    @field_validator("position_quantity", "realised_pnl_today")
+    @classmethod
+    def _signed(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _decimal_string(value, name="exposure value", signed=True)
+
+    @field_validator("symbol_exposure_notional", "account_exposure_notional")
+    @classmethod
+    def _unsigned(cls, value: str) -> str:
+        return _decimal_string(value, name="exposure notional")
+
+
+class SubmitOrderRequest(_WireModel):
+    """One order the OMS approved, forwarded by the trading worker.
+
+    ``riskDecisionId`` is required: the API's unified risk decision (daily
+    loss, drawdown, kill switches, compliance) is the authority this runtime
+    cannot reproduce, and an order that cannot name the decision it was
+    approved under is refused at the schema - 422, terminal - before it can
+    reach a gate that would have to guess.
+    """
+
+    tenant_id: str = _TENANT
+    account_id: str = _ACCOUNT
+    order_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    #: The core's CLIENT_ORDER_ID_PATTERN (the strictest venue limit, 36
+    #: characters of [A-Za-z0-9_-]); refused here as a 422 rather than as a
+    #: VALIDATION_FAILED verdict that would look like a business outcome.
+    client_order_id: str = Field(min_length=1, max_length=36, pattern=r"^[A-Za-z0-9_-]{1,36}$")
+    symbol: str = Field(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9][A-Za-z0-9/_.-]{0,31}$")
+    side: str = Field(pattern=r"^(BUY|SELL)$")
+    order_type: str = Field(pattern=r"^(MARKET|LIMIT)$")
+    quantity: str
+    price: str | None = None
+    time_in_force: str = Field(default="GTC", pattern=r"^(GTC|IOC|FOK)$")
+    reduce_only: bool = False
+    strategy_id: str | None = Field(default=None, max_length=64)
+    risk_decision_id: str = Field(min_length=1, max_length=64)
+    environment: str = Field(pattern=r"^PAPER$")
+    specification: SubmitSpecificationView
+    exposure: SubmitExposureView
+    metadata: dict[str, Annotated[str, Field(max_length=128)]] = Field(
+        default_factory=dict, max_length=16
+    )
+    requested_at: str | None = Field(default=None, max_length=64)
+
+    @field_validator("quantity")
+    @classmethod
+    def _quantity(cls, value: str) -> str:
+        return _decimal_string(value, name="quantity", positive=True)
+
+    @field_validator("price")
+    @classmethod
+    def _price(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _decimal_string(value, name="price", positive=True)
+
+
+class SubmitOrderResponse(_WireModel):
+    """The engine's verdict on one submission.
+
+    Same ack law as the cancel response: 200 carries the business outcome
+    (ACCEPTED, REJECTED_LOCALLY, REJECTED_BY_EXCHANGE, DUPLICATE, DRY_RUN,
+    UNKNOWN) and the worker completes the job on it; only 5xx is retried.
+    """
+
+    outcome: str
+    client_order_id: str
+    engine_order_id: str | None
+    exchange_order_id: str | None
+    order_status: str
+    filled_quantity: str
+    average_fill_price: str | None
+    cumulative_fee: str
+    fee_currency: str | None
+    fill_count: int
+    error_code: str | None
+    message: str | None
+    latency_micros: int
+    transmitted: bool
+    is_simulated: bool
 
 
 class VerifyResponse(_WireModel):

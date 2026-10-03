@@ -57,7 +57,7 @@ export class AccountReviewService {
     });
 
     try {
-      const existing = await (this.prisma as any).clientReview.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).clientReview.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -161,19 +161,15 @@ export class AccountReviewService {
     if (reviewType) where.reviewType = reviewType;
     if (decision) where.decision = decision;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).clientReview.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).clientReview.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).clientReview.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).clientReview.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

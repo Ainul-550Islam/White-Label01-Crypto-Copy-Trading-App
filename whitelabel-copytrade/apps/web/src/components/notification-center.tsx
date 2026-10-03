@@ -10,6 +10,7 @@ import { notificationApi, Notification } from '@/api/notification-api';
 import { LoadingState } from './loading-state';
 import { EmptyState } from './empty-state';
 import { StatusBadge } from './status-badge';
+import { ApiError } from '@/api/api-errors';
 
 export function NotificationCenter(): JSX.Element {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -25,7 +26,7 @@ export function NotificationCenter(): JSX.Element {
       setNotifications(res.data);
       setUnreadCount(res.unreadCount);
     } catch (err) {
-      setError((err as Error).message);
+      setError(err instanceof ApiError ? err.getUserMessage() : (err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -40,6 +41,16 @@ export function NotificationCenter(): JSX.Element {
       await notificationApi.markAllAsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadCount(0);
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleMarkRead = async (id: string) => {
+    try {
+      await notificationApi.markAsRead(id);
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      setUnreadCount((count) => Math.max(0, count - 1));
     } catch {
       // Ignore
     }
@@ -71,7 +82,14 @@ export function NotificationCenter(): JSX.Element {
                   <p className="mt-1 text-xs text-muted">{n.message}</p>
                   <p className="mt-1 text-xs text-muted">{new Date(n.createdAt).toLocaleString()}</p>
                 </div>
-                <StatusBadge status={n.read ? 'READ' : 'UNREAD'} />
+                <div className="flex flex-col items-end gap-1">
+                  <StatusBadge status={n.read ? 'READ' : 'UNREAD'} />
+                  {!n.read && (
+                    <button onClick={() => handleMarkRead(n.id)} className="text-xs text-primary hover:underline">
+                      Mark read
+                    </button>
+                  )}
+                </div>
               </div>
             </li>
           ))}

@@ -17,17 +17,18 @@
       "restoreOrder": 1,
       "title": "Application key material",
       "kind": "sealed-secrets",
-      "purpose": "Field-level encryption master key and blind-index key (apps/api field encryption). Losing these does not lose the plaintext of orders; it loses credential recoverability and indexed lookup forever.",
+      "purpose": "Field-level encryption master key and blind-index key (apps/api field encryption), plus the developer-platform HMAC key behind developer client-secret and webhook-secret digests. Losing the first two does not lose the plaintext of orders; it loses credential recoverability and indexed lookup forever. Losing the developer HMAC key invalidates every issued developer credential and webhook signing secret, and the API refuses to boot without it.",
       "backupMethod": "The secret-store export (sealed or KMS-wrapped) is under the organization's escrow policy; this manifest verifies only the escrow's existence and the drill record, never the material.",
       "envRefs": [
         "ENCRYPTION_PROVIDER",
         "ENCRYPTION_MASTER_KEY_BASE64",
-        "BLIND_INDEX_KEY_BASE64"
+        "BLIND_INDEX_KEY_BASE64",
+        "DEVELOPER_SECRET_HMAC_KEY"
       ],
       "paths": [
         ".env.example"
       ],
-      "verification": "Decode the restored master key and assert exactly 32 bytes; decode the blind-index key and assert at least 32 bytes; run one encrypt/decrypt round-trip probe (scripts smoke, no DB writes). Any mismatch stops the restore: a partially-restored app that cannot read its own stored secrets is worse than a down app.",
+      "verification": "Decode the restored master key and assert exactly 32 bytes; decode the blind-index key and assert at least 32 bytes; run one encrypt/decrypt round-trip probe (scripts smoke, no DB writes); assert the restored developer HMAC key is at least 16 characters and that the API boots past the developer-platform module. Any mismatch stops the restore: a partially-restored app that cannot read its own stored secrets is worse than a down app.",
       "cadenceHours": 720
     },
     {

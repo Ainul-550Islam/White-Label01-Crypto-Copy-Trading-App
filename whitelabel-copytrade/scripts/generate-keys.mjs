@@ -16,7 +16,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
 
@@ -28,6 +28,11 @@ function secret(bytes = 48) {
 /** A raw key, base64 encoded, for AES and HMAC use. */
 function keyBase64(bytes = 32) {
   return randomBytes(bytes).toString('base64');
+}
+
+/** A hex string (2 characters per byte), the format the execution engine documents. */
+function hex(bytes = 32) {
+  return randomBytes(bytes).toString('hex');
 }
 
 const generated = {
@@ -45,6 +50,12 @@ const generated = {
   // --- Service-to-service ---------------------------------------------------
   INTERNAL_SERVICE_TOKEN: secret(32),
   EXCHANGE_WEBHOOK_SIGNING_SECRET: secret(32),
+  // Shared secret between the worker/API and the execution engine (64 hex
+  // chars; the engine refuses < 32 chars or a placeholder). docker-compose.yml
+  // marks it required (`:?`), so before round 7 a bootstrap-then-compose-up
+  // run stopped with "EXECUTION_INTERNAL_TOKEN is required": nothing
+  // generated it and .env.example had no line for --write to fill.
+  EXECUTION_INTERNAL_TOKEN: hex(32),
 
   // --- Datastores -----------------------------------------------------------
   POSTGRES_PASSWORD: secret(24),
@@ -53,7 +64,45 @@ const generated = {
 
   // --- Admin console --------------------------------------------------------
   SESSION_COOKIE_SECRET: keyBase64(32),
+
+  // --- Customer web app -----------------------------------------------------
+  // Separate from the console's on purpose: customer and operator sessions
+  // must never be signed with the same key.
+  WEB_SESSION_COOKIE_SECRET: keyBase64(32),
+
+  // --- Developer platform ---------------------------------------------------
+  // HMAC key behind developer credential and webhook-secret digests. The API
+  // refuses to boot without it (>= 16 chars), so it is generated with the rest.
+  DEVELOPER_SECRET_HMAC_KEY: secret(48),
 };
+
+/**
+ * Connection URLs that embed one of the generated passwords.
+ *
+ * Round 8 (Docker run): --write filled POSTGRES_PASSWORD and REDIS_PASSWORD but left
+ * DATABASE_URL / DIRECT_DATABASE_URL carrying .env.example's
+ * `change_me_postgres_password` and REDIS_URL carrying no password at all. The
+ * compose Postgres initialises its role from POSTGRES_PASSWORD and Redis starts with
+ * --requirepass REDIS_PASSWORD, so every host-side tool reading the URLs (npm run
+ * db:seed, a local `npm run dev` API, prisma studio) failed authentication against
+ * the stack bootstrap had just generated. Containers never noticed: compose builds
+ * their URLs from the passwords directly.
+ *
+ * The same rule as the keys above applies: only a placeholder is replaced. A URL
+ * whose password an operator has set (anything not empty / change_me) is left alone,
+ * and an empty Postgres password is left alone too, because that can be a deliberate
+ * trust or peer-auth setup; Redis has no username, so an empty password there just
+ * means "never filled".
+ */
+const URL_PASSWORDS = [
+  { key: 'DATABASE_URL', secretKey: 'POSTGRES_PASSWORD', replaceEmpty: false },
+  { key: 'DIRECT_DATABASE_URL', secretKey: 'POSTGRES_PASSWORD', replaceEmpty: false },
+  { key: 'REDIS_URL', secretKey: 'REDIS_PASSWORD', replaceEmpty: true },
+];
+
+function isPlaceholder(value) {
+  return value.startsWith('change_me') || value.startsWith('changeme');
+}
 
 const args = process.argv.slice(2);
 const wantsJson = args.includes('--json');
@@ -92,8 +141,7 @@ if (writeTarget) {
 
     // Never silently overwrite a value that already looks configured: that is
     // how a working environment gets destroyed by a careless command.
-    const looksPlaceholder =
-      current === '' || current.startsWith('change_me') || current.startsWith('changeme');
+    const looksPlaceholder = current === '' || isPlaceholder(current);
 
     if (!looksPlaceholder) {
       skipped.push(key);
@@ -104,10 +152,41 @@ if (writeTarget) {
     applied.push(key);
   }
 
+  const urlsUpdated = [];
+  for (const { key, secretKey, replaceEmpty } of URL_PASSWORDS) {
+    // Only follow a password this run actually wrote; a password that was
+    // already configured is the operator's, and so is the URL built from it.
+    if (!applied.includes(secretKey)) continue;
+    const pattern = new RegExp(`^${key}=(.*)$`, 'm');
+    const match = pattern.exec(updated);
+    if (match === null) continue;
+    let url;
+    try {
+      url = new URL(match[1].trim());
+    } catch {
+      continue;
+    }
+    const currentPassword = decodeURIComponent(url.password);
+    const replace = isPlaceholder(currentPassword) || (replaceEmpty && currentPassword === '');
+    if (!replace) continue;
+    // The URL setter percent-encodes; the generated secrets are base64url, so
+    // this is belt and braces rather than a transformation.
+    url.password = generated[secretKey];
+    updated = updated.replace(pattern, () => `${key}=${url.toString()}`);
+    urlsUpdated.push(key);
+  }
+
   writeFileSync(path, updated, { mode: 0o600 });
+  // writeFileSync's `mode` only applies when it creates the file, and --write
+  // always targets an existing one, so without this an existing 0644 .env full
+  // of fresh secrets stayed world-readable while the message below claimed 600.
+  chmodSync(path, 0o600);
 
   console.log(`Updated ${writeTarget} (file mode set to 600).`);
   console.log(`  filled: ${applied.length > 0 ? applied.join(', ') : 'none'}`);
+  if (urlsUpdated.length > 0) {
+    console.log(`  connection URLs now carry the generated password: ${urlsUpdated.join(', ')}`);
+  }
 
   if (skipped.length > 0) {
     console.log(`  left alone (already set or absent): ${skipped.join(', ')}`);
@@ -120,6 +199,8 @@ const lines = [
   '# Generated cryptographic material.',
   '# Copy into your .env. Use a different set per environment.',
   '# Treat this output as sensitive: do not paste it into a chat, a ticket or a commit.',
+  '# DATABASE_URL and DIRECT_DATABASE_URL embed POSTGRES_PASSWORD, and REDIS_URL embeds',
+  '# REDIS_PASSWORD: update them to match (--write does this for placeholder URLs).',
   '',
   ...Object.entries(generated).map(([key, value]) => `${key}=${value}`),
   '',

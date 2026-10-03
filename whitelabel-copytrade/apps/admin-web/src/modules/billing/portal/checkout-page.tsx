@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createCheckoutSession, getCheckoutStatus, getPaymentStatus } from './billing-portal-api';
 
 /**
@@ -15,6 +15,57 @@ export default function CheckoutPage({ planId, onClose }: { planId: string; onCl
   const [verificationState, setVerificationState] = useState<'idle' | 'pending' | 'verifying' | 'success' | 'failed' | 'cancelled' | 'expired'>('idle');
   const [paymentId, setPaymentId] = useState<string | null>(null);
 
+  // Each verification run gets a number; a newer run (Refresh Status, or a
+  // second return from the provider) supersedes the polling of an older one,
+  // and unmounting stops polling altogether.
+  const runRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const verifyPayment = useCallback(async (id: string) => {
+    const run = ++runRef.current;
+    const superseded = () => !mountedRef.current || run !== runRef.current;
+    setVerificationState('verifying');
+    try {
+      for (;;) {
+        // Always call backend to verify actual payment state
+        const status = await getCheckoutStatus(id);
+        const paymentStatus = await getPaymentStatus(id).catch(() => null);
+        if (superseded()) return;
+
+        if (status.status === 'COMPLETED' || status.paymentStatus === 'SUCCEEDED' || paymentStatus?.status === 'SUCCEEDED') {
+          setVerificationState('success');
+          return;
+        }
+        if (status.status === 'FAILED' || status.paymentStatus === 'FAILED') {
+          setVerificationState('failed');
+          return;
+        }
+        if (status.status === 'CANCELLED' || status.paymentStatus === 'CANCELLED') {
+          setVerificationState('cancelled');
+          return;
+        }
+        if (status.status === 'EXPIRED' || status.paymentStatus === 'EXPIRED') {
+          setVerificationState('expired');
+          return;
+        }
+        setVerificationState('pending');
+        // Poll for pending
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (superseded()) return;
+      }
+    } catch (e: any) {
+      if (superseded()) return;
+      setError(e.message || 'Failed to verify payment');
+      setVerificationState('failed');
+    }
+  }, []);
+
   // Check if returning from provider
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -26,36 +77,10 @@ export default function CheckoutPage({ planId, onClose }: { planId: string; onCl
       if (id) {
         setPaymentId(id);
         setVerificationState('verifying');
-        verifyPayment(id);
+        void verifyPayment(id);
       }
     }
-  }, []);
-
-  const verifyPayment = async (id: string) => {
-    setVerificationState('verifying');
-    try {
-      // Always call backend to verify actual payment state
-      const status = await getCheckoutStatus(id);
-      const paymentStatus = await getPaymentStatus(id).catch(() => null);
-
-      if (status.status === 'COMPLETED' || status.paymentStatus === 'SUCCEEDED' || paymentStatus?.status === 'SUCCEEDED') {
-        setVerificationState('success');
-      } else if (status.status === 'FAILED' || status.paymentStatus === 'FAILED') {
-        setVerificationState('failed');
-      } else if (status.status === 'CANCELLED' || status.paymentStatus === 'CANCELLED') {
-        setVerificationState('cancelled');
-      } else if (status.status === 'EXPIRED' || status.paymentStatus === 'EXPIRED') {
-        setVerificationState('expired');
-      } else {
-        setVerificationState('pending');
-        // Poll for pending
-        setTimeout(() => verifyPayment(id), 3000);
-      }
-    } catch (e: any) {
-      setError(e.message || 'Failed to verify payment');
-      setVerificationState('failed');
-    }
-  };
+  }, [verifyPayment]);
 
   const handleCreateCheckout = async () => {
     setLoading(true);

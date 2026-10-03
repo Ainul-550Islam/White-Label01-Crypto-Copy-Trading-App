@@ -184,7 +184,10 @@ export class WithdrawalPolicyService {
 
     // Operational maintenance restriction — reuse OperationsModule
     try {
-      const maintenance = await (this.prisma as any).operationalMaintenanceWindow?.findFirst?.({ where: { tenantId, status: 'ACTIVE', scope: { in: ['PLATFORM', 'TRADING'] } } });
+      // state (not status); platform-wide windows have tenantId null; TRADING_CAPABILITY is the trading scope.
+      const maintenance = await (this.prisma as any).operationalMaintenanceWindow?.findFirst?.({
+        where: { state: 'ACTIVE', OR: [{ tenantId }, { tenantId: null }], scope: { in: ['PLATFORM', 'TENANT', 'TRADING_CAPABILITY'] } },
+      });
       const hasMaintenance = !!maintenance;
       checks.push({ check: 'noMaintenanceRestriction', passed: !hasMaintenance, reason: hasMaintenance ? 'Operational maintenance active' : undefined });
       if (hasMaintenance) blockingReasons.push('Operational maintenance active');

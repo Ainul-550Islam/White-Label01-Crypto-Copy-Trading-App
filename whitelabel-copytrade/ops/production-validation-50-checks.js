@@ -8,7 +8,15 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const prodRoot = path.join(root, 'ops/production');
-const workflowsRoot = path.join(root, '.github/workflows');
+// GitHub only runs workflows from the REPOSITORY root. When this project is
+// the repository root that is `<project>/.github/workflows`; when it is
+// nested one level down (as in the White-Label01 repository, where the
+// project lives in `whitelabel-copytrade/`), it is `<repo>/.github/workflows`.
+// Check the project-level location first, then the enclosing repository.
+const workflowsRoot = [
+  path.join(root, '.github/workflows'),
+  path.join(root, '..', '.github/workflows'),
+].find((candidate) => fs.existsSync(candidate)) ?? path.join(root, '.github/workflows');
 const terraformRoot = path.join(root, 'infra/production/terraform');
 
 function readFile(p) {

@@ -42,7 +42,7 @@ export class CopyExecutionRepository {
     }
 
     if (input.idempotencyKey) {
-      const existingByKey = await (this.prisma as any).copyExecution?.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+      const existingByKey = await (this.prisma as any).copyExecution?.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existingByKey) {
         this.logger.log(`Idempotent execution return key=${input.idempotencyKey}`);
         return existingByKey;
@@ -85,7 +85,7 @@ export class CopyExecutionRepository {
         const existingDup = await (this.prisma as any).copyExecution.findFirst({ where: { tenantId: input.tenantId, leaderEventId: input.leaderEventId, subscriptionId: input.subscriptionId } });
         if (existingDup) return existingDup;
         if (input.idempotencyKey) {
-          const byKey = await (this.prisma as any).copyExecution.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+          const byKey = await (this.prisma as any).copyExecution.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
           if (byKey) return byKey;
         }
       }
@@ -101,8 +101,8 @@ export class CopyExecutionRepository {
     return (this.prisma as any).copyExecution?.findFirst({ where: { tenantId, leaderEventId, subscriptionId } }) || null;
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<any | null> {
-    return (this.prisma as any).copyExecution?.findFirst({ where: { idempotencyKey } }) || null;
+  async findByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<any | null> {
+    return (this.prisma as any).copyExecution?.findFirst({ where: { tenantId, idempotencyKey } }) || null;
   }
 
   async listBySubscription(tenantId: string, subscriptionId: string, filters?: { status?: CopyExecutionStatus; page?: number; limit?: number }): Promise<{ data: any[]; total: number }> {

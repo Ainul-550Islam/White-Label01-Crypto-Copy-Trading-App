@@ -102,7 +102,7 @@ class RiskMirrorStatus extends Equatable {
       staleAccountIds: _stringList(json['staleAccounts']),
       mirrors: mirrors
           .map((Map<String, Object?> row) =>
-              RiskAccountMirror.fromJson(row, staleIds: staleIds))
+              RiskAccountMirror.fromJson(row, staleIds: staleIds),)
           .toList(growable: false),
       criticalEvents24h:
           _intOrZero(severity['CRITICAL']) + _intOrZero(severity['HIGH']),

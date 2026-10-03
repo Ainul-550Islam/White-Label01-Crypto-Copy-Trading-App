@@ -200,11 +200,20 @@ export class DependencyHealthService {
   async checkConfiguration(): Promise<DependencyHealthResult> {
     try {
       // Missing credentials/config must NOT be reported healthy
-      const requiredEnv = ['DATABASE_URL', 'REDIS_URL'];
+      // The variables the API itself connects and decrypts with. (REDIS_URL was
+      // checked here before, but the API reads REDIS_HOST/PORT/PASSWORD/TLS -
+      // REDIS_URL is only used by the Python services - so a correctly
+      // configured API was reported MISCONFIGURED and a broken one healthy.)
+      const requiredEnv = ['DATABASE_URL', 'REDIS_HOST', 'ENCRYPTION_MASTER_KEY_BASE64', 'BLIND_INDEX_KEY_BASE64'];
       const missing: string[] = [];
       for (const key of requiredEnv) {
         const val = process.env[key];
         if (!val) missing.push(key);
+      }
+      // REDIS_HOST defaults to localhost in the env schema; in production that
+      // is always a deployment mistake (Redis runs as a managed service).
+      if (process.env.NODE_ENV === 'production' && ['localhost', '127.0.0.1', '::1'].includes((process.env.REDIS_HOST ?? '').trim())) {
+        missing.push('REDIS_HOST (localhost in production)');
       }
       if (missing.length > 0) {
         return {
@@ -376,7 +385,7 @@ export class DependencyHealthService {
   async checkRisk(tenantId?: string | null): Promise<DependencyHealthResult> {
     try {
       const where = tenantId ? { tenantId } : {};
-      const policyCount = await (this.prisma as any).institutionalRiskPolicy?.count({ where }).catch(() => 0);
+      const policyCount = await (this.prisma as any).institutionalRiskPolicy?.count({ where });
       return {
         dependencyType: OperationalDependencyType.RISK,
         dependencyName: 'risk-management',
@@ -450,7 +459,7 @@ export class DependencyHealthService {
   async checkExchangeConnectivity(tenantId?: string | null): Promise<DependencyHealthResult> {
     try {
       const where = tenantId ? { tenantId, isEnabled: true } : { isEnabled: true };
-      const exchanges = await this.prisma.exchange.findMany({ where: { isEnabled: true } as any }).catch(() => []);
+      const exchanges = await this.prisma.exchange.findMany({ where: { isEnabled: true } as any });
       if (exchanges.length === 0) {
         return {
           dependencyType: OperationalDependencyType.EXCHANGE,
@@ -583,7 +592,7 @@ export class DependencyHealthService {
     try {
       // Check execution orders table accessibility as proxy for engine store
       const where = tenantId ? { tenantId } : {};
-      const count = await (this.prisma as any).executionOrder?.count({ where }).catch(() => 0);
+      const count = await (this.prisma as any).executionOrder?.count({ where });
       return {
         dependencyType: OperationalDependencyType.EXECUTION_ENGINE,
         dependencyName: 'execution-engine',

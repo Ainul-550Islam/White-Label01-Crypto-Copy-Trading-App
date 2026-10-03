@@ -75,7 +75,7 @@ export class WalletAddressService {
     });
 
     try {
-      const existingByKey = await (this.prisma as any).custodyWalletAddress.findFirst({ where: { idempotencyKey } });
+      const existingByKey = await (this.prisma as any).custodyWalletAddress.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existingByKey) return existingByKey;
     } catch {}
 
@@ -172,19 +172,11 @@ export class WalletAddressService {
   }
 
   async getAddress(params: { tenantId: string; addressId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).custodyWalletAddress.findFirst({ where: { id: params.addressId, tenantId: params.tenantId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).custodyWalletAddress.findFirst({ where: { id: params.addressId, tenantId: params.tenantId } });
   }
 
   async getAddressByAddress(params: { tenantId: string; address: string; networkId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).custodyWalletAddress.findFirst({ where: { tenantId: params.tenantId, address: params.address, networkId: params.networkId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).custodyWalletAddress.findFirst({ where: { tenantId: params.tenantId, address: params.address, networkId: params.networkId } });
   }
 
   async listAddresses(params: {
@@ -207,14 +199,10 @@ export class WalletAddressService {
     if (accountId) where.accountId = accountId;
     if (clientProfileId) where.clientProfileId = clientProfileId;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyWalletAddress.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyWalletAddress.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyWalletAddress.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyWalletAddress.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

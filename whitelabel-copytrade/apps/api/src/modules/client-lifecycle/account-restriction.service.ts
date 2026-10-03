@@ -56,7 +56,7 @@ export class AccountRestrictionService {
     });
 
     try {
-      const existing = await (this.prisma as any).accountRestriction.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).accountRestriction.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -147,31 +147,23 @@ export class AccountRestrictionService {
     if (status) where.status = status;
     else where.status = 'ACTIVE';
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).accountRestriction.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).accountRestriction.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).accountRestriction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).accountRestriction.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async hasRestriction(params: { tenantId: string; accountId: string; restrictionType: AccountRestrictionType }): Promise<boolean> {
-    try {
-      const restriction = await (this.prisma as any).accountRestriction.findFirst({
-        where: { tenantId: params.tenantId, accountId: params.accountId, restrictionType: params.restrictionType as any, status: 'ACTIVE' },
-      });
-      return !!restriction;
-    } catch {
-      return false;
-    }
+    const restriction = await (this.prisma as any).accountRestriction.findFirst({
+      where: { tenantId: params.tenantId, accountId: params.accountId, restrictionType: params.restrictionType as any, status: 'ACTIVE' },
+    });
+    return !!restriction;
   }
 
   async canTrade(params: { tenantId: string; accountId: string }): Promise<{ allowed: boolean; blockingRestrictions: string[] }> {

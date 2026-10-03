@@ -166,7 +166,8 @@ export class BybitProductionAdapter {
       category: 'spot',
       symbol: order.symbol.replace('-', ''),
       side: order.side === 'BUY' ? 'Buy' : 'Sell',
-      orderType: order.type.toUpperCase(),
+      // Bybit v5 accepts exactly "Market" or "Limit"; "MARKET"/"LIMIT" is rejected (retCode 10001).
+      orderType: order.type.toUpperCase() === 'MARKET' ? 'Market' : 'Limit',
       qty: order.quantity,
       price: order.price,
       orderLinkId: order.clientOrderId,
@@ -194,6 +195,15 @@ export class BybitProductionAdapter {
         isIdempotent: false,
       });
 
+      // Bybit answers HTTP 200 with a non-zero retCode for business rejections;
+      // treating that body as an accepted order would record a phantom order.
+      const retCode = Number(response.data?.retCode ?? 0);
+      if (retCode !== 0) {
+        const rejection: any = new Error(`Bybit rejected order: retCode=${retCode} ${String(response.data?.retMsg ?? '').slice(0, 200)}`);
+        rejection.status = 400;
+        rejection.data = { retCode, retMsg: response.data?.retMsg };
+        throw rejection;
+      }
       const result = response.data?.result || {};
 
       const normalized: NormalizedExchangeOrderResult = {

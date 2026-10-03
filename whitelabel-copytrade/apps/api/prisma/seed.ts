@@ -17,6 +17,9 @@
  * The super administrator's password is never hardcoded. It is read from
  * SEED_SUPER_ADMIN_PASSWORD; when that variable is absent the script generates
  * a strong random password, prints it once, and never stores it anywhere else.
+ * A provided password must satisfy the same policy the API enforces on every
+ * other password (`evaluatePassword` from @wlct/validation, minimum length from
+ * PASSWORD_MIN_LENGTH), and it is checked before the first database write.
  */
 import { PrismaClient, Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
@@ -31,6 +34,7 @@ import {
   TenantStatus,
 } from '@wlct/shared-types';
 import { FEATURE_FLAG_KEYS } from '@wlct/config';
+import { DEFAULT_PASSWORD_POLICY, evaluatePassword } from '@wlct/validation';
 
 const prisma = new PrismaClient();
 
@@ -92,6 +96,58 @@ function assertNotPlaceholder(name: string, value: string): void {
         'Set a real password, or unset the variable entirely and the seed will ' +
         'generate a strong one and print it once.',
     );
+  }
+}
+
+/**
+ * The password policy the API applies through PasswordService.evaluate():
+ * DEFAULT_PASSWORD_POLICY with the minimum length taken from
+ * PASSWORD_MIN_LENGTH (env schema default 12).
+ *
+ * Round 8 (Docker run): the seed only rejected the .env.example placeholder, so
+ * any other non-empty value became the super administrator's password - even
+ * six characters. The case that produced it is the one .env.example warns
+ * about: an unquoted '#' makes dotenv-cli truncate the value, the seed hashes
+ * the truncated password without complaint, and the operator's first login is
+ * an inexplicable 401. The registration and password-change paths have always
+ * enforced this policy; the seed was the only way around it.
+ */
+function passwordMinLength(): number {
+  const configured = Number.parseInt(process.env.PASSWORD_MIN_LENGTH ?? '', 10);
+  return Number.isInteger(configured) && configured > 0
+    ? configured
+    : DEFAULT_PASSWORD_POLICY.minLength;
+}
+
+function assertPasswordPolicy(name: string, value: string, email: string): void {
+  const evaluation = evaluatePassword(
+    value,
+    { ...DEFAULT_PASSWORD_POLICY, minLength: passwordMinLength() },
+    { email },
+  );
+
+  if (!evaluation.valid) {
+    throw new Error(
+      `${name} does not meet the password policy the API enforces: ` +
+        `${evaluation.errors.join('; ')}. ` +
+        "If the value in .env contains '#', wrap it in double quotes: dotenv treats an " +
+        "unquoted '#' as the start of a comment and truncates the value (see the QUOTING " +
+        'note in .env.example). Or unset the variable entirely and the seed will generate ' +
+        'a strong password and print it once.',
+    );
+  }
+}
+
+/**
+ * Checks the super administrator credentials before anything is written, so a
+ * rejected password never leaves a half-seeded database behind.
+ */
+function assertSuperAdminCredentials(): void {
+  const email = requireEnv('SEED_SUPER_ADMIN_EMAIL').trim().toLowerCase();
+  const providedPassword = process.env.SEED_SUPER_ADMIN_PASSWORD;
+  if (providedPassword) {
+    assertNotPlaceholder('SEED_SUPER_ADMIN_PASSWORD', providedPassword);
+    assertPasswordPolicy('SEED_SUPER_ADMIN_PASSWORD', providedPassword, email);
   }
 }
 
@@ -557,6 +613,7 @@ async function seedSuperAdmin(tenantId: string): Promise<void> {
   const providedPassword = process.env.SEED_SUPER_ADMIN_PASSWORD;
   if (providedPassword) {
     assertNotPlaceholder('SEED_SUPER_ADMIN_PASSWORD', providedPassword);
+    assertPasswordPolicy('SEED_SUPER_ADMIN_PASSWORD', providedPassword, email);
   }
   const password = providedPassword ?? generatePassword();
 
@@ -647,6 +704,8 @@ async function seedSuperAdmin(tenantId: string): Promise<void> {
 
 async function main(): Promise<void> {
   console.log('Seeding database...');
+
+  assertSuperAdminCredentials();
 
   const permissionIds = await seedPermissions();
   await seedRoleTemplates(permissionIds);

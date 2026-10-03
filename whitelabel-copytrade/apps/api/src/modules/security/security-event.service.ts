@@ -160,26 +160,22 @@ export class SecurityEventService {
     const limit = filters?.limit || 20;
     const offset = (page - 1) * limit;
 
-    try {
-      const where: any = { tenantId };
-      if (filters?.userId) where.userId = filters.userId;
-      if (filters?.type) where.type = filters.type;
-      if (filters?.severity) where.severity = filters.severity;
-      if (filters?.fromDate || filters?.toDate) {
-        where.createdAt = {};
-        if (filters.fromDate) where.createdAt.gte = filters.fromDate;
-        if (filters.toDate) where.createdAt.lte = filters.toDate;
-      }
-
-      const [data, total] = await Promise.all([
-        (this.prisma as any).securityEvent?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
-        (this.prisma as any).securityEvent?.count({ where }) || 0,
-      ]);
-
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
+    const where: any = { tenantId };
+    if (filters?.userId) where.userId = filters.userId;
+    if (filters?.type) where.type = filters.type;
+    if (filters?.severity) where.severity = filters.severity;
+    if (filters?.fromDate || filters?.toDate) {
+      where.createdAt = {};
+      if (filters.fromDate) where.createdAt.gte = filters.fromDate;
+      if (filters.toDate) where.createdAt.lte = filters.toDate;
     }
+
+    const [data, total] = await Promise.all([
+      (this.prisma as any).securityEvent?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
+      (this.prisma as any).securityEvent?.count({ where }) || 0,
+    ]);
+
+    return { data, total, page, limit };
   }
 
   // Backward compatibility aliases for old SecurityEventsService

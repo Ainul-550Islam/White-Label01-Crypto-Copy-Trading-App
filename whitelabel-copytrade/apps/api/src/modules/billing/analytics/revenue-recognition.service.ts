@@ -156,60 +156,44 @@ export class RevenueRecognitionService {
   }
 
   private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      const invoices = await (this.prisma as any).invoice?.findMany({ where }) || [];
-      return invoices;
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    const invoices = await (this.prisma as any).invoice?.findMany({ where }) || [];
+    return invoices;
   }
 
   private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      const payments = await (this.prisma as any).payment?.findMany({ where }) || [];
-      return payments;
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    const payments = await (this.prisma as any).payment?.findMany({ where }) || [];
+    return payments;
   }
 
   private async fetchLedgerEntries(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        effectiveAt: { gte: params.start, lte: params.end },
-        status: 'POSTED',
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      const entries = await (this.prisma as any).billingLedgerEntry?.findMany({ where }) || [];
-      return entries;
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      effectiveAt: { gte: params.start, lte: params.end },
+      status: 'POSTED',
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    const entries = await (this.prisma as any).billingLedgerEntry?.findMany({ where }) || [];
+    return entries;
   }
 
   private async fetchSubscriptionsInPeriod(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currentPeriodStart: { lte: params.end },
-        currentPeriodEnd: { gte: params.start },
-        status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      const subs = await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
-      return subs;
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currentPeriodStart: { lte: params.end },
+      currentPeriodEnd: { gte: params.start },
+      status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    const subs = await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
+    return subs;
   }
 }

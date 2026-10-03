@@ -3,6 +3,29 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
 import { add, sub, cmp, isValidDecimal, deterministicIdempotencyKey, redactSecrets } from './portfolio-accounting.types';
 
+/** One-line summary for the required `summary` column, e.g. "2 discrepancies (1 critical): DUPLICATE_EVENT, MISSING_FX". */
+export function summarizeDiscrepancies(discrepancies: Array<{ type: string; severity: string }>): string {
+  if (discrepancies.length === 0) return 'No discrepancies';
+  const critical = discrepancies.filter((d) => d.severity === 'CRITICAL').length;
+  const types = Array.from(new Set(discrepancies.map((d) => d.type))).join(', ');
+  const summary = `${discrepancies.length} discrepanc${discrepancies.length === 1 ? 'y' : 'ies'} (${critical} critical): ${types}`;
+  return summary.length > 1000 ? `${summary.slice(0, 997)}...` : summary;
+}
+
+/** API view of a PortfolioAccountingReconciliation row: keeps scope/trigger/discrepancies/hasCriticalFailure/requestedBy. */
+export function toReconciliationView(row: any): any {
+  if (!row) return row;
+  const detail = row.discrepancy && typeof row.discrepancy === 'object' ? row.discrepancy : {};
+  return {
+    ...row,
+    scope: row.reconciliationType,
+    trigger: detail.trigger ?? row.sourceType ?? null,
+    discrepancies: Array.isArray(detail.items) ? detail.items : [],
+    hasCriticalFailure: Boolean(row.isCritical),
+    requestedBy: detail.requestedBy ?? null,
+  };
+}
+
 /**
  * Reconciles against OMS fills, positions, balances, fees, finance ledger, copy allocations.
  * Detects missing events, double counting, quantity drift, cash drift, valuation inconsistencies,
@@ -50,11 +73,13 @@ export class AccountingReconciliationService {
 
       // Check against OMS fills — missing events
       try {
-        const omsFills = await (this.prisma as any).fillConfirmation?.findMany?.({
+        // OMS fills live in OmsFill (the OMS fill ledger).
+        const omsFills = await this.prisma.omsFill.findMany({
           where: {
             tenantId: params.tenantId,
-            timestamp: { gte: params.periodStart, lte: params.periodEnd },
+            createdAt: { gte: params.periodStart, lte: params.periodEnd },
           },
+          select: { id: true, providerFillId: true },
         });
         if (omsFills) {
           for (const fill of omsFills) {
@@ -232,8 +257,8 @@ export class AccountingReconciliationService {
     });
 
     try {
-      const existing = await (this.prisma as any).portfolioAccountingReconciliation.findFirst({ where: { idempotencyKey } });
-      if (existing) return existing;
+      const existing = await (this.prisma as any).portfolioAccountingReconciliation.findFirst({ where: { tenantId, idempotencyKey } });
+      if (existing) return toReconciliationView(existing);
     } catch {}
 
     const recon = await (this.prisma as any).portfolioAccountingReconciliation.create({
@@ -241,20 +266,28 @@ export class AccountingReconciliationService {
         tenantId,
         profileId,
         periodId: periodId ?? null,
-        scope,
-        trigger,
+        // Model columns: reconciliationType (= scope), summary, severity, isCritical;
+        // the discrepancy list, trigger, requester and evidence go into the discrepancy Json.
+        reconciliationType: String(scope).slice(0, 64),
         state: result.hasCriticalFailure ? 'MISMATCH' : result.discrepancies.length > 0 ? 'MISMATCH' : 'MATCHED',
-        discrepancies: result.discrepancies as any,
-        hasCriticalFailure: result.hasCriticalFailure,
+        summary: summarizeDiscrepancies(result.discrepancies),
+        severity: result.hasCriticalFailure ? 'CRITICAL' : result.discrepancies.length > 0 ? 'WARNING' : 'NONE',
+        isCritical: result.hasCriticalFailure,
+        sourceType: trigger ? String(trigger).slice(0, 64) : null,
+        discrepancy: redactSecrets({
+          items: result.discrepancies,
+          trigger,
+          requestedBy: requestedBy ?? null,
+          periodStart: periodStart.toISOString(),
+          periodEnd: periodEnd.toISOString(),
+        }) as any,
         calculationVersion: policy.calculationVersion,
         policyVersion: policy.policyVersion,
         idempotencyKey,
-        requestedBy: requestedBy ?? null,
-        evidence: redactSecrets({ result, periodStart, periodEnd }) as any,
       },
     });
 
-    return recon;
+    return toReconciliationView(recon);
   }
 
   async listReconciliations(params: {
@@ -271,20 +304,16 @@ export class AccountingReconciliationService {
     if (periodId) where.periodId = periodId;
     if (state) where.state = state;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).portfolioAccountingReconciliation.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).portfolioAccountingReconciliation.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).portfolioAccountingReconciliation.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).portfolioAccountingReconciliation.count({ where }),
+    ]);
+    return { data: data.map(toReconciliationView), total, page, limit };
   }
 
   private absSafe(val: string): string {

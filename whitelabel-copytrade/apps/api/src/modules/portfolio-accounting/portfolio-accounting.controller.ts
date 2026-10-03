@@ -9,6 +9,7 @@ import {
   Req,
   BadRequestException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
@@ -46,13 +47,17 @@ import {
   AttributionQueryDto,
 } from './dto/accounting-action.dto';
 import { PortfolioReturnMethodology, PortfolioAttributionDimension, redactSecrets } from './portfolio-accounting.types';
+import { authTenantId, authUserIdOrNull, isPlatformPrincipal } from '../../common/guards/request-principal';
+import { Permission, hasAnyPermission, hasPermission } from '@wlct/shared-types';
+
+/** Staff permissions that grant read access to every portfolio profile of the tenant. */
+const TENANT_WIDE_READ_PERMISSIONS = [Permission.TENANT_UPDATE, Permission.PAYOUT_MANAGE, Permission.COMPLIANCE_READ];
 
 /**
  * Tenant-safe and platform-safe API surface for portfolio accounting.
  * Must enforce RBAC, ownership, compliance visibility, and tenant isolation.
  * Statement cannot expose other user.
  */
-
 @Controller('portfolio-accounting')
 export class PortfolioAccountingController {
   constructor(
@@ -81,36 +86,100 @@ export class PortfolioAccountingController {
   ) {}
 
   private getTenantId(req: any): string {
-    const tenantId = req.user?.tenantId ?? req.headers['x-tenant-id'] ?? req.query?.tenantId;
-    if (!tenantId) throw new BadRequestException('tenantId required');
-    return tenantId;
+    // Token tenant only; headers and query strings can never select it.
+    return authTenantId(req);
   }
 
   private getUserId(req: any): string {
-    return req.user?.id ?? req.user?.sub ?? 'anonymous';
+    // The JWT principal carries `userId` (not `id`/`sub`); reading only the
+    // legacy keys attributed every action to 'anonymous'.
+    return authUserIdOrNull(req) ?? 'anonymous';
   }
 
   private isPlatformUser(req: any): boolean {
-    return req.user?.isPlatformUser ?? (req.user?.role === 'PLATFORM_ADMIN');
+    return isPlatformPrincipal(req);
   }
 
+  /**
+   * The profile must exist in the caller's tenant. A missing profile and a
+   * profile of another tenant answer the same 404 so ids cannot be probed, and
+   * a lookup failure never skips the check.
+   */
   private async enforceTenantIsolation(tenantId: string, profileId: string): Promise<void> {
+    let profile: { tenantId: string } | null = null;
     try {
-      const profile = await (this.prisma as any).portfolioAccountingProfile.findFirst({ where: { id: profileId } });
-      if (!profile) throw new BadRequestException('Profile not found');
-      if (profile.tenantId !== tenantId) throw new ForbiddenException('Tenant isolation: profile belongs to different tenant');
-    } catch (e) {
-      if (e instanceof ForbiddenException || e instanceof BadRequestException) throw e;
-      // If model not yet available, skip check
+      profile = await (this.prisma as any).portfolioAccountingProfile.findFirst({ where: { id: profileId }, select: { tenantId: true } });
+    } catch {
+      profile = null;
+    }
+    if (!profile || profile.tenantId !== tenantId) throw new NotFoundException('Profile not found');
+  }
+
+  private actorPermissions(req: any): string[] {
+    const permissions = req?.user?.permissions;
+    return Array.isArray(permissions) ? permissions : [];
+  }
+
+  /**
+   * Tenant administrators (tenant:update), finance (payout:manage) and
+   * compliance (compliance:read) read every profile of their tenant; platform
+   * staff too. Everyone else - followers and traders - only reaches their own
+   * profiles. report:read is deliberately not a tenant-wide marker: the system
+   * TRADER role holds it for its own reports, and treating it as tenant-wide
+   * let any signal provider read every follower's NAV, holdings and statements.
+   * Computed from permissions, never from a client-supplied role.
+   */
+  private hasTenantWideRead(req: any): boolean {
+    return this.isPlatformUser(req) || hasAnyPermission(this.actorPermissions(req), TENANT_WIDE_READ_PERMISSIONS);
+  }
+
+  /** Ledger-changing operations (adjustments, period close, statements, snapshots, reconciliation). */
+  private canAdministerAccounting(req: any): boolean {
+    return this.isPlatformUser(req) || hasPermission(this.actorPermissions(req), Permission.RECONCILIATION_TRIGGER);
+  }
+
+  private requireAccountingAdmin(req: any): void {
+    if (!this.canAdministerAccounting(req)) {
+      throw new ForbiddenException('Accounting administration requires the reconciliation:trigger permission');
     }
   }
 
-  private async enforcePlatformRBAC(req: any, requiredPermission?: string): Promise<void> {
-    if (requiredPermission && this.isPlatformUser(req)) {
-      // Platform RBAC check — reuse existing RBAC if available
-      // For now, allow platform users
-      return;
+  /** Profiles the caller owns (follower, trader, strategy scopes) or operates (managed accounts). */
+  private async ownProfileIds(req: any, tenantId: string): Promise<Set<string>> {
+    const userId = authUserIdOrNull(req);
+    const ids = new Set<string>();
+    if (!userId) return ids;
+    const roles = [InvestorVisibilityRole.FOLLOWER, InvestorVisibilityRole.TRADER, InvestorVisibilityRole.MANAGED_ACCOUNT_OPERATOR];
+    for (const role of roles) {
+      const visible = await this.visibilityService.resolveVisibleProfiles({ tenantId, userId, role, isPlatformUser: false });
+      for (const entry of visible) ids.add(entry.profileId);
     }
+    return ids;
+  }
+
+  private async assertProfileAccess(req: any, tenantId: string, profileId: string): Promise<void> {
+    await this.enforceTenantIsolation(tenantId, profileId);
+    if (this.hasTenantWideRead(req)) return;
+    const own = await this.ownProfileIds(req, tenantId);
+    if (!own.has(profileId)) throw new NotFoundException('Profile not found');
+  }
+
+  /** profileId of a list query: optional for tenant-wide readers, required and owned for everyone else. */
+  private async scopedProfileId(req: any, tenantId: string, profileId?: string): Promise<string | undefined> {
+    if (profileId) {
+      await this.assertProfileAccess(req, tenantId, profileId);
+      return profileId;
+    }
+    if (this.hasTenantWideRead(req)) return undefined;
+    throw new BadRequestException('profileId required');
+  }
+
+  private visibilityRoleFor(req: any): InvestorVisibilityRole {
+    if (this.isPlatformUser(req)) return InvestorVisibilityRole.PLATFORM_ADMIN;
+    const permissions = this.actorPermissions(req);
+    if (hasAnyPermission(permissions, [Permission.TENANT_UPDATE, Permission.PAYOUT_MANAGE])) return InvestorVisibilityRole.TENANT_OWNER;
+    if (hasPermission(permissions, Permission.COMPLIANCE_READ)) return InvestorVisibilityRole.COMPLIANCE_REVIEWER;
+    return InvestorVisibilityRole.FOLLOWER;
   }
 
   // Profile
@@ -118,6 +187,10 @@ export class PortfolioAccountingController {
   async createProfile(@Req() req: any, @Body() dto: CreateProfileDto) {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
+    if (!this.canAdministerAccounting(req)) {
+      const selfScoped = (dto.scope === 'FOLLOWER' || dto.scope === 'TRADER') && dto.scopeId === authUserIdOrNull(req);
+      if (!selfScoped) throw new ForbiddenException('You can only create a follower or trader profile for yourself');
+    }
 
     const profile = await this.policyService.createOrUpdateProfile({
       tenantId,
@@ -145,25 +218,27 @@ export class PortfolioAccountingController {
   @Get('profiles')
   async listProfiles(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
-    try {
-      const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({
-        where: { tenantId, ...(query.scope ? { scope: query.scope as any } : {}), ...(query.scopeId ? { scopeId: query.scopeId } : {}) },
-      });
-      return { data: profiles.map((p: any) => redactSecrets(p)) };
-    } catch {
-      return { data: [] };
-    }
+    const ownIds = this.hasTenantWideRead(req) ? null : [...(await this.ownProfileIds(req, tenantId))];
+    const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({
+      where: {
+        tenantId,
+        ...(ownIds ? { id: { in: ownIds } } : {}),
+        ...(query.scope ? { scope: query.scope as any } : {}),
+        ...(query.scopeId ? { scopeId: query.scopeId } : {}),
+      },
+    });
+    return { data: profiles.map((p: any) => redactSecrets(p)) };
   }
 
   // Events
   @Get('events')
   async listEvents(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
-    if (query.profileId) await this.enforceTenantIsolation(tenantId, query.profileId);
+    const profileId = await this.scopedProfileId(req, tenantId, query.profileId);
 
     return await this.eventRepo.listEvents({
       tenantId,
-      profileId: query.profileId,
+      profileId,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
       page: query.page,
@@ -176,7 +251,7 @@ export class PortfolioAccountingController {
   async listCash(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
     if (!query.profileId) throw new BadRequestException('profileId required');
-    await this.enforceTenantIsolation(tenantId, query.profileId);
+    await this.assertProfileAccess(req, tenantId, query.profileId);
 
     return await this.cashLedger.listCashEntries({
       tenantId,
@@ -193,7 +268,7 @@ export class PortfolioAccountingController {
   async getCashBalance(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
     if (!query.profileId) throw new BadRequestException('profileId required');
-    await this.enforceTenantIsolation(tenantId, query.profileId);
+    await this.assertProfileAccess(req, tenantId, query.profileId);
 
     return await this.cashLedger.getCashBalance({
       tenantId,
@@ -208,7 +283,7 @@ export class PortfolioAccountingController {
   async listPositions(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
     if (!query.profileId) throw new BadRequestException('profileId required');
-    await this.enforceTenantIsolation(tenantId, query.profileId);
+    await this.assertProfileAccess(req, tenantId, query.profileId);
 
     return await this.positionAccounting.listLots({
       tenantId,
@@ -223,7 +298,7 @@ export class PortfolioAccountingController {
   async getHoldings(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
     if (!query.profileId) throw new BadRequestException('profileId required');
-    await this.enforceTenantIsolation(tenantId, query.profileId);
+    await this.assertProfileAccess(req, tenantId, query.profileId);
 
     return await this.positionAccounting.getHoldings({
       tenantId,
@@ -237,7 +312,7 @@ export class PortfolioAccountingController {
   async getNav(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
     if (!query.profileId) throw new BadRequestException('profileId required');
-    await this.enforceTenantIsolation(tenantId, query.profileId);
+    await this.assertProfileAccess(req, tenantId, query.profileId);
 
     const result = await this.navService.calculateNav({
       tenantId,
@@ -265,7 +340,7 @@ export class PortfolioAccountingController {
   async getPnl(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
     if (!query.profileId) throw new BadRequestException('profileId required');
-    await this.enforceTenantIsolation(tenantId, query.profileId);
+    await this.assertProfileAccess(req, tenantId, query.profileId);
 
     const at = query.at ? new Date(query.at) : new Date();
     const from = query.from ? new Date(query.from) : undefined;
@@ -283,7 +358,7 @@ export class PortfolioAccountingController {
   @Get('performance')
   async getPerformance(@Req() req: any, @Query() query: PerformanceQueryDto) {
     const tenantId = this.getTenantId(req);
-    await this.enforceTenantIsolation(tenantId, query.profileId);
+    await this.assertProfileAccess(req, tenantId, query.profileId);
 
     const periodStart = new Date(query.periodStart);
     const periodEnd = new Date(query.periodEnd);
@@ -322,7 +397,7 @@ export class PortfolioAccountingController {
   @Get('attribution')
   async getAttribution(@Req() req: any, @Query() query: AttributionQueryDto) {
     const tenantId = this.getTenantId(req);
-    await this.enforceTenantIsolation(tenantId, query.profileId);
+    await this.assertProfileAccess(req, tenantId, query.profileId);
 
     // For attribution, need total PnL — calculate
     const pnl = await this.pnlService.calculateNetPnl({
@@ -353,6 +428,7 @@ export class PortfolioAccountingController {
   @Post('snapshots')
   async createSnapshot(@Req() req: any, @Body() dto: CreateSnapshotDto) {
     const tenantId = this.getTenantId(req);
+    this.requireAccountingAdmin(req);
     await this.enforceTenantIsolation(tenantId, dto.profileId);
 
     const snapshot = await this.snapshotService.createSnapshot({
@@ -384,11 +460,11 @@ export class PortfolioAccountingController {
   @Get('snapshots')
   async listSnapshots(@Req() req: any, @Query() query: PortfolioSnapshotQueryDto) {
     const tenantId = this.getTenantId(req);
-    if (query.profileId) await this.enforceTenantIsolation(tenantId, query.profileId);
+    const profileId = await this.scopedProfileId(req, tenantId, query.profileId);
 
     return await this.snapshotService.listSnapshots({
       tenantId,
-      profileId: query.profileId,
+      profileId,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
       page: query.page,
@@ -400,7 +476,8 @@ export class PortfolioAccountingController {
   async getSnapshot(@Req() req: any, @Param('snapshotId') snapshotId: string) {
     const tenantId = this.getTenantId(req);
     const snapshot = await this.snapshotService.getSnapshot({ tenantId, snapshotId });
-    if (!snapshot) throw new BadRequestException('Snapshot not found');
+    if (!snapshot) throw new NotFoundException('Snapshot not found');
+    await this.assertProfileAccess(req, tenantId, snapshot.profileId);
     return redactSecrets(snapshot);
   }
 
@@ -408,6 +485,7 @@ export class PortfolioAccountingController {
   @Post('periods')
   async createPeriod(@Req() req: any, @Body() dto: CreatePeriodDto) {
     const tenantId = this.getTenantId(req);
+    this.requireAccountingAdmin(req);
     await this.enforceTenantIsolation(tenantId, dto.profileId);
 
     const period = await this.periodService.createPeriod({
@@ -437,11 +515,11 @@ export class PortfolioAccountingController {
   @Get('periods')
   async listPeriods(@Req() req: any, @Query() query: PortfolioPeriodQueryDto) {
     const tenantId = this.getTenantId(req);
-    if (query.profileId) await this.enforceTenantIsolation(tenantId, query.profileId);
+    const profileId = await this.scopedProfileId(req, tenantId, query.profileId);
 
     return await this.periodService.listPeriods({
       tenantId,
-      profileId: query.profileId,
+      profileId,
       state: query.state,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
@@ -453,6 +531,7 @@ export class PortfolioAccountingController {
   @Post('periods/close')
   async closePeriod(@Req() req: any, @Body() dto: ClosePeriodDto) {
     const tenantId = this.getTenantId(req);
+    this.requireAccountingAdmin(req);
     const userId = this.getUserId(req);
 
     const period = await this.periodService.getPeriod({ tenantId, periodId: dto.periodId });
@@ -484,6 +563,7 @@ export class PortfolioAccountingController {
   @Post('statements')
   async generateStatement(@Req() req: any, @Body() dto: GenerateStatementDto) {
     const tenantId = this.getTenantId(req);
+    this.requireAccountingAdmin(req);
     await this.enforceTenantIsolation(tenantId, dto.profileId);
 
     const statement = await this.statementService.generateStatement({
@@ -509,29 +589,29 @@ export class PortfolioAccountingController {
   @Get('statements')
   async listStatements(@Req() req: any, @Query() query: StatementQueryDto) {
     const tenantId = this.getTenantId(req);
-    if (query.profileId) await this.enforceTenantIsolation(tenantId, query.profileId);
+    if (query.profileId) await this.assertProfileAccess(req, tenantId, query.profileId);
 
     // Statement cannot expose other user — enforce visibility
     const userId = this.getUserId(req);
-    const role = (req.user?.portfolioRole as InvestorVisibilityRole) ?? InvestorVisibilityRole.TENANT_OWNER;
+    const role = this.visibilityRoleFor(req);
     const isPlatform = this.isPlatformUser(req);
+
+    // Visibility is part of the query (not a filter over one page): a restricted caller's
+    // page/limit/total then count only the statements it may see.
+    const restricted = !isPlatform && role !== InvestorVisibilityRole.TENANT_OWNER && role !== InvestorVisibilityRole.COMPLIANCE_REVIEWER;
+    const profileIds = restricted ? [...(await this.ownProfileIds(req, tenantId))] : undefined;
 
     const result = await this.statementService.listStatements({
       tenantId,
       profileId: query.profileId,
+      profileIds,
       periodId: query.periodId,
+      state: query.state,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
       page: query.page,
       limit: query.limit,
     });
-
-    // Filter by visibility if not platform/owner
-    if (!isPlatform && role !== InvestorVisibilityRole.TENANT_OWNER && role !== InvestorVisibilityRole.COMPLIANCE_REVIEWER) {
-      const visibleProfiles = await this.visibilityService.resolveVisibleProfiles({ tenantId, userId, role, isPlatformUser: isPlatform });
-      const visibleIds = new Set(visibleProfiles.map((v) => v.profileId));
-      result.data = result.data.filter((s: any) => visibleIds.has(s.profileId));
-    }
 
     return { ...result, data: result.data.map((d: any) => redactSecrets(d)) };
   }
@@ -540,15 +620,18 @@ export class PortfolioAccountingController {
   async getStatement(@Req() req: any, @Param('statementId') statementId: string) {
     const tenantId = this.getTenantId(req);
     const statement = await this.statementService.getStatement({ tenantId, statementId });
-    if (!statement) throw new BadRequestException('Statement not found');
+    if (!statement) throw new NotFoundException('Statement not found');
 
     // Visibility check
     const userId = this.getUserId(req);
-    const role = (req.user?.portfolioRole as InvestorVisibilityRole) ?? InvestorVisibilityRole.TENANT_OWNER;
+    const role = this.visibilityRoleFor(req);
     const isPlatform = this.isPlatformUser(req);
-    const canView = await this.visibilityService.canViewStatement({ tenantId, userId, statementId, role, isPlatformUser: isPlatform });
-    if (!canView && !isPlatform && role !== InvestorVisibilityRole.TENANT_OWNER && role !== InvestorVisibilityRole.COMPLIANCE_REVIEWER) {
-      throw new ForbiddenException('Access denied to statement');
+    const canView =
+      this.hasTenantWideRead(req) ||
+      (await this.visibilityService.canViewStatement({ tenantId, userId, statementId, role, isPlatformUser: isPlatform })) ||
+      (await this.ownProfileIds(req, tenantId)).has(statement.profileId);
+    if (!canView) {
+      throw new NotFoundException('Statement not found');
     }
 
     return redactSecrets(statement);
@@ -558,9 +641,9 @@ export class PortfolioAccountingController {
   async exportStatement(@Req() req: any, @Param('statementId') statementId: string, @Query('format') format: string = 'JSON') {
     const tenantId = this.getTenantId(req);
     const statement = await this.statementService.getStatement({ tenantId, statementId });
-    if (!statement) throw new BadRequestException('Statement not found');
+    if (!statement) throw new NotFoundException('Statement not found');
 
-    await this.enforceTenantIsolation(tenantId, statement.profileId);
+    await this.assertProfileAccess(req, tenantId, statement.profileId);
 
     let result;
     if (format === 'CSV') {
@@ -585,8 +668,8 @@ export class PortfolioAccountingController {
   @Post('adjustments')
   async createAdjustment(@Req() req: any, @Body() dto: CreateAdjustmentDto) {
     const tenantId = this.getTenantId(req);
+    this.requireAccountingAdmin(req);
     await this.enforceTenantIsolation(tenantId, dto.profileId);
-    await this.enforcePlatformRBAC(req);
 
     const adjustment = await this.adjustmentService.createAdjustment({
       tenantId,
@@ -617,11 +700,11 @@ export class PortfolioAccountingController {
   @Get('adjustments')
   async listAdjustments(@Req() req: any, @Query() query: PortfolioQueryDto) {
     const tenantId = this.getTenantId(req);
-    if (query.profileId) await this.enforceTenantIsolation(tenantId, query.profileId);
+    const profileId = await this.scopedProfileId(req, tenantId, query.profileId);
 
     return await this.adjustmentService.listAdjustments({
       tenantId,
-      profileId: query.profileId,
+      profileId,
       page: query.page,
       limit: query.limit,
     });
@@ -631,6 +714,7 @@ export class PortfolioAccountingController {
   @Post('reconciliations')
   async runReconciliation(@Req() req: any, @Body() dto: ReconciliationActionDto) {
     const tenantId = this.getTenantId(req);
+    this.requireAccountingAdmin(req);
     await this.enforceTenantIsolation(tenantId, dto.profileId);
 
     const recon = await this.reconciliationService.runReconciliation({
@@ -657,11 +741,11 @@ export class PortfolioAccountingController {
   @Get('reconciliations')
   async listReconciliations(@Req() req: any, @Query() query: PortfolioQueryDto & { periodId?: string; state?: string }) {
     const tenantId = this.getTenantId(req);
-    if (query.profileId) await this.enforceTenantIsolation(tenantId, query.profileId);
+    const profileId = await this.scopedProfileId(req, tenantId, query.profileId);
 
     return await this.reconciliationService.listReconciliations({
       tenantId,
-      profileId: query.profileId,
+      profileId,
       periodId: (query as any).periodId,
       state: (query as any).state,
       page: query.page,

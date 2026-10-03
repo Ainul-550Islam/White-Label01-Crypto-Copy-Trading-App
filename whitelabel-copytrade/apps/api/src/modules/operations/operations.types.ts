@@ -10,6 +10,7 @@
  */
 
 import { createHash } from 'crypto';
+import type { Prisma } from '@prisma/client';
 
 export enum OperationalReadinessState {
   READY = 'READY',
@@ -91,6 +92,43 @@ export enum OperationalMaintenanceScope {
   VENUE = 'VENUE',
   TRADING_CAPABILITY = 'TRADING_CAPABILITY',
   BILLING_CAPABILITY = 'BILLING_CAPABILITY',
+}
+
+/**
+ * Which active maintenance windows apply to an operation in `scope`.
+ *
+ * A window applies when it is ACTIVE and inside its scheduled time, belongs to
+ * the tenant or to the whole platform (tenantId null), and covers the
+ * operation: the same scope (and target, when one is given - a window with no
+ * target covers every target), the whole platform, or the whole tenant.
+ *
+ * Shared by MaintenanceModeService.isInMaintenance (server enforcement) and
+ * MaintenanceWindowService.getCurrentForTenant (`blocksTrading`, which the
+ * customer web uses to disable copying), so the two cannot disagree. A
+ * SERVICE, VENUE or BILLING_CAPABILITY window does not cover a
+ * TRADING_CAPABILITY operation: customers still see its banner, but copying
+ * stays available.
+ */
+export function activeMaintenanceWhere(params: {
+  scope: OperationalMaintenanceScope;
+  scopeTarget?: string | null;
+  tenantId?: string | null;
+  now: Date;
+}): Prisma.OperationalMaintenanceWindowWhereInput {
+  const { scope, scopeTarget = null, tenantId = null, now } = params;
+  const scopes: Prisma.OperationalMaintenanceWindowWhereInput[] = [
+    scopeTarget
+      ? { scope: scope as `${OperationalMaintenanceScope}`, OR: [{ scopeTarget }, { scopeTarget: null }] }
+      : { scope: scope as `${OperationalMaintenanceScope}` },
+    { scope: 'PLATFORM' },
+  ];
+  if (tenantId !== null) scopes.push({ scope: 'TENANT', tenantId });
+  return {
+    state: 'ACTIVE',
+    scheduledStart: { lte: now },
+    scheduledEnd: { gte: now },
+    AND: [tenantId !== null ? { OR: [{ tenantId }, { tenantId: null }] } : { tenantId: null }, { OR: scopes }],
+  };
 }
 
 export enum OperationalDegradationLevel {

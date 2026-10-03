@@ -146,68 +146,48 @@ export class BillingHealthService {
   }
 
   private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).payment?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).payment?.findMany({ where }) || [];
   }
 
   private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).invoice?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).invoice?.findMany({ where }) || [];
   }
 
   private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).refund?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).refund?.findMany({ where }) || [];
   }
 
   private async fetchDunningCases(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).dunningCase?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).dunningCase?.findMany({ where }) || [];
   }
 
   private async fetchCheckouts(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      // Checkout data may be stored in payments with providerCheckoutId or separate table
-      const where: any = {
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      // Try to find checkout-related payments
-      const payments = await (this.prisma as any).payment?.findMany({ where }) || [];
-      return payments.filter((p: any) => p.providerCheckoutId || p.providerSessionId);
-    } catch {
-      return [];
-    }
+    // Checkout data may be stored in payments with providerCheckoutId or separate table
+    const where: any = {
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    // Try to find checkout-related payments
+    const payments = await (this.prisma as any).payment?.findMany({ where }) || [];
+    return payments.filter((p: any) => p.providerCheckoutId || p.providerSessionId);
   }
 }

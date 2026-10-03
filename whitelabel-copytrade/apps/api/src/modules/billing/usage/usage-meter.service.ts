@@ -59,7 +59,7 @@ export class UsageMeterService {
     const idempotencyKey = params.idempotencyKey || this.generateIdempotencyKey(params.tenantId, params.meterKey, params.sourceId, params.scope, params.subjectId);
 
     // Deduplicate event - check idempotency and source
-    const existingByIdempotency = await this.eventRepository.findByIdempotencyKey(idempotencyKey);
+    const existingByIdempotency = await this.eventRepository.findByIdempotencyKey(idempotencyKey, params.tenantId);
     if (existingByIdempotency) {
       this.logger.log(`Duplicate usage event by idempotencyKey: ${idempotencyKey} - returning existing`);
       const bucket = await this.meterRepository.getCurrentPeriodTotal({

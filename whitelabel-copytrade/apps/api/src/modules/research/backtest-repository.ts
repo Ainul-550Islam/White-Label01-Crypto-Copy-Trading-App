@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Persistence abstraction for backtest runs, simulated trades, portfolio snapshots, metrics, and deterministic result references.
@@ -36,7 +37,7 @@ export class BacktestRepository {
     idempotencyKey?: string | null;
   }): Promise<any> {
     if (input.idempotencyKey) {
-      const existing = await (this.prisma as any).researchBacktestRun.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+      const existing = await (this.prisma as any).researchBacktestRun.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existing) {
         this.logger.log(`Backtest idempotent by key=${input.idempotencyKey}`);
         return existing;
@@ -125,8 +126,11 @@ export class BacktestRepository {
 
   async updateStatus(id: string, tenantId: string, status: string, extra?: { startedAt?: Date; completedAt?: Date; errorCode?: string; errorSummary?: string; resultSummary?: Record<string, any>; metrics?: Record<string, any>; equityCurve?: any[] }): Promise<any | null> {
     try {
-      return await (this.prisma as any).researchBacktestRun.update({ where: { id }, data: { status, ...extra, updatedAt: new Date() } });
-    } catch { return null; }
+      return await (this.prisma as any).researchBacktestRun.update({ where: { id, tenantId }, data: { status, ...extra, updatedAt: new Date() } });
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
+    }
   }
 
   async createTrade(input: { tenantId: string; backtestRunId: string; sequence: number; symbol: string; side: string; type: string; quantity: string; entryPrice: string; exitPrice?: string | null; grossPnl?: string | null; fee?: string; netPnl?: string | null; isWin?: boolean | null; openedAt: Date; closedAt?: Date | null; holdingMs?: number | null }): Promise<any> {

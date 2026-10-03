@@ -30,7 +30,7 @@
 --     transactions without the GUC start seeing zero rows immediately -
 --     which is the point, and the reason it is a scheduled operation.
 
--- --- covered tables (153) -------------------------------------------
+-- --- covered tables (186) -------------------------------------------
 ALTER TABLE "account_balance_snapshots" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "account_balance_snapshots" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "account_ownerships" ENABLE ROW LEVEL SECURITY;
@@ -45,6 +45,10 @@ ALTER TABLE "backtest_runs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "backtest_runs" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "backtest_trades" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "backtest_trades" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "billing_customers" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "billing_customers" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "billing_ledger_entries" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "billing_ledger_entries" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "billing_notification_audit_logs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "billing_notification_audit_logs" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "billing_notification_jobs" ENABLE ROW LEVEL SECURITY;
@@ -67,10 +71,20 @@ ALTER TABLE "compliance_cases" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "compliance_cases" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "compliance_evidences" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "compliance_evidences" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "compliance_report_certifications" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "compliance_report_certifications" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "compliance_report_deliveries" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "compliance_report_deliveries" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "compliance_report_validations" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "compliance_report_validations" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "compliance_reports" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "compliance_reports" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "compliance_reviews" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "compliance_reviews" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "compliance_screening_requests" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "compliance_screening_requests" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "consent_records" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "consent_records" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "copy_executions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "copy_executions" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "copy_reconciliation_records" ENABLE ROW LEVEL SECURITY;
@@ -101,6 +115,22 @@ ALTER TABLE "custody_wallets" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "custody_wallets" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "custody_withdrawals" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "custody_withdrawals" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "developer_access_tokens" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "developer_access_tokens" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "developer_applications" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "developer_applications" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "developer_audit" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "developer_audit" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "developer_credentials" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "developer_credentials" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "developer_event_subscriptions" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "developer_event_subscriptions" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "developer_oauth_grants" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "developer_oauth_grants" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "developer_webhook_deliveries" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "developer_webhook_deliveries" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "developer_webhook_subscriptions" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "developer_webhook_subscriptions" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "device_trusts" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "device_trusts" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "dunning_cases" ENABLE ROW LEVEL SECURITY;
@@ -117,20 +147,38 @@ ALTER TABLE "engine_retention_runs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "engine_retention_runs" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "enterprise_api_keys" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "enterprise_api_keys" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "evidence_packages" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "evidence_packages" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "exchange_stream_sessions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "exchange_stream_sessions" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "execution_incidents" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "execution_incidents" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "fee_accruals" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "fee_accruals" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "fee_audit_logs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "fee_audit_logs" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "fee_settlement_items" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "fee_settlement_items" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "fee_settlements" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "fee_settlements" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "finance_audit_logs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "finance_audit_logs" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "funding_approvals" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "funding_approvals" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "funding_reconciliations" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "funding_reconciliations" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "funding_requests" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "funding_requests" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "governance_actions" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "governance_actions" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "governance_audits" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "governance_audits" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "governance_data_classifications" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "governance_data_classifications" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "governance_data_inventory" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "governance_data_inventory" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "governance_reconciliations" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "governance_reconciliations" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "institutional_accounts" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "institutional_accounts" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "invoices" ENABLE ROW LEVEL SECURITY;
@@ -225,6 +273,10 @@ ALTER TABLE "portfolio_valuations" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "portfolio_valuations" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "positions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "positions" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "privacy_exports" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "privacy_exports" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "privacy_requests" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "privacy_requests" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "reconciliation_discrepancies" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "reconciliation_discrepancies" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "reconciliation_runs" ENABLE ROW LEVEL SECURITY;
@@ -257,6 +309,8 @@ ALTER TABLE "research_signals" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "research_signals" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "research_strategy_versions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "research_strategy_versions" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "retention_candidates" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "retention_candidates" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "risk_configuration_versions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "risk_configuration_versions" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "risk_configurations" ENABLE ROW LEVEL SECURITY;
@@ -275,12 +329,22 @@ ALTER TABLE "risk_score_records" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "risk_score_records" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "risk_snapshot_metadata" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "risk_snapshot_metadata" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "saas_audit_logs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "saas_audit_logs" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "security_audit_logs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "security_audit_logs" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "security_threat_signals" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "security_threat_signals" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "sso_assertion_replays" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "sso_assertion_replays" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "sso_audit_events" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "sso_audit_events" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "sso_auth_transactions" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "sso_auth_transactions" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "sso_configurations" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "sso_configurations" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "sso_identities" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "sso_identities" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "sso_login_attempts" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "sso_login_attempts" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "strategies" ENABLE ROW LEVEL SECURITY;
@@ -319,6 +383,8 @@ ALTER TABLE "usage_alert_configs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "usage_alert_configs" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "usage_alert_events" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "usage_alert_events" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "usage_buckets" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "usage_buckets" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "usage_events" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "usage_events" FORCE ROW LEVEL SECURITY;
 ALTER TABLE "usage_meters" ENABLE ROW LEVEL SECURITY;
@@ -353,6 +419,7 @@ ALTER TABLE "withdrawal_requests" FORCE ROW LEVEL SECURITY;
 --   compliance_policy_records (CompliancePolicyRecord)
 --   institutional_risk_policies (InstitutionalRiskPolicy)
 --   kill_switches (KillSwitch)
+--   legal_holds (LegalHold)
 --   mobile_reconciliation_findings (MobileReconciliationFinding)
 --   mobile_release_audits (MobileReleaseAudit)
 --   operational_actions (OperationalAction)
@@ -367,8 +434,13 @@ ALTER TABLE "withdrawal_requests" FORCE ROW LEVEL SECURITY;
 --   operational_service_degradations (OperationalServiceDegradation)
 --   ops_alerts (OpsAlert)
 --   ops_incidents (OpsIncident)
+--   partner_attributions (PartnerAttribution)
+--   partner_audits (PartnerAudit)
+--   partner_commissions (PartnerCommission)
+--   partner_tenant_relationships (PartnerTenantRelationship)
 --   plans (Plan)
 --   roles (Role)
 --   security_events (SecurityEvent)
 --   security_policies (SecurityPolicy)
 --   subscription_plans (SubscriptionPlan)
+--   webhook_events (WebhookEvent)

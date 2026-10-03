@@ -1,118 +1,77 @@
 /**
  * Plan API for Admin Web
- * 
- * API client for managing billing plans in the admin interface.
+ *
+ * The plan catalogue routes of the platform API, called through the console's
+ * same-origin proxy (/api/proxy/* -> API_BASE_URL/v1/*), which holds the
+ * bearer token in an httpOnly cookie and adds the CSRF header to mutations.
+ * apiClient unwraps the {success, data} envelope.
+ *
+ *   GET    /v1/billing/plans        plan:read    paginated catalogue
+ *   GET    /v1/billing/plans/:id    plan:read
+ *   POST   /v1/billing/plans        plan:manage  create
+ *   PATCH  /v1/billing/plans/:id    plan:manage  update (incl. isActive)
+ *   DELETE /v1/billing/plans/:id    plan:manage  archive (refused while the
+ *                                                plan has live subscribers)
+ *
+ * Before round 7 this module fetched `/api/billing/plans` on the admin origin
+ * (no such route - every call 404'd), used PUT where the API has PATCH, and
+ * offered duplicate / stats / history calls for which the API has no route.
+ * Those were removed instead of being pointed at invented endpoints.
+ * Activation is the real `isActive` field of PATCH.
  */
 
-import {
-  Plan,
-  PlanSummary,
-  PlanFilter,
+import { apiClient } from '@/lib/api-client';
+
+import type {
+  ArchivePlanResult,
   CreatePlanRequest,
+  Plan,
+  PlanFilter,
+  PlanPage,
   UpdatePlanRequest,
-  PlanTier,
-  PlanStatus,
 } from './plan-types';
 
-const API_BASE = '/api/billing/plans';
-
-export async function getPlans(filter?: PlanFilter): Promise<PlanSummary[]> {
-  const params = new URLSearchParams();
-  if (filter?.tier) params.append('tier', filter.tier);
-  if (filter?.status) params.append('status', filter.status);
-  if (filter?.search) params.append('search', filter.search);
-
-  const response = await fetch(`${API_BASE}?${params.toString()}`);
-  if (!response.ok) throw new Error('Failed to fetch plans');
-  return response.json();
+/** Only the query keys ListPlansDto declares are sent (others are a 422). */
+export async function getPlans(filter?: PlanFilter): Promise<PlanPage> {
+  // The keys are written out literally (no helper) so that
+  // scripts/check-web-api-contract.js can verify each against ListPlansDto.
+  return apiClient.get<PlanPage>('/billing/plans', {
+    searchParams: {
+      page: filter?.page,
+      limit: filter?.limit,
+      search: filter?.search?.trim() || undefined,
+      sortBy: filter?.sortBy,
+      sortOrder: filter?.sortOrder,
+      audience: filter?.audience,
+      // Sent only when asked for: the API default (false) lists active plans only.
+      includeInactive: filter?.includeInactive ? true : undefined,
+    },
+  });
 }
 
 export async function getPlan(id: string): Promise<Plan> {
-  const response = await fetch(`${API_BASE}/${id}`);
-  if (!response.ok) throw new Error('Failed to fetch plan');
-  return response.json();
+  return apiClient.get<Plan>(`/billing/plans/${encodeURIComponent(id)}`);
 }
 
 export async function createPlan(request: CreatePlanRequest): Promise<Plan> {
-  const response = await fetch(API_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) throw new Error('Failed to create plan');
-  return response.json();
+  return apiClient.post<Plan>('/billing/plans', request);
 }
 
 export async function updatePlan(id: string, request: UpdatePlanRequest): Promise<Plan> {
-  const response = await fetch(`${API_BASE}/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) throw new Error('Failed to update plan');
-  return response.json();
+  return apiClient.patch<Plan>(`/billing/plans/${encodeURIComponent(id)}`, request);
 }
 
-export async function deletePlan(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/${id}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) throw new Error('Failed to delete plan');
-}
-
+/** Makes the plan purchasable again (PATCH isActive=true). */
 export async function activatePlan(id: string): Promise<Plan> {
-  const response = await fetch(`${API_BASE}/${id}/activate`, {
-    method: 'POST',
-  });
-  if (!response.ok) throw new Error('Failed to activate plan');
-  return response.json();
+  return updatePlan(id, { isActive: true });
 }
 
+/** Stops new purchases of the plan; existing subscriptions are unaffected (PATCH isActive=false). */
 export async function deactivatePlan(id: string): Promise<Plan> {
-  const response = await fetch(`${API_BASE}/${id}/deactivate`, {
-    method: 'POST',
-  });
-  if (!response.ok) throw new Error('Failed to deactivate plan');
-  return response.json();
+  return updatePlan(id, { isActive: false });
 }
 
-export async function archivePlan(id: string): Promise<Plan> {
-  const response = await fetch(`${API_BASE}/${id}/archive`, {
-    method: 'POST',
-  });
-  if (!response.ok) throw new Error('Failed to archive plan');
-  return response.json();
-}
-
-export async function duplicatePlan(id: string, newName: string): Promise<Plan> {
-  const response = await fetch(`${API_BASE}/${id}/duplicate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: newName }),
-  });
-  if (!response.ok) throw new Error('Failed to duplicate plan');
-  return response.json();
-}
-
-export async function getPlanStats(id: string): Promise<{
-  totalSubscribers: number;
-  activeSubscribers: number;
-  revenue: number;
-  churnRate: number;
-}> {
-  const response = await fetch(`${API_BASE}/${id}/stats`);
-  if (!response.ok) throw new Error('Failed to fetch plan stats');
-  return response.json();
-}
-
-export async function getPlanHistory(id: string): Promise<{
-  id: string;
-  action: string;
-  timestamp: string;
-  user: string;
-  changes: Record<string, { old: unknown; new: unknown }>;
-}[]> {
-  const response = await fetch(`${API_BASE}/${id}/history`);
-  if (!response.ok) throw new Error('Failed to fetch plan history');
-  return response.json();
+/** Archives the plan (DELETE). The API refuses while trialing/active/past-due subscribers remain. */
+export async function archivePlan(id: string): Promise<ArchivePlanResult> {
+  return apiClient.delete<ArchivePlanResult>(`/billing/plans/${encodeURIComponent(id)}`);
 }

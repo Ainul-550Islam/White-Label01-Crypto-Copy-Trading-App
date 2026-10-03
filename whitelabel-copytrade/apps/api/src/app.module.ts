@@ -35,6 +35,11 @@ import { OperationsModule } from './modules/operations/operations.module';
 import { PortfolioAccountingModule } from './modules/portfolio-accounting/portfolio-accounting.module';
 import { ClientLifecycleModule } from './modules/client-lifecycle/client-lifecycle.module';
 import { CustodyModule } from './modules/custody/custody.module';
+import { DeveloperModule } from './modules/developer-platform/developer.module';
+import { GovernanceModule } from './modules/governance/governance.module';
+import { MobileReleaseModule } from './modules/mobile-release/mobile-release.module';
+import { PartnerModule } from './modules/partners/partner.module';
+import { ProviderModule } from './modules/providers/provider.module';
 
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -102,6 +107,11 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     PortfolioAccountingModule,
     ClientLifecycleModule,
     CustodyModule,
+    DeveloperModule,
+    GovernanceModule,
+    MobileReleaseModule,
+    PartnerModule,
+    ProviderModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: GlobalValidationPipe },

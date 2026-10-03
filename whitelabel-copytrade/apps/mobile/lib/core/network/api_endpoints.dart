@@ -17,7 +17,8 @@ class ApiEndpoints {
   static String session(String id) => '/auth/sessions/$id';
 
   static const String twoFactorSetup = '/auth/two-factor/setup';
-  static const String twoFactorEnable = '/auth/two-factor/enable';
+  /// Confirms a pending two-factor setup with the first TOTP code (enables 2FA).
+  static const String twoFactorEnable = '/auth/two-factor/confirm';
   static const String twoFactorDisable = '/auth/two-factor/disable';
 
   static const String currentUser = '/users/me';
@@ -45,4 +46,36 @@ class ApiEndpoints {
   static const String notificationUnreadCount = '/notifications/unread-count';
   static const String notificationPreferences = '/notifications/preferences';
   static String markNotificationRead(String id) => '/notifications/$id/read';
+  static const String notificationsReadAll = '/notifications/read-all';
+
+  /// Phase 3: exchange accounts. Credentials are sent once on connect and
+  /// never read back (the API only returns a masked key).
+  static const String exchangeAccounts = '/exchanges/accounts';
+  static const String exchangeVenues = '/exchanges/registry/venues';
+  static String exchangeAccount(String id) => '/exchanges/accounts/$id';
+  static String exchangeAccountDisable(String id) => '/exchanges/accounts/$id/disable';
+  static String exchangeHealthCheck(String id) => '/exchanges/health/$id/check';
+
+  /// Phase 3: copy trading (follower side).
+  static const String copyRankings = '/copy-trading/rankings';
+  static String copyTraderStrategies(String traderId) => '/copy-trading/traders/$traderId/strategies';
+  static const String copySubscriptions = '/copy-trading/subscriptions';
+  static const String copyMySubscriptions = '/copy-trading/subscriptions/me';
+  static String copySubscriptionAction(String id, String action) => '/copy-trading/subscriptions/$id/$action';
+  static const String copyExecutions = '/copy-trading/executions';
+
+  /// Phase 3: funding through client-lifecycle requests on the customer's own
+  /// accounts (the API filters every list to the caller). Custody wallets and
+  /// deposit addresses are operator-only and answer 403 to customers.
+  /// Withdrawals are read-only here: creating one needs destination checks,
+  /// approvals and step-up auth that live in the web app.
+  static const String fundingAccounts = '/client-lifecycle/accounts';
+  static const String fundingRequests = '/client-lifecycle/funding';
+  static const String withdrawalRequests = '/client-lifecycle/withdrawals';
+
+  /// Phase 3: portfolio accounting (read-only).
+  static const String portfolioProfiles = '/portfolio-accounting/profiles';
+  static const String portfolioHoldings = '/portfolio-accounting/holdings';
+  static const String portfolioNav = '/portfolio-accounting/nav';
+  static const String portfolioPnl = '/portfolio-accounting/pnl';
 }

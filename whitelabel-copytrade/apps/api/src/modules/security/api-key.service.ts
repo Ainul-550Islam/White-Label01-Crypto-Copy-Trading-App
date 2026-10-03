@@ -5,6 +5,29 @@ import { SecurityEventService } from './security-event.service';
 import { SecurityAuditService } from './security-audit.service';
 import { ApiKeyState, SecurityEventType, SecurityRisk } from './security.types';
 import { randomUUID, randomBytes, createHash, createHmac } from 'crypto';
+import { Permission, hasPermission } from '@wlct/shared-types';
+
+const KNOWN_PERMISSIONS: ReadonlySet<string> = new Set(Object.values(Permission) as string[]);
+
+const DEV_FALLBACK_HMAC_SECRET = 'dev_api_key_hmac_secret_change_in_production';
+
+/**
+ * Key used to fingerprint API key secrets. API_KEY_HMAC_SECRET (or the older
+ * API_KEY_SECRET) wins. In production a missing value must never fall back to
+ * the public development literal - anyone could recompute fingerprints - so a
+ * domain-separated key is derived from DEVELOPER_SECRET_HMAC_KEY, which the
+ * API already requires at boot; if that is absent too, startup fails.
+ */
+export function resolveApiKeyHmacSecret(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env.API_KEY_HMAC_SECRET || env.API_KEY_SECRET;
+  if (explicit) return explicit;
+  if (env.NODE_ENV !== 'production') return DEV_FALLBACK_HMAC_SECRET;
+  const base = env.DEVELOPER_SECRET_HMAC_KEY;
+  if (!base || base.length < 16) {
+    throw new Error('API_KEY_HMAC_SECRET is required in production (or DEVELOPER_SECRET_HMAC_KEY of at least 16 characters).');
+  }
+  return createHmac('sha256', base).update('wlct:security-api-key-fingerprint:v1').digest('hex');
+}
 
 /**
  * Secure API key management: creation, hashing/fingerprinting, scoped permissions, expiration, rotation, revocation, tenant/user ownership using existing RBAC permissions.
@@ -21,7 +44,7 @@ export class ApiKeyService {
     private readonly eventService: SecurityEventService,
     private readonly auditService: SecurityAuditService,
   ) {
-    this.secretKey = process.env.API_KEY_HMAC_SECRET || process.env.API_KEY_SECRET || 'dev_api_key_hmac_secret_change_in_production';
+    this.secretKey = resolveApiKeyHmacSecret();
   }
 
   async createApiKey(params: {
@@ -40,12 +63,12 @@ export class ApiKeyService {
     // Validate scopes cannot exceed caller permissions
     const forbiddenScopes = params.scopes.filter((scope) => !this.isScopeAllowed(scope, params.callerPermissions));
     if (forbiddenScopes.length > 0) {
-      throw new ForbiddenException(`Scopes exceed caller permissions: ${forbiddenScopes.join(', ')} - cannot assign unrestricted platform permissions`);
+      throw new ForbiddenException(`Scopes must be permission keys you hold yourself: ${forbiddenScopes.join(', ')}`);
     }
 
     // Prevent PLATFORM_MANAGE unless caller has it
-    if (params.scopes.includes('PLATFORM_MANAGE') && !params.callerPermissions.includes('PLATFORM_MANAGE')) {
-      throw new ForbiddenException('Cannot assign PLATFORM_MANAGE without having it');
+    if (params.scopes.includes(Permission.PLATFORM_MANAGE) && !hasPermission(params.callerPermissions, Permission.PLATFORM_MANAGE)) {
+      throw new ForbiddenException('Cannot assign platform:manage without having it');
     }
 
     // Validate tenant ownership
@@ -400,21 +423,14 @@ export class ApiKeyService {
     return createHash('sha256').update(secret).digest('hex').substring(0, 64);
   }
 
+  /**
+   * A scope is a real permission key (Permission in @wlct/shared-types) that
+   * the caller itself holds, using the same wildcard rules as the permission
+   * guard (hasPermission): an API key can never carry more than its creator.
+   * Unknown strings are rejected so a key cannot hold scopes nothing checks.
+   */
   private isScopeAllowed(scope: string, callerPermissions: string[]): boolean {
-    // If caller has PLATFORM_MANAGE, allow all
-    if (callerPermissions.includes('PLATFORM_MANAGE')) return true;
-
-    // If caller has ADMIN/OWNER, allow tenant scopes but not platform-only
-    const platformOnlyScopes = ['PLATFORM_MANAGE', 'TENANT_MANAGE', 'BILLING_ADMIN'];
-    if (platformOnlyScopes.includes(scope)) {
-      return callerPermissions.includes(scope);
-    }
-
-    // Regular scopes must be subset of caller permissions or caller has wildcard
-    if (callerPermissions.includes(scope)) return true;
-    if (callerPermissions.includes('API_KEY_MANAGE')) return true;
-    if (callerPermissions.includes('ADMIN') || callerPermissions.includes('OWNER')) return true;
-
-    return false;
+    if (!KNOWN_PERMISSIONS.has(scope)) return false;
+    return hasPermission(callerPermissions, scope);
   }
 }

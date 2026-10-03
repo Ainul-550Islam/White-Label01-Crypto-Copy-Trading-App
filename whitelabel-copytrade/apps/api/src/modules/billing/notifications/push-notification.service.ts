@@ -14,7 +14,29 @@ export class PushNotificationService implements INotificationProvider {
   private readonly logger = new Logger(PushNotificationService.name);
 
   isAvailable(): boolean {
-    return !!(process.env.FCM_SERVER_KEY || process.env.FIREBASE_CONFIG || process.env.PUSH_ENABLED === 'true');
+    return !!(
+      process.env.FCM_SERVER_KEY ||
+      process.env.FIREBASE_CONFIG ||
+      process.env.PUSH_ENABLED === 'true' ||
+      PushNotificationService.serviceAccountFromEnv()
+    );
+  }
+
+  /**
+   * Explicit service account from FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL /
+   * FIREBASE_PRIVATE_KEY_BASE64 (the variables .env.example documents). Null
+   * unless all three are set; otherwise firebase-admin falls back to
+   * application default credentials (GOOGLE_APPLICATION_CREDENTIALS, workload
+   * identity) with FIREBASE_CONFIG for the project settings.
+   */
+  static serviceAccountFromEnv(): { projectId: string; clientEmail: string; privateKey: string } | null {
+    const projectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
+    const clientEmail = (process.env.FIREBASE_CLIENT_EMAIL || '').trim();
+    const keyB64 = (process.env.FIREBASE_PRIVATE_KEY_BASE64 || '').trim();
+    if (!projectId || !clientEmail || !keyB64) return null;
+    const privateKey = Buffer.from(keyB64, 'base64').toString('utf8');
+    if (!privateKey.includes('PRIVATE KEY')) return null;
+    return { projectId, clientEmail, privateKey };
   }
 
   async send(input: SendNotificationInput): Promise<SendNotificationResult> {
@@ -45,45 +67,69 @@ export class PushNotificationService implements INotificationProvider {
     const sanitizedBody = this.sanitizeContent(input.body);
 
     try {
-      // In real implementation, would lookup user devices and send via FCM/APNS
-      // For now, we simulate with real config check but no fake success if not configured
-      // If configured, we attempt delivery
-
-      // Check for invalid device/token patterns
-      if (input.safePayload && (input.safePayload as any).deviceToken) {
-        const token = (input.safePayload as any).deviceToken as string;
-        if (token.includes('invalid') || token.length < 10) {
-          return {
-            accepted: false,
-            providerReference: null,
-            resultType: ProviderDeliveryResultType.PERMANENT_FAILURE,
-            retryable: false,
-            errorCode: 'INVALID_DEVICE_TOKEN',
-            failureReason: 'Invalid device token',
-          };
-        }
+      // Delivery goes through firebase-admin (FCM, which also fronts APNs).
+      // Anything short of an actual FCM send is reported as a failure: a
+      // push that was only logged must never be recorded as delivered.
+      const token = input.safePayload && typeof (input.safePayload as any).deviceToken === 'string'
+        ? ((input.safePayload as any).deviceToken as string)
+        : null;
+      if (!token) {
+        return {
+          accepted: false,
+          providerReference: null,
+          resultType: ProviderDeliveryResultType.PERMANENT_FAILURE,
+          retryable: false,
+          errorCode: 'NO_DEVICE_TOKEN',
+          failureReason: 'No device token supplied for push delivery',
+        };
+      }
+      if (token.includes('invalid') || token.length < 10) {
+        return {
+          accepted: false,
+          providerReference: null,
+          resultType: ProviderDeliveryResultType.PERMANENT_FAILURE,
+          retryable: false,
+          errorCode: 'INVALID_DEVICE_TOKEN',
+          failureReason: 'Invalid device token',
+        };
       }
 
-      // Try dynamic import of firebase-admin if available
+      const messaging = await this.resolveMessaging();
+      if (!messaging) {
+        return {
+          accepted: false,
+          providerReference: null,
+          resultType: ProviderDeliveryResultType.PERMANENT_FAILURE,
+          retryable: false,
+          errorCode: 'PUSH_PROVIDER_UNAVAILABLE',
+          failureReason:
+            'Push is enabled but firebase-admin is not installed or not initialised ' +
+            '(install firebase-admin and set GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_CONFIG).',
+        };
+      }
+
       try {
-        // @ts-ignore - optional dependency
-        const admin = await import('firebase-admin' as any).catch(() => null);
-        if (admin && (admin as any).messaging) {
-          // Would send via admin.messaging().send()
-          // For now, log
-          this.logger.log(`Push notification would be sent via FCM to user=${input.recipientUserId} tenant=${input.tenantId} title=${sanitizedSubject}`);
-          const messageId = `fcm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-          return {
-            accepted: true,
-            providerReference: messageId,
-            resultType: ProviderDeliveryResultType.ACCEPTED,
-            retryable: false,
-            deliveredAt: new Date().toISOString(),
-          };
-        }
+        const messageId: string = await messaging.send({
+          token,
+          notification: { title: sanitizedSubject, body: sanitizedBody.substring(0, 1000) },
+          data: { tenantId: String(input.tenantId ?? '') },
+        });
+        this.logger.log(`Push sent via FCM tenant=${input.tenantId} user=${input.recipientUserId} id=${messageId}`);
+        return {
+          accepted: true,
+          providerReference: messageId,
+          resultType: ProviderDeliveryResultType.ACCEPTED,
+          retryable: false,
+          deliveredAt: new Date().toISOString(),
+        };
       } catch (e: any) {
-        // FCM error handling
-        const isInvalidToken = e.message?.toLowerCase().includes('invalid') || e.message?.toLowerCase().includes('not registered');
+        const code = String(e?.code ?? e?.errorInfo?.code ?? '').toLowerCase();
+        const message = String(e?.message ?? '');
+        const isInvalidToken =
+          code.includes('registration-token-not-registered') ||
+          code.includes('invalid-registration-token') ||
+          code.includes('invalid-argument') ||
+          message.toLowerCase().includes('not registered');
         if (isInvalidToken) {
           return {
             accepted: false,
@@ -91,7 +137,7 @@ export class PushNotificationService implements INotificationProvider {
             resultType: ProviderDeliveryResultType.PERMANENT_FAILURE,
             retryable: false,
             errorCode: 'INVALID_DEVICE_TOKEN',
-            failureReason: e.message,
+            failureReason: message.slice(0, 500),
           };
         }
         return {
@@ -100,21 +146,9 @@ export class PushNotificationService implements INotificationProvider {
           resultType: ProviderDeliveryResultType.TEMPORARY_FAILURE,
           retryable: true,
           errorCode: 'PUSH_TEMPORARY_FAILURE',
-          failureReason: e.message,
+          failureReason: message.slice(0, 500),
         };
       }
-
-      // Fallback: if push enabled but no provider lib, log and mark as accepted for dev
-      this.logger.log(`[PUSH_DEV] To user=${input.recipientUserId} Title=${sanitizedSubject} Body=${sanitizedBody.substring(0, 200)} Tenant=${input.tenantId}`);
-      const messageId = `push_dev_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-
-      return {
-        accepted: true,
-        providerReference: messageId,
-        resultType: ProviderDeliveryResultType.ACCEPTED,
-        retryable: false,
-        deliveredAt: new Date().toISOString(),
-      };
     } catch (error: any) {
       this.logger.error(`Push notification failed: ${error.message}`, error.stack);
       return {
@@ -125,6 +159,34 @@ export class PushNotificationService implements INotificationProvider {
         errorCode: 'PUSH_PROVIDER_ERROR',
         failureReason: error.message,
       };
+    }
+  }
+
+  /**
+   * firebase-admin is declared in apps/api optionalDependencies (so a
+   * platform where it fails to install still builds). Returns its messaging
+   * client when the package is present; initialises the default app from the
+   * environment (GOOGLE_APPLICATION_CREDENTIALS / FIREBASE_CONFIG) on first
+   * use. Returns null when unavailable - the caller reports a failure.
+   */
+  private async resolveMessaging(): Promise<{ send(message: unknown): Promise<string> } | null> {
+    try {
+      // @ts-ignore - optionalDependency: may be absent where the install was skipped
+      const mod: any = await import('firebase-admin' as any).catch(() => null);
+      const admin: any = mod?.default ?? mod;
+      if (!admin || typeof admin.messaging !== 'function') return null;
+      if (Array.isArray(admin.apps) && admin.apps.length === 0 && typeof admin.initializeApp === 'function') {
+        const serviceAccount = PushNotificationService.serviceAccountFromEnv();
+        if (serviceAccount && admin.credential && typeof admin.credential.cert === 'function') {
+          admin.initializeApp({ credential: admin.credential.cert(serviceAccount), projectId: serviceAccount.projectId });
+        } else {
+          admin.initializeApp();
+        }
+      }
+      return admin.messaging();
+    } catch (e) {
+      this.logger.warn(`firebase-admin unavailable: ${(e as Error).message}`);
+      return null;
     }
   }
 

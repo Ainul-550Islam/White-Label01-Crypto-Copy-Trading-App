@@ -327,89 +327,73 @@ export class DunningService {
   }
 
   async findById(id: string, tenantId?: string): Promise<DunningCase | null> {
-    try {
-      const result = await (this.prisma as any).dunningCase?.findFirst({
-        where: {
-          id,
-          ...(tenantId ? { tenantId } : {}),
-        },
-      });
+    const result = await (this.prisma as any).dunningCase?.findFirst({
+      where: {
+        id,
+        ...(tenantId ? { tenantId } : {}),
+      },
+    });
 
-      if (!result) return null;
+    if (!result) return null;
 
-      return this.mapToDunningCase(result);
-    } catch {
-      return null;
-    }
+    return this.mapToDunningCase(result);
   }
 
   async findActiveByPaymentId(paymentId: string, tenantId: string): Promise<DunningCase | null> {
-    try {
-      const result = await (this.prisma as any).dunningCase?.findFirst({
-        where: {
-          paymentId,
-          tenantId,
-          status: { in: [DunningStatus.ACTIVE, DunningStatus.RETRY_SCHEDULED, DunningStatus.RETRYING] },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+    const result = await (this.prisma as any).dunningCase?.findFirst({
+      where: {
+        paymentId,
+        tenantId,
+        status: { in: [DunningStatus.ACTIVE, DunningStatus.RETRY_SCHEDULED, DunningStatus.RETRYING] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
-      if (!result) return null;
+    if (!result) return null;
 
-      return this.mapToDunningCase(result);
-    } catch {
-      return null;
-    }
+    return this.mapToDunningCase(result);
   }
 
   async findByTenant(tenantId: string, filter?: DunningFilter): Promise<DunningCase[]> {
-    try {
-      const where: any = { tenantId };
+    const where: any = { tenantId };
 
-      if (filter) {
-        if (filter.paymentId) where.paymentId = filter.paymentId;
-        if (filter.subscriptionId) where.subscriptionId = filter.subscriptionId;
-        if (filter.status) where.status = filter.status;
-        if (filter.trigger) where.trigger = filter.trigger;
-        if (filter.actionTaken) where.actionTaken = filter.actionTaken;
-        if (filter.fromDate || filter.toDate) {
-          where.createdAt = {};
-          if (filter.fromDate) where.createdAt.gte = filter.fromDate;
-          if (filter.toDate) where.createdAt.lte = filter.toDate;
-        }
+    if (filter) {
+      if (filter.paymentId) where.paymentId = filter.paymentId;
+      if (filter.subscriptionId) where.subscriptionId = filter.subscriptionId;
+      if (filter.status) where.status = filter.status;
+      if (filter.trigger) where.trigger = filter.trigger;
+      if (filter.actionTaken) where.actionTaken = filter.actionTaken;
+      if (filter.fromDate || filter.toDate) {
+        where.createdAt = {};
+        if (filter.fromDate) where.createdAt.gte = filter.fromDate;
+        if (filter.toDate) where.createdAt.lte = filter.toDate;
       }
-
-      const results = await (this.prisma as any).dunningCase?.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      });
-
-      if (!results) return [];
-
-      return results.map((r: any) => this.mapToDunningCase(r));
-    } catch {
-      return [];
     }
+
+    const results = await (this.prisma as any).dunningCase?.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    if (!results) return [];
+
+    return results.map((r: any) => this.mapToDunningCase(r));
   }
 
   async getPendingRetries(now: Date = new Date()): Promise<DunningCase[]> {
-    try {
-      const results = await (this.prisma as any).dunningCase?.findMany({
-        where: {
-          status: DunningStatus.RETRY_SCHEDULED,
-          nextRetryAt: { lte: now },
-        },
-        orderBy: { nextRetryAt: 'asc' },
-        take: 50,
-      });
+    const results = await (this.prisma as any).dunningCase?.findMany({
+      where: {
+        status: DunningStatus.RETRY_SCHEDULED,
+        nextRetryAt: { lte: now },
+      },
+      orderBy: { nextRetryAt: 'asc' },
+      take: 50,
+    });
 
-      if (!results) return [];
+    if (!results) return [];
 
-      return results.map((r: any) => this.mapToDunningCase(r));
-    } catch {
-      return [];
-    }
+    return results.map((r: any) => this.mapToDunningCase(r));
   }
 
   private determineAction(attempt: number): DunningAction {

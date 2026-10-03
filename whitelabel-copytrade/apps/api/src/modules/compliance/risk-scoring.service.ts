@@ -162,13 +162,12 @@ export class RiskScoringService {
           score: finalScore,
           riskLevel,
           ruleIds: contributingRules.map((r) => r.ruleId),
-          contributingRules,
           policyVersion: policy.policyVersion,
-          methodology: 'weighted_rule_based_v1',
+          // RiskScoreRecord keeps rules, methodology and context in contributingFactors.
+          contributingFactors: { rules: contributingRules, methodology: 'weighted_rule_based_v1', jurisdiction, totalWeight } as any,
           calculatedAt: new Date(),
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
           idempotencyKey,
-          safeMetadata: { jurisdiction, totalWeight },
         },
       });
     } catch (e: any) {
@@ -181,28 +180,24 @@ export class RiskScoringService {
   }
 
   async getLatestScore(tenantId: string, userId: string): Promise<RiskScore | null> {
-    try {
-      const record = await (this.prisma as any).riskScoreRecord?.findFirst({
-        where: { tenantId, userId },
-        orderBy: { calculatedAt: 'desc' },
-      });
+    const record = await (this.prisma as any).riskScoreRecord?.findFirst({
+      where: { tenantId, userId },
+      orderBy: { calculatedAt: 'desc' },
+    });
 
-      if (!record) return null;
+    if (!record) return null;
 
-      return {
-        userId: record.userId,
-        tenantId: record.tenantId,
-        score: record.score,
-        riskLevel: record.riskLevel as RiskLevel,
-        contributingRules: record.contributingRules || [],
-        policyVersion: record.policyVersion,
-        calculatedAt: new Date(record.calculatedAt).toISOString(),
-        expiresAt: record.expiresAt ? new Date(record.expiresAt).toISOString() : undefined,
-        methodology: record.methodology || 'weighted_rule_based_v1',
-      };
-    } catch {
-      return null;
-    }
+    return {
+      userId: record.userId,
+      tenantId: record.tenantId,
+      score: record.score,
+      riskLevel: record.riskLevel as RiskLevel,
+      contributingRules: record.contributingRules || [],
+      policyVersion: record.policyVersion,
+      calculatedAt: new Date(record.calculatedAt).toISOString(),
+      expiresAt: record.expiresAt ? new Date(record.expiresAt).toISOString() : undefined,
+      methodology: record.methodology || 'weighted_rule_based_v1',
+    };
   }
 
   async evaluateDecision(params: { tenantId: string; userId: string; jurisdiction?: string }): Promise<{ decision: ComplianceDecision; riskLevel: RiskLevel; riskScore: number; reasonCodes: string[]; ruleIds: string[] }> {
@@ -248,53 +243,38 @@ export class RiskScoringService {
   }
 
   private async getKycProfile(userId: string): Promise<any | null> {
-    try {
-      return await (this.prisma as any).kycProfile?.findUnique({ where: { userId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).kycProfile?.findUnique({ where: { userId } });
   }
 
   private async getAmlRequests(tenantId: string, userId: string): Promise<any[]> {
-    try {
-      return await (this.prisma as any).complianceScreeningRequest?.findMany({
-        where: { tenantId, userId, type: { in: ['AML', 'TRANSACTION'] } },
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-      }) || [];
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).complianceScreeningRequest?.findMany({
+      where: { tenantId, userId, type: { in: ['AML', 'TRANSACTION'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    }) || [];
   }
 
   private async getUser(userId: string): Promise<any | null> {
-    try {
-      return await (this.prisma as any).user?.findUnique({ where: { id: userId }, select: { countryCode: true, createdAt: true } });
-    } catch {
-      return null;
-    }
+    // The user's country lives on UserProfile (User has no countryCode column).
+    const user = await (this.prisma as any).user?.findUnique({
+      where: { id: userId },
+      select: { createdAt: true, profile: { select: { countryCode: true } } },
+    });
+    return user ? { createdAt: user.createdAt, countryCode: user.profile?.countryCode ?? null } : null;
   }
 
   private async getTransactionSignals(tenantId: string, userId: string): Promise<any[]> {
-    try {
-      return await (this.prisma as any).transactionMonitoringSignal?.findMany({
-        where: { tenantId, userId },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-      }) || [];
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).transactionMonitoringSignal?.findMany({
+      where: { tenantId, userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    }) || [];
   }
 
   private async getFailedKycAttempts(tenantId: string, userId: string): Promise<number> {
-    try {
-      const count = await (this.prisma as any).complianceScreeningRequest?.count({
-        where: { tenantId, userId, type: 'KYC', kycState: 'REJECTED' },
-      });
-      return count || 0;
-    } catch {
-      return 0;
-    }
+    const count = await (this.prisma as any).complianceScreeningRequest?.count({
+      where: { tenantId, userId, type: 'KYC', kycState: 'REJECTED' },
+    });
+    return count || 0;
   }
 }

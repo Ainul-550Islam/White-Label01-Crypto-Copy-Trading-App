@@ -1,6 +1,7 @@
 /// Plan Service
 /// 
 /// Service for managing billing plans in the mobile application.
+library;
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -32,8 +33,8 @@ class PlanService {
 
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.map((json) => Plan.fromJson(json)).toList();
+      final List<dynamic> data = json.decode(response.body) as List<dynamic>;
+      return data.map((json) => Plan.fromJson(json as Map<String, dynamic>)).toList();
     }
     throw Exception('Failed to fetch plans: ${response.statusCode}');
   }
@@ -43,7 +44,7 @@ class PlanService {
     final uri = Uri.parse('$baseUrl/api/billing/plans/$planId');
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
-      return Plan.fromJson(json.decode(response.body));
+      return Plan.fromJson(json.decode(response.body) as Map<String, dynamic>);
     }
     if (response.statusCode == 404) return null;
     throw Exception('Failed to fetch plan: ${response.statusCode}');
@@ -54,7 +55,7 @@ class PlanService {
     final uri = Uri.parse('$baseUrl/api/billing/current-plan');
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
-      return Plan.fromJson(json.decode(response.body));
+      return Plan.fromJson(json.decode(response.body) as Map<String, dynamic>);
     }
     if (response.statusCode == 404) return null;
     throw Exception('Failed to fetch current plan: ${response.statusCode}');
@@ -109,7 +110,7 @@ class PlanService {
     return PlanCatalog.allPlans
         .where((p) => 
             p.price.amount > currentPlan.price.amount && 
-            p.status == PlanStatus.active)
+            p.status == PlanStatus.active,)
         .toList();
   }
 
@@ -118,7 +119,7 @@ class PlanService {
     return PlanCatalog.allPlans
         .where((p) => 
             p.price.amount < currentPlan.price.amount && 
-            p.status == PlanStatus.active)
+            p.status == PlanStatus.active,)
         .toList();
   }
 
@@ -131,7 +132,7 @@ class PlanService {
       body: json.encode({'planId': planId}),
     );
     if (response.statusCode == 200) {
-      return json.decode(response.body);
+      return json.decode(response.body) as Map<String, dynamic>;
     }
     throw Exception('Failed to initiate checkout: ${response.statusCode}');
   }

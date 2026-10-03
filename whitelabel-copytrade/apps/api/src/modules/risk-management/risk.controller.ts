@@ -10,6 +10,8 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { Permission } from '@wlct/shared-types';
+import { RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { RiskDecisionService } from './risk-decision.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
 import { PortfolioExposureService } from './portfolio-exposure.service';
@@ -30,6 +32,7 @@ import { RiskReconciliationService } from './risk-reconciliation.service';
 import { RiskCheckDto } from './dto/risk-check.dto';
 import { UpsertRiskPolicyDto, RiskPolicyScopeDto } from './dto/risk-policy.dto';
 import { RiskPolicyScope, CircuitBreakerScope } from './risk-management.types';
+import { authTenantId, authUserIdOrNull } from '../../common/guards/request-principal';
 
 /**
  * Institutional risk controller with RBAC:
@@ -38,6 +41,19 @@ import { RiskPolicyScope, CircuitBreakerScope } from './risk-management.types';
  * - No secrets in responses
  */
 
+/**
+ * Risk-management console (unified pre-trade check, exposure, margin, VaR,
+ * policies, circuit breakers, kill switches, reconciliation).
+ *
+ * The controller carried no permission metadata, so any tenant user, a
+ * follower included, could rewrite the tenant's risk policy or trigger and
+ * clear circuit breakers and kill switches. Permissions now mirror the
+ * decorated risk controller (/risk): reads risk:read, policy changes
+ * risk:config:update (class default), trigger/request/acknowledge
+ * risk:kill_switch_update, clear risk:protection_clear. The pre-trade check
+ * needs execution:submit or risk:config:update.
+ */
+@RequirePermissions(Permission.RISK_CONFIG_UPDATE)
 @Controller('risk-management')
 export class RiskManagementController {
   constructor(
@@ -61,13 +77,12 @@ export class RiskManagementController {
   ) {}
 
   private getTenantId(req: any): string {
-    const tid = req.user?.tenantId ?? req.headers['x-tenant-id'];
-    if (!tid) throw new ForbiddenException('Tenant ID required');
-    return tid;
+    // Token tenant only; a header can never select the tenant.
+    return authTenantId(req);
   }
 
   private getUserId(req: any): string {
-    return req.user?.id ?? req.user?.userId ?? 'system';
+    return authUserIdOrNull(req) ?? 'system';
   }
 
   private checkTenantAccess(req: any, targetTenantId: string): void {
@@ -81,6 +96,7 @@ export class RiskManagementController {
   // ---------- Dashboard ----------
 
   @Get('dashboard')
+  @RequirePermissions(Permission.RISK_READ)
   async getDashboard(@Req() req: any, @Query('accountId') accountId?: string, @Query('traderId') traderId?: string, @Query('strategyId') strategyId?: string, @Query('followerId') followerId?: string) {
     const tenantId = this.getTenantId(req);
     const exposure = await this.exposureService.calculateExposure({ tenantId, accountId, traderId, strategyId, followerId });
@@ -146,6 +162,7 @@ export class RiskManagementController {
   // ---------- Pre-trade check ----------
 
   @Post('check')
+  @RequireAnyPermission(Permission.EXECUTION_SUBMIT, Permission.RISK_CONFIG_UPDATE)
   async checkOrder(@Req() req: any, @Body() dto: RiskCheckDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -194,12 +211,14 @@ export class RiskManagementController {
   // ---------- Exposure ----------
 
   @Get('exposure')
+  @RequirePermissions(Permission.RISK_READ)
   async getExposure(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     return this.exposureService.calculateExposure({ tenantId, accountId });
   }
 
   @Get('exposure/:accountId')
+  @RequirePermissions(Permission.RISK_READ)
   async getAccountExposure(@Req() req: any, @Param('accountId') accountId: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -209,6 +228,7 @@ export class RiskManagementController {
   // ---------- Position risk ----------
 
   @Get('position-risk')
+  @RequirePermissions(Permission.RISK_READ)
   async getPositionRisk(@Req() req: any, @Query('accountId') accountId?: string, @Query('symbol') symbol?: string) {
     const tenantId = this.getTenantId(req);
     return this.positionService.evaluatePositionRisk({ tenantId, accountId, symbol });
@@ -217,6 +237,7 @@ export class RiskManagementController {
   // ---------- Margin ----------
 
   @Get('margin/:accountId')
+  @RequirePermissions(Permission.RISK_READ)
   async getMargin(@Req() req: any, @Param('accountId') accountId: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -226,6 +247,7 @@ export class RiskManagementController {
   // ---------- Leverage ----------
 
   @Get('leverage/:accountId')
+  @RequirePermissions(Permission.RISK_READ)
   async getLeverage(@Req() req: any, @Param('accountId') accountId: string, @Query('symbol') symbol?: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -235,6 +257,7 @@ export class RiskManagementController {
   // ---------- Liquidation ----------
 
   @Get('liquidation/:accountId')
+  @RequirePermissions(Permission.RISK_READ)
   async getLiquidation(@Req() req: any, @Param('accountId') accountId: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -244,6 +267,7 @@ export class RiskManagementController {
   // ---------- Concentration ----------
 
   @Get('concentration')
+  @RequirePermissions(Permission.RISK_READ)
   async getConcentration(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     return this.concentrationService.evaluateConcentration({ tenantId, accountId });
@@ -252,6 +276,7 @@ export class RiskManagementController {
   // ---------- Drawdown ----------
 
   @Get('drawdown')
+  @RequirePermissions(Permission.RISK_READ)
   async getDrawdown(@Req() req: any, @Query('accountId') accountId?: string, @Query('traderId') traderId?: string, @Query('strategyId') strategyId?: string, @Query('followerId') followerId?: string) {
     const tenantId = this.getTenantId(req);
     return this.drawdownService.evaluateDrawdown({ tenantId, accountId, traderId, strategyId, followerId });
@@ -260,6 +285,7 @@ export class RiskManagementController {
   // ---------- Daily loss ----------
 
   @Get('daily-loss')
+  @RequirePermissions(Permission.RISK_READ)
   async getDailyLoss(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     return this.dailyLossService.evaluateDailyLoss({ tenantId, accountId });
@@ -268,6 +294,7 @@ export class RiskManagementController {
   // ---------- Correlation ----------
 
   @Get('correlation')
+  @RequirePermissions(Permission.RISK_READ)
   async getCorrelation(@Req() req: any) {
     const tenantId = this.getTenantId(req);
     return this.correlationService.evaluateCorrelation({ tenantId });
@@ -276,6 +303,7 @@ export class RiskManagementController {
   // ---------- VaR ----------
 
   @Get('var')
+  @RequirePermissions(Permission.RISK_READ)
   async getVar(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     return this.varService.evaluateVar({ tenantId, accountId });
@@ -284,6 +312,7 @@ export class RiskManagementController {
   // ---------- Stress ----------
 
   @Get('stress')
+  @RequirePermissions(Permission.RISK_READ)
   async getStress(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     return this.stressService.runStressTests({ tenantId, accountId });
@@ -292,6 +321,7 @@ export class RiskManagementController {
   // ---------- Policy ----------
 
   @Get('policy')
+  @RequirePermissions(Permission.RISK_READ)
   async getPolicy(@Req() req: any, @Query('traderId') traderId?: string, @Query('strategyId') strategyId?: string, @Query('followerId') followerId?: string) {
     const tenantId = this.getTenantId(req);
     return this.policyService.resolveEffectivePolicy({ tenantId, traderId: traderId ?? null, strategyId: strategyId ?? null, followerId: followerId ?? null });
@@ -325,6 +355,7 @@ export class RiskManagementController {
   }
 
   @Get('policy/history')
+  @RequirePermissions(Permission.RISK_READ)
   async getPolicyHistory(@Req() req: any, @Query('scope') scope: RiskPolicyScopeDto, @Query('scopeId') scopeId?: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -334,12 +365,14 @@ export class RiskManagementController {
   // ---------- Circuit breaker ----------
 
   @Get('breaker')
+  @RequirePermissions(Permission.RISK_READ)
   async listBreakers(@Req() req: any) {
     const tenantId = this.getTenantId(req);
     return this.breakerService.listBreakers({ tenantId });
   }
 
   @Post('breaker/trigger')
+  @RequirePermissions(Permission.RISK_KILL_SWITCH_UPDATE)
   async triggerBreaker(@Req() req: any, @Body() body: { scope: string; scopeId: string; triggerType: string; reason: string; triggerRuleId?: string }) {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
@@ -357,6 +390,7 @@ export class RiskManagementController {
   }
 
   @Post('breaker/:id/clear')
+  @RequirePermissions(Permission.RISK_PROTECTION_CLEAR)
   async clearBreaker(@Req() req: any, @Param('id') id: string, @Body() body: { reason: string }) {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
@@ -364,6 +398,7 @@ export class RiskManagementController {
   }
 
   @Post('breaker/:id/acknowledge')
+  @RequirePermissions(Permission.RISK_KILL_SWITCH_UPDATE)
   async acknowledgeBreaker(@Req() req: any, @Param('id') id: string, @Body() body: { reason: string }) {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
@@ -373,12 +408,14 @@ export class RiskManagementController {
   // ---------- Kill-switch ----------
 
   @Get('kill-switch')
+  @RequirePermissions(Permission.RISK_READ)
   async listKillSwitches(@Req() req: any) {
     const tenantId = this.getTenantId(req);
     return this.killSwitchService.inspectKillSwitch({ tenantId });
   }
 
   @Post('kill-switch/request')
+  @RequirePermissions(Permission.RISK_KILL_SWITCH_UPDATE)
   async requestKillSwitch(@Req() req: any, @Body() body: { scope: string; target?: string; reason: string; triggeredByRule?: string }) {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
@@ -399,6 +436,7 @@ export class RiskManagementController {
   }
 
   @Post('kill-switch/:id/clear')
+  @RequirePermissions(Permission.RISK_PROTECTION_CLEAR)
   async clearKillSwitch(@Req() req: any, @Param('id') id: string, @Body() body: { reason: string }) {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
@@ -406,6 +444,7 @@ export class RiskManagementController {
   }
 
   @Post('kill-switch/:id/acknowledge')
+  @RequirePermissions(Permission.RISK_KILL_SWITCH_UPDATE)
   async acknowledgeKillSwitch(@Req() req: any, @Param('id') id: string, @Body() body: { reason: string }) {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
@@ -415,6 +454,7 @@ export class RiskManagementController {
   // ---------- Reconciliation ----------
 
   @Get('reconciliation')
+  @RequirePermissions(Permission.RISK_READ)
   async getReconciliation(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -422,6 +462,7 @@ export class RiskManagementController {
   }
 
   @Get('reconciliation/history')
+  @RequirePermissions(Permission.RISK_READ)
   async getReconciliationHistory(@Req() req: any) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -431,6 +472,7 @@ export class RiskManagementController {
   // ---------- Snapshots ----------
 
   @Get('snapshots')
+  @RequirePermissions(Permission.RISK_READ)
   async getSnapshots(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);

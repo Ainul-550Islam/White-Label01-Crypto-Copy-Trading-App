@@ -85,15 +85,11 @@ export class CustodyAuditService {
       if (toDate) where.createdAt.lte = toDate;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyAudit.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyAudit.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyAudit.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyAudit.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async exportAudits(params: {

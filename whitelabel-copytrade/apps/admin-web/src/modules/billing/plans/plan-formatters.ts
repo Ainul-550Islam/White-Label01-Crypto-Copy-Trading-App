@@ -1,132 +1,119 @@
 /**
  * Plan Formatters for Admin Web
- * 
- * Utility functions for formatting plan data for display.
+ *
+ * Display helpers over the API's plan shape (`SubscriptionPlanDto`). Prices
+ * are decimal strings and are never converted to floating point for
+ * arithmetic; nothing here invents a price (the former "annual savings"
+ * helper assumed a ten-month yearly price that no plan defines, and was
+ * removed with the tier helpers in round 7).
  */
 
 import {
-  Plan,
-  PlanSummary,
-  PlanTier,
+  type BillingInterval,
+  type Plan,
+  type PlanAudience,
+  type PlanLimits,
   PlanStatus,
-  BillingInterval,
-  PlanPrice,
-  PlanFeature,
-  PlanLimit,
+  planStatus,
 } from './plan-types';
 
-export function formatPrice(price: PlanPrice): string {
-  if (price.amount === 0) return 'Free';
-  const formatted = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: price.currency || 'USD',
-  }).format(price.amount);
+const INTERVAL_SUFFIX: Record<BillingInterval, string> = {
+  MONTHLY: '/mo',
+  QUARTERLY: '/qtr',
+  YEARLY: '/yr',
+  LIFETIME: ' one-time',
+};
 
-  switch (price.interval) {
-    case BillingInterval.MONTHLY:
-      return `${formatted}/mo`;
-    case BillingInterval.QUARTERLY:
-      return `${formatted}/qtr`;
-    case BillingInterval.ANNUAL:
-      return `${formatted}/yr`;
-    case BillingInterval.LIFETIME:
-      return `${formatted} one-time`;
-    default:
-      return formatted;
-  }
+const INTERVAL_LABEL: Record<BillingInterval, string> = {
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  YEARLY: 'Yearly',
+  LIFETIME: 'Lifetime',
+};
+
+const AUDIENCE_LABEL: Record<PlanAudience, string> = {
+  TENANT: 'Organisations (B2B)',
+  END_USER: 'End users (B2C)',
+};
+
+/** Human labels for the PlanLimits keys. */
+export const LIMIT_LABELS: Record<keyof PlanLimits, string> = {
+  maxUsers: 'Users',
+  maxTraders: 'Traders',
+  maxFollowersPerTrader: 'Followers per trader',
+  maxExchangeAccountsPerUser: 'Exchange accounts per user',
+  maxCopySubscriptionsPerFollower: 'Copy subscriptions per follower',
+  maxApiRequestsPerMinute: 'API requests per minute',
+  websocketConnections: 'WebSocket connections',
+  customDomain: 'Custom domain',
+  whiteLabelMobileApp: 'White-label mobile app',
+  prioritySupport: 'Priority support',
+};
+
+/** "49.00 USD/mo"; a zero price is "Free". The decimal string is shown as stored. */
+export function formatPrice(plan: Pick<Plan, 'price' | 'currency' | 'interval'>): string {
+  const isZero = /^0+(\.0+)?$/.test(String(plan.price).trim());
+  if (isZero) return 'Free';
+  const suffix = INTERVAL_SUFFIX[plan.interval as BillingInterval] ?? '';
+  return `${plan.price} ${plan.currency}${suffix}`;
 }
 
-export function formatTier(tier: PlanTier): string {
-  const labels: Record<PlanTier, string> = {
-    [PlanTier.FREE]: 'Free',
-    [PlanTier.BASIC]: 'Basic',
-    [PlanTier.STANDARD]: 'Standard',
-    [PlanTier.PREMIUM]: 'Premium',
-    [PlanTier.ENTERPRISE]: 'Enterprise',
-  };
-  return labels[tier] || tier;
+export function formatInterval(interval: BillingInterval | string): string {
+  return INTERVAL_LABEL[interval as BillingInterval] ?? interval;
+}
+
+export function formatAudience(audience: PlanAudience | string): string {
+  return AUDIENCE_LABEL[audience as PlanAudience] ?? audience;
 }
 
 export function formatStatus(status: PlanStatus): string {
-  const labels: Record<PlanStatus, string> = {
-    [PlanStatus.ACTIVE]: 'Active',
-    [PlanStatus.INACTIVE]: 'Inactive',
-    [PlanStatus.DEPRECATED]: 'Deprecated',
-    [PlanStatus.ARCHIVED]: 'Archived',
-  };
-  return labels[status] || status;
-}
-
-export function formatInterval(interval: BillingInterval): string {
-  const labels: Record<BillingInterval, string> = {
-    [BillingInterval.MONTHLY]: 'Monthly',
-    [BillingInterval.QUARTERLY]: 'Quarterly',
-    [BillingInterval.ANNUAL]: 'Annual',
-    [BillingInterval.LIFETIME]: 'Lifetime',
-  };
-  return labels[interval] || interval;
-}
-
-export function formatFeature(feature: PlanFeature): string {
-  if (!feature.enabled) return `${feature.name}: Disabled`;
-  if (feature.limit !== undefined) {
-    return `${feature.name}: ${feature.limit.toLocaleString()} ${feature.unit || ''}`.trim();
-  }
-  return `${feature.name}: Enabled`;
-}
-
-export function formatLimit(limit: PlanLimit): string {
-  if (limit.value === -1) return `${limit.name}: Unlimited`;
-  return `${limit.name}: ${limit.value.toLocaleString()} ${limit.unit}`;
-}
-
-export function formatAnnualSavings(price: PlanPrice): string {
-  if (price.interval !== BillingInterval.MONTHLY) return '';
-  const annualPrice = price.amount * 10;
-  const savings = price.amount * 12 - annualPrice;
-  const percentage = Math.round((savings / (price.amount * 12)) * 100);
-  return `Save ${percentage}% ($${savings.toFixed(2)}/yr)`;
-}
-
-export function getTierColor(tier: PlanTier): string {
-  const colors: Record<PlanTier, string> = {
-    [PlanTier.FREE]: '#6B7280',
-    [PlanTier.BASIC]: '#3B82F6',
-    [PlanTier.STANDARD]: '#8B5CF6',
-    [PlanTier.PREMIUM]: '#F59E0B',
-    [PlanTier.ENTERPRISE]: '#10B981',
-  };
-  return colors[tier] || '#6B7280';
+  return status === PlanStatus.ACTIVE ? 'Active' : 'Inactive';
 }
 
 export function getStatusColor(status: PlanStatus): string {
-  const colors: Record<PlanStatus, string> = {
-    [PlanStatus.ACTIVE]: '#10B981',
-    [PlanStatus.INACTIVE]: '#6B7280',
-    [PlanStatus.DEPRECATED]: '#F59E0B',
-    [PlanStatus.ARCHIVED]: '#EF4444',
-  };
-  return colors[status] || '#6B7280';
+  return status === PlanStatus.ACTIVE ? '#10B981' : '#6B7280';
 }
 
-export function formatPlanSummary(summary: PlanSummary): string {
-  return `${summary.name} (${formatTier(summary.tier)}) - ${formatPrice(summary.price)}`;
+/** Basis points as a percentage: 250 -> "2.50%". */
+export function formatBps(bps: number): string {
+  return `${(bps / 100).toFixed(2)}%`;
 }
 
+/** A single limit: numbers (null = unlimited) or booleans (included / not included). */
+export function formatLimit(key: keyof PlanLimits, value: PlanLimits[keyof PlanLimits]): string {
+  const label = LIMIT_LABELS[key] ?? key;
+  if (typeof value === 'boolean') return `${label}: ${value ? 'Included' : 'Not included'}`;
+  if (value === null || value === undefined) return `${label}: Unlimited`;
+  return `${label}: ${value.toLocaleString('en-US')}`;
+}
+
+export function formatPlanSummary(plan: Plan): string {
+  return `${plan.name} (${plan.code}) - ${formatPrice(plan)} - ${formatStatus(planStatus(plan))}`;
+}
+
+/**
+ * A comparison table: header row, one row per feature (from the plans'
+ * `features` arrays) and one row per limit.
+ */
 export function formatPlanComparison(plans: Plan[]): string[][] {
-  const header = ['Feature', ...plans.map(p => p.name)];
-  const rows: string[][] = [header];
+  const rows: string[][] = [['Feature', ...plans.map((p) => p.name)]];
 
-  const allFeatures = new Set<string>();
-  plans.forEach(p => p.features.forEach(f => allFeatures.add(f.key)));
+  const featureKeys = new Set<string>();
+  plans.forEach((p) => (p.features ?? []).forEach((f) => featureKeys.add(f)));
+  [...featureKeys].sort().forEach((featureKey) => {
+    rows.push([featureKey, ...plans.map((plan) => ((plan.features ?? []).includes(featureKey) ? '✓' : '✗'))]);
+  });
 
-  allFeatures.forEach(featureKey => {
-    const row = [featureKey];
-    plans.forEach(plan => {
-      const feature = plan.features.find(f => f.key === featureKey);
-      row.push(feature?.enabled ? '✓' : '✗');
-    });
-    rows.push(row);
+  (Object.keys(LIMIT_LABELS) as Array<keyof PlanLimits>).forEach((key) => {
+    rows.push([
+      LIMIT_LABELS[key],
+      ...plans.map((plan) => {
+        const value = plan.limits?.[key];
+        if (typeof value === 'boolean') return value ? '✓' : '✗';
+        if (value === null || value === undefined) return 'Unlimited';
+        return value.toLocaleString('en-US');
+      }),
+    ]);
   });
 
   return rows;

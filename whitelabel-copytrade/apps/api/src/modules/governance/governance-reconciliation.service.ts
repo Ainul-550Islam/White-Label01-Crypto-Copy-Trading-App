@@ -180,6 +180,26 @@ export class GovernanceReconciliationService {
     // This is deterministic check on in-memory if any record tenant mismatched
     for (const mismatch of detected) {
       this.inMemory.set(`${mismatch.entityId}_${mismatch.type}`, mismatch);
+      // Durable copy: listMismatches reads this table and resolveMismatch
+      // deletes from it, so without the write an open mismatch vanished on
+      // restart and was invisible to every other replica. One row per
+      // (tenant, entity, type); a re-detection refreshes it.
+      try {
+        const row = {
+          severity: mismatch.severity,
+          description: mismatch.description,
+          detectedAt: new Date(mismatch.detectedAt),
+          correlationId: mismatch.correlationId,
+          sourceReferences: mismatch.sourceReferences ?? [],
+        };
+        await (this.prisma as any).governanceReconciliation?.upsert?.({
+          where: { tenantId_entityId_type: { tenantId: mismatch.tenantId, entityId: mismatch.entityId, type: mismatch.type } },
+          create: { tenantId: mismatch.tenantId, entityId: mismatch.entityId, type: mismatch.type, ...row },
+          update: row,
+        });
+      } catch (e) {
+        this.logger.warn(`reconciliation mismatch persist failed entity=${mismatch.entityId} type=${mismatch.type}: ${(e as Error).message}`);
+      }
     }
 
     await this.audit.recordEvent({

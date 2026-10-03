@@ -101,13 +101,22 @@ Two things about these commands are worth knowing:
 
 The seed is idempotent - running it twice changes nothing. It creates:
 
-* the 7 system roles with their permission sets
+* the permission catalogue and the 7 system roles with their permission sets
 * the platform tenant and its branding
+* the feature flag definitions
 * the three platform plans (`starter`, `growth`, `enterprise`)
-* a super-admin from `SEED_SUPER_ADMIN_*`
-* a demo tenant and its admin from `SEED_TENANT_ADMIN_*`
+* a super-admin from `SEED_SUPER_ADMIN_EMAIL` / `SEED_SUPER_ADMIN_PASSWORD`
 
-Change those passwords in `.env` before seeding anything you will keep.
+It does not create a demo tenant: `SEED_TENANT_ADMIN_*` in `.env.example` are
+not read by the seed. Create tenants through the API or the admin console.
+
+`SEED_SUPER_ADMIN_PASSWORD` must satisfy the same password policy the API
+enforces everywhere else (at least `PASSWORD_MIN_LENGTH` characters, default 12,
+with upper- and lower-case letters, a digit and a symbol, no common password,
+no part of the email address). The seed checks it before writing anything and
+stops with the reasons if it fails. Wrap the value in double quotes when it
+contains `#` - unquoted, dotenv cuts it off at the `#`. Leave the variable unset
+and the seed generates a strong password and prints it once.
 
 ### 5. Run
 

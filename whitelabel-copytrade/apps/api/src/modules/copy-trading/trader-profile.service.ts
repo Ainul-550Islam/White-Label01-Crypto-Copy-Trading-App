@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { PlanLimitTradersGuard } from '../billing/enforcement/plan-limit-traders.guard';
 import { TraderVerificationState, TraderProfile } from './copy-trading.types';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Trader profile and public marketplace metadata: display profile, supported venues, risk profile, verified state, performance references, followers, and safe public statistics.
@@ -11,7 +13,14 @@ import { randomUUID } from 'crypto';
 export class TraderProfileService {
   private readonly logger = new Logger(TraderProfileService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // The maxTraders plan limit. Required, like the follower and
+    // copy-subscription guards in FollowerSubscriptionService: a wiring
+    // mistake must fail at boot, never silently switch the limit off.
+    // EnforcementModule exports it; BillingModule re-exports EnforcementModule.
+    private readonly tradersGuard: PlanLimitTradersGuard,
+  ) {}
 
   async createProfile(input: { tenantId: string; userId: string; displayName: string; bio?: string | null; avatarUrl?: string | null; supportedVenues?: string[]; supportedSymbols?: string[]; riskProfile?: Record<string, any>; isPublic?: boolean }): Promise<TraderProfile> {
     // Tenant ownership validation - user must belong to tenant
@@ -45,7 +54,18 @@ export class TraderProfileService {
       updatedAt: now,
     };
 
-    const created = await (this.prisma as any).traderProfile.create({ data });
+    // Reserve a maxTraders slot before persisting (throws PlanLimitExceededError
+    // when the plan is full) and give it back if the insert fails, the same
+    // reserve/release contract the follower and exchange-account paths use.
+    const actor = { tenantId: input.tenantId, userId: input.userId, roles: [], ipHash: '', requestId: '', correlationId: '' };
+    await this.tradersGuard.reserve(actor);
+    let created: any;
+    try {
+      created = await (this.prisma as any).traderProfile.create({ data });
+    } catch (error) {
+      await this.tradersGuard.release(actor);
+      throw error;
+    }
     this.logger.log(`Trader profile created id=${created.id} tenant=${input.tenantId} user=${input.userId}`);
 
     return this.mapToProfile(created);
@@ -103,8 +123,9 @@ export class TraderProfileService {
       });
       if (updated.tenantId !== tenantId) return null;
       return this.mapToProfile(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
@@ -117,8 +138,9 @@ export class TraderProfileService {
       if (updated.tenantId !== tenantId) return null;
       this.logger.log(`Trader verified id=${traderId} tenant=${tenantId} by=${verifierId}`);
       return this.mapToProfile(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 

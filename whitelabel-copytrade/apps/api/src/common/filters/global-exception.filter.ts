@@ -110,6 +110,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       };
     }
 
+    const providerFailure = this.resolveExchangeProviderError(exception);
+    if (providerFailure) {
+      return providerFailure;
+    }
+
     if (exception instanceof ThrottlerException) {
       return {
         statusCode: HttpStatus.TOO_MANY_REQUESTS,
@@ -146,6 +151,107 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       internalMessage: error.message,
     };
   }
+
+  /**
+   * A venue refusing a key, throttling us or being unreachable is an expected
+   * outcome of talking to an exchange, not a bug in this service, so it must
+   * reach the client as the matching 4xx/503 instead of a generic 500. The
+   * error is recognised by name so the common layer never imports a feature
+   * module, and only a fixed, safe message is returned - never the venue's
+   * raw response text.
+   */
+  private resolveExchangeProviderError(exception: unknown): {
+    statusCode: number;
+    code: ErrorCode;
+    message: string;
+    context: Record<string, unknown>;
+    stack?: string;
+    internalMessage: string;
+  } | null {
+    if (!(exception instanceof Error) || exception.name !== 'ExchangeProviderError') {
+      return null;
+    }
+    const providerCode = String((exception as Error & { code?: unknown }).code ?? 'UNKNOWN');
+    const venue = (exception as Error & { venue?: unknown }).venue;
+    const mapped = GlobalExceptionFilter.EXCHANGE_PROVIDER_ERROR_MAP[providerCode] ?? {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange could not be reached. Please try again shortly.',
+    };
+    return {
+      statusCode: mapped.status,
+      code: mapped.code,
+      message: mapped.message,
+      context: { providerCode, ...(typeof venue === 'string' ? { venue } : {}) },
+      stack: exception.stack,
+      internalMessage: exception.message,
+    };
+  }
+
+  private static readonly EXCHANGE_PROVIDER_ERROR_MAP: Readonly<
+    Record<string, { code: ErrorCode; status: number; message: string }>
+  > = Object.freeze({
+    AUTH_FAILED: {
+      code: ErrorCode.EXCHANGE_CREDENTIALS_INVALID,
+      status: HttpStatus.BAD_REQUEST,
+      message: 'The exchange rejected these API credentials. Check the key, secret and environment.',
+    },
+    INVALID_CREDENTIALS: {
+      code: ErrorCode.EXCHANGE_CREDENTIALS_INVALID,
+      status: HttpStatus.BAD_REQUEST,
+      message: 'The exchange rejected these API credentials. Check the key, secret and environment.',
+    },
+    ENVIRONMENT_MISMATCH: {
+      code: ErrorCode.EXCHANGE_CREDENTIALS_INVALID,
+      status: HttpStatus.BAD_REQUEST,
+      message: 'These credentials belong to a different exchange environment (live vs testnet).',
+    },
+    PERMISSION_DENIED: {
+      code: ErrorCode.EXCHANGE_PERMISSION_DENIED,
+      status: HttpStatus.FORBIDDEN,
+      message: 'The API key does not have the permissions this action needs.',
+    },
+    WITHDRAWAL_NOT_ALLOWED: {
+      code: ErrorCode.EXCHANGE_PERMISSION_DENIED,
+      status: HttpStatus.FORBIDDEN,
+      message: 'API keys with withdrawal permission are refused. Create a key without withdrawal rights.',
+    },
+    NOT_SUPPORTED: {
+      code: ErrorCode.EXCHANGE_NOT_SUPPORTED,
+      status: HttpStatus.BAD_REQUEST,
+      message: 'This exchange or feature is not supported.',
+    },
+    RATE_LIMITED: {
+      code: ErrorCode.EXCHANGE_RATE_LIMITED,
+      status: HttpStatus.TOO_MANY_REQUESTS,
+      message: 'The exchange is rate limiting requests. Please try again shortly.',
+    },
+    NETWORK_ERROR: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange could not be reached. Please try again shortly.',
+    },
+    TIMEOUT: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange did not respond in time. Please try again shortly.',
+    },
+    SERVER_ERROR: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange could not be reached. Please try again shortly.',
+    },
+    PROVIDER_UNAVAILABLE: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange could not be reached. Please try again shortly.',
+    },
+    CLOCK_DRIFT: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange refused the request because of a clock difference. Please try again shortly.',
+    },
+  });
 
   private mapStatusToCode(status: number): ErrorCode {
     switch (status) {

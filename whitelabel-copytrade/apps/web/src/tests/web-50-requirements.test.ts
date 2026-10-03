@@ -10,18 +10,25 @@ import * as path from 'path';
 const webRoot = path.resolve(__dirname, '../..');
 const srcRoot = path.join(webRoot, 'src');
 
-function readAllSrc(): string {
-  const files: string[] = [];
+function readSrcFiles(): Map<string, string> {
+  const files = new Map<string, string>();
   function walk(dir: string) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) walk(path.join(dir, entry.name));
-      else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
-        files.push(fs.readFileSync(path.join(dir, entry.name), 'utf8'));
+      const full = path.join(dir, entry.name);
+      // The test sources contain the forbidden literals themselves; scan application code only.
+      if (entry.isDirectory()) {
+        if (entry.name !== 'tests') walk(full);
+      } else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
+        files.set(path.relative(srcRoot, full).split(path.sep).join('/'), fs.readFileSync(full, 'utf8'));
       }
     }
   }
   walk(srcRoot);
-  return files.join('\n');
+  return files;
+}
+
+function readAllSrc(): string {
+  return [...readSrcFiles().values()].join('\n');
 }
 
 describe('Customer Web 50 Requirements', () => {
@@ -106,7 +113,19 @@ describe('Customer Web 50 Requirements', () => {
   });
 
   test('18. exchange secrets never rendered', () => {
-    expect(combined).not.toContain('apiSecret');
+    // The secret may only travel from the write-only connect form to the connect
+    // request (the backend DTO field is apiSecret); it must never be part of a
+    // response type or be shown anywhere else.
+    const files = readSrcFiles();
+    const secretFiles = [...files.entries()].filter(([, text]) => text.includes('apiSecret')).map(([file]) => file).sort();
+    expect(secretFiles.every((file) => file === 'api/exchange-api.ts' || file === 'features/exchanges/connect-exchange-page.tsx')).toBe(true);
+    const connectPage = files.get('features/exchanges/connect-exchange-page.tsx') ?? '';
+    const secretInputs = connectPage.split('\n').filter((line) => line.includes('<input') && line.includes('value={apiSecret}'));
+    expect(secretInputs.length).toBeGreaterThan(0);
+    expect(secretInputs.every((line) => line.includes('type="password"'))).toBe(true);
+    const exchangeApi = files.get('api/exchange-api.ts') ?? '';
+    const accountType = exchangeApi.slice(exchangeApi.indexOf('export interface ExchangeAccount {'));
+    expect(accountType.slice(0, accountType.indexOf('}')).toLowerCase()).not.toContain('secret');
     expect(combined).toContain('Never exposes exchange secrets');
   });
 
@@ -121,7 +140,10 @@ describe('Customer Web 50 Requirements', () => {
   });
 
   test('21. transaction confirmation is backend-derived', () => {
-    expect(combined).toContain('confirmationCount');
+    // Funding requests carry no confirmation counter; confirmation is the backend-set
+    // confirmedAmount (state CONFIRMED). The old 'confirmationCount' marker was an
+    // optional type field that the API never populated.
+    expect(combined).toContain('confirmedAmount');
     expect(combined).toContain('backend-authoritative');
   });
 

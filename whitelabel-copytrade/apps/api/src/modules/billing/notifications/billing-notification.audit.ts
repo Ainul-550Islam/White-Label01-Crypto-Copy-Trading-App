@@ -64,7 +64,7 @@ export class BillingNotificationAuditService {
               id: randomUUID(),
               tenantId: input.tenantId,
               action: input.operation,
-              resource: input.referenceType,
+              resourceType: input.referenceType,
               resourceId: input.referenceId,
               metadata: sanitized,
               createdAt: new Date(),

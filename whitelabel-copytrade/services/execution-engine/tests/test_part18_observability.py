@@ -468,9 +468,10 @@ class TestMetricsRoute:
     def test_the_diagnostic_review_is_not_counted_as_a_gated_review(
         self, client: TestClient
     ) -> None:
-        # The end-to-end claim Part 18 can honestly make about THIS process: the
-        # service composes an engine but serves no submission command, so the
-        # counters are expected to sit at zero - and the placement endpoint is a
+        # The end-to-end claim Part 18 can honestly make about THIS process: no
+        # order has been submitted in this test (the Phase 3 submit-order route
+        # exists, and is exercised in test_phase3_submit.py), so the counters
+        # are expected to sit at zero - and the placement endpoint is a
         # question, not an order. If a future change made ``attest`` increment
         # ``placement_reviews``, this assertion is where somebody notices that the
         # dashboard's "reviews" no longer means "orders the gate looked at".

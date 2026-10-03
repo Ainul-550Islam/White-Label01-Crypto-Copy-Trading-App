@@ -2,7 +2,7 @@
 
 Server-side session handling, the proxy route, and the console screens.
 
-47 files. Part of the complete Part 1 source dump - see `docs/source/README.md`.
+79 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -274,6 +274,133 @@ export default async function AuditLogsPage({
       )}
     </>
   );
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/billing/checkout/page.tsx
+
+```tsx
+import type { Metadata } from 'next';
+import Link from 'next/link';
+
+import { ErrorNotice } from '@/components/ui';
+import CheckoutPage from '@/modules/billing/portal/checkout-page';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Checkout' };
+
+/**
+ * Round 7: two entry points share this route.
+ *  - /billing/checkout?planId=<id> starts a checkout for that plan;
+ *  - the provider redirects back to /billing/checkout?checkout_id=<id>
+ *    (or payment_id / session_id), and CheckoutPage asks the API for the real
+ *    payment state - the query string itself is never trusted as success.
+ * With neither, there is nothing to do, so the page says so.
+ */
+export default function BillingCheckoutPage({
+  searchParams,
+}: {
+  searchParams: { planId?: string; checkout_id?: string; payment_id?: string; session_id?: string };
+}): JSX.Element {
+  const planId = typeof searchParams.planId === 'string' ? searchParams.planId.trim() : '';
+  const returning = Boolean(searchParams.checkout_id || searchParams.payment_id || searchParams.session_id);
+
+  if (!planId && !returning) {
+    return (
+      <div className="p-6 space-y-4">
+        <ErrorNotice title="No plan selected" message="Choose a plan first, then start the checkout from there." />
+        <Link href="/billing/plans" className="text-sm text-blue-600 hover:underline">
+          Compare plans
+        </Link>
+      </div>
+    );
+  }
+
+  return <CheckoutPage planId={planId} />;
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/billing/layout.tsx
+
+```tsx
+import type { ReactNode } from 'react';
+
+import { BillingScope } from '@/modules/billing/billing-scope';
+
+/** Round 7: mounts the self-service billing portal inside the billing style scope. */
+export default function BillingLayout({ children }: { children: ReactNode }): JSX.Element {
+  return <BillingScope>{children}</BillingScope>;
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/billing/page.tsx
+
+```tsx
+import type { Metadata } from 'next';
+
+import OwnPlanLimitsPanel from '@/modules/billing/entitlements/own-plan-limits-panel';
+import BillingPortalPage from '@/modules/billing/portal/billing-portal-page';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Billing' };
+
+/**
+ * Round 7: the organisation's billing portal (overview, invoices, payments,
+ * usage) followed by the plan limits the API enforces. Data comes from
+ * /v1/billing/portal/* and /v1/billing/subscription/limits; the API requires
+ * subscription:read for all of it and scopes everything to the caller's tenant.
+ */
+export default function BillingPage(): JSX.Element {
+  return (
+    <>
+      <BillingPortalPage />
+      <OwnPlanLimitsPanel />
+    </>
+  );
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/billing/plans/page.tsx
+
+```tsx
+import type { Metadata } from 'next';
+
+import PlanComparisonPage from '@/modules/billing/portal/plan-comparison';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Compare plans' };
+
+/**
+ * Round 7: plan comparison and upgrade. Starting a checkout needs
+ * subscription:manage; the API decides provider and price, never the browser.
+ * It is also the cancel URL of every checkout the portal starts.
+ */
+export default function BillingPlansPage(): JSX.Element {
+  return <PlanComparisonPage />;
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/billing/subscription/page.tsx
+
+```tsx
+import type { Metadata } from 'next';
+
+import SubscriptionManagementPage from '@/modules/billing/portal/subscription-management';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Manage subscription' };
+
+/**
+ * Round 7: cancel, resume, change plan and change interval through
+ * /v1/billing/portal/subscription/*. Every write needs subscription:manage
+ * and is decided by the API.
+ */
+export default function BillingSubscriptionPage(): JSX.Element {
+  return <SubscriptionManagementPage />;
 }
 ```
 
@@ -1737,6 +1864,43 @@ export default async function ObservabilityPage(): Promise<JSX.Element> {
 }
 ```
 
+FILE: apps/admin-web/src/app/(console)/plans/layout.tsx
+
+```tsx
+import type { ReactNode } from 'react';
+
+import { BillingScope } from '@/modules/billing/billing-scope';
+
+/** Round 7: mounts the plan catalogue inside the billing style scope. */
+export default function PlansLayout({ children }: { children: ReactNode }): JSX.Element {
+  return <BillingScope>{children}</BillingScope>;
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/plans/page.tsx
+
+```tsx
+import type { Metadata } from 'next';
+
+import { getConsoleClaims, hasPermission } from '@/lib/console-claims';
+import PlanCatalogManagement from '@/modules/billing/plans/plan-catalog-management';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Plan catalogue' };
+
+/**
+ * Round 7: the plan catalogue over /v1/billing/plans. Listing needs plan:read;
+ * the create / edit / activate / deactivate / archive controls are rendered
+ * only for plan:manage holders, and the API enforces the same permission (and
+ * platform-vs-tenant ownership of each plan) on every write regardless.
+ */
+export default function PlansPage(): JSX.Element {
+  const claims = getConsoleClaims();
+  return <PlanCatalogManagement canManage={hasPermission(claims, 'plan:manage')} />;
+}
+```
+
 FILE: apps/admin-web/src/app/(console)/risk/page.tsx
 
 ```tsx
@@ -2727,6 +2891,120 @@ export default async function RolesPage(): Promise<JSX.Element> {
         </Card>
       </div>
     </>
+  );
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/saas-admin/layout.tsx
+
+```tsx
+import type { ReactNode } from 'react';
+
+import { BillingScope } from '@/modules/billing/billing-scope';
+
+/** Round 7: mounts platform SaaS tenant administration inside the billing style scope. */
+export default function SaasAdminLayout({ children }: { children: ReactNode }): JSX.Element {
+  return <BillingScope>{children}</BillingScope>;
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/saas-admin/page.tsx
+
+```tsx
+import type { Metadata } from 'next';
+
+import { ErrorNotice } from '@/components/ui';
+import { getConsoleClaims, hasPermission } from '@/lib/console-claims';
+import SaasTenantManagementPage from '@/modules/billing/saas-admin/saas-tenant-management';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'SaaS tenants' };
+
+/**
+ * Round 7: platform-wide tenant administration (provision, suspend,
+ * reactivate, per-tenant subscription state). Only platform operators with
+ * platform:manage get anything from /v1/billing/saas-admin/*; a tenant admin
+ * would only collect 403s, so the page explains that instead of rendering
+ * an empty console. The API remains the actual gate.
+ */
+export default function SaasAdminPage(): JSX.Element {
+  const claims = getConsoleClaims();
+  if (!claims?.isPlatformUser || !hasPermission(claims, 'platform:manage')) {
+    return (
+      <div className="p-6">
+        <ErrorNotice
+          title="Platform operators only"
+          message="SaaS tenant administration requires a platform operator account with the platform:manage permission."
+        />
+      </div>
+    );
+  }
+  return <SaasTenantManagementPage />;
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/saas-admin/tenants/[id]/page.tsx
+
+```tsx
+import type { Metadata } from 'next';
+import Link from 'next/link';
+
+import { ErrorNotice } from '@/components/ui';
+import { getConsoleClaims, hasPermission } from '@/lib/console-claims';
+import TenantEntitlementsPanel from '@/modules/billing/entitlements/tenant-entitlements-panel';
+import SaasPlanManagementPage from '@/modules/billing/saas-admin/saas-plan-management';
+import TenantBrandingDomainPage from '@/modules/billing/saas-admin/tenant-branding-domain';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'SaaS tenant' };
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Round 7: one tenant's plan / interval changes, branding, custom domains and
+ * effective entitlements, for platform operators. The id must be a UUID
+ * (the API's ParseUuidPipe would reject anything else with 400 anyway).
+ */
+export default function SaasTenantDetailPage({ params }: { params: { id: string } }): JSX.Element {
+  const claims = getConsoleClaims();
+  if (!claims?.isPlatformUser || !hasPermission(claims, 'platform:manage')) {
+    return (
+      <div className="p-6">
+        <ErrorNotice
+          title="Platform operators only"
+          message="Tenant plan, branding, domain and entitlement management requires a platform operator account with the platform:manage permission."
+        />
+      </div>
+    );
+  }
+
+  const tenantId = decodeURIComponent(params.id);
+  if (!UUID_PATTERN.test(tenantId)) {
+    return (
+      <div className="p-6 space-y-4">
+        <ErrorNotice title="Unknown tenant" message="The tenant id in the address is not valid." />
+        <Link href="/saas-admin" className="text-sm text-blue-600 hover:underline">
+          Back to SaaS tenants
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="p-6">
+        <Link href="/saas-admin" className="text-sm text-blue-600 hover:underline">
+          Back to SaaS tenants
+        </Link>
+      </div>
+      <SaasPlanManagementPage tenantId={tenantId} />
+      <TenantBrandingDomainPage tenantId={tenantId} />
+      <div className="p-6">
+        <TenantEntitlementsPanel tenantId={tenantId} />
+      </div>
+    </div>
   );
 }
 ```
@@ -5871,8 +6149,19 @@ export const NAV_ITEMS: NavItem[] = [
   // its two writes append definition VERSIONS and ask the evaluator to look.
   { href: '/slo', label: 'Service objectives', permission: 'operations:read' },
   { href: '/branding', label: 'Branding', permission: 'tenant:read' },
-  { href: '/subscription', label: 'Subscription', permission: 'billing:read' },
-  { href: '/audit-logs', label: 'Audit log', permission: 'audit:read' },
+  // Round 7: these two entries used 'billing:read' and 'audit:read', which
+  // are not permissions (packages/shared-types rbac.ts), so the links were
+  // hidden from everyone except '*' holders. They now name the permissions
+  // the API actually enforces on the routes the pages call.
+  { href: '/subscription', label: 'Subscription', permission: 'subscription:read' },
+  // Round 7: the self-service billing portal (plans, checkout, invoices,
+  // usage) and the plan catalogue. Both were built but never mounted.
+  { href: '/billing', label: 'Billing', permission: 'subscription:read' },
+  { href: '/plans', label: 'Plan catalogue', permission: 'plan:read' },
+  // Platform-wide SaaS tenant administration (plan, branding, domains,
+  // entitlements per tenant). The API requires platform:manage on every call.
+  { href: '/saas-admin', label: 'SaaS tenants', permission: 'platform:manage', platformOnly: true },
+  { href: '/audit-logs', label: 'Audit log', permission: 'audit_log:read' },
   { href: '/settings', label: 'Settings', permission: 'tenant:read' },
 ];
 
@@ -6435,6 +6724,51 @@ export class ApiError extends Error {
 }
 ```
 
+FILE: apps/admin-web/src/lib/console-claims.ts
+
+```typescript
+import { decodeAccessTokenClaims, getAccessToken } from '@/lib/session';
+
+/**
+ * Server-side view of the session claims for page rendering (round 7).
+ *
+ * Exactly like the sidebar, this is a usability filter: it decides which
+ * notices and buttons a page renders. It is NOT access control - the API
+ * re-authorises every request these pages make and is the only authority.
+ */
+export interface ConsoleClaims {
+  userId: string;
+  tenantId: string;
+  permissions: string[];
+  isPlatformUser: boolean;
+}
+
+export function getConsoleClaims(): ConsoleClaims | null {
+  const token = getAccessToken();
+  if (!token) {
+    return null;
+  }
+  const claims = decodeAccessTokenClaims(token);
+  if (!claims) {
+    return null;
+  }
+  return { userId: claims.sub, tenantId: claims.tid, permissions: claims.perms, isPlatformUser: claims.plat };
+}
+
+/** Same matching rule as the sidebar: exact permission, `resource:*`, or `*`. */
+export function hasPermission(claims: ConsoleClaims | null, permission: string): boolean {
+  if (!claims) {
+    return false;
+  }
+  const granted = new Set(claims.permissions);
+  if (granted.has('*') || granted.has(permission)) {
+    return true;
+  }
+  const [resource] = permission.split(':');
+  return granted.has(`${resource}:*`);
+}
+```
+
 FILE: apps/admin-web/src/lib/env.ts
 
 ```typescript
@@ -6968,6 +7302,3742 @@ export function middleware(request: NextRequest): NextResponse {
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
+```
+
+FILE: apps/admin-web/src/modules/billing/billing-scope.tsx
+
+```tsx
+import type { ReactNode } from 'react';
+
+import '@/styles/billing-utilities.css';
+
+/**
+ * Wraps the billing screens (portal, plan catalogue, SaaS tenant admin) in the
+ * `.wlct-billing` scope. Those components were written with utility class
+ * names; billing-utilities.css defines exactly those classes, mapped onto the
+ * console's dark theme tokens and scoped to this wrapper so nothing leaks
+ * into the rest of the console.
+ */
+export function BillingScope({ children }: { children: ReactNode }): JSX.Element {
+  return <div className="wlct-billing">{children}</div>;
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/entitlements/entitlement-api.ts
+
+```typescript
+/**
+ * Entitlement API for Admin Web
+ *
+ * Read-only access to the API's entitlement DERIVATION (plan features, plan
+ * limits, feature flags), through the console's same-origin proxy
+ * (/api/proxy/* -> API_BASE_URL/v1/*). apiClient unwraps {success, data}.
+ *
+ * Platform operators (platform:manage), any tenant:
+ *   GET /v1/billing/saas-admin/tenants/:id/feature-access
+ *   GET /v1/billing/saas-admin/tenants/:id/feature-access/:featureKey
+ * The caller's own tenant (subscription:read):
+ *   GET /v1/billing/subscription/limits
+ *   GET /v1/billing/portal/usage
+ *
+ * Entitlements change only by changing the tenant's plan (billing portal or
+ * SaaS admin plan routes) or its feature flags; there is deliberately no
+ * entitlement write API. Before round 7 this module fetched
+ * `/api/billing/entitlements/*` on the admin origin (no such route) and
+ * offered create/suspend/cancel/reset-usage calls the API never had.
+ */
+
+import { apiClient } from '@/lib/api-client';
+
+import type { FeatureCheckResult, OwnPlanLimits, OwnUsageSummary, TenantFeatureAccess } from './entitlement-types';
+
+export async function getTenantFeatureAccess(tenantId: string): Promise<TenantFeatureAccess> {
+  return apiClient.get<TenantFeatureAccess>(`/billing/saas-admin/tenants/${encodeURIComponent(tenantId)}/feature-access`);
+}
+
+export async function checkTenantFeature(tenantId: string, featureKey: string): Promise<FeatureCheckResult> {
+  return apiClient.get<FeatureCheckResult>(
+    `/billing/saas-admin/tenants/${encodeURIComponent(tenantId)}/feature-access/${encodeURIComponent(featureKey)}`,
+  );
+}
+
+export async function getOwnPlanLimits(): Promise<OwnPlanLimits> {
+  return apiClient.get<OwnPlanLimits>('/billing/subscription/limits');
+}
+
+export async function getOwnUsage(): Promise<OwnUsageSummary> {
+  return apiClient.get<OwnUsageSummary>('/billing/portal/usage');
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/entitlements/entitlement-types.ts
+
+```typescript
+/**
+ * Entitlement Types for Admin Web
+ *
+ * In this platform an entitlement is not a stored record: it is DERIVED from
+ * the tenant's subscription plan (its `features` array and `limits`), plus
+ * feature flags, by the API's TenantFeatureAccessService. These types mirror
+ * what the API returns for that derivation. The earlier version of this module
+ * described entitlement CRUD (create/suspend/reset usage/...) that the API has
+ * never had; it was removed in round 7.
+ */
+
+import type { PlanLimits } from '@wlct/shared-types';
+
+/** Where an effective feature decision came from (SaasEntitlementSummary.source). */
+export type EntitlementSource = 'plan_features' | 'plan_limits_boolean' | 'feature_flag' | 'none';
+
+/** One effective feature of a tenant (SaasEntitlementSummary). */
+export interface TenantEntitlement {
+  featureKey: string;
+  enabled: boolean;
+  source: EntitlementSource;
+  planCode: string | null;
+  subscriptionStatus: string | null;
+  reason: string | null;
+}
+
+/** One effective limit of a tenant with its current usage (SaasLimitSummary). */
+export interface TenantLimit {
+  limitKey: string;
+  configuredLimit: number | null;
+  currentUsage: number;
+  remaining: number | null;
+  unlimited: boolean;
+  percentageUsed: number | null;
+  source: 'plan_limits' | 'tenant_override' | 'none';
+}
+
+/** GET /v1/billing/saas-admin/tenants/:id/feature-access */
+export interface TenantFeatureAccess {
+  tenantId: string;
+  features: TenantEntitlement[];
+  limits: TenantLimit[];
+  fetchedAt: string;
+}
+
+/** GET /v1/billing/saas-admin/tenants/:id/feature-access/:featureKey */
+export interface FeatureCheckResult {
+  tenantId: string;
+  featureKey: string;
+  allowed: boolean;
+  reason: string | null;
+  planCode: string | null;
+  subscriptionStatus: string | null;
+  source: EntitlementSource;
+}
+
+/** GET /v1/billing/subscription/limits - the caller's own plan limits (null without a subscription). */
+export type OwnPlanLimits = PlanLimits | null;
+
+/** One usage line of GET /v1/billing/portal/usage (PortalUsageItem). */
+export interface UsageItem {
+  key: string;
+  label: string;
+  current: number;
+  limit: number | null;
+  remaining: number | null;
+  unlimited: boolean;
+  percentageUsed: number | null;
+  scope: string;
+}
+
+/** One feature line of GET /v1/billing/portal/usage (PortalFeatureAvailability). */
+export interface FeatureAvailability {
+  key: string;
+  label: string;
+  included: boolean;
+  source: 'features_array' | 'limits_boolean' | 'none';
+}
+
+/** GET /v1/billing/portal/usage - the caller's own usage against its plan. */
+export interface OwnUsageSummary {
+  tenantId: string;
+  items: UsageItem[];
+  features: FeatureAvailability[];
+  fetchedAt: string;
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/entitlements/index.ts
+
+```typescript
+/**
+ * Entitlements Module - Admin Web Public API
+ *
+ * Read-only views of the API's entitlement derivation (see entitlement-api.ts).
+ */
+
+// Types
+export type {
+  EntitlementSource,
+  TenantEntitlement,
+  TenantLimit,
+  TenantFeatureAccess,
+  FeatureCheckResult,
+  OwnPlanLimits,
+  UsageItem,
+  FeatureAvailability,
+  OwnUsageSummary,
+} from './entitlement-types';
+
+// API
+export { getTenantFeatureAccess, checkTenantFeature, getOwnPlanLimits, getOwnUsage } from './entitlement-api';
+```
+
+FILE: apps/admin-web/src/modules/billing/entitlements/own-plan-limits-panel.tsx
+
+```tsx
+'use client';
+
+import React, { useEffect, useState } from 'react';
+
+import { LIMIT_LABELS } from '../plans/plan-formatters';
+import type { PlanLimits } from '../plans/plan-types';
+
+import { getOwnPlanLimits } from './entitlement-api';
+import type { OwnPlanLimits } from './entitlement-types';
+
+/**
+ * The caller's own plan limits (round 7), from GET /v1/billing/subscription/limits:
+ * exactly what the API enforces for this organisation. No subscription means
+ * no limits object, which is shown as such rather than as defaults.
+ */
+export default function OwnPlanLimitsPanel() {
+  const [limits, setLimits] = useState<OwnPlanLimits | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getOwnPlanLimits()
+      .then((value) => setLimits(value ?? null))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load plan limits'));
+  }, []);
+
+  return (
+    <div className="p-6">
+      <div className="bg-white border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4">Plan limits enforced by the platform</h2>
+        {error ? (
+          <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">{error}</div>
+        ) : limits === undefined ? (
+          <div className="animate-pulse h-32 bg-gray-200 rounded" />
+        ) : limits === null ? (
+          <p className="text-sm text-gray-500">No active subscription, so no plan limits apply yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+            {(Object.keys(LIMIT_LABELS) as Array<keyof PlanLimits>).map((key) => {
+              const value = limits[key];
+              return (
+                <div key={key} className="flex justify-between border-b py-1">
+                  <span className="text-gray-500">{LIMIT_LABELS[key]}</span>
+                  <span className="font-medium">
+                    {typeof value === 'boolean' ? (value ? 'Included' : 'Not included') : value === null || value === undefined ? 'Unlimited' : value.toLocaleString('en-US')}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/entitlements/tenant-entitlements-panel.tsx
+
+```tsx
+'use client';
+
+import React, { useEffect, useState } from 'react';
+
+import { ApiError } from '@/lib/api-error';
+
+import { checkTenantFeature, getTenantFeatureAccess } from './entitlement-api';
+import type { FeatureCheckResult, TenantFeatureAccess } from './entitlement-types';
+
+/**
+ * Platform operator view of ONE tenant's effective entitlements (round 7):
+ * the features and limits the API derives from the tenant's plan and feature
+ * flags, with current usage, plus a single-feature check that returns the
+ * API's own decision and reason. Read-only: entitlements change only through
+ * the tenant's plan (see the plan panel on the same page) or feature flags.
+ */
+export default function TenantEntitlementsPanel({ tenantId }: { tenantId: string }) {
+  const [access, setAccess] = useState<TenantFeatureAccess | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [featureKey, setFeatureKey] = useState('');
+  const [check, setCheck] = useState<FeatureCheckResult | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setAccess(await getTenantFeatureAccess(tenantId));
+    } catch (e) {
+      setError(e instanceof ApiError || e instanceof Error ? e.message : 'Failed to load entitlements');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
+
+  const runCheck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const key = featureKey.trim();
+    if (!key) return;
+    setChecking(true);
+    setCheck(null);
+    setCheckError(null);
+    try {
+      setCheck(await checkTenantFeature(tenantId, key));
+    } catch (err) {
+      setCheckError(err instanceof Error ? err.message : 'Check failed');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border rounded-lg p-6 space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-lg font-semibold">Effective entitlements</h2>
+        <button onClick={load} className="text-sm text-gray-600 hover:text-gray-900">
+          Refresh
+        </button>
+      </div>
+      <p className="text-xs text-gray-500">
+        Derived by the API from the tenant&apos;s plan and feature flags. Change the plan to change them.
+      </p>
+
+      {loading ? (
+        <div className="animate-pulse h-32 bg-gray-200 rounded" />
+      ) : error ? (
+        <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">{error}</div>
+      ) : access ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h3 className="font-medium text-sm mb-2">Features</h3>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {access.features.length === 0 && <p className="text-xs text-gray-500">No features</p>}
+              {access.features.map((f) => (
+                <div key={f.featureKey} className="flex justify-between text-xs border-b py-1">
+                  <span>
+                    {f.featureKey}
+                    <span className="text-gray-400 ml-1">({f.source})</span>
+                  </span>
+                  <span className={f.enabled ? 'text-green-600' : 'text-gray-400'}>{f.enabled ? 'Enabled' : f.reason || 'Disabled'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="font-medium text-sm mb-2">Limits and usage</h3>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {access.limits.length === 0 && <p className="text-xs text-gray-500">No limits</p>}
+              {access.limits.map((l) => (
+                <div key={l.limitKey} className="text-xs border-b py-1">
+                  <div className="flex justify-between">
+                    <span>{l.limitKey}</span>
+                    <span>{l.unlimited ? 'Unlimited' : `${l.currentUsage} / ${l.configuredLimit ?? '-'} (${l.remaining ?? 0} left)`}</span>
+                  </div>
+                  {!l.unlimited && l.percentageUsed !== null && (
+                    <div className="mt-1 w-full bg-gray-200 rounded-full h-2">
+                      <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${Math.min(100, Math.max(0, l.percentageUsed))}%` }} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <form onSubmit={runCheck} className="flex gap-2">
+        <input
+          type="text"
+          placeholder="Check a feature key, e.g. custom_domain"
+          value={featureKey}
+          onChange={(e) => setFeatureKey(e.target.value)}
+          className="flex-1 border rounded px-3 py-2 text-sm"
+        />
+        <button type="submit" disabled={checking || !featureKey.trim()} className="px-4 py-2 bg-gray-800 text-white rounded text-sm disabled:opacity-50">
+          {checking ? 'Checking...' : 'Check'}
+        </button>
+      </form>
+      {checkError && <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">{checkError}</div>}
+      {check && (
+        <div className={`border rounded p-3 text-sm ${check.allowed ? 'bg-green-100' : 'bg-yellow-50'}`}>
+          <p className="font-medium">
+            {check.featureKey}: {check.allowed ? 'allowed' : 'not allowed'}
+          </p>
+          <p className="text-xs text-gray-600 mt-1">
+            Source {check.source}; plan {check.planCode ?? 'none'}; subscription {check.subscriptionStatus ?? 'none'}
+            {check.reason ? `; ${check.reason}` : ''}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/plans/index.ts
+
+```typescript
+/**
+ * Plans Module - Admin Web Public API
+ *
+ * Types, API calls and formatters for the plan catalogue. Every call maps to
+ * a route of /v1/billing/plans (see plan-api.ts).
+ */
+
+// Runtime values (value re-exports under isolatedModules)
+export { PlanStatus, BILLING_INTERVALS, PLAN_AUDIENCES, PLAN_CURRENCIES, planStatus } from './plan-types';
+
+// Types
+export type {
+  Plan,
+  PlanLimits,
+  BillingInterval,
+  PlanAudience,
+  PlanCurrency,
+  PlanFilter,
+  PlanPage,
+  CreatePlanRequest,
+  UpdatePlanRequest,
+  ArchivePlanResult,
+} from './plan-types';
+
+// API
+export {
+  getPlans,
+  getPlan,
+  createPlan,
+  updatePlan,
+  activatePlan,
+  deactivatePlan,
+  archivePlan,
+} from './plan-api';
+
+// Formatters
+export {
+  LIMIT_LABELS,
+  formatPrice,
+  formatInterval,
+  formatAudience,
+  formatStatus,
+  getStatusColor,
+  formatBps,
+  formatLimit,
+  formatPlanSummary,
+  formatPlanComparison,
+} from './plan-formatters';
+```
+
+FILE: apps/admin-web/src/modules/billing/plans/plan-api.ts
+
+```typescript
+/**
+ * Plan API for Admin Web
+ *
+ * The plan catalogue routes of the platform API, called through the console's
+ * same-origin proxy (/api/proxy/* -> API_BASE_URL/v1/*), which holds the
+ * bearer token in an httpOnly cookie and adds the CSRF header to mutations.
+ * apiClient unwraps the {success, data} envelope.
+ *
+ *   GET    /v1/billing/plans        plan:read    paginated catalogue
+ *   GET    /v1/billing/plans/:id    plan:read
+ *   POST   /v1/billing/plans        plan:manage  create
+ *   PATCH  /v1/billing/plans/:id    plan:manage  update (incl. isActive)
+ *   DELETE /v1/billing/plans/:id    plan:manage  archive (refused while the
+ *                                                plan has live subscribers)
+ *
+ * Before round 7 this module fetched `/api/billing/plans` on the admin origin
+ * (no such route - every call 404'd), used PUT where the API has PATCH, and
+ * offered duplicate / stats / history calls for which the API has no route.
+ * Those were removed instead of being pointed at invented endpoints.
+ * Activation is the real `isActive` field of PATCH.
+ */
+
+import { apiClient } from '@/lib/api-client';
+
+import type {
+  ArchivePlanResult,
+  CreatePlanRequest,
+  Plan,
+  PlanFilter,
+  PlanPage,
+  UpdatePlanRequest,
+} from './plan-types';
+
+/** Only the query keys ListPlansDto declares are sent (others are a 422). */
+export async function getPlans(filter?: PlanFilter): Promise<PlanPage> {
+  // The keys are written out literally (no helper) so that
+  // scripts/check-web-api-contract.js can verify each against ListPlansDto.
+  return apiClient.get<PlanPage>('/billing/plans', {
+    searchParams: {
+      page: filter?.page,
+      limit: filter?.limit,
+      search: filter?.search?.trim() || undefined,
+      sortBy: filter?.sortBy,
+      sortOrder: filter?.sortOrder,
+      audience: filter?.audience,
+      // Sent only when asked for: the API default (false) lists active plans only.
+      includeInactive: filter?.includeInactive ? true : undefined,
+    },
+  });
+}
+
+export async function getPlan(id: string): Promise<Plan> {
+  return apiClient.get<Plan>(`/billing/plans/${encodeURIComponent(id)}`);
+}
+
+export async function createPlan(request: CreatePlanRequest): Promise<Plan> {
+  return apiClient.post<Plan>('/billing/plans', request);
+}
+
+export async function updatePlan(id: string, request: UpdatePlanRequest): Promise<Plan> {
+  return apiClient.patch<Plan>(`/billing/plans/${encodeURIComponent(id)}`, request);
+}
+
+/** Makes the plan purchasable again (PATCH isActive=true). */
+export async function activatePlan(id: string): Promise<Plan> {
+  return updatePlan(id, { isActive: true });
+}
+
+/** Stops new purchases of the plan; existing subscriptions are unaffected (PATCH isActive=false). */
+export async function deactivatePlan(id: string): Promise<Plan> {
+  return updatePlan(id, { isActive: false });
+}
+
+/** Archives the plan (DELETE). The API refuses while trialing/active/past-due subscribers remain. */
+export async function archivePlan(id: string): Promise<ArchivePlanResult> {
+  return apiClient.delete<ArchivePlanResult>(`/billing/plans/${encodeURIComponent(id)}`);
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/plans/plan-catalog-management.tsx
+
+```tsx
+'use client';
+
+import React, { useEffect, useState } from 'react';
+
+import { ApiError } from '@/lib/api-error';
+
+import { activatePlan, archivePlan, createPlan, deactivatePlan, getPlans, updatePlan } from './plan-api';
+import { formatAudience, formatBps, formatInterval, formatPrice, formatStatus, LIMIT_LABELS } from './plan-formatters';
+import {
+  BILLING_INTERVALS,
+  PLAN_AUDIENCES,
+  PLAN_CURRENCIES,
+  type BillingInterval,
+  type CreatePlanRequest,
+  type Plan,
+  type PlanAudience,
+  type PlanCurrency,
+  type PlanLimits,
+  type PlanPage,
+  planStatus,
+  PlanStatus,
+} from './plan-types';
+
+/**
+ * Plan catalogue (round 7): lists the plans the caller can see and, with
+ * `plan:manage`, creates, edits, activates/deactivates and archives them.
+ * Every action is a /v1/billing/plans route; the API re-authorises each call
+ * (platform operators manage the platform catalogue, a tenant only its own
+ * plans) and refuses archiving a plan that still has live subscribers.
+ * Prices are entered and shown as decimal strings; nothing is computed here.
+ */
+
+const PAGE_SIZE = 25;
+
+const NUMERIC_LIMITS: Array<keyof PlanLimits> = [
+  'maxUsers',
+  'maxTraders',
+  'maxFollowersPerTrader',
+  'maxExchangeAccountsPerUser',
+  'maxCopySubscriptionsPerFollower',
+  'maxApiRequestsPerMinute',
+  'websocketConnections',
+];
+const BOOLEAN_LIMITS: Array<keyof PlanLimits> = ['customDomain', 'whiteLabelMobileApp', 'prioritySupport'];
+
+interface PlanForm {
+  code: string;
+  name: string;
+  description: string;
+  audience: PlanAudience;
+  price: string;
+  currency: PlanCurrency;
+  interval: BillingInterval;
+  trialDays: string;
+  platformFeeBps: string;
+  performanceFeeBps: string;
+  sortOrder: string;
+  features: string;
+  isActive: boolean;
+  limits: Record<string, string | boolean>;
+}
+
+function emptyForm(): PlanForm {
+  const limits: Record<string, string | boolean> = {};
+  NUMERIC_LIMITS.forEach((key) => (limits[key] = ''));
+  BOOLEAN_LIMITS.forEach((key) => (limits[key] = false));
+  return {
+    code: '',
+    name: '',
+    description: '',
+    audience: 'TENANT',
+    price: '',
+    currency: 'USD',
+    interval: 'MONTHLY',
+    trialDays: '0',
+    platformFeeBps: '0',
+    performanceFeeBps: '0',
+    sortOrder: '0',
+    features: '',
+    isActive: true,
+    limits,
+  };
+}
+
+function formFromPlan(plan: Plan): PlanForm {
+  const limits: Record<string, string | boolean> = {};
+  NUMERIC_LIMITS.forEach((key) => {
+    const value = plan.limits?.[key];
+    limits[key] = value === null || value === undefined ? '' : String(value);
+  });
+  BOOLEAN_LIMITS.forEach((key) => (limits[key] = Boolean(plan.limits?.[key])));
+  return {
+    code: plan.code,
+    name: plan.name,
+    description: plan.description ?? '',
+    audience: plan.audience as PlanAudience,
+    price: String(plan.price),
+    currency: plan.currency as PlanCurrency,
+    interval: plan.interval as BillingInterval,
+    trialDays: String(plan.trialDays ?? 0),
+    platformFeeBps: String(plan.platformFeeBps ?? 0),
+    performanceFeeBps: String(plan.performanceFeeBps ?? 0),
+    sortOrder: String(plan.sortOrder ?? 0),
+    features: (plan.features ?? []).join(', '),
+    isActive: plan.isActive,
+    limits,
+  };
+}
+
+/** Blank numeric limit = unlimited (null). */
+function limitsFromForm(form: PlanForm): Partial<PlanLimits> {
+  const limits: Record<string, number | boolean | null> = {};
+  NUMERIC_LIMITS.forEach((key) => {
+    const raw = String(form.limits[key] ?? '').trim();
+    limits[key] = raw === '' ? null : Number.parseInt(raw, 10);
+  });
+  BOOLEAN_LIMITS.forEach((key) => (limits[key] = Boolean(form.limits[key])));
+  return limits as Partial<PlanLimits>;
+}
+
+function featuresFromForm(form: PlanForm): string[] {
+  return [...new Set(form.features.split(',').map((f) => f.trim()).filter(Boolean))];
+}
+
+function toInt(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof ApiError) {
+    const fields = Object.entries(error.fieldErrors);
+    return fields.length > 0 ? `${error.message} (${fields.map(([f, m]) => `${f}: ${m}`).join('; ')})` : error.message;
+  }
+  return error instanceof Error ? error.message : 'The request failed';
+}
+
+export default function PlanCatalogManagement({ canManage }: { canManage: boolean }) {
+  const [page, setPage] = useState<PlanPage | null>(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [search, setSearch] = useState('');
+  // Managers need inactive plans listed, otherwise a deactivated plan vanishes
+  // and can never be re-activated from here. Readers default to what is on sale.
+  const [includeInactive, setIncludeInactive] = useState(canManage);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Plan | 'new' | null>(null);
+  const [form, setForm] = useState<PlanForm>(emptyForm());
+
+  const load = async (requestedPage = pageNumber) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await getPlans({ page: requestedPage, limit: PAGE_SIZE, search, sortBy: 'sortOrder', sortOrder: 'asc', includeInactive });
+      setPage(result);
+      setPageNumber(requestedPage);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includeInactive]);
+
+  /** Runs one API action; true when it succeeded (the list is then reloaded). */
+  const runAction = async (key: string, action: () => Promise<unknown>, success: string): Promise<boolean> => {
+    setBusy(key);
+    setMessage(null);
+    try {
+      await action();
+      setMessage(success);
+      await load();
+      return true;
+    } catch (e) {
+      setMessage(`Error: ${errorText(e)}`);
+      return false;
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openCreate = () => {
+    setForm(emptyForm());
+    setEditing('new');
+    setMessage(null);
+  };
+
+  const openEdit = (plan: Plan) => {
+    setForm(formFromPlan(plan));
+    setEditing(plan);
+    setMessage(null);
+  };
+
+  const save = async () => {
+    if (editing === null) return;
+    const common = {
+      name: form.name.trim(),
+      description: form.description.trim() || undefined,
+      price: form.price.trim(),
+      interval: form.interval,
+      trialDays: toInt(form.trialDays),
+      platformFeeBps: toInt(form.platformFeeBps),
+      performanceFeeBps: toInt(form.performanceFeeBps),
+      sortOrder: toInt(form.sortOrder),
+      features: featuresFromForm(form),
+      limits: limitsFromForm(form),
+      isActive: form.isActive,
+    };
+    if (editing === 'new') {
+      const request: CreatePlanRequest = {
+        ...common,
+        code: form.code.trim().toLowerCase(),
+        audience: form.audience,
+        currency: form.currency,
+      };
+      if (await runAction('save', () => createPlan(request), `Plan ${request.code} created`)) setEditing(null);
+    } else if (await runAction('save', () => updatePlan(editing.id, common), `Plan ${editing.code} updated`)) {
+      setEditing(null);
+    }
+  };
+
+  const plans = page?.items ?? [];
+  const totalPages = page?.pagination.totalPages ?? 1;
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold">Plan catalogue</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Plans, prices, limits and features come from the billing API. Changing a plan never edits an existing subscription.
+          </p>
+        </div>
+        {canManage && (
+          <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
+            New plan
+          </button>
+        )}
+      </div>
+
+      {message && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">{message}</div>}
+      {error && <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">{error}</div>}
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          load(1);
+        }}
+        className="flex gap-2"
+      >
+        <input
+          type="text"
+          placeholder="Search plans by name or code..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="flex-1 border rounded px-3 py-2 text-sm"
+        />
+        <button type="submit" className="px-4 py-2 bg-gray-800 text-white rounded text-sm">
+          Search
+        </button>
+        <button type="button" onClick={() => load()} className="px-3 py-2 border rounded text-sm">
+          Refresh
+        </button>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
+          <span>Show inactive</span>
+        </label>
+      </form>
+
+      <div className="bg-white border rounded-lg p-4">
+        {loading ? (
+          <div className="animate-pulse space-y-2">
+            <div className="h-8 bg-gray-200 rounded" />
+            <div className="h-8 bg-gray-200 rounded" />
+            <div className="h-8 bg-gray-200 rounded" />
+          </div>
+        ) : plans.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-12">No plans found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="py-2">Code</th>
+                  <th className="py-2">Name</th>
+                  <th className="py-2">Audience</th>
+                  <th className="py-2">Price</th>
+                  <th className="py-2">Fees</th>
+                  <th className="py-2">Scope</th>
+                  <th className="py-2">Status</th>
+                  {canManage && <th className="py-2">Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {plans.map((plan) => {
+                  const status = planStatus(plan);
+                  return (
+                    <tr key={plan.id} className="border-b hover:bg-gray-50">
+                      <td className="py-2 font-mono text-xs">{plan.code}</td>
+                      <td className="py-2">
+                        {plan.name}
+                        <p className="text-xs text-gray-500">{formatInterval(plan.interval)}{plan.trialDays > 0 ? ` - ${plan.trialDays}-day trial` : ''}</p>
+                      </td>
+                      <td className="py-2 text-xs">{formatAudience(plan.audience)}</td>
+                      <td className="py-2">{formatPrice(plan)}</td>
+                      <td className="py-2 text-xs">
+                        Platform {formatBps(plan.platformFeeBps)}
+                        <br />
+                        Performance {formatBps(plan.performanceFeeBps)}
+                      </td>
+                      <td className="py-2 text-xs">{plan.tenantId ? 'Organisation plan' : 'Platform plan'}</td>
+                      <td className="py-2">
+                        <span className={`px-2 py-0.5 rounded text-xs ${status === PlanStatus.ACTIVE ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                          {formatStatus(status)}
+                        </span>
+                      </td>
+                      {canManage && (
+                        <td className="py-2">
+                          <div className="flex gap-2 flex-wrap">
+                            <button onClick={() => openEdit(plan)} disabled={!!busy} className="text-blue-600 hover:underline text-xs disabled:opacity-50">
+                              Edit
+                            </button>
+                            {plan.isActive ? (
+                              <button
+                                onClick={() => runAction(`deactivate:${plan.id}`, () => deactivatePlan(plan.id), `Plan ${plan.code} is no longer offered`)}
+                                disabled={!!busy}
+                                className="text-yellow-700 hover:underline text-xs disabled:opacity-50"
+                              >
+                                Deactivate
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => runAction(`activate:${plan.id}`, () => activatePlan(plan.id), `Plan ${plan.code} is offered again`)}
+                                disabled={!!busy}
+                                className="text-green-600 hover:underline text-xs disabled:opacity-50"
+                              >
+                                Activate
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Archive plan ${plan.code}? The API refuses while it still has trialing, active or past-due subscribers.`)) {
+                                  runAction(`archive:${plan.id}`, () => archivePlan(plan.id), `Plan ${plan.code} archived`);
+                                }
+                              }}
+                              disabled={!!busy}
+                              className="text-red-600 hover:underline text-xs disabled:opacity-50"
+                            >
+                              Archive
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="flex justify-between items-center pt-3 text-xs text-gray-500">
+          <span>
+            {page?.pagination.totalItems ?? 0} plans - page {pageNumber} of {Math.max(1, totalPages)}
+          </span>
+          <div className="flex gap-2">
+            <button onClick={() => load(pageNumber - 1)} disabled={loading || pageNumber <= 1} className="px-3 py-1 border rounded disabled:opacity-50">
+              Previous
+            </button>
+            <button onClick={() => load(pageNumber + 1)} disabled={loading || pageNumber >= totalPages} className="px-3 py-1 border rounded disabled:opacity-50">
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {editing !== null && canManage && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full overflow-y-auto" style={{ maxWidth: 720, maxHeight: '90vh' }}>
+            <h3 className="font-semibold mb-4">{editing === 'new' ? 'New plan' : `Edit plan ${editing.code}`}</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Code (lowercase slug, cannot change later)</span>
+                <input
+                  type="text"
+                  value={form.code}
+                  disabled={editing !== 'new'}
+                  onChange={(e) => setForm({ ...form, code: e.target.value })}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Name</span>
+                <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Description</span>
+                <input type="text" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Audience (cannot change later)</span>
+                <select
+                  value={form.audience}
+                  disabled={editing !== 'new'}
+                  onChange={(e) => setForm({ ...form, audience: e.target.value as PlanAudience })}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                >
+                  {PLAN_AUDIENCES.map((a) => (
+                    <option key={a} value={a}>
+                      {formatAudience(a)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Price (decimal, e.g. 49.00)</span>
+                <input type="text" inputMode="decimal" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Currency (cannot change later)</span>
+                <select
+                  value={form.currency}
+                  disabled={editing !== 'new'}
+                  onChange={(e) => setForm({ ...form, currency: e.target.value as PlanCurrency })}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                >
+                  {PLAN_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Billing interval</span>
+                <select value={form.interval} onChange={(e) => setForm({ ...form, interval: e.target.value as BillingInterval })} className="w-full border rounded px-3 py-2 text-sm">
+                  {BILLING_INTERVALS.map((i) => (
+                    <option key={i} value={i}>
+                      {formatInterval(i)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Trial days</span>
+                <input type="number" min={0} value={form.trialDays} onChange={(e) => setForm({ ...form, trialDays: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Platform fee (basis points)</span>
+                <input type="number" min={0} value={form.platformFeeBps} onChange={(e) => setForm({ ...form, platformFeeBps: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Performance fee (basis points)</span>
+                <input type="number" min={0} value={form.performanceFeeBps} onChange={(e) => setForm({ ...form, performanceFeeBps: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Sort order</span>
+                <input type="number" min={0} value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs text-gray-500">Features (comma-separated keys)</span>
+                <input type="text" value={form.features} onChange={(e) => setForm({ ...form, features: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </label>
+            </div>
+
+            <h4 className="font-medium text-sm mt-4 mb-2">Limits (blank = unlimited)</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              {NUMERIC_LIMITS.map((key) => (
+                <label key={key} className="space-y-1">
+                  <span className="block text-xs text-gray-500">{LIMIT_LABELS[key]}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={String(form.limits[key] ?? '')}
+                    onChange={(e) => setForm({ ...form, limits: { ...form.limits, [key]: e.target.value } })}
+                    className="w-full border rounded px-3 py-2 text-sm"
+                  />
+                </label>
+              ))}
+              {BOOLEAN_LIMITS.map((key) => (
+                <label key={key} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.limits[key])}
+                    onChange={(e) => setForm({ ...form, limits: { ...form.limits, [key]: e.target.checked } })}
+                  />
+                  <span className="text-sm">{LIMIT_LABELS[key]}</span>
+                </label>
+              ))}
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
+                <span className="text-sm">Offered for purchase (active)</span>
+              </label>
+            </div>
+
+            {message && message.startsWith('Error:') && (
+              <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800 mt-4">{message}</div>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={save}
+                disabled={busy === 'save' || !form.name.trim() || !form.price.trim() || (editing === 'new' && !form.code.trim())}
+                className="flex-1 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50"
+              >
+                {busy === 'save' ? 'Saving...' : 'Save'}
+              </button>
+              <button onClick={() => setEditing(null)} className="flex-1 py-2 border rounded text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/plans/plan-formatters.ts
+
+```typescript
+/**
+ * Plan Formatters for Admin Web
+ *
+ * Display helpers over the API's plan shape (`SubscriptionPlanDto`). Prices
+ * are decimal strings and are never converted to floating point for
+ * arithmetic; nothing here invents a price (the former "annual savings"
+ * helper assumed a ten-month yearly price that no plan defines, and was
+ * removed with the tier helpers in round 7).
+ */
+
+import {
+  type BillingInterval,
+  type Plan,
+  type PlanAudience,
+  type PlanLimits,
+  PlanStatus,
+  planStatus,
+} from './plan-types';
+
+const INTERVAL_SUFFIX: Record<BillingInterval, string> = {
+  MONTHLY: '/mo',
+  QUARTERLY: '/qtr',
+  YEARLY: '/yr',
+  LIFETIME: ' one-time',
+};
+
+const INTERVAL_LABEL: Record<BillingInterval, string> = {
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  YEARLY: 'Yearly',
+  LIFETIME: 'Lifetime',
+};
+
+const AUDIENCE_LABEL: Record<PlanAudience, string> = {
+  TENANT: 'Organisations (B2B)',
+  END_USER: 'End users (B2C)',
+};
+
+/** Human labels for the PlanLimits keys. */
+export const LIMIT_LABELS: Record<keyof PlanLimits, string> = {
+  maxUsers: 'Users',
+  maxTraders: 'Traders',
+  maxFollowersPerTrader: 'Followers per trader',
+  maxExchangeAccountsPerUser: 'Exchange accounts per user',
+  maxCopySubscriptionsPerFollower: 'Copy subscriptions per follower',
+  maxApiRequestsPerMinute: 'API requests per minute',
+  websocketConnections: 'WebSocket connections',
+  customDomain: 'Custom domain',
+  whiteLabelMobileApp: 'White-label mobile app',
+  prioritySupport: 'Priority support',
+};
+
+/** "49.00 USD/mo"; a zero price is "Free". The decimal string is shown as stored. */
+export function formatPrice(plan: Pick<Plan, 'price' | 'currency' | 'interval'>): string {
+  const isZero = /^0+(\.0+)?$/.test(String(plan.price).trim());
+  if (isZero) return 'Free';
+  const suffix = INTERVAL_SUFFIX[plan.interval as BillingInterval] ?? '';
+  return `${plan.price} ${plan.currency}${suffix}`;
+}
+
+export function formatInterval(interval: BillingInterval | string): string {
+  return INTERVAL_LABEL[interval as BillingInterval] ?? interval;
+}
+
+export function formatAudience(audience: PlanAudience | string): string {
+  return AUDIENCE_LABEL[audience as PlanAudience] ?? audience;
+}
+
+export function formatStatus(status: PlanStatus): string {
+  return status === PlanStatus.ACTIVE ? 'Active' : 'Inactive';
+}
+
+export function getStatusColor(status: PlanStatus): string {
+  return status === PlanStatus.ACTIVE ? '#10B981' : '#6B7280';
+}
+
+/** Basis points as a percentage: 250 -> "2.50%". */
+export function formatBps(bps: number): string {
+  return `${(bps / 100).toFixed(2)}%`;
+}
+
+/** A single limit: numbers (null = unlimited) or booleans (included / not included). */
+export function formatLimit(key: keyof PlanLimits, value: PlanLimits[keyof PlanLimits]): string {
+  const label = LIMIT_LABELS[key] ?? key;
+  if (typeof value === 'boolean') return `${label}: ${value ? 'Included' : 'Not included'}`;
+  if (value === null || value === undefined) return `${label}: Unlimited`;
+  return `${label}: ${value.toLocaleString('en-US')}`;
+}
+
+export function formatPlanSummary(plan: Plan): string {
+  return `${plan.name} (${plan.code}) - ${formatPrice(plan)} - ${formatStatus(planStatus(plan))}`;
+}
+
+/**
+ * A comparison table: header row, one row per feature (from the plans'
+ * `features` arrays) and one row per limit.
+ */
+export function formatPlanComparison(plans: Plan[]): string[][] {
+  const rows: string[][] = [['Feature', ...plans.map((p) => p.name)]];
+
+  const featureKeys = new Set<string>();
+  plans.forEach((p) => (p.features ?? []).forEach((f) => featureKeys.add(f)));
+  [...featureKeys].sort().forEach((featureKey) => {
+    rows.push([featureKey, ...plans.map((plan) => ((plan.features ?? []).includes(featureKey) ? '✓' : '✗'))]);
+  });
+
+  (Object.keys(LIMIT_LABELS) as Array<keyof PlanLimits>).forEach((key) => {
+    rows.push([
+      LIMIT_LABELS[key],
+      ...plans.map((plan) => {
+        const value = plan.limits?.[key];
+        if (typeof value === 'boolean') return value ? '✓' : '✗';
+        if (value === null || value === undefined) return 'Unlimited';
+        return value.toLocaleString('en-US');
+      }),
+    ]);
+  });
+
+  return rows;
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/plans/plan-types.ts
+
+```typescript
+/**
+ * Plan Types for Admin Web
+ *
+ * The plan shape is the API's own contract (`SubscriptionPlanDto` from
+ * @wlct/shared-types, served by /v1/billing/plans). An earlier version of this
+ * module described a different, never-implemented API (tiers, slugs, price
+ * objects, plan stats/history); it was removed in round 7 so the console can
+ * only call routes that exist.
+ */
+
+import type {
+  BillingInterval as SharedBillingInterval,
+  PlanAudience as SharedPlanAudience,
+  PlanLimits as SharedPlanLimits,
+  SubscriptionPlanDto,
+} from '@wlct/shared-types';
+
+/** A plan exactly as GET /v1/billing/plans returns it. */
+export type Plan = SubscriptionPlanDto;
+
+export type PlanLimits = SharedPlanLimits;
+
+/** Billing intervals the API accepts (`BillingInterval` in shared-types). */
+export const BILLING_INTERVALS = ['MONTHLY', 'QUARTERLY', 'YEARLY', 'LIFETIME'] as const;
+export type BillingInterval = `${SharedBillingInterval}`;
+
+/** Plan audiences the API accepts (`PlanAudience` in shared-types). */
+export const PLAN_AUDIENCES = ['TENANT', 'END_USER'] as const;
+export type PlanAudience = `${SharedPlanAudience}`;
+
+/** Currencies CreatePlanDto accepts. */
+export const PLAN_CURRENCIES = ['USD', 'EUR', 'GBP', 'AED', 'BDT', 'TRY'] as const;
+export type PlanCurrency = (typeof PLAN_CURRENCIES)[number];
+
+/** Derived lifecycle shown in the console; the API stores `isActive` (archive = DELETE). */
+export enum PlanStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+}
+
+/**
+ * Query keys GET /v1/billing/plans accepts (ListPlansDto = PaginationQueryDto +
+ * audience). Any other key is refused with 422 by the API's validation pipe.
+ */
+export interface PlanFilter {
+  page?: number;
+  limit?: number;
+  search?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  audience?: PlanAudience;
+  /** ListPlansDto.includeInactive: without it the API returns active plans only. */
+  includeInactive?: boolean;
+}
+
+/** The paginated envelope the list route returns (after the {success,data} unwrap). */
+export interface PlanPage {
+  items: Plan[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalItems: number;
+    totalPages: number;
+    hasNextPage?: boolean;
+    hasPreviousPage?: boolean;
+  };
+}
+
+/** POST /v1/billing/plans body (CreatePlanDto). */
+export interface CreatePlanRequest {
+  code: string;
+  name: string;
+  description?: string;
+  audience?: PlanAudience;
+  price: string;
+  currency?: PlanCurrency;
+  interval?: BillingInterval;
+  trialDays?: number;
+  performanceFeeBps?: number;
+  platformFeeBps?: number;
+  limits?: Partial<PlanLimits>;
+  features?: string[];
+  isActive?: boolean;
+  sortOrder?: number;
+  externalPriceId?: string;
+}
+
+/** PATCH /v1/billing/plans/:id body (UpdatePlanDto). Code, audience and currency are immutable. */
+export interface UpdatePlanRequest {
+  name?: string;
+  description?: string;
+  price?: string;
+  interval?: BillingInterval;
+  trialDays?: number;
+  performanceFeeBps?: number;
+  platformFeeBps?: number;
+  limits?: Partial<PlanLimits>;
+  features?: string[];
+  isActive?: boolean;
+  sortOrder?: number;
+  externalPriceId?: string;
+}
+
+/** DELETE /v1/billing/plans/:id result. */
+export interface ArchivePlanResult {
+  id: string;
+  archived: true;
+}
+
+export function planStatus(plan: Pick<Plan, 'isActive'>): PlanStatus {
+  return plan.isActive ? PlanStatus.ACTIVE : PlanStatus.INACTIVE;
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/portal/billing-portal-api.ts
+
+```typescript
+/**
+ * Billing Portal API client for admin-web.
+ * Consumes canonical billing APIs, never hardcodes pricing.
+ * No secrets exposed.
+ */
+
+import { apiClient } from '@/lib/api-client';
+
+const PROXY_PREFIX = '/api/proxy';
+const API_BASE = `${PROXY_PREFIX}/billing/portal`;
+
+/**
+ * All calls go through the console's same-origin proxy (/api/proxy/* ->
+ * API_BASE_URL/v1/*): the bearer token lives in an httpOnly cookie that only
+ * the proxy can read, and mutations carry the CSRF header. Before this the
+ * module fetched `{API_BASE}` on the admin origin, which has no such route, so
+ * every call 404'd. apiClient also unwraps the {success, data} envelope, which
+ * is the shape the billing components read (e.g. `result.tenantSlug`).
+ */
+async function fetchJson(url: string, options?: RequestInit): Promise<any> {
+  const path = url.startsWith(PROXY_PREFIX) ? url.slice(PROXY_PREFIX.length) : url;
+  const method = (options?.method ?? 'GET').toUpperCase();
+  const body =
+    typeof options?.body === 'string' && options.body.length > 0 ? JSON.parse(options.body) : undefined;
+  switch (method) {
+    case 'POST':
+      return apiClient.post(path, body);
+    case 'PATCH':
+      return apiClient.patch(path, body);
+    case 'PUT':
+      return apiClient.put(path, body);
+    case 'DELETE':
+      return apiClient.delete(path, body === undefined ? {} : { body });
+    default:
+      return apiClient.get(path);
+  }
+}
+
+export async function getBillingOverview(): Promise<any> {
+  return fetchJson(`${API_BASE}/overview`);
+}
+
+export async function getCurrentSubscription(): Promise<any> {
+  return fetchJson(`${API_BASE}/subscription`);
+}
+
+export async function getAvailablePlans(): Promise<any> {
+  return fetchJson(`${API_BASE}/plans`);
+}
+
+export async function getPlanComparison(): Promise<any> {
+  return fetchJson(`${API_BASE}/plans/comparison`);
+}
+
+export async function getUsageSummary(): Promise<any> {
+  return fetchJson(`${API_BASE}/usage`);
+}
+
+export async function listInvoices(params?: { status?: string; limit?: number; fromDate?: string; toDate?: string }): Promise<any> {
+  const q = new URLSearchParams();
+  if (params?.status) q.append('status', params.status);
+  if (params?.limit) q.append('limit', String(params.limit));
+  if (params?.fromDate) q.append('fromDate', params.fromDate);
+  if (params?.toDate) q.append('toDate', params.toDate);
+  return fetchJson(`${API_BASE}/invoices?${q.toString()}`);
+}
+
+export async function getInvoiceDetail(id: string): Promise<any> {
+  return fetchJson(`${API_BASE}/invoices/${id}`);
+}
+
+export async function getInvoicePdfMetadata(id: string): Promise<any> {
+  return fetchJson(`${API_BASE}/invoices/${id}/pdf-metadata`);
+}
+
+export async function listPayments(params?: { status?: string; provider?: string; limit?: number }): Promise<any> {
+  const q = new URLSearchParams();
+  if (params?.status) q.append('status', params.status);
+  if (params?.provider) q.append('provider', params.provider);
+  if (params?.limit) q.append('limit', String(params.limit));
+  return fetchJson(`${API_BASE}/payments?${q.toString()}`);
+}
+
+export async function getPaymentDetail(id: string): Promise<any> {
+  return fetchJson(`${API_BASE}/payments/${id}`);
+}
+
+export async function getPaymentStatus(id: string): Promise<any> {
+  return fetchJson(`${API_BASE}/payments/${id}/status`);
+}
+
+export async function createCheckoutSession(payload: { planId: string; billingInterval?: string; currency?: string; provider?: string; successUrl?: string; cancelUrl?: string; idempotencyKey?: string }): Promise<any> {
+  return fetchJson(`${API_BASE}/checkout`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getCheckoutStatus(id: string): Promise<any> {
+  return fetchJson(`${API_BASE}/checkout/${id}/status`);
+}
+
+export async function cancelSubscription(payload: { reason?: string; atPeriodEnd?: boolean }): Promise<any> {
+  return fetchJson(`${API_BASE}/subscription/cancel`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function resumeSubscription(): Promise<any> {
+  return fetchJson(`${API_BASE}/subscription/resume`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function changePlan(payload: { planId: string; atPeriodEnd?: boolean }): Promise<any> {
+  return fetchJson(`${API_BASE}/subscription/change-plan`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function changeInterval(payload: { newInterval: string; atPeriodEnd?: boolean }): Promise<any> {
+  return fetchJson(`${API_BASE}/subscription/change-interval`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/portal/billing-portal-page.tsx
+
+```tsx
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import {
+  getBillingOverview,
+  listInvoices,
+  listPayments,
+} from './billing-portal-api';
+
+/**
+ * Main SaaS billing dashboard: current plan, subscription status, usage,
+ * invoices, payment history, and available actions.
+ * No hardcoded plan data - all from API.
+ */
+export default function BillingPortalPage() {
+  const [overview, setOverview] = useState<any>(null);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [ov, invRes, payRes] = await Promise.all([
+        getBillingOverview(),
+        listInvoices({ limit: 5 }),
+        listPayments({ limit: 5 }),
+      ]);
+      setOverview(ov);
+      setInvoices(invRes.invoices || []);
+      setPayments(payRes.payments || []);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load billing data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div className="h-32 bg-gray-200 rounded" />
+          <div className="h-48 bg-gray-200 rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded p-4">
+          <h3 className="text-red-800 font-medium">Error loading billing data</h3>
+          <p className="text-red-600 text-sm mt-1">{error}</p>
+          <button onClick={fetchData} className="mt-3 px-4 py-2 bg-red-600 text-white rounded text-sm">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!overview) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <p className="text-gray-500">No billing data available</p>
+          <button onClick={fetchData} className="mt-2 text-blue-600 text-sm">Refresh</button>
+        </div>
+      </div>
+    );
+  }
+
+  const sub = overview.subscription;
+  const currentPlan = overview.currentPlan;
+  const usage = overview.usage;
+  const isInactive = !sub?.isActive;
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Billing & Subscription</h1>
+        <button onClick={fetchData} className="text-sm text-gray-600 hover:text-gray-900">Refresh</button>
+      </div>
+
+      {/* Current Subscription */}
+      <div className="bg-white border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4">Current Subscription</h2>
+        {isInactive ? (
+          <div className="bg-yellow-50 border border-yellow-200 rounded p-4">
+            <p className="text-yellow-800">No active subscription</p>
+            <p className="text-yellow-600 text-sm mt-1">Choose a plan to get started</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-sm text-gray-500">Plan</p>
+              <p className="font-medium">{currentPlan?.name || sub.planName || 'Unknown'}</p>
+              <p className="text-xs text-gray-400">{sub.planCode}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Status</p>
+              <span className={`inline-flex px-2 py-1 rounded text-xs font-medium ${sub.isActive ? 'bg-green-100 text-green-800' : sub.isPastDue ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
+                {sub.status || 'UNKNOWN'}
+              </span>
+              {sub.willCancelAtPeriodEnd && <p className="text-xs text-orange-600 mt-1">Cancels at period end</p>}
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Renewal Date</p>
+              <p className="font-medium">{sub.renewalDate ? new Date(sub.renewalDate).toLocaleDateString() : 'N/A'}</p>
+              {sub.trialActive && <p className="text-xs text-blue-600">Trial active until {sub.trialEndsAt ? new Date(sub.trialEndsAt).toLocaleDateString() : ''}</p>}
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Interval</p>
+              <p className="font-medium">{sub.interval || currentPlan?.interval || 'N/A'}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Usage */}
+      {usage && (
+        <div className="bg-white border rounded-lg p-6">
+          <h2 className="text-lg font-semibold mb-4">Usage & Limits</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {usage.items?.map((item: any) => (
+              <div key={item.key} className="border rounded p-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">{item.label}</span>
+                  <span className="text-xs text-gray-500">{item.unlimited ? 'Unlimited' : `${item.current}/${item.limit}`}</span>
+                </div>
+                {!item.unlimited && (
+                  <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                    <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${Math.min(100, item.percentageUsed || 0)}%` }} />
+                  </div>
+                )}
+                {item.remaining !== null && !item.unlimited && (
+                  <p className="text-xs text-gray-500 mt-1">{item.remaining} remaining</p>
+                )}
+              </div>
+            ))}
+          </div>
+          {usage.features?.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-medium mb-2">Features</h3>
+              <div className="flex flex-wrap gap-2">
+                {usage.features.map((f: any) => (
+                  <span key={f.key} className={`px-2 py-1 rounded text-xs ${f.included ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}>
+                    {f.label}: {f.included ? 'Included' : 'Not included'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Latest Invoice & Payment */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white border rounded-lg p-6">
+          <h3 className="font-semibold mb-3">Latest Invoice</h3>
+          {overview.latestInvoice ? (
+            <div className="space-y-2 text-sm">
+              <p><span className="text-gray-500">Number:</span> {overview.latestInvoice.invoiceNumber}</p>
+              <p><span className="text-gray-500">Status:</span> <span className={`px-2 py-0.5 rounded text-xs ${overview.latestInvoice.status === 'PAID' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{overview.latestInvoice.status}</span></p>
+              <p><span className="text-gray-500">Total:</span> {overview.latestInvoice.total} {overview.latestInvoice.currency}</p>
+              <p><span className="text-gray-500">Due:</span> {overview.latestInvoice.amountDue} {overview.latestInvoice.currency}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No invoices yet</p>
+          )}
+          {invoices.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-gray-600 mb-2">Recent Invoices</p>
+              {invoices.slice(0, 3).map((inv: any) => (
+                <div key={inv.id} className="flex justify-between text-xs py-1 border-b">
+                  <span>{inv.invoiceNumber}</span>
+                  <span className={inv.status === 'PAID' ? 'text-green-600' : 'text-yellow-600'}>{inv.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white border rounded-lg p-6">
+          <h3 className="font-semibold mb-3">Latest Payment</h3>
+          {overview.latestPayment ? (
+            <div className="space-y-2 text-sm">
+              <p><span className="text-gray-500">Provider:</span> {overview.latestPayment.provider}</p>
+              <p><span className="text-gray-500">Status:</span> <span className={`px-2 py-0.5 rounded text-xs ${overview.latestPayment.status === 'SUCCEEDED' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{overview.latestPayment.status}</span></p>
+              <p><span className="text-gray-500">Amount:</span> {overview.latestPayment.amount} {overview.latestPayment.currency}</p>
+              <p><span className="text-gray-500">Date:</span> {new Date(overview.latestPayment.createdAt).toLocaleDateString()}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No payments yet</p>
+          )}
+          {payments.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-gray-600 mb-2">Recent Payments</p>
+              {payments.slice(0, 3).map((pay: any) => (
+                <div key={pay.id} className="flex justify-between text-xs py-1 border-b">
+                  <span>{pay.amount} {pay.currency}</span>
+                  <span className={pay.status === 'SUCCEEDED' ? 'text-green-600' : 'text-yellow-600'}>{pay.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Available Actions */}
+      {overview.availableActions?.length > 0 && (
+        <div className="bg-white border rounded-lg p-6">
+          <h3 className="font-semibold mb-3">Available Actions</h3>
+          <div className="flex flex-wrap gap-2">
+            {overview.availableActions.map((action: string) => (
+              <span key={action} className="px-3 py-1 bg-blue-50 text-blue-700 rounded text-sm border border-blue-200">{action.replace(/_/g, ' ')}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Billing Customer */}
+      {overview.billingCustomer && (
+        <div className="bg-white border rounded-lg p-6">
+          <h3 className="font-semibold mb-3">Billing Profile</h3>
+          <div className="text-sm space-y-1">
+            <p><span className="text-gray-500">Name:</span> {overview.billingCustomer.billingName}</p>
+            <p><span className="text-gray-500">Email:</span> {overview.billingCustomer.billingEmail}</p>
+            <p><span className="text-gray-500">Country:</span> {overview.billingCustomer.billingCountry}</p>
+            <p><span className="text-gray-500">Currency:</span> {overview.billingCustomer.preferredCurrency}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/portal/checkout-page.tsx
+
+```tsx
+'use client';
+
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createCheckoutSession, getCheckoutStatus, getPaymentStatus } from './billing-portal-api';
+
+/**
+ * Checkout page that creates backend checkout session and redirects to provider.
+ * After redirect, verifies actual payment/subscription state from backend.
+ * Never trusts ?success=true alone.
+ */
+export default function CheckoutPage({ planId, onClose }: { planId: string; onClose?: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [checkout, setCheckout] = useState<any>(null);
+  const [verificationState, setVerificationState] = useState<'idle' | 'pending' | 'verifying' | 'success' | 'failed' | 'cancelled' | 'expired'>('idle');
+  const [paymentId, setPaymentId] = useState<string | null>(null);
+
+  // Each verification run gets a number; a newer run (Refresh Status, or a
+  // second return from the provider) supersedes the polling of an older one,
+  // and unmounting stops polling altogether.
+  const runRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const verifyPayment = useCallback(async (id: string) => {
+    const run = ++runRef.current;
+    const superseded = () => !mountedRef.current || run !== runRef.current;
+    setVerificationState('verifying');
+    try {
+      for (;;) {
+        // Always call backend to verify actual payment state
+        const status = await getCheckoutStatus(id);
+        const paymentStatus = await getPaymentStatus(id).catch(() => null);
+        if (superseded()) return;
+
+        if (status.status === 'COMPLETED' || status.paymentStatus === 'SUCCEEDED' || paymentStatus?.status === 'SUCCEEDED') {
+          setVerificationState('success');
+          return;
+        }
+        if (status.status === 'FAILED' || status.paymentStatus === 'FAILED') {
+          setVerificationState('failed');
+          return;
+        }
+        if (status.status === 'CANCELLED' || status.paymentStatus === 'CANCELLED') {
+          setVerificationState('cancelled');
+          return;
+        }
+        if (status.status === 'EXPIRED' || status.paymentStatus === 'EXPIRED') {
+          setVerificationState('expired');
+          return;
+        }
+        setVerificationState('pending');
+        // Poll for pending
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (superseded()) return;
+      }
+    } catch (e: any) {
+      if (superseded()) return;
+      setError(e.message || 'Failed to verify payment');
+      setVerificationState('failed');
+    }
+  }, []);
+
+  // Check if returning from provider
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutId = params.get('checkout_id') || params.get('payment_id') || params.get('session_id');
+    const paymentIdParam = params.get('payment_id');
+
+    if (checkoutId || paymentIdParam) {
+      const id = checkoutId || paymentIdParam;
+      if (id) {
+        setPaymentId(id);
+        setVerificationState('verifying');
+        void verifyPayment(id);
+      }
+    }
+  }, [verifyPayment]);
+
+  const handleCreateCheckout = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await createCheckoutSession({
+        planId,
+        successUrl: `${window.location.origin}/billing/checkout?checkout_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${window.location.origin}/billing/plans`,
+      });
+
+      setCheckout(result);
+      setPaymentId(result.paymentId || result.checkoutId);
+
+      // Redirect to provider checkout URL - backend decides provider/price
+      if (result.checkoutUrl) {
+        window.location.href = result.checkoutUrl;
+      } else {
+        setError('No checkout URL returned');
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to create checkout');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Verification states UI
+  if (verificationState !== 'idle') {
+    return (
+      <div className="p-6 max-w-md mx-auto">
+        <div className="bg-white border rounded-lg p-6 text-center">
+          {verificationState === 'verifying' && (
+            <>
+              <div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4" />
+              <h3 className="font-semibold">Verifying payment...</h3>
+              <p className="text-sm text-gray-500 mt-1">Checking backend payment state, please wait</p>
+              <p className="text-xs text-gray-400 mt-2">Payment ID: {paymentId}</p>
+            </>
+          )}
+          {verificationState === 'pending' && (
+            <>
+              <div className="h-8 w-8 bg-yellow-100 rounded-full mx-auto mb-4 flex items-center justify-center">⏳</div>
+              <h3 className="font-semibold">Payment pending</h3>
+              <p className="text-sm text-gray-500 mt-1">Provider is processing your payment</p>
+              <button onClick={() => paymentId && verifyPayment(paymentId)} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded text-sm">Refresh Status</button>
+            </>
+          )}
+          {verificationState === 'success' && (
+            <>
+              <div className="h-8 w-8 bg-green-100 rounded-full mx-auto mb-4 flex items-center justify-center text-green-600">✓</div>
+              <h3 className="font-semibold text-green-800">Payment successful!</h3>
+              <p className="text-sm text-gray-600 mt-1">Your subscription has been updated. Verified from backend.</p>
+              <button onClick={() => (window.location.href = '/billing')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded text-sm">Go to Billing</button>
+            </>
+          )}
+          {verificationState === 'failed' && (
+            <>
+              <div className="h-8 w-8 bg-red-100 rounded-full mx-auto mb-4 flex items-center justify-center text-red-600">✗</div>
+              <h3 className="font-semibold text-red-800">Payment failed</h3>
+              <p className="text-sm text-gray-500 mt-1">Your payment could not be processed</p>
+              {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+              <div className="mt-4 flex gap-2 justify-center">
+                <button onClick={() => setVerificationState('idle')} className="px-4 py-2 bg-blue-600 text-white rounded text-sm">Try Again</button>
+                <button onClick={() => (window.location.href = '/billing')} className="px-4 py-2 border rounded text-sm">Back to Billing</button>
+              </div>
+            </>
+          )}
+          {verificationState === 'cancelled' && (
+            <>
+              <h3 className="font-semibold">Payment cancelled</h3>
+              <p className="text-sm text-gray-500 mt-1">You cancelled the checkout</p>
+              <button onClick={() => (window.location.href = '/billing/plans')} className="mt-4 px-4 py-2 bg-gray-600 text-white rounded text-sm">Back to Plans</button>
+            </>
+          )}
+          {verificationState === 'expired' && (
+            <>
+              <h3 className="font-semibold">Checkout expired</h3>
+              <p className="text-sm text-gray-500 mt-1">This checkout session has expired</p>
+              <button onClick={() => setVerificationState('idle')} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded text-sm">Create New Checkout</button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 max-w-md mx-auto">
+      <div className="bg-white border rounded-lg p-6">
+        <h2 className="text-xl font-bold mb-4">Secure Checkout</h2>
+        <p className="text-sm text-gray-600 mb-4">You will be redirected to our secure payment provider. Your plan price is determined by backend catalog, never by frontend.</p>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700 mb-4">{error}</div>
+        )}
+
+        {checkout ? (
+          <div className="space-y-3 text-sm">
+            <p><span className="text-gray-500">Plan:</span> {checkout.planName} ({checkout.planCode})</p>
+            <p><span className="text-gray-500">Amount:</span> {checkout.amount} {checkout.currency}</p>
+            <p><span className="text-gray-500">Provider:</span> {checkout.provider}</p>
+            <p><span className="text-gray-500">Status:</span> {checkout.status}</p>
+            {checkout.checkoutUrl && (
+              <a href={checkout.checkoutUrl} className="block mt-4 w-full text-center py-2 bg-blue-600 text-white rounded">Go to Provider Checkout</a>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-800 mb-4">
+              <p>🔒 Secure checkout via backend. Provider secrets never exposed to frontend.</p>
+              <p className="mt-1">After payment, we verify actual payment state from backend - never trust URL params alone.</p>
+            </div>
+            <button
+              onClick={handleCreateCheckout}
+              disabled={loading}
+              className="w-full py-3 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? 'Creating secure checkout...' : 'Proceed to Secure Checkout'}
+            </button>
+            {onClose && (
+              <button onClick={onClose} className="w-full mt-2 py-2 border rounded text-sm">Cancel</button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/portal/plan-comparison.tsx
+
+```tsx
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { getPlanComparison, changePlan, createCheckoutSession } from './billing-portal-api';
+
+/**
+ * Dynamic plan comparison UI - fetches canonical plan/features/limits from backend.
+ * No hardcoded prices or limits.
+ */
+export default function PlanComparisonPage() {
+  const [comparison, setComparison] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const fetchComparison = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getPlanComparison();
+      setComparison(data);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load plans');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchComparison();
+  }, []);
+
+  const handleSelectPlan = async (planId: string) => {
+    setActionLoading(planId);
+    setMessage(null);
+    try {
+      const result = await changePlan({ planId, atPeriodEnd: false });
+      if (result.requiresCheckout) {
+        // Need checkout for upgrade
+        setMessage(`Upgrade requires payment. Price delta: ${result.priceDelta}. Proceeding to checkout...`);
+        const checkout = await createCheckoutSession({
+          planId,
+          successUrl: window.location.origin + '/billing?checkout_success=true',
+          cancelUrl: window.location.origin + '/billing/plans',
+        });
+        if (checkout.checkoutUrl) {
+          window.location.href = checkout.checkoutUrl;
+          return;
+        }
+      }
+      setMessage(result.message || 'Plan change successful');
+      await fetchComparison();
+    } catch (e: any) {
+      setMessage(`Error: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div className="grid grid-cols-3 gap-4">
+            <div className="h-64 bg-gray-200 rounded" />
+            <div className="h-64 bg-gray-200 rounded" />
+            <div className="h-64 bg-gray-200 rounded" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded p-4">
+          <p className="text-red-800">{error}</p>
+          <button onClick={fetchComparison} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-sm">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!comparison || !comparison.plans?.length) {
+    return (
+      <div className="p-6 text-center py-12">
+        <p className="text-gray-500">No plans available</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold">Compare Plans</h1>
+      <p className="text-gray-600">Choose the plan that fits your needs. All pricing from canonical billing catalog.</p>
+
+      {message && (
+        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">{message}</div>
+      )}
+
+      {/* Plan Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {comparison.plans.map((plan: any) => (
+          <div key={plan.id} className={`border rounded-lg p-6 ${plan.isCurrent ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}>
+            {plan.isCurrent && <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded mb-2">Current Plan</span>}
+            <h3 className="text-xl font-bold">{plan.name}</h3>
+            <p className="text-sm text-gray-500 mt-1">{plan.description || ''}</p>
+            <div className="mt-4">
+              <span className="text-3xl font-bold">{plan.price}</span>
+              <span className="text-gray-500 ml-1">{plan.currency}</span>
+              <span className="text-sm text-gray-400"> / {plan.interval}</span>
+            </div>
+            {plan.trialDays > 0 && <p className="text-xs text-green-600 mt-2">{plan.trialDays} day trial</p>}
+
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium">Limits:</p>
+              {Object.entries(plan.limits || {}).map(([key, value]: any) => {
+                if (value === null || value === undefined) return null;
+                if (typeof value === 'boolean') return null;
+                return (
+                  <div key={key} className="flex justify-between text-xs">
+                    <span className="text-gray-600">{key.replace(/([A-Z])/g, ' $1')}</span>
+                    <span className="font-medium">{value === null ? 'Unlimited' : String(value)}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4">
+              <p className="text-sm font-medium mb-1">Features:</p>
+              <ul className="space-y-1">
+                {(plan.features || []).slice(0, 5).map((f: string) => (
+                  <li key={f} className="text-xs text-gray-600 flex items-center">
+                    <span className="text-green-500 mr-1">✓</span> {f}
+                  </li>
+                ))}
+                {plan.features?.length > 5 && <li className="text-xs text-gray-400">+{plan.features.length - 5} more</li>}
+              </ul>
+            </div>
+
+            <div className="mt-6">
+              {plan.isCurrent ? (
+                <button disabled className="w-full py-2 bg-gray-100 text-gray-500 rounded text-sm cursor-not-allowed">Current Plan</button>
+              ) : (
+                <button
+                  onClick={() => handleSelectPlan(plan.id)}
+                  disabled={!!actionLoading}
+                  className={`w-full py-2 rounded text-sm font-medium ${plan.upgradeEligible ? 'bg-blue-600 text-white hover:bg-blue-700' : plan.downgradeEligible ? 'bg-gray-800 text-white hover:bg-gray-900' : 'bg-white border border-gray-300 hover:bg-gray-50'}`}
+                >
+                  {actionLoading === plan.id ? 'Processing...' : plan.upgradeEligible ? 'Upgrade' : plan.downgradeEligible ? 'Downgrade' : 'Select Plan'}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Features Matrix */}
+      {comparison.featuresMatrix?.length > 0 && (
+        <div className="bg-white border rounded-lg p-6 overflow-x-auto">
+          <h3 className="font-semibold mb-4">Feature Comparison</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-2">Feature</th>
+                {comparison.plans.map((p: any) => (
+                  <th key={p.id} className="text-center py-2">{p.name}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {comparison.featuresMatrix.map((row: any) => (
+                <tr key={row.featureKey} className="border-b">
+                  <td className="py-2">{row.label}</td>
+                  {comparison.plans.map((p: any) => (
+                    <td key={p.id} className="text-center py-2">
+                      {row.plans[p.id] ? <span className="text-green-600">✓</span> : <span className="text-gray-300">—</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Limits Matrix */}
+      {comparison.limitsMatrix?.length > 0 && (
+        <div className="bg-white border rounded-lg p-6 overflow-x-auto">
+          <h3 className="font-semibold mb-4">Limits Comparison</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-2">Limit</th>
+                {comparison.plans.map((p: any) => (
+                  <th key={p.id} className="text-center py-2">{p.name}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {comparison.limitsMatrix.map((row: any) => (
+                <tr key={row.limitKey} className="border-b">
+                  <td className="py-2">{row.label}</td>
+                  {comparison.plans.map((p: any) => (
+                    <td key={p.id} className="text-center py-2">
+                      {row.plans[p.id] === null ? 'Unlimited' : String(row.plans[p.id])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/portal/subscription-management.tsx
+
+```tsx
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import {
+  getCurrentSubscription,
+  getAvailablePlans,
+  cancelSubscription,
+  resumeSubscription,
+  changePlan,
+  changeInterval,
+  createCheckoutSession,
+} from './billing-portal-api';
+
+/**
+ * Admin-web subscription management UI.
+ * All mutations via authenticated backend APIs, never direct frontend state mutation.
+ */
+export default function SubscriptionManagementPage() {
+  const [subscriptionState, setSubscriptionState] = useState<any>(null);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [subState, plansRes] = await Promise.all([getCurrentSubscription(), getAvailablePlans()]);
+      setSubscriptionState(subState);
+      setPlans(plansRes.plans || []);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load subscription');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleCancel = async () => {
+    setActionLoading('cancel');
+    setMessage(null);
+    try {
+      const result = await cancelSubscription({ reason: cancelReason, atPeriodEnd: true });
+      setMessage(`Subscription will cancel at ${result.effectiveAt ? new Date(result.effectiveAt).toLocaleDateString() : 'period end'}`);
+      setShowCancelDialog(false);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Cancel failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleResume = async () => {
+    setActionLoading('resume');
+    setMessage(null);
+    try {
+      const result = await resumeSubscription();
+      setMessage(result.message || 'Subscription resumed');
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Resume failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleChangePlan = async (planId: string) => {
+    setActionLoading(`plan_${planId}`);
+    setMessage(null);
+    try {
+      const result = await changePlan({ planId, atPeriodEnd: false });
+      if (result.requiresCheckout) {
+        setMessage(`Upgrade requires checkout. Price delta: ${result.priceDelta}. Creating checkout...`);
+        const checkout = await createCheckoutSession({
+          planId,
+          successUrl: window.location.origin + '/billing?checkout_success=true',
+          cancelUrl: window.location.origin + '/billing/subscription',
+        });
+        if (checkout.checkoutUrl) {
+          window.location.href = checkout.checkoutUrl;
+          return;
+        }
+      }
+      setMessage(result.message || 'Plan changed successfully');
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Plan change failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleChangeInterval = async (newInterval: string) => {
+    setActionLoading(`interval_${newInterval}`);
+    setMessage(null);
+    try {
+      const result = await changeInterval({ newInterval, atPeriodEnd: true });
+      setMessage(result.message || `Interval change to ${newInterval} scheduled`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Interval change failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div className="h-32 bg-gray-200 rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded p-4">
+          <p className="text-red-800">{error}</p>
+          <button onClick={fetchData} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-sm">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  const sub = subscriptionState?.subscription;
+  const canCancel = subscriptionState?.canCancel;
+  const canResume = subscriptionState?.canResume;
+
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold">Subscription Management</h1>
+
+      {message && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">{message}</div>}
+
+      {/* Current State */}
+      <div className="bg-white border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4">Current Subscription</h2>
+        {sub ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500">Plan</p>
+              <p className="font-medium">{sub.plan?.name || sub.planId}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Status</p>
+              <p className="font-medium">{sub.status}</p>
+              {sub.cancelAtPeriodEnd && <p className="text-xs text-orange-600">Cancels at period end</p>}
+            </div>
+            <div>
+              <p className="text-gray-500">Current Period End</p>
+              <p className="font-medium">{sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString() : 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Interval</p>
+              <p className="font-medium">{sub.plan?.interval || 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Seats</p>
+              <p className="font-medium">{sub.seatsPurchased || 1}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-gray-500 text-sm">No active subscription</p>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="bg-white border rounded-lg p-6">
+        <h3 className="font-semibold mb-4">Available Actions</h3>
+        <div className="flex flex-wrap gap-3">
+          {canCancel && (
+            <button onClick={() => setShowCancelDialog(true)} disabled={!!actionLoading} className="px-4 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50">
+              Cancel at Period End
+            </button>
+          )}
+          {canResume && (
+            <button onClick={handleResume} disabled={!!actionLoading} className="px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
+              {actionLoading === 'resume' ? 'Resuming...' : 'Resume Subscription'}
+            </button>
+          )}
+          {subscriptionState?.effectiveActions?.map((action: string) => (
+            <span key={action} className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-xs border">{action}</span>
+          ))}
+        </div>
+
+        {showCancelDialog && (
+          <div className="mt-6 border-t pt-4">
+            <h4 className="font-medium mb-2">Confirm Cancellation</h4>
+            <p className="text-sm text-gray-600 mb-3">Your subscription will remain active until the end of the current billing period.</p>
+            <input
+              type="text"
+              placeholder="Reason (optional)"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mb-3"
+            />
+            <div className="flex gap-2">
+              <button onClick={handleCancel} disabled={actionLoading === 'cancel'} className="px-4 py-2 bg-red-600 text-white rounded text-sm disabled:opacity-50">
+                {actionLoading === 'cancel' ? 'Cancelling...' : 'Confirm Cancel at Period End'}
+              </button>
+              <button onClick={() => setShowCancelDialog(false)} className="px-4 py-2 border rounded text-sm">Keep Subscription</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Change Plan */}
+      <div className="bg-white border rounded-lg p-6">
+        <h3 className="font-semibold mb-4">Change Plan</h3>
+        <p className="text-sm text-gray-600 mb-4">All plan data from canonical catalog, no hardcoded pricing. Payment required for upgrades handled via secure checkout.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {plans.map((plan: any) => (
+            <div key={plan.id} className={`border rounded p-4 ${sub?.planId === plan.id ? 'border-blue-500 bg-blue-50' : ''}`}>
+              <p className="font-medium">{plan.name}</p>
+              <p className="text-sm text-gray-500">{plan.code} - {plan.interval}</p>
+              <p className="text-lg font-bold mt-2">{plan.price} {plan.currency}</p>
+              {sub?.planId !== plan.id ? (
+                <button onClick={() => handleChangePlan(plan.id)} disabled={!!actionLoading} className="mt-3 w-full py-1.5 bg-blue-600 text-white rounded text-sm disabled:opacity-50">
+                  {actionLoading === `plan_${plan.id}` ? 'Processing...' : 'Change to this Plan'}
+                </button>
+              ) : (
+                <span className="mt-3 block w-full text-center py-1.5 bg-gray-100 text-gray-500 rounded text-sm">Current</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Change Interval */}
+      <div className="bg-white border rounded-lg p-6">
+        <h3 className="font-semibold mb-4">Change Billing Interval</h3>
+        <div className="flex gap-2">
+          {['MONTHLY', 'QUARTERLY', 'YEARLY'].map((interval) => (
+            <button
+              key={interval}
+              onClick={() => handleChangeInterval(interval)}
+              disabled={!!actionLoading || sub?.plan?.interval === interval}
+              className={`px-4 py-2 rounded text-sm ${sub?.plan?.interval === interval ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border hover:bg-gray-50'}`}
+            >
+              {actionLoading === `interval_${interval}` ? '...' : interval}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">Interval changes take effect at period end per existing subscription semantics</p>
+      </div>
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/saas-admin/saas-admin-api.ts
+
+```typescript
+/**
+ * SaaS Admin Control Plane API client.
+ * Authenticated, tenant/admin scoped, no secrets, no direct DB calls.
+ */
+
+import { apiClient } from '@/lib/api-client';
+
+const PROXY_PREFIX = '/api/proxy';
+const API_BASE = `${PROXY_PREFIX}/billing/saas-admin`;
+
+/**
+ * All calls go through the console's same-origin proxy (/api/proxy/* ->
+ * API_BASE_URL/v1/*): the bearer token lives in an httpOnly cookie that only
+ * the proxy can read, and mutations carry the CSRF header. Before this the
+ * module fetched `{API_BASE}` on the admin origin, which has no such route, so
+ * every call 404'd. apiClient also unwraps the {success, data} envelope, which
+ * is the shape the billing components read (e.g. `result.tenantSlug`).
+ */
+async function fetchJson(url: string, options?: RequestInit): Promise<any> {
+  const path = url.startsWith(PROXY_PREFIX) ? url.slice(PROXY_PREFIX.length) : url;
+  const method = (options?.method ?? 'GET').toUpperCase();
+  const body =
+    typeof options?.body === 'string' && options.body.length > 0 ? JSON.parse(options.body) : undefined;
+  switch (method) {
+    case 'POST':
+      return apiClient.post(path, body);
+    case 'PATCH':
+      return apiClient.patch(path, body);
+    case 'PUT':
+      return apiClient.put(path, body);
+    case 'DELETE':
+      return apiClient.delete(path, body === undefined ? {} : { body });
+    default:
+      return apiClient.get(path);
+  }
+}
+
+// Tenants
+export async function listTenants(params?: { status?: string; planCode?: string; search?: string; page?: number; limit?: number }): Promise<any> {
+  const q = new URLSearchParams();
+  if (params?.status) q.append('status', params.status);
+  if (params?.planCode) q.append('planCode', params.planCode);
+  if (params?.search) q.append('search', params.search);
+  if (params?.page) q.append('page', String(params.page));
+  if (params?.limit) q.append('limit', String(params.limit));
+  return fetchJson(`${API_BASE}/tenants?${q.toString()}`);
+}
+
+export async function getTenantDetail(id: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${id}`);
+}
+
+export async function provisionTenant(payload: { slug: string; name: string; legalName?: string; contactEmail?: string; countryCode?: string; defaultCurrency?: string; planId?: string; billingEmail?: string; billingName?: string; idempotencyKey?: string }): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/provision`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getTenantSubscription(id: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${id}/subscription`);
+}
+
+// Plans
+export async function assignPlan(tenantId: string, planId: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/plan/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ planId }),
+  });
+}
+
+export async function changePlan(tenantId: string, planId: string, atPeriodEnd?: boolean): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/plan/change`, {
+    method: 'POST',
+    body: JSON.stringify({ planId, atPeriodEnd }),
+  });
+}
+
+export async function changeInterval(tenantId: string, newInterval: string, atPeriodEnd?: boolean): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/plan/change-interval`, {
+    method: 'POST',
+    body: JSON.stringify({ newInterval, atPeriodEnd }),
+  });
+}
+
+// Feature access
+export async function getFeatureAccess(tenantId: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/feature-access`);
+}
+
+export async function checkFeature(tenantId: string, featureKey: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/feature-access/${featureKey}`);
+}
+
+// Branding
+export async function getBranding(tenantId: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/branding`);
+}
+
+export async function updateBranding(tenantId: string, payload: Record<string, any>): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/branding`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// Custom domains
+export async function listDomains(tenantId: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/domains`);
+}
+
+export async function getDomainStatus(tenantId: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/domains/status`);
+}
+
+export async function registerDomain(tenantId: string, domain: string, isPrimary?: boolean): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/domains/register`, {
+    method: 'POST',
+    body: JSON.stringify({ domain, isPrimary }),
+  });
+}
+
+export async function generateVerificationChallenge(tenantId: string, domain: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/domains/verification-challenge`, {
+    method: 'POST',
+    body: JSON.stringify({ domain }),
+  });
+}
+
+export async function verifyDomain(tenantId: string, domain: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/domains/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ domain }),
+  });
+}
+
+export async function getVerificationStatus(tenantId: string, domain: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/domains/${encodeURIComponent(domain)}/verification-status`);
+}
+
+export async function removeDomain(tenantId: string, domain: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/domains`, {
+    method: 'DELETE',
+    body: JSON.stringify({ domain }),
+  });
+}
+
+// White-label
+export async function getWhiteLabelState(tenantId: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/white-label`);
+}
+
+export async function requestWhiteLabel(tenantId: string, configuration?: Record<string, any>): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/white-label/request`, {
+    method: 'POST',
+    body: JSON.stringify({ configuration }),
+  });
+}
+
+export async function enableWhiteLabel(tenantId: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/white-label/enable`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function disableWhiteLabel(tenantId: string, reason?: string): Promise<any> {
+  return fetchJson(`${API_BASE}/tenants/${tenantId}/white-label/disable`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+// Canonical plan catalog for UI - no hardcoded pricing.
+// GET /v1/billing/plans through the proxy (the former raw fetch of
+// /api/v1/billing/plans hit the admin origin, which has no such route, so the
+// plan list was always empty). Only purchasable (active) plans are offered
+// for assignment, which is the API default (ListPlansDto.includeInactive =
+// false); the client-side filter is a belt-and-braces check, and the API
+// refuses an inactive plan anyway.
+export async function getPlanCatalog(): Promise<any> {
+  const page = await apiClient.get<{ items: any[]; pagination: unknown }>('/billing/plans', {
+    searchParams: { limit: 100, sortBy: 'sortOrder', sortOrder: 'asc' },
+  });
+  return { ...page, items: (page.items ?? []).filter((plan: any) => plan.isActive !== false) };
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/saas-admin/saas-plan-management.tsx
+
+```tsx
+'use client';
+
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  getTenantDetail,
+  assignPlan,
+  changePlan,
+  changeInterval,
+  getPlanCatalog,
+} from './saas-admin-api';
+
+/**
+ * Admin plan-management UI using canonical plan catalog and existing
+ * subscription/payment flows; no direct DB mutation.
+ * No hardcoded prices.
+ */
+export default function SaasPlanManagementPage({ tenantId }: { tenantId: string }) {
+  const [tenant, setTenant] = useState<any>(null);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
+  const [atPeriodEnd, setAtPeriodEnd] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [tenantRes, plansRes] = await Promise.all([getTenantDetail(tenantId), getPlanCatalog()]);
+      setTenant(tenantRes);
+      setPlans(plansRes.items || plansRes.plans || []);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, [tenantId]);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  const handleAssign = async () => {
+    if (!selectedPlanId) return;
+    setActionLoading('assign');
+    setMessage(null);
+    try {
+      const result = await assignPlan(tenantId, selectedPlanId);
+      setMessage(`Plan assigned: ${result.message}`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Assign failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleChangePlan = async (planId: string) => {
+    setActionLoading(`change_${planId}`);
+    setMessage(null);
+    try {
+      const result = await changePlan(tenantId, planId, atPeriodEnd);
+      if (result.requiresCheckout) {
+        setMessage(`Upgrade requires checkout: ${result.checkout?.checkoutUrl || ''} Price delta: ${result.priceDelta}`);
+        if (result.checkout?.checkoutUrl) {
+          window.open(result.checkout.checkoutUrl, '_blank');
+        }
+      } else {
+        setMessage(`Plan changed: ${result.message} Effective: ${result.effectiveAt ? new Date(result.effectiveAt).toLocaleDateString() : 'now'}`);
+      }
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Change failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleChangeInterval = async (newInterval: string) => {
+    setActionLoading(`interval_${newInterval}`);
+    setMessage(null);
+    try {
+      const result = await changeInterval(tenantId, newInterval, true);
+      setMessage(`Interval change: ${result.message}`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Interval change failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div className="h-32 bg-gray-200 rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded p-4">
+          <p className="text-red-800">{error}</p>
+          <button onClick={fetchData} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-sm">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  const currentPlanId = tenant?.subscriptionSummary?.planId;
+  const currentPlanCode = tenant?.subscriptionSummary?.planCode;
+
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-xl font-bold">Plan Management - Tenant: {tenant?.name || tenantId}</h1>
+      <p className="text-sm text-gray-500">All plan data from canonical backend catalog. No direct subscription.planId mutation. All changes via existing billing services.</p>
+
+      {message && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">{message}</div>}
+
+      <div className="bg-white border rounded-lg p-4">
+        <h3 className="font-medium mb-2">Current Plan</h3>
+        {tenant?.subscriptionSummary ? (
+          <div className="text-sm space-y-1">
+            <p><span className="text-gray-500">Plan:</span> {tenant.subscriptionSummary.planName} ({tenant.subscriptionSummary.planCode})</p>
+            <p><span className="text-gray-500">Status:</span> {tenant.subscriptionSummary.status}</p>
+            <p><span className="text-gray-500">Interval:</span> {tenant.subscriptionSummary.interval}</p>
+            <p><span className="text-gray-500">Renewal:</span> {tenant.subscriptionSummary.renewalDate ? new Date(tenant.subscriptionSummary.renewalDate).toLocaleDateString() : 'N/A'}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">No active subscription - assign initial plan</p>
+        )}
+      </div>
+
+      {!tenant?.subscriptionSummary && (
+        <div className="bg-white border rounded-lg p-4">
+          <h3 className="font-medium mb-3">Assign Initial Plan</h3>
+          <div className="flex gap-2">
+            <select value={selectedPlanId} onChange={(e) => setSelectedPlanId(e.target.value)} className="flex-1 border rounded px-3 py-2 text-sm">
+              <option value="">Select plan</option>
+              {plans.map((p: any) => (
+                <option key={p.id} value={p.id}>{p.name} - {p.code} - {p.price} {p.currency} / {p.interval}</option>
+              ))}
+            </select>
+            <button onClick={handleAssign} disabled={!selectedPlanId || actionLoading === 'assign'} className="px-4 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50">
+              {actionLoading === 'assign' ? 'Assigning...' : 'Assign Plan'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">Uses existing subscription logic, not direct DB mutation</p>
+        </div>
+      )}
+
+      <div className="bg-white border rounded-lg p-4">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="font-medium">Available Plans (Canonical Catalog)</h3>
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={atPeriodEnd} onChange={(e) => setAtPeriodEnd(e.target.checked)} />
+            At period end
+          </label>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">Price, currency, interval, features, limits from backend. No hardcoded Basic/Standard/Premium prices.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {plans.map((plan: any) => (
+            <div key={plan.id} className={`border rounded p-4 ${currentPlanId === plan.id ? 'border-blue-500 bg-blue-50' : ''}`}>
+              <p className="font-medium">{plan.name}</p>
+              <p className="text-xs text-gray-500">{plan.code} - {plan.interval}</p>
+              <p className="text-xl font-bold mt-2">{plan.price} {plan.currency}</p>
+              <p className="text-xs text-gray-400">/ {plan.interval} {plan.trialDays > 0 ? `(${plan.trialDays}d trial)` : ''}</p>
+
+              <div className="mt-3 space-y-1">
+                <p className="text-xs font-medium">Limits:</p>
+                {Object.entries(plan.limits || {}).filter(([k, v]) => v !== null && typeof v !== 'boolean').slice(0, 4).map(([k, v]: any) => (
+                  <div key={k} className="flex justify-between text-xs">
+                    <span className="text-gray-600">{k}</span>
+                    <span className="font-medium">{v === null ? 'Unlimited' : String(v)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3">
+                <p className="text-xs font-medium">Features:</p>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {(plan.features || []).slice(0, 3).map((f: string) => (
+                    <span key={f} className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">{f}</span>
+                  ))}
+                  {plan.features?.length > 3 && <span className="text-xs text-gray-400">+{plan.features.length - 3}</span>}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                {currentPlanId === plan.id ? (
+                  <span className="block text-center py-1.5 bg-gray-100 text-gray-500 rounded text-sm">Current Plan</span>
+                ) : (
+                  <button onClick={() => handleChangePlan(plan.id)} disabled={!!actionLoading} className="w-full py-1.5 bg-blue-600 text-white rounded text-sm disabled:opacity-50">
+                    {actionLoading === `change_${plan.id}` ? 'Processing...' : currentPlanCode === plan.code ? 'Change Interval' : 'Change to this Plan'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white border rounded-lg p-4">
+        <h3 className="font-medium mb-3">Change Billing Interval</h3>
+        <div className="flex gap-2">
+          {['MONTHLY', 'QUARTERLY', 'YEARLY', 'LIFETIME'].map((interval) => (
+            <button key={interval} onClick={() => handleChangeInterval(interval)} disabled={!!actionLoading || tenant?.subscriptionSummary?.interval === interval} className={`px-3 py-2 rounded text-sm ${tenant?.subscriptionSummary?.interval === interval ? 'bg-gray-100 text-gray-400' : 'bg-white border hover:bg-gray-50'}`}>
+              {actionLoading === `interval_${interval}` ? '...' : interval}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">Uses existing subscription/payment architecture, no direct planId mutation</p>
+      </div>
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/saas-admin/saas-tenant-management.tsx
+
+```tsx
+'use client';
+
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  listTenants,
+  getTenantDetail,
+  provisionTenant,
+  getPlanCatalog,
+} from './saas-admin-api';
+
+/**
+ * SaaS tenant management screen: tenant status, plan, billing, usage,
+ * entitlements, branding, domain, white-label, admin actions.
+ * All from backend APIs, no hardcoded pricing.
+ */
+export default function SaasTenantManagementPage() {
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [selectedTenant, setSelectedTenant] = useState<any>(null);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [showProvision, setShowProvision] = useState(false);
+  const [provisionForm, setProvisionForm] = useState({ slug: '', name: '', contactEmail: '', planId: '' });
+  const [provisionLoading, setProvisionLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  // The list loads on mount and on search submit, not on every keystroke:
+  // fetchTenants reads the current search term from a ref.
+  const searchRef = useRef(search);
+  searchRef.current = search;
+
+  const fetchTenants = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [tenantsRes, plansRes] = await Promise.all([listTenants({ search: searchRef.current || undefined, limit: 50 }), getPlanCatalog().catch(() => ({ items: [] }))]);
+      setTenants(tenantsRes.items || []);
+      setTotal(tenantsRes.total || 0);
+      setPlans(plansRes.items || plansRes.plans || []);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load tenants');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchTenants();
+  }, [fetchTenants]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchTenants();
+  };
+
+  const handleSelectTenant = async (tenantId: string) => {
+    try {
+      const detail = await getTenantDetail(tenantId);
+      setSelectedTenant(detail);
+    } catch (e: any) {
+      setMessage(`Failed to load tenant detail: ${e.message}`);
+    }
+  };
+
+  const handleProvision = async () => {
+    setProvisionLoading(true);
+    setMessage(null);
+    try {
+      const result = await provisionTenant({
+        slug: provisionForm.slug,
+        name: provisionForm.name,
+        contactEmail: provisionForm.contactEmail || undefined,
+        planId: provisionForm.planId || undefined,
+        idempotencyKey: `provision_${provisionForm.slug}_${Date.now()}`,
+      });
+      setMessage(`Tenant provisioned: ${result.tenantSlug} (${result.tenantId}) ${result.idempotent ? '[idempotent]' : ''}`);
+      setShowProvision(false);
+      setProvisionForm({ slug: '', name: '', contactEmail: '', planId: '' });
+      await fetchTenants();
+    } catch (e: any) {
+      setMessage(`Provision failed: ${e.message}`);
+    } finally {
+      setProvisionLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div className="h-64 bg-gray-200 rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">SaaS Tenant Management</h1>
+        <button onClick={() => setShowProvision(true)} className="px-4 py-2 bg-blue-600 text-white rounded text-sm">Provision Tenant</button>
+      </div>
+
+      {message && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">{message}</div>}
+      {error && <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">{error}</div>}
+
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <input type="text" placeholder="Search tenants..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 border rounded px-3 py-2 text-sm" />
+        <button type="submit" className="px-4 py-2 bg-gray-800 text-white rounded text-sm">Search</button>
+        <button type="button" onClick={fetchTenants} className="px-3 py-2 border rounded text-sm">Refresh</button>
+      </form>
+
+      <div className="bg-white border rounded-lg p-4">
+        <p className="text-sm text-gray-500 mb-3">Total tenants: {total}</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="py-2">Slug</th>
+                <th className="py-2">Name</th>
+                <th className="py-2">Status</th>
+                <th className="py-2">Plan</th>
+                <th className="py-2">Lifecycle</th>
+                <th className="py-2">Provisioning</th>
+                <th className="py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tenants.map((t: any) => (
+                <tr key={t.id} className="border-b hover:bg-gray-50">
+                  <td className="py-2 font-mono text-xs">{t.slug}</td>
+                  <td className="py-2">{t.name}</td>
+                  <td className="py-2"><span className={`px-2 py-0.5 rounded text-xs ${t.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{t.status}</span></td>
+                  <td className="py-2">{t.subscriptionSummary?.planCode || 'No plan'}</td>
+                  <td className="py-2 text-xs">{t.lifecycleState}</td>
+                  <td className="py-2 text-xs">{t.provisioningState}</td>
+                  <td className="py-2"><button onClick={() => handleSelectTenant(t.id)} className="text-blue-600 hover:underline text-xs">View</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {selectedTenant && (
+        <div className="bg-white border rounded-lg p-6 space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Tenant Detail: {selectedTenant.name} ({selectedTenant.slug})</h2>
+            <div className="flex gap-3 items-center">
+              <a href={`/saas-admin/tenants/${encodeURIComponent(selectedTenant.id)}`} className="text-sm text-blue-600 hover:underline">Manage plan, branding, domains &amp; entitlements</a>
+              <button onClick={() => setSelectedTenant(null)} className="text-sm text-gray-500">Close</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div><p className="text-gray-500">ID</p><p className="font-mono text-xs">{selectedTenant.id}</p></div>
+            <div><p className="text-gray-500">Status</p><p className="font-medium">{selectedTenant.status}</p></div>
+            <div><p className="text-gray-500">Plan</p><p className="font-medium">{selectedTenant.subscriptionSummary?.planName || 'None'} ({selectedTenant.subscriptionSummary?.planCode || '-'})</p></div>
+            <div><p className="text-gray-500">Interval</p><p className="font-medium">{selectedTenant.subscriptionSummary?.interval || 'N/A'}</p></div>
+            <div><p className="text-gray-500">Subscription Status</p><p className="font-medium">{selectedTenant.subscriptionSummary?.status || 'None'}</p></div>
+            <div><p className="text-gray-500">Renewal</p><p className="font-medium">{selectedTenant.subscriptionSummary?.renewalDate ? new Date(selectedTenant.subscriptionSummary.renewalDate).toLocaleDateString() : 'N/A'}</p></div>
+            <div><p className="text-gray-500">Lifecycle</p><p className="font-medium">{selectedTenant.lifecycleState}</p></div>
+            <div><p className="text-gray-500">Provisioning</p><p className="font-medium">{selectedTenant.provisioningState}</p></div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h3 className="font-medium mb-2">Effective Features (canonical entitlement)</h3>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {(selectedTenant.entitlements || []).map((e: any) => (
+                  <div key={e.featureKey} className="flex justify-between text-xs border-b py-1">
+                    <span>{e.featureKey}</span>
+                    <span className={e.enabled ? 'text-green-600' : 'text-gray-400'}>{e.enabled ? '✓ Enabled' : '✗ Disabled'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3 className="font-medium mb-2">Limits (canonical plan limits)</h3>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {(selectedTenant.limits || []).map((l: any) => (
+                  <div key={l.limitKey} className="flex justify-between text-xs border-b py-1">
+                    <span>{l.limitKey}</span>
+                    <span>{l.unlimited ? 'Unlimited' : `${l.currentUsage}/${l.configuredLimit} (${l.remaining} remain)`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="border rounded p-3">
+              <h4 className="font-medium text-sm mb-2">Branding</h4>
+              {selectedTenant.brandingState ? (
+                <div className="text-xs space-y-1">
+                  <p>App: {selectedTenant.brandingState.appName}</p>
+                  <p>Primary: {selectedTenant.brandingState.primaryColor}</p>
+                  <p>Logo: {selectedTenant.brandingState.logoUrl ? 'Set' : 'Not set'}</p>
+                  <p>Custom CSS: {selectedTenant.brandingState.hasCustomCss ? 'Yes' : 'No'}</p>
+                </div>
+              ) : <p className="text-xs text-gray-500">No branding</p>}
+            </div>
+            <div className="border rounded p-3">
+              <h4 className="font-medium text-sm mb-2">Custom Domain</h4>
+              {selectedTenant.customDomainState ? (
+                <div className="text-xs space-y-1">
+                  <p>Domain: {selectedTenant.customDomainState.domain || 'None'}</p>
+                  <p>Status: {selectedTenant.customDomainState.status || 'N/A'}</p>
+                  <p>Entitlement: {selectedTenant.customDomainState.entitlementAllowed ? 'Allowed' : `Blocked: ${selectedTenant.customDomainState.entitlementReason}`}</p>
+                  <p>Verification: {selectedTenant.customDomainState.verificationRequired ? 'Required' : 'Done'}</p>
+                </div>
+              ) : <p className="text-xs text-gray-500">No domain state</p>}
+            </div>
+            <div className="border rounded p-3">
+              <h4 className="font-medium text-sm mb-2">White-Label</h4>
+              {selectedTenant.whiteLabelState ? (
+                <div className="text-xs space-y-1">
+                  <p>Eligible: {selectedTenant.whiteLabelState.eligible ? 'Yes' : 'No'}</p>
+                  <p>State: {selectedTenant.whiteLabelState.provisioningState}</p>
+                  <p>Entitlement: {selectedTenant.whiteLabelState.entitlementAllowed ? 'Allowed' : `Blocked: ${selectedTenant.whiteLabelState.entitlementReason}`}</p>
+                  <p>Requested: {selectedTenant.whiteLabelState.requestedAt ? new Date(selectedTenant.whiteLabelState.requestedAt).toLocaleDateString() : 'Never'}</p>
+                </div>
+              ) : <p className="text-xs text-gray-500">No white-label state</p>}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="font-medium mb-2">Domains</h3>
+            <div className="text-xs space-y-1">
+              {(selectedTenant.domains || []).map((d: any) => (
+                <div key={d.id} className="flex justify-between border-b py-1">
+                  <span>{d.domain} {d.isPrimary ? '(primary)' : ''}</span>
+                  <span className={d.status === 'ACTIVE' ? 'text-green-600' : 'text-yellow-600'}>{d.status}</span>
+                </div>
+              ))}
+              {(!selectedTenant.domains || selectedTenant.domains.length === 0) && <p className="text-gray-500">No domains</p>}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="font-medium mb-2">Available Admin Actions</h3>
+            <div className="flex flex-wrap gap-2">
+              {(selectedTenant.availableActions || []).map((a: string) => (
+                <span key={a} className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs border border-blue-200">{a.replace(/_/g, ' ')}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProvision && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="font-semibold mb-4">Provision Tenant - Idempotent</h3>
+            <div className="space-y-3">
+              <input type="text" placeholder="Slug (e.g., acme-capital)" value={provisionForm.slug} onChange={(e) => setProvisionForm({ ...provisionForm, slug: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              <input type="text" placeholder="Name (e.g., Acme Capital)" value={provisionForm.name} onChange={(e) => setProvisionForm({ ...provisionForm, name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              <input type="email" placeholder="Contact Email" value={provisionForm.contactEmail} onChange={(e) => setProvisionForm({ ...provisionForm, contactEmail: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              <select value={provisionForm.planId} onChange={(e) => setProvisionForm({ ...provisionForm, planId: e.target.value })} className="w-full border rounded px-3 py-2 text-sm">
+                <option value="">No plan (assign later)</option>
+                {plans.map((p: any) => (
+                  <option key={p.id} value={p.id}>{p.name} - {p.code} - {p.price} {p.currency} / {p.interval}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500">Plan pricing from canonical catalog, never hardcoded. Provisioning is idempotent - duplicate slug returns existing.</p>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={handleProvision} disabled={provisionLoading || !provisionForm.slug || !provisionForm.name} className="flex-1 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50">
+                {provisionLoading ? 'Provisioning...' : 'Provision'}
+              </button>
+              <button onClick={() => setShowProvision(false)} className="flex-1 py-2 border rounded text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/modules/billing/saas-admin/tenant-branding-domain.tsx
+
+```tsx
+'use client';
+
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  getTenantDetail,
+  getBranding,
+  updateBranding,
+  listDomains,
+  registerDomain,
+  generateVerificationChallenge,
+  verifyDomain,
+  removeDomain,
+  getWhiteLabelState,
+  requestWhiteLabel,
+  enableWhiteLabel,
+  disableWhiteLabel,
+  getFeatureAccess,
+} from './saas-admin-api';
+
+/**
+ * Tenant branding + custom-domain control UI.
+ * Entitlement-aware controls and domain verification status.
+ * Disables or explains unavailable features based on backend entitlement.
+ */
+export default function TenantBrandingDomainPage({ tenantId }: { tenantId: string }) {
+  const [tenant, setTenant] = useState<any>(null);
+  const [branding, setBranding] = useState<any>(null);
+  const [domains, setDomains] = useState<any[]>([]);
+  const [domainState, setDomainState] = useState<any>(null);
+  const [whiteLabel, setWhiteLabel] = useState<any>(null);
+  const [featureAccess, setFeatureAccess] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const [brandingForm, setBrandingForm] = useState<any>({});
+  const [domainInput, setDomainInput] = useState('');
+  const [verificationChallenge, setVerificationChallenge] = useState<any>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [tenantRes, brandingRes, domainsRes, wlRes, faRes] = await Promise.all([
+        getTenantDetail(tenantId),
+        getBranding(tenantId).catch(() => null),
+        listDomains(tenantId).catch(() => ({ domains: [], currentState: null })),
+        getWhiteLabelState(tenantId).catch(() => null),
+        getFeatureAccess(tenantId).catch(() => null),
+      ]);
+      setTenant(tenantRes);
+      setBranding(brandingRes);
+      setDomains(domainsRes.domains || []);
+      setDomainState(domainsRes.currentState || null);
+      setWhiteLabel(wlRes);
+      setFeatureAccess(faRes);
+      if (brandingRes) {
+        setBrandingForm({
+          appName: brandingRes.appName || '',
+          logoUrl: brandingRes.logoUrl || '',
+          primaryColor: brandingRes.primaryColor || '#1B2A4A',
+          secondaryColor: brandingRes.secondaryColor || '#0F172A',
+          accentColor: brandingRes.accentColor || '#22C55E',
+          supportEmail: brandingRes.supportEmail || '',
+        });
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, [tenantId]);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  const handleBrandingUpdate = async () => {
+    setActionLoading('branding');
+    setMessage(null);
+    try {
+      const payload: any = {};
+      if (brandingForm.appName) payload.appName = brandingForm.appName;
+      if (brandingForm.logoUrl) payload.logoUrl = brandingForm.logoUrl;
+      if (brandingForm.primaryColor) payload.primaryColor = brandingForm.primaryColor;
+      if (brandingForm.secondaryColor) payload.secondaryColor = brandingForm.secondaryColor;
+      if (brandingForm.accentColor) payload.accentColor = brandingForm.accentColor;
+      if (brandingForm.supportEmail) payload.supportEmail = brandingForm.supportEmail;
+
+      const result = await updateBranding(tenantId, payload);
+      setMessage(`Branding updated: ${result.message || 'success'}`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Branding update failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRegisterDomain = async () => {
+    if (!domainInput) return;
+    setActionLoading('register_domain');
+    setMessage(null);
+    try {
+      const result = await registerDomain(tenantId, domainInput, true);
+      setMessage(`Domain registered: ${result.domain} - ${result.message}`);
+      setDomainInput('');
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Domain registration failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleGenerateChallenge = async (domain: string) => {
+    setActionLoading(`challenge_${domain}`);
+    setMessage(null);
+    try {
+      const challenge = await generateVerificationChallenge(tenantId, domain);
+      setVerificationChallenge(challenge);
+      setMessage(`Challenge generated: ${challenge.message || ''} Record: ${challenge.verificationRecord || ''}`);
+    } catch (e: any) {
+      setMessage(`Challenge generation failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleVerifyDomain = async (domain: string) => {
+    setActionLoading(`verify_${domain}`);
+    setMessage(null);
+    try {
+      const result = await verifyDomain(tenantId, domain);
+      setMessage(`Verification: ${result.status} - verified: ${result.verified} ${result.failureReason || ''}`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Verification failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRemoveDomain = async (domain: string) => {
+    if (!confirm(`Remove domain ${domain}?`)) return;
+    setActionLoading(`remove_${domain}`);
+    setMessage(null);
+    try {
+      await removeDomain(tenantId, domain);
+      setMessage(`Domain ${domain} removed`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`Remove failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRequestWhiteLabel = async () => {
+    setActionLoading('wl_request');
+    setMessage(null);
+    try {
+      const result = await requestWhiteLabel(tenantId, { requestedAt: new Date().toISOString() });
+      setMessage(`White-label requested: ${result.provisioningState}`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`White-label request failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleEnableWhiteLabel = async () => {
+    setActionLoading('wl_enable');
+    setMessage(null);
+    try {
+      const result = await enableWhiteLabel(tenantId);
+      setMessage(`White-label enabled: ${result.provisioningState}`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`White-label enable failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDisableWhiteLabel = async () => {
+    setActionLoading('wl_disable');
+    setMessage(null);
+    try {
+      const result = await disableWhiteLabel(tenantId, 'Admin disabled');
+      setMessage(`White-label disabled: ${result.provisioningState}`);
+      await fetchData();
+    } catch (e: any) {
+      setMessage(`White-label disable failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div className="h-32 bg-gray-200 rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded p-4">
+          <p className="text-red-800">{error}</p>
+          <button onClick={fetchData} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-sm">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  const customDomainAllowed = featureAccess?.features?.find((f: any) => f.featureKey === 'customDomain')?.enabled ?? domainState?.entitlementAllowed ?? false;
+  const customDomainReason = featureAccess?.features?.find((f: any) => f.featureKey === 'customDomain')?.reason || domainState?.entitlementReason;
+  const whiteLabelAllowed = featureAccess?.features?.find((f: any) => f.featureKey === 'whiteLabelMobileApp')?.enabled ?? whiteLabel?.entitlementAllowed ?? false;
+  const whiteLabelReason = featureAccess?.features?.find((f: any) => f.featureKey === 'whiteLabelMobileApp')?.reason || whiteLabel?.entitlementReason;
+
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-xl font-bold">Branding & Domains - {tenant?.name || tenantId}</h1>
+      <p className="text-sm text-gray-500">Branding uses existing sanitization. Custom domain requires customDomain entitlement. White-label requires whiteLabelMobileApp entitlement.</p>
+
+      {message && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">{message}</div>}
+
+      {/* Branding */}
+      <div className="bg-white border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4">Tenant Branding</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">App Name</label>
+            <input type="text" value={brandingForm.appName || ''} onChange={(e) => setBrandingForm({ ...brandingForm, appName: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" maxLength={64} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Logo URL</label>
+            <input type="url" value={brandingForm.logoUrl || ''} onChange={(e) => setBrandingForm({ ...brandingForm, logoUrl: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Primary Color</label>
+            <input type="text" value={brandingForm.primaryColor || ''} onChange={(e) => setBrandingForm({ ...brandingForm, primaryColor: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" placeholder="#1B2A4A" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Secondary Color</label>
+            <input type="text" value={brandingForm.secondaryColor || ''} onChange={(e) => setBrandingForm({ ...brandingForm, secondaryColor: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" placeholder="#0F172A" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Accent Color</label>
+            <input type="text" value={brandingForm.accentColor || ''} onChange={(e) => setBrandingForm({ ...brandingForm, accentColor: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" placeholder="#22C55E" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Support Email</label>
+            <input type="email" value={brandingForm.supportEmail || ''} onChange={(e) => setBrandingForm({ ...brandingForm, supportEmail: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mt-3">Custom CSS sanitized server-side: @import, url(), script vectors removed. No arbitrary unsafe HTML.</p>
+        <button onClick={handleBrandingUpdate} disabled={actionLoading === 'branding'} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50">
+          {actionLoading === 'branding' ? 'Updating...' : 'Update Branding'}
+        </button>
+
+        {branding && (
+          <div className="mt-4 border-t pt-3 text-xs space-y-1">
+            <p><span className="text-gray-500">Current:</span> {branding.appName} - {branding.primaryColor}</p>
+            <p><span className="text-gray-500">Updated:</span> {branding.updatedAt ? new Date(branding.updatedAt).toLocaleString() : 'Never'}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Custom Domain */}
+      <div className="bg-white border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-2">Custom Domain</h2>
+        {!customDomainAllowed ? (
+          <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
+            <p className="text-yellow-800 font-medium">Custom domain not allowed</p>
+            <p className="text-yellow-700 text-xs mt-1">{customDomainReason || 'Feature not included in current plan - requires customDomain entitlement'}</p>
+            <p className="text-xs text-gray-500 mt-2">Entitlement check: Tenant → Subscription → Plan → Entitlement Resolver → Feature Guard → Reject</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2 mb-4">
+              <input type="text" placeholder="app.example.com" value={domainInput} onChange={(e) => setDomainInput(e.target.value)} className="flex-1 border rounded px-3 py-2 text-sm" />
+              <button onClick={handleRegisterDomain} disabled={!domainInput || actionLoading === 'register_domain'} className="px-4 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50">
+                {actionLoading === 'register_domain' ? 'Registering...' : 'Register Domain'}
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {domains.map((d: any) => (
+                <div key={d.id} className="border rounded p-3 flex justify-between items-center">
+                  <div className="text-sm">
+                    <p className="font-medium">{d.domain} {d.isPrimary ? '(primary)' : ''}</p>
+                    <p className="text-xs text-gray-500">Status: <span className={d.status === 'ACTIVE' ? 'text-green-600' : 'text-yellow-600'}>{d.status}</span> {d.verifiedAt ? `Verified: ${new Date(d.verifiedAt).toLocaleDateString()}` : 'Not verified'}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={() => handleGenerateChallenge(d.domain)} disabled={!!actionLoading} className="px-2 py-1 border rounded text-xs">Challenge</button>
+                    <button onClick={() => handleVerifyDomain(d.domain)} disabled={!!actionLoading} className="px-2 py-1 bg-green-600 text-white rounded text-xs">Verify</button>
+                    <button onClick={() => handleRemoveDomain(d.domain)} disabled={!!actionLoading} className="px-2 py-1 bg-red-600 text-white rounded text-xs">Remove</button>
+                  </div>
+                </div>
+              ))}
+              {domains.length === 0 && <p className="text-sm text-gray-500">No custom domains registered</p>}
+            </div>
+
+            {verificationChallenge && (
+              <div className="mt-4 bg-gray-50 border rounded p-3 text-xs">
+                <p className="font-medium">Verification Challenge for {verificationChallenge.domain}</p>
+                <p className="mt-1">Type: {verificationChallenge.verificationType}</p>
+                <p>Record: {verificationChallenge.verificationRecord}</p>
+                <p>Token: {verificationChallenge.token}</p>
+                <p>Expires: {verificationChallenge.expiresAt ? new Date(verificationChallenge.expiresAt).toLocaleString() : ''}</p>
+                <p className="mt-2 text-gray-600">{verificationChallenge.message}</p>
+                <p className="mt-1">Add TXT record: _wlct-challenge.{verificationChallenge.domain} → {verificationChallenge.verificationRecord}</p>
+              </div>
+            )}
+
+            {domainState && (
+              <div className="mt-4 text-xs border-t pt-3">
+                <p>Current State: {domainState.domain || 'None'} - {domainState.status || 'N/A'}</p>
+                <p>Verification Required: {domainState.verificationRequired ? 'Yes' : 'No'}</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* White-Label */}
+      <div className="bg-white border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-2">White-Label Mobile App</h2>
+        {!whiteLabelAllowed ? (
+          <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
+            <p className="text-yellow-800 font-medium">White-label not allowed</p>
+            <p className="text-yellow-700 text-xs mt-1">{whiteLabelReason || 'Requires whiteLabelMobileApp entitlement'}</p>
+            <p className="text-xs text-gray-500 mt-2">White-label remains commercial entitlement. Not enabled merely by admin click.</p>
+          </div>
+        ) : (
+          <>
+            <div className="text-sm space-y-1 mb-4">
+              <p><span className="text-gray-500">Eligible:</span> {whiteLabel?.eligible ? 'Yes' : 'No'}</p>
+              <p><span className="text-gray-500">State:</span> {whiteLabel?.provisioningState || 'NOT_REQUESTED'}</p>
+              <p><span className="text-gray-500">Requested:</span> {whiteLabel?.requestedAt ? new Date(whiteLabel.requestedAt).toLocaleString() : 'Never'}</p>
+              <p><span className="text-gray-500">Enabled:</span> {whiteLabel?.enabledAt ? new Date(whiteLabel.enabledAt).toLocaleString() : 'Not yet'}</p>
+            </div>
+            <div className="flex gap-2">
+              {(whiteLabel?.provisioningState === 'NOT_REQUESTED' || !whiteLabel?.provisioningState) && (
+                <button onClick={handleRequestWhiteLabel} disabled={actionLoading === 'wl_request'} className="px-4 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50">
+                  {actionLoading === 'wl_request' ? 'Requesting...' : 'Request White-Label'}
+                </button>
+              )}
+              {whiteLabel?.provisioningState === 'REQUESTED' && (
+                <button onClick={handleEnableWhiteLabel} disabled={actionLoading === 'wl_enable'} className="px-4 py-2 bg-green-600 text-white rounded text-sm disabled:opacity-50">
+                  {actionLoading === 'wl_enable' ? 'Enabling...' : 'Enable White-Label (Entitlement Check)'}
+                </button>
+              )}
+              {whiteLabel?.provisioningState === 'ACTIVE' && (
+                <button onClick={handleDisableWhiteLabel} disabled={actionLoading === 'wl_disable'} className="px-4 py-2 bg-red-600 text-white rounded text-sm disabled:opacity-50">
+                  {actionLoading === 'wl_disable' ? 'Disabling...' : 'Disable White-Label'}
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 mt-3">Flow: Request → Entitlement Check → Provisioning → Active. Never direct DB flag.</p>
+          </>
+        )}
+      </div>
+
+      {/* Feature Access */}
+      {featureAccess && (
+        <div className="bg-white border rounded-lg p-6">
+          <h3 className="font-medium mb-3">Effective Feature Access (Same Enforcement as Runtime)</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <p className="text-sm font-medium mb-2">Features</p>
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {(featureAccess.features || []).map((f: any) => (
+                  <div key={f.featureKey} className="flex justify-between text-xs border-b py-1">
+                    <span>{f.featureKey}</span>
+                    <span className={f.enabled ? 'text-green-600' : 'text-red-600'}>{f.enabled ? '✓' : '✗'} {f.source} {f.reason ? `(${f.reason})` : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium mb-2">Limits</p>
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {(featureAccess.limits || []).map((l: any) => (
+                  <div key={l.limitKey} className="flex justify-between text-xs border-b py-1">
+                    <span>{l.limitKey}</span>
+                    <span>{l.unlimited ? 'Unlimited' : `${l.currentUsage}/${l.configuredLimit}`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+FILE: apps/admin-web/src/styles/billing-utilities.css
+
+```css
+/*
+ * Billing module styles (round 7).
+ *
+ * The billing portal / SaaS admin components under src/modules/billing were
+ * written with utility class names (p-6, bg-white, text-gray-500, ...), but
+ * the console has no Tailwind - it styles with the CSS custom properties in
+ * globals.css. This sheet defines exactly the utilities those components use,
+ * mapped onto the console's own tokens (dark surfaces, tenant-brandable
+ * primary colour), and ONLY inside `.wlct-billing`, the wrapper the billing
+ * routes render. Nothing here can restyle the rest of the console.
+ *
+ * Imported by the billing route layouts (app/(console)/billing, /plans,
+ * /saas-admin).
+ */
+
+.wlct-billing {
+  --wb-success-tint: rgba(47, 191, 113, 0.14);
+  --wb-warning-tint: rgba(232, 163, 61, 0.14);
+  --wb-danger-tint: rgba(229, 72, 77, 0.14);
+  --wb-info-tint: rgba(79, 124, 255, 0.14);
+  --wb-info-strong: rgba(79, 124, 255, 0.45);
+  color: var(--wlct-color-text);
+}
+
+/* ---- Form controls and tables (unstyled by the components themselves) ---- */
+.wlct-billing input,
+.wlct-billing select,
+.wlct-billing textarea {
+  background: var(--wlct-color-surface-raised);
+  color: var(--wlct-color-text);
+  border: 1px solid var(--wlct-color-border);
+  border-radius: var(--wlct-radius-sm);
+  font: inherit;
+}
+.wlct-billing input:focus,
+.wlct-billing select:focus,
+.wlct-billing textarea:focus {
+  outline: 2px solid var(--wlct-color-primary);
+  outline-offset: 1px;
+}
+.wlct-billing button {
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  border: 0;
+}
+.wlct-billing table {
+  border-collapse: collapse;
+}
+.wlct-billing th {
+  font-weight: 600;
+  color: var(--wlct-color-text-muted);
+}
+.wlct-billing h1,
+.wlct-billing h2,
+.wlct-billing h3,
+.wlct-billing h4,
+.wlct-billing p {
+  margin: 0;
+}
+
+/* ---- Layout ---- */
+.wlct-billing .block { display: block; }
+.wlct-billing .inline-block { display: inline-block; }
+.wlct-billing .inline-flex { display: inline-flex; }
+.wlct-billing .flex { display: flex; }
+.wlct-billing .grid { display: grid; }
+.wlct-billing .flex-1 { flex: 1 1 0%; }
+.wlct-billing .flex-wrap { flex-wrap: wrap; }
+.wlct-billing .items-center { align-items: center; }
+.wlct-billing .justify-between { justify-content: space-between; }
+.wlct-billing .justify-center { justify-content: center; }
+.wlct-billing .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+.wlct-billing .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wlct-billing .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (min-width: 768px) {
+  .wlct-billing .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wlct-billing .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .wlct-billing .md\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.wlct-billing .gap-1 { gap: 4px; }
+.wlct-billing .gap-2 { gap: 8px; }
+.wlct-billing .gap-3 { gap: 12px; }
+.wlct-billing .gap-4 { gap: 16px; }
+.wlct-billing .gap-6 { gap: 24px; }
+.wlct-billing .space-y-1 > * + * { margin-top: 4px; }
+.wlct-billing .space-y-2 > * + * { margin-top: 8px; }
+.wlct-billing .space-y-3 > * + * { margin-top: 12px; }
+.wlct-billing .space-y-4 > * + * { margin-top: 16px; }
+.wlct-billing .space-y-6 > * + * { margin-top: 24px; }
+.wlct-billing .fixed { position: fixed; }
+.wlct-billing .inset-0 { inset: 0; }
+.wlct-billing .z-50 { z-index: 50; }
+.wlct-billing .overflow-x-auto { overflow-x: auto; }
+.wlct-billing .overflow-y-auto { overflow-y: auto; }
+.wlct-billing .mx-auto { margin-left: auto; margin-right: auto; }
+
+/* ---- Sizing ---- */
+.wlct-billing .w-full { width: 100%; }
+.wlct-billing .w-1\/3 { width: 33.333333%; }
+.wlct-billing .w-8 { width: 32px; }
+.wlct-billing .h-2 { height: 8px; }
+.wlct-billing .h-8 { height: 32px; }
+.wlct-billing .h-32 { height: 128px; }
+.wlct-billing .h-48 { height: 192px; }
+.wlct-billing .h-64 { height: 256px; }
+.wlct-billing .max-h-48 { max-height: 192px; }
+.wlct-billing .max-h-64 { max-height: 256px; }
+.wlct-billing .max-w-md { max-width: 448px; }
+
+/* ---- Spacing ---- */
+.wlct-billing .p-3 { padding: 12px; }
+.wlct-billing .p-4 { padding: 16px; }
+.wlct-billing .p-6 { padding: 24px; }
+.wlct-billing .px-1\.5 { padding-left: 6px; padding-right: 6px; }
+.wlct-billing .px-2 { padding-left: 8px; padding-right: 8px; }
+.wlct-billing .px-3 { padding-left: 12px; padding-right: 12px; }
+.wlct-billing .px-4 { padding-left: 16px; padding-right: 16px; }
+.wlct-billing .py-0\.5 { padding-top: 2px; padding-bottom: 2px; }
+.wlct-billing .py-1 { padding-top: 4px; padding-bottom: 4px; }
+.wlct-billing .py-1\.5 { padding-top: 6px; padding-bottom: 6px; }
+.wlct-billing .py-2 { padding-top: 8px; padding-bottom: 8px; }
+.wlct-billing .py-3 { padding-top: 12px; padding-bottom: 12px; }
+.wlct-billing .py-12 { padding-top: 48px; padding-bottom: 48px; }
+.wlct-billing .pt-3 { padding-top: 12px; }
+.wlct-billing .pt-4 { padding-top: 16px; }
+.wlct-billing .mb-1 { margin-bottom: 4px; }
+.wlct-billing .mb-2 { margin-bottom: 8px; }
+.wlct-billing .mb-3 { margin-bottom: 12px; }
+.wlct-billing .mb-4 { margin-bottom: 16px; }
+.wlct-billing .mt-1 { margin-top: 4px; }
+.wlct-billing .mt-2 { margin-top: 8px; }
+.wlct-billing .mt-3 { margin-top: 12px; }
+.wlct-billing .mt-4 { margin-top: 16px; }
+.wlct-billing .mt-6 { margin-top: 24px; }
+.wlct-billing .ml-1 { margin-left: 4px; }
+.wlct-billing .mr-1 { margin-right: 4px; }
+
+/* ---- Typography ---- */
+.wlct-billing .text-xs { font-size: 12px; line-height: 16px; }
+.wlct-billing .text-sm { font-size: 14px; line-height: 20px; }
+.wlct-billing .text-lg { font-size: 18px; line-height: 28px; }
+.wlct-billing .text-xl { font-size: 20px; line-height: 28px; }
+.wlct-billing .text-2xl { font-size: 24px; line-height: 32px; }
+.wlct-billing .text-3xl { font-size: 30px; line-height: 36px; }
+.wlct-billing .font-medium { font-weight: 500; }
+.wlct-billing .font-semibold { font-weight: 600; }
+.wlct-billing .font-bold { font-weight: 700; }
+.wlct-billing .font-mono { font-family: var(--wlct-font-mono); }
+.wlct-billing .text-left { text-align: left; }
+.wlct-billing .text-center { text-align: center; }
+.wlct-billing .hover\:underline:hover { text-decoration: underline; }
+
+/* ---- Borders and radius ---- */
+.wlct-billing .border { border: 1px solid var(--wlct-color-border); }
+.wlct-billing .border-4 { border-width: 4px; border-style: solid; }
+.wlct-billing .border-b { border-bottom: 1px solid var(--wlct-color-border); }
+.wlct-billing .border-t { border-top: 1px solid var(--wlct-color-border); }
+.wlct-billing .border-gray-200,
+.wlct-billing .border-gray-300 { border-color: var(--wlct-color-border); }
+.wlct-billing .border-blue-200 { border-color: var(--wb-info-strong); }
+.wlct-billing .border-blue-500,
+.wlct-billing .border-blue-600 { border-color: var(--wlct-color-primary); }
+.wlct-billing .border-red-200 { border-color: var(--wlct-color-danger); }
+.wlct-billing .border-yellow-200 { border-color: var(--wlct-color-warning); }
+.wlct-billing .border-t-transparent { border-top-color: transparent; }
+.wlct-billing .rounded { border-radius: var(--wlct-radius-sm); }
+.wlct-billing .rounded-lg { border-radius: var(--wlct-radius-md); }
+.wlct-billing .rounded-full { border-radius: 9999px; }
+.wlct-billing .ring-2 { box-shadow: 0 0 0 2px var(--wb-info-strong); }
+.wlct-billing .ring-blue-200 { --wb-ring: var(--wb-info-strong); }
+
+/* ---- Surfaces ---- */
+.wlct-billing .bg-white { background: var(--wlct-color-surface); }
+.wlct-billing .bg-gray-50 { background: var(--wlct-color-surface-raised); }
+.wlct-billing .bg-gray-100 { background: var(--wlct-color-surface-raised); }
+.wlct-billing .bg-gray-200 { background: var(--wlct-color-border); }
+.wlct-billing .bg-gray-600 { background: #4b5563; }
+.wlct-billing .bg-gray-800 { background: var(--wlct-color-surface-raised); border: 1px solid var(--wlct-color-border); }
+.wlct-billing .bg-black\/50 { background: rgba(0, 0, 0, 0.5); }
+.wlct-billing .bg-blue-50,
+.wlct-billing .bg-blue-100 { background: var(--wb-info-tint); }
+.wlct-billing .bg-blue-600 { background: var(--wlct-color-primary); color: var(--wlct-color-primary-contrast); }
+.wlct-billing .bg-green-100 { background: var(--wb-success-tint); }
+.wlct-billing .bg-green-600 { background: var(--wlct-color-success); color: #ffffff; }
+.wlct-billing .bg-red-50,
+.wlct-billing .bg-red-100 { background: var(--wb-danger-tint); }
+.wlct-billing .bg-red-600 { background: var(--wlct-color-danger); color: #ffffff; }
+.wlct-billing .bg-yellow-50,
+.wlct-billing .bg-yellow-100 { background: var(--wb-warning-tint); }
+.wlct-billing .hover\:bg-gray-50:hover { background: var(--wlct-color-surface-raised); }
+.wlct-billing .hover\:bg-gray-900:hover { background: var(--wlct-color-border); }
+.wlct-billing .hover\:bg-blue-700:hover { filter: brightness(0.9); }
+.wlct-billing .hover\:bg-green-700:hover { filter: brightness(0.9); }
+.wlct-billing .hover\:bg-red-700:hover { filter: brightness(0.9); }
+
+/* ---- Text colours ---- */
+.wlct-billing .text-white { color: #ffffff; }
+.wlct-billing .text-gray-300,
+.wlct-billing .text-gray-400,
+.wlct-billing .text-gray-500,
+.wlct-billing .text-gray-600 { color: var(--wlct-color-text-muted); }
+.wlct-billing .text-gray-700,
+.wlct-billing .text-gray-800 { color: var(--wlct-color-text); }
+.wlct-billing .hover\:text-gray-900:hover { color: var(--wlct-color-text); }
+.wlct-billing .text-blue-600,
+.wlct-billing .text-blue-700,
+.wlct-billing .text-blue-800 { color: var(--wlct-color-primary); }
+.wlct-billing .text-green-500,
+.wlct-billing .text-green-600,
+.wlct-billing .text-green-800 { color: var(--wlct-color-success); }
+.wlct-billing .text-red-600,
+.wlct-billing .text-red-700,
+.wlct-billing .text-red-800 { color: var(--wlct-color-danger); }
+.wlct-billing .text-yellow-600,
+.wlct-billing .text-yellow-700,
+.wlct-billing .text-yellow-800,
+.wlct-billing .text-orange-600 { color: var(--wlct-color-warning); }
+
+/* ---- States ---- */
+.wlct-billing .cursor-not-allowed { cursor: not-allowed; }
+.wlct-billing .disabled\:opacity-50:disabled { opacity: 0.5; cursor: not-allowed; }
+.wlct-billing .animate-pulse { animation: wlct-billing-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.wlct-billing .animate-spin { animation: wlct-billing-spin 1s linear infinite; }
+
+@keyframes wlct-billing-pulse {
+  50% { opacity: 0.5; }
+}
+@keyframes wlct-billing-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Bordered utility buttons (`border rounded px-3 py-2`) read as secondary actions. */
+.wlct-billing button.border:hover { background: var(--wlct-color-surface-raised); }
 ```
 
 FILE: apps/admin-web/src/styles/globals.css

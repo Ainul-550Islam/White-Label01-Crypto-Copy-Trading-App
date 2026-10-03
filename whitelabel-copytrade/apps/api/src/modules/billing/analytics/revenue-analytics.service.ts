@@ -240,33 +240,29 @@ export class RevenueAnalyticsService {
   async calculateMultiCurrencyBuckets(params: { tenantId?: string; period: ReportingPeriod }): Promise<CurrencyBucket[]> {
     const { start, end } = this.parsePeriod(params.period);
 
-    try {
-      const invoices = await (this.prisma as any).invoice?.findMany({
-        where: {
-          ...(params.tenantId ? { tenantId: params.tenantId } : {}),
-          createdAt: { gte: start, lte: end },
-        },
-      }) || [];
+    const invoices = await (this.prisma as any).invoice?.findMany({
+      where: {
+        ...(params.tenantId ? { tenantId: params.tenantId } : {}),
+        createdAt: { gte: start, lte: end },
+      },
+    }) || [];
 
-      const byCurrency = new Map<string, { amounts: any[]; totalMinor: number }>();
+    const byCurrency = new Map<string, { amounts: any[]; totalMinor: number }>();
 
-      for (const inv of invoices) {
-        const curr = (inv.currency || 'USD').toUpperCase();
-        if (!byCurrency.has(curr)) byCurrency.set(curr, { amounts: [], totalMinor: 0 });
-        const bucket = byCurrency.get(curr)!;
-        const minor = parseToMinorUnits(inv.total || '0', curr);
-        bucket.totalMinor += minor;
-        bucket.amounts.push({ amount: inv.total || '0', currency: curr, minorUnit: getMinorUnitForCurrency(curr) });
-      }
-
-      return Array.from(byCurrency.entries()).map(([currency, data]) => ({
-        currency,
-        amounts: data.amounts,
-        total: { amount: formatFromMinorUnits(data.totalMinor, currency), currency, minorUnit: getMinorUnitForCurrency(currency) },
-      }));
-    } catch {
-      return [];
+    for (const inv of invoices) {
+      const curr = (inv.currency || 'USD').toUpperCase();
+      if (!byCurrency.has(curr)) byCurrency.set(curr, { amounts: [], totalMinor: 0 });
+      const bucket = byCurrency.get(curr)!;
+      const minor = parseToMinorUnits(inv.total || '0', curr);
+      bucket.totalMinor += minor;
+      bucket.amounts.push({ amount: inv.total || '0', currency: curr, minorUnit: getMinorUnitForCurrency(curr) });
     }
+
+    return Array.from(byCurrency.entries()).map(([currency, data]) => ({
+      currency,
+      amounts: data.amounts,
+      total: { amount: formatFromMinorUnits(data.totalMinor, currency), currency, minorUnit: getMinorUnitForCurrency(currency) },
+    }));
   }
 
   private parsePeriod(period: ReportingPeriod): { start: Date; end: Date } {
@@ -280,92 +276,64 @@ export class RevenueAnalyticsService {
   }
 
   private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).invoice?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).invoice?.findMany({ where }) || [];
   }
 
   private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).payment?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).payment?.findMany({ where }) || [];
   }
 
   private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).refund?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).refund?.findMany({ where }) || [];
   }
 
   private async fetchFeeAccruals(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        currency: params.currency,
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).feeAccrual?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      currency: params.currency,
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).feeAccrual?.findMany({ where }) || [];
   }
 
   private async fetchActiveSubscriptions(params: { tenantId?: string; asOfDate: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
-        currentPeriodEnd: { gte: params.asOfDate },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
+      currentPeriodEnd: { gte: params.asOfDate },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
   }
 
   private async fetchNewCustomers(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        createdAt: { gte: params.start, lte: params.end },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).tenantSubscription?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      createdAt: { gte: params.start, lte: params.end },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).tenantSubscription?.findMany({ where }) || [];
   }
 
   private async fetchChurnedCustomers(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        status: { in: ['CANCELED', 'EXPIRED'] },
-        OR: [{ canceledAt: { gte: params.start, lte: params.end } }, { currentPeriodEnd: { gte: params.start, lte: params.end } }],
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).tenantSubscription?.findMany({ where }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      status: { in: ['CANCELED', 'EXPIRED'] },
+      OR: [{ canceledAt: { gte: params.start, lte: params.end } }, { currentPeriodEnd: { gte: params.start, lte: params.end } }],
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).tenantSubscription?.findMany({ where }) || [];
   }
 }

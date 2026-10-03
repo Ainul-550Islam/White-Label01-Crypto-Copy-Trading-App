@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ReconciliationCategory, isValidDecimal, parseScaled, formatScaled } from './oms.types';
+import { ReconciliationCategory, isValidDecimal, parseScaled, formatScaled, reconciliationErrorCode } from './oms.types';
 
 /**
  * Position Reconciliation Service — cross-checks cumulative fills ↔ canonical position ↔ exchange snapshot
@@ -100,7 +100,11 @@ export class PositionReconciliationService {
     // We don't have a dedicated snapshot table in this schema, but we can check accountBalanceSnapshot as proxy for health
     // For now, we skip exchange snapshot unless model exists
 
-    // Persist findings
+    // Persist findings. A finding that cannot be stored is never dropped silently: it stays in the
+    // returned result, is counted in persistFailures and is logged at error level (error code only,
+    // never row values) - the same contract as order and fill reconciliation.
+    let persistedFindings = 0;
+    let persistFailures = 0;
     for (const f of findings) {
       try {
         await (this.prisma as any).omsReconciliation.create({
@@ -116,11 +120,33 @@ export class PositionReconciliationService {
             resolved: false,
           },
         });
-      } catch {}
+        persistedFindings++;
+      } catch (e) {
+        persistFailures++;
+        this.logger.error(
+          `Position reconciliation finding NOT persisted ${symbol} account ${accountId} tenant ${tenantId} category ${f.category} severity ${f.severity} error ${reconciliationErrorCode(e)}`,
+        );
+      }
     }
 
-    this.logger.log(`Position reconciliation ${symbol} account ${accountId} tenant ${tenantId} findings ${findings.length} netFills ${formatScaled(netQty)} pos ${position?.quantity.toString() ?? 'none'}`);
-    return { accountId, symbol, position: position ? { quantity: position.quantity.toString(), side: position.side } : null, netFills: formatScaled(netQty), fillCount: fills.length, findings, totalFindings: findings.length };
+    if (persistFailures > 0) {
+      this.logger.warn(
+        `Position reconciliation ${symbol} account ${accountId} tenant ${tenantId} findings ${findings.length} persisted ${persistedFindings} persistFailures ${persistFailures}`,
+      );
+    } else {
+      this.logger.log(`Position reconciliation ${symbol} account ${accountId} tenant ${tenantId} findings ${findings.length} netFills ${formatScaled(netQty)} pos ${position?.quantity.toString() ?? 'none'}`);
+    }
+    return {
+      accountId,
+      symbol,
+      position: position ? { quantity: position.quantity.toString(), side: position.side } : null,
+      netFills: formatScaled(netQty),
+      fillCount: fills.length,
+      findings,
+      totalFindings: findings.length,
+      persistedFindings,
+      persistFailures,
+    };
   }
 
   async reconcileAccountPositions(params: { tenantId: string; accountId: string }) {

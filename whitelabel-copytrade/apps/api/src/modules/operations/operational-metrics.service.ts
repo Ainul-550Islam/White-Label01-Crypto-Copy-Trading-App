@@ -61,7 +61,7 @@ export class OperationalMetricsService {
       const incidents = await (this.prisma as any).operationalIncident.findMany({
         where: whereIncident,
         select: { severity: true, firstSeenAt: true, acknowledgedAt: true, resolvedAt: true },
-      }).catch(() => []);
+      });
 
       incidentCount = incidents.length;
       observationCount += incidents.length;
@@ -97,7 +97,7 @@ export class OperationalMetricsService {
       const reconRuns = await (this.prisma as any).operationalReconciliationRun.findMany({
         where: whereRecon,
         select: { status: true },
-      }).catch(() => []);
+      });
 
       reconciliationSuccess = reconRuns.filter((r: any) => r.status === 'SUCCEEDED').length;
       reconciliationFailure = reconRuns.filter((r: any) => r.status === 'FAILED').length;
@@ -112,7 +112,7 @@ export class OperationalMetricsService {
       const depChecks = await (this.prisma as any).operationalDependencyCheck.findMany({
         where: whereDep,
         select: { state: true },
-      }).catch(() => []);
+      });
 
       dependencyHealthy = depChecks.filter((d: any) => d.state === 'HEALTHY').length;
       dependencyDegraded = depChecks.filter((d: any) => d.state === 'DEGRADED').length;
@@ -128,7 +128,7 @@ export class OperationalMetricsService {
       const recoveryRuns = await (this.prisma as any).operationalRecoveryRun.findMany({
         where: whereRecovery,
         select: { state: true },
-      }).catch(() => []);
+      });
 
       recoverySuccess = recoveryRuns.filter((r: any) => r.state === 'SUCCEEDED').length;
       recoveryFailure = recoveryRuns.filter((r: any) => r.state === 'FAILED').length;
@@ -143,7 +143,7 @@ export class OperationalMetricsService {
       const actions = await (this.prisma as any).operationalAction.findMany({
         where: whereAction,
         select: { status: true },
-      }).catch(() => []);
+      });
 
       operatorActionCount = actions.length;
       operatorActionSuccess = actions.filter((a: any) => a.status === 'SUCCEEDED').length;
@@ -153,58 +153,58 @@ export class OperationalMetricsService {
       const totalMinutes = (to.getTime() - from.getTime()) / 60000;
       let downtimeMinutes = 0;
 
-      try {
-        const maintenanceWindows = await (this.prisma as any).operationalMaintenanceWindow.findMany({
-          where: {
-            tenantId: tenantId ?? undefined,
-            state: { in: ['ACTIVE', 'COMPLETED'] as any },
-            scheduledStart: { lte: to },
-            scheduledEnd: { gte: from },
-          },
-          select: { scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true },
-        }).catch(() => []);
+      const maintenanceWindows = await (this.prisma as any).operationalMaintenanceWindow.findMany({
+        where: {
+          tenantId: tenantId ?? undefined,
+          state: { in: ['ACTIVE', 'COMPLETED'] as any },
+          scheduledStart: { lte: to },
+          scheduledEnd: { gte: from },
+        },
+        select: { scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true },
+      });
 
-        for (const mw of maintenanceWindows) {
-          const mwStart = mw.actualStart ? new Date(mw.actualStart) : new Date(mw.scheduledStart);
-          const mwEnd = mw.actualEnd ? new Date(mw.actualEnd) : new Date(mw.scheduledEnd);
-          const overlapStart = mwStart < from ? from : mwStart;
-          const overlapEnd = mwEnd > to ? to : mwEnd;
-          if (overlapEnd > overlapStart) {
-            downtimeMinutes += (overlapEnd.getTime() - overlapStart.getTime()) / 60000;
-          }
+      for (const mw of maintenanceWindows) {
+        const mwStart = mw.actualStart ? new Date(mw.actualStart) : new Date(mw.scheduledStart);
+        const mwEnd = mw.actualEnd ? new Date(mw.actualEnd) : new Date(mw.scheduledEnd);
+        const overlapStart = mwStart < from ? from : mwStart;
+        const overlapEnd = mwEnd > to ? to : mwEnd;
+        if (overlapEnd > overlapStart) {
+          downtimeMinutes += (overlapEnd.getTime() - overlapStart.getTime()) / 60000;
         }
+      }
 
-        const degradations = await (this.prisma as any).operationalServiceDegradation.findMany({
-          where: {
-            tenantId: tenantId ?? undefined,
-            level: 'DISABLED' as any,
-            startsAt: { lte: to },
-            OR: [{ endsAt: null }, { endsAt: { gte: from } }],
-          },
-          select: { startsAt: true, endsAt: true },
-        }).catch(() => []);
+      const degradations = await (this.prisma as any).operationalServiceDegradation.findMany({
+        where: {
+          tenantId: tenantId ?? undefined,
+          level: 'DISABLED' as any,
+          startsAt: { lte: to },
+          OR: [{ endsAt: null }, { endsAt: { gte: from } }],
+        },
+        select: { startsAt: true, endsAt: true },
+      });
 
-        for (const deg of degradations) {
-          const degStart = new Date(deg.startsAt);
-          const degEnd = deg.endsAt ? new Date(deg.endsAt) : to;
-          const overlapStart = degStart < from ? from : degStart;
-          const overlapEnd = degEnd > to ? to : degEnd;
-          if (overlapEnd > overlapStart) {
-            downtimeMinutes += (overlapEnd.getTime() - overlapStart.getTime()) / 60000;
-          }
+      for (const deg of degradations) {
+        const degStart = new Date(deg.startsAt);
+        const degEnd = deg.endsAt ? new Date(deg.endsAt) : to;
+        const overlapStart = degStart < from ? from : degStart;
+        const overlapEnd = degEnd > to ? to : degEnd;
+        if (overlapEnd > overlapStart) {
+          downtimeMinutes += (overlapEnd.getTime() - overlapStart.getTime()) / 60000;
         }
+      }
 
-        if (totalMinutes > 0) {
-          availabilityPercent = Math.max(0, Math.min(100, ((totalMinutes - downtimeMinutes) / totalMinutes) * 100));
-        }
-      } catch {}
+      if (totalMinutes > 0) {
+        availabilityPercent = Math.max(0, Math.min(100, ((totalMinutes - downtimeMinutes) / totalMinutes) * 100));
+      }
 
       // Queue backlog max — would come from queue health history if persisted, fallback to 0 for now
       queueBacklogMax = 0;
       staleJobCount = 0;
 
     } catch (e) {
+      // Zeros here would be reported as measured observations (see methodology); a failed read is an error.
       this.logger.warn(`Failed to calculate metrics: ${(e as Error).message}`);
+      throw e;
     }
 
     const metrics: OperationalMetrics = {

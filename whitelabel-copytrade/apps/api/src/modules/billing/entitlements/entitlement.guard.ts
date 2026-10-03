@@ -257,12 +257,11 @@ export class EntitlementGuard {
       };
     }
 
-    // Check if downgrade would violate current usage
-    const limits = await this.service.getLimitsNearThreshold(
-      context.userId,
-      context.tenantId,
-      0 // Any usage at all
-    );
+    // Check if downgrade would violate current usage. A 0% threshold matches
+    // every finite limit (0 >= 0), so keep only limits with real usage.
+    const limits = (
+      await this.service.getLimitsNearThreshold(context.userId, context.tenantId, 0)
+    ).filter(l => l.used > 0);
 
     if (limits.length > 0) {
       return {

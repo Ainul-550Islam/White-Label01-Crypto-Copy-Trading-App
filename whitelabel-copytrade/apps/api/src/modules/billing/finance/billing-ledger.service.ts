@@ -378,7 +378,7 @@ export class BillingLedgerService {
   }): Promise<LedgerEntry[]> {
     const idempotencyKey = params.idempotencyKey;
 
-    const existing = await this.ledgerRepository.findByIdempotencyKey(idempotencyKey);
+    const existing = await this.ledgerRepository.findByIdempotencyKey(idempotencyKey, params.tenantId);
     if (existing) {
       const all = await this.ledgerRepository.findBySource(LedgerSourceType.CREDIT, params.sourceId || idempotencyKey);
       return all.length > 0 ? all : [existing];

@@ -572,7 +572,21 @@ test('CLI: record-rls appends one line, check-rls ages it, and neither touches t
   assert.equal(existsSync(ledger), false);
   run(['--check-rls', '--now', '2026-09-14T12:00:00Z', '--ledger', ledger], 1);
   const recorded = run(
-    ['--record-rls', '--grade', 'pass', '--probed', '42', '--role', 'wlct_app', '--at', '2026-09-14T06:00:00Z', '--ledger', ledger],
+    [
+      '--record-rls',
+      '--grade',
+      'pass',
+      '--probed',
+      '42',
+      '--role',
+      'wlct_app',
+      '--at',
+      '2026-09-14T06:00:00Z',
+      '--now',
+      '2026-09-14T12:00:00Z',
+      '--ledger',
+      ledger,
+    ],
     0,
   );
   assert.match(recorded, /recorded: \{"at":"2026-09-14T06:00:00\.000Z","grade":"pass"/);
@@ -593,6 +607,7 @@ test('CLI: record-rls appends one line, check-rls ages it, and neither touches t
   run(['--record-rls', '--grade', 'ok', '--ledger', ledger], 1);
   run(['--record-rls', '--grade', 'pass', '--probed', 'lots', '--ledger', ledger], 1);
   run(['--record-rls', '--grade', 'pass', '--at', 'last tuesday', '--ledger', ledger], 1);
+  run(['--record-rls', '--grade', 'pass', '--now', 'next week', '--ledger', ledger], 1);
   assert.equal(readFileSync(ledger, 'utf8').split('\n').filter((l) => l.trim() !== '').length, 1);
   // a corrupt line: --check-rls refuses rather than grading the fleet on it
   writeFileSync(ledger, 'not json\n', { flag: 'a' });
@@ -909,9 +924,9 @@ test('--verify-rls: the shipped artifacts agree on scope, and the answer is stil
   assert.equal(byName.get('scope:enable-vs-disable').grade, 'pass');
   assert.equal(byName.get('schema-stamp').grade, 'pass');
   // ...and the scan is pinned to a count, so a regex that matches nothing cannot pass as "empty scope".
-  assert.equal(document.scope.enabled, 43);
-  assert.equal(document.scope.covered, 43);
-  assert.equal(document.scope.disabled, 43);
+  assert.equal(document.scope.enabled, 186);
+  assert.equal(document.scope.covered, 186);
+  assert.equal(document.scope.disabled, 186);
   // The evidence ledger has never been written, which is the honest grade for a fresh deployment.
   assert.equal(byName.get('evidence-ledger').grade, 'unverified');
   assert.equal(document.grade, 'unverified');

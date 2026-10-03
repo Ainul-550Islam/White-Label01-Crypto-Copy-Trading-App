@@ -186,24 +186,20 @@ export class SecurityAuditService {
     const limit = filters?.limit || 20;
     const offset = (page - 1) * limit;
 
-    try {
-      const where: any = { tenantId };
-      if (filters?.userId) where.userId = filters.userId;
-      if (filters?.event) where.event = filters.event;
-      if (filters?.fromDate || filters?.toDate) {
-        where.createdAt = {};
-        if (filters.fromDate) where.createdAt.gte = filters.fromDate;
-        if (filters.toDate) where.createdAt.lte = filters.toDate;
-      }
-
-      const [data, total] = await Promise.all([
-        (this.prisma as any).securityAuditLog?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
-        (this.prisma as any).securityAuditLog?.count({ where }) || 0,
-      ]);
-
-      return { data, total };
-    } catch {
-      return { data: [], total: 0 };
+    const where: any = { tenantId };
+    if (filters?.userId) where.userId = filters.userId;
+    if (filters?.event) where.event = filters.event;
+    if (filters?.fromDate || filters?.toDate) {
+      where.createdAt = {};
+      if (filters.fromDate) where.createdAt.gte = filters.fromDate;
+      if (filters.toDate) where.createdAt.lte = filters.toDate;
     }
+
+    const [data, total] = await Promise.all([
+      (this.prisma as any).securityAuditLog?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
+      (this.prisma as any).securityAuditLog?.count({ where }) || 0,
+    ]);
+
+    return { data, total };
   }
 }

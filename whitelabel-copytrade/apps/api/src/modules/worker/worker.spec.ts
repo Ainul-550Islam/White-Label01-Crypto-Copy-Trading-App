@@ -886,6 +886,95 @@ describe('TradeExecutionProcessor', () => {
     await expect(processor.process(job)).resolves.toMatchObject({ outcome: 'REJECTED_LOCALLY' });
   });
 
+  const SUBMIT_BODY = {
+    ...VERIFY_BODY,
+    orderId: 'ord-9',
+    clientOrderId: 'oms0123456789abcdef0123456789abcdef',
+    symbol: 'BTC-USDT',
+    side: 'BUY',
+    orderType: 'MARKET',
+    quantity: '0.01',
+    price: null,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    strategyId: null,
+    riskDecisionId: 'risk-1',
+    environment: 'PAPER',
+    specification: {
+      baseAsset: 'BTC',
+      quoteAsset: 'USDT',
+      marketType: 'SPOT',
+      priceTick: '0.01',
+      quantityStep: '0.00001',
+      minQuantity: '0.00001',
+      maxQuantity: '9000',
+      minNotional: '10',
+      isTradeable: true,
+      pricePrecision: 2,
+      quantityPrecision: 5,
+    },
+    exposure: { positionQuantity: '0', symbolExposureNotional: '0', accountExposureNotional: '0', complete: true },
+    metadata: { copyExecutionId: 'copy-1' },
+    omsIntentId: 'intent-1',
+  };
+
+  it('Phase 3: submit-order forwards to /orders/submit and completes with the platform ids echoed', async () => {
+    buildProcessor();
+    await coordination.tick();
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        outcome: 'ACCEPTED',
+        clientOrderId: SUBMIT_BODY.clientOrderId,
+        engineOrderId: 'eng-1',
+        exchangeOrderId: 'paper-1',
+        orderStatus: 'FILLED',
+        filledQuantity: '0.01',
+        averageFillPrice: '50000',
+        cumulativeFee: '0.5',
+        feeCurrency: 'USDT',
+        fillCount: 1,
+        errorCode: null,
+        message: '',
+        latencyMicros: 90,
+        transmitted: false,
+        isSimulated: true,
+      }),
+    );
+    const { job } = makeJob({ name: JOB_NAMES.SUBMIT_ORDER, data: SUBMIT_BODY });
+    const result = await processor.process(job);
+    expect(result).toMatchObject({
+      outcome: 'ACCEPTED',
+      orderStatus: 'FILLED',
+      platformOrderId: 'ord-9',
+      omsIntentId: 'intent-1',
+      tenantId: 'tenant-a',
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://engine.test:8093/internal/v1/orders/submit');
+    const sent = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(sent).toMatchObject({ riskDecisionId: 'risk-1', environment: 'PAPER', quantity: '0.01' });
+    expect(sent).not.toHaveProperty('price');
+    expect(sent).not.toHaveProperty('omsIntentId');
+  });
+
+  it('Phase 3: a LIVE submit-order is Unrecoverable and never reaches the engine', async () => {
+    buildProcessor();
+    await coordination.tick();
+    const { job } = makeJob({ name: JOB_NAMES.SUBMIT_ORDER, data: { ...SUBMIT_BODY, environment: 'LIVE' } });
+    await expect(processor.process(job)).rejects.toBeInstanceOf(UnrecoverableError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('Phase 3: 200 + REJECTED_LOCALLY submit is a COMPLETED job carrying the verdict', async () => {
+    buildProcessor();
+    await coordination.tick();
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ outcome: 'REJECTED_LOCALLY', clientOrderId: SUBMIT_BODY.clientOrderId, orderStatus: 'UNKNOWN', errorCode: 'VALIDATION_FAILED' }),
+    );
+    const { job } = makeJob({ name: JOB_NAMES.SUBMIT_ORDER, data: SUBMIT_BODY });
+    await expect(processor.process(job)).resolves.toMatchObject({ outcome: 'REJECTED_LOCALLY', platformOrderId: 'ord-9' });
+  });
+
   it('same-account jobs in one process serialise through deferral, never interleaving', async () => {
     buildProcessor();
     await coordination.tick();

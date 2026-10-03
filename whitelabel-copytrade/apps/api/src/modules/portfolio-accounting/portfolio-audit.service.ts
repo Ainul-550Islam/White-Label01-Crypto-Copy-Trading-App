@@ -41,8 +41,8 @@ export class PortfolioAuditService {
           data: {
             tenantId,
             action: `PORTFOLIO_${action}`,
-            entityType,
-            entityId: entityId ?? profileId ?? 'UNKNOWN',
+            resourceType: entityType,
+            resourceId: entityId ?? profileId ?? 'UNKNOWN',
             actorId: operatorId,
             correlationId: correlationId ?? null,
             requestId: requestId ?? null,

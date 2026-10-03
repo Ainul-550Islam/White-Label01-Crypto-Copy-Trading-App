@@ -40,7 +40,7 @@ export class FeeAccrualService {
     const idempotencyKey = params.idempotencyKey || this.generateIdempotencyKey(params.tenantId, params.sourceType, params.sourceId, params.feeType);
 
     // Idempotency check
-    const existingByKey = await this.accrualRepository.findByIdempotencyKey(idempotencyKey);
+    const existingByKey = await this.accrualRepository.findByIdempotencyKey(idempotencyKey, params.tenantId);
     if (existingByKey) {
       this.logger.log(`Idempotent accrual hit by idempotencyKey: ${idempotencyKey}`);
       return existingByKey;

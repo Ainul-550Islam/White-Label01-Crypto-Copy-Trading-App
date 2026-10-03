@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { forEachTenant, listBillableTenantIds } from '../finance/tenant-iteration';
 import { FeeAccrualRepository } from './fee-accrual.repository';
 import { FeeSettlementRepository } from './fee-settlement.repository';
 import { PayoutRepository } from './payout.repository';
@@ -18,6 +20,7 @@ export class FeeAnalyticsService {
     private readonly accrualRepository: FeeAccrualRepository,
     private readonly settlementRepository: FeeSettlementRepository,
     private readonly payoutRepository: PayoutRepository,
+    @Optional() private readonly prisma?: PrismaService,
   ) {}
 
   async getTenantAnalytics(
@@ -136,33 +139,72 @@ export class FeeAnalyticsService {
     };
   }
 
-  async getPlatformAnalytics(filter?: { currency?: string; fromDate?: Date; toDate?: Date; tenantId?: string }): Promise<any> {
-    // For platform admin - aggregate across tenants
-    // In real implementation, would query all tenants or use materialized view
-    // For now, if tenantId provided, delegate to tenant analytics
+  async getPlatformAnalytics(filter?: { currency?: string; fromDate?: Date; toDate?: Date; tenantId?: string; limit?: number }): Promise<any> {
     if (filter?.tenantId) {
       return this.getTenantAnalytics(filter.tenantId, filter);
     }
 
-    // Otherwise return empty aggregated structure with note
+    // Platform-wide: the same canonical per-tenant computation, summed in
+    // minor units. One currency per report (amounts in different currencies
+    // are never added together).
     const currency = filter?.currency || 'USD';
+    const tenantIds = await listBillableTenantIds(this.prisma, filter?.limit ?? 1000);
+    const per = await forEachTenant(tenantIds, (tenantId) =>
+      this.getTenantAnalytics(tenantId, { currency, fromDate: filter?.fromDate, toDate: filter?.toDate }),
+    );
+
+    const totalKeys = ['platformFeeTotal', 'performanceFeeTotal', 'totalFees', 'accruedTotal', 'settledTotal', 'paidTotal', 'pendingTotal', 'reversedTotal'] as const;
+    const totals: Record<string, number> = Object.fromEntries(totalKeys.map((k) => [k, 0]));
+    const breakdowns: Record<'breakdownBySource' | 'breakdownByCurrency' | 'breakdownByFeeType', Record<string, number>> = {
+      breakdownBySource: {},
+      breakdownByCurrency: {},
+      breakdownByFeeType: {},
+    };
+    let failedCount = 0;
+    let accrualCount = 0;
+    let settlementCount = 0;
+    let payoutCount = 0;
+    const failedTenants: string[] = [];
+    const toMinor = (value: unknown): number => {
+      try {
+        return parseToMinorUnits(String(value ?? '0'), currency);
+      } catch {
+        return 0;
+      }
+    };
+
+    for (const row of per) {
+      if (row.error || !row.result) {
+        failedTenants.push(row.tenantId);
+        continue;
+      }
+      const r = row.result;
+      for (const k of totalKeys) totals[k] += toMinor(r[k]);
+      for (const b of Object.keys(breakdowns) as Array<keyof typeof breakdowns>) {
+        for (const [key, value] of Object.entries(r[b] ?? {})) breakdowns[b][key] = (breakdowns[b][key] || 0) + toMinor(value);
+      }
+      failedCount += Number(r.failedCount) || 0;
+      accrualCount += Number(r.accrualCount) || 0;
+      settlementCount += Number(r.settlementCount) || 0;
+      payoutCount += Number(r.payoutCount) || 0;
+    }
+
+    const fmt = (minor: number) => formatFromMinorUnits(minor, currency);
+    const fmtMap = (map: Record<string, number>) => Object.fromEntries(Object.entries(map).map(([k, v]) => [k, fmt(v)]));
     return {
       tenantId: null,
       period: 'ALL',
       currency,
-      platformFeeTotal: formatFromMinorUnits(0, currency),
-      performanceFeeTotal: formatFromMinorUnits(0, currency),
-      totalFees: formatFromMinorUnits(0, currency),
-      accruedTotal: formatFromMinorUnits(0, currency),
-      settledTotal: formatFromMinorUnits(0, currency),
-      paidTotal: formatFromMinorUnits(0, currency),
-      pendingTotal: formatFromMinorUnits(0, currency),
-      reversedTotal: formatFromMinorUnits(0, currency),
-      failedCount: 0,
-      breakdownBySource: {},
-      breakdownByCurrency: {},
-      breakdownByFeeType: {},
-      note: 'Platform-wide analytics requires tenant iteration - provide tenantId for specific tenant analytics',
+      ...Object.fromEntries(totalKeys.map((k) => [k, fmt(totals[k])])),
+      failedCount,
+      accrualCount,
+      settlementCount,
+      payoutCount,
+      breakdownBySource: fmtMap(breakdowns.breakdownBySource),
+      breakdownByCurrency: fmtMap(breakdowns.breakdownByCurrency),
+      breakdownByFeeType: fmtMap(breakdowns.breakdownByFeeType),
+      tenantCount: tenantIds.length,
+      failedTenants,
       fetchedAt: new Date().toISOString(),
     };
   }

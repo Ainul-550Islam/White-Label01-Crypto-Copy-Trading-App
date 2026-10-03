@@ -687,7 +687,7 @@ String _titleCase(String value) {
       .toLowerCase()
       .split('_')
       .map((String word) =>
-          word.isEmpty ? word : word[0].toUpperCase() + word.substring(1))
+          word.isEmpty ? word : word[0].toUpperCase() + word.substring(1),)
       .join(' ');
 }
 

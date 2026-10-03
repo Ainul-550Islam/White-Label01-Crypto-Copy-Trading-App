@@ -156,14 +156,10 @@ export class TransactionMonitoringService {
     const { tenantId, page = 1, limit = 50 } = params;
     const where: any = { tenantId, status: { in: ['PENDING', 'SUBMITTED', 'OBSERVED', 'CONFIRMING'] } };
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyTransaction.findMany({ where, orderBy: { createdAt: 'asc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyTransaction.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyTransaction.findMany({ where, orderBy: { createdAt: 'asc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyTransaction.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

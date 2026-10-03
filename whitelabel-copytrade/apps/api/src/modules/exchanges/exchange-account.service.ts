@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ExchangeAccountRepository } from './exchange-account.repository';
 import { ExchangeCredentialService } from './exchange-credential.service';
@@ -183,8 +183,13 @@ export class ExchangeAccountService {
           safeMetadata: { failureCode: connectivityResult.failureCode, latencyMs: connectivityResult.latencyMs },
           requestId: input.requestId,
         });
+        // Keep the connectivity check's own classification: an unreachable
+        // venue is not a refused key, and the client message depends on it.
+        const knownFailure = Object.values(ExchangeProviderErrorCode).includes(connectivityResult.failureCode as ExchangeProviderErrorCode)
+          ? (connectivityResult.failureCode as ExchangeProviderErrorCode)
+          : ExchangeProviderErrorCode.AUTH_FAILED;
         throw new ExchangeProviderError(
-          ExchangeProviderErrorCode.AUTH_FAILED,
+          knownFailure,
           `Connectivity check failed: ${connectivityResult.failureReason || connectivityResult.failureCode}`,
           input.venue,
           input.environment,
@@ -252,14 +257,17 @@ export class ExchangeAccountService {
         await this.limitGuard.release(enforcementActor, input.userId);
       } catch {}
 
-      // If account was created but failed later, mark as ERROR and do not leave as ACTIVE
+      // If the account row was created but the connect failed later, discard
+      // it: never leave it ACTIVE, and never let it keep holding the key.
       if (accountRecord) {
         try {
-          await this.accountRepo.updateStatus(accountRecord.id, input.tenantId, ExchangeAccountState.ERROR, e.code || 'CONNECT_FAILED', e.message?.substring(0, 200));
-        } catch {}
+          await this.accountRepo.discardFailedConnection(accountRecord.id, input.tenantId, String(e?.code || 'CONNECT_FAILED'));
+        } catch (discardError: any) {
+          this.logger.error(`Failed to discard failed connection id=${accountRecord.id} tenant=${input.tenantId} error=${discardError?.message}`);
+        }
       }
 
-      if (e instanceof ExchangeProviderError) throw e;
+      if (e instanceof ExchangeProviderError || e instanceof HttpException) throw e;
       this.logger.error(`Failed to connect account tenant=${input.tenantId} venue=${input.venue} error=${e.message}`);
       throw new ExchangeProviderError(ExchangeProviderErrorCode.SERVER_ERROR, `Failed to connect account: ${e.message}`, input.venue, input.environment, false);
     }

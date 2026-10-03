@@ -36,36 +36,27 @@ export class ValuationService {
   }): Promise<{ price: string | null; source: string | null; timestamp: Date | null; state: PortfolioValuationState }> {
     const { tenantId, symbol, asset, at } = params;
 
-    // Must reuse existing market-price sources — check MarketPrice, PriceSnapshot, ExchangeMarketData, etc.
+    // Reuse the existing market-price source: MarketDataRecord candles written by
+    // the market-data pipeline. The price at `at` is the close of the latest
+    // candle that had closed by then - never a later candle (look-ahead).
     try {
-      // Try MarketPrice model if exists
-      const marketPrice = await (this.prisma as any).marketPrice?.findFirst?.({
-        where: { symbol, timestamp: { lte: at } },
-        orderBy: { timestamp: 'desc' },
+      const candle = await this.prisma.marketDataRecord.findFirst({
+        where: { symbol, closeTime: { lte: at } },
+        orderBy: { closeTime: 'desc' },
+        select: { close: true, closeTime: true, venue: true, interval: true },
       });
 
-      if (marketPrice && marketPrice.price) {
-        const ageMs = Date.now() - new Date(marketPrice.timestamp).getTime();
-        const isStale = ageMs > 5 * 60 * 1000; // 5 min stale threshold — explicit, not hidden
+      if (candle) {
+        // Staleness is measured against the valuation instant, so a historical
+        // valuation is not STALE merely for being historical. 5 min threshold -
+        // explicit, not hidden; a daily candle is honestly reported as STALE.
+        const ageMs = at.getTime() - candle.closeTime.getTime();
+        const isStale = ageMs > 5 * 60 * 1000;
         return {
-          price: marketPrice.price.toString(),
-          source: marketPrice.source ?? 'MARKET_DATA',
-          timestamp: new Date(marketPrice.timestamp),
+          price: candle.close.toString(),
+          source: `MARKET_DATA:${candle.venue}:${candle.interval}`,
+          timestamp: candle.closeTime,
           state: isStale ? PortfolioValuationState.STALE : PortfolioValuationState.VALID,
-        };
-      }
-
-      // Try priceSnapshot or similar
-      const snapshot = await (this.prisma as any).priceSnapshot?.findFirst?.({
-        where: { symbol },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (snapshot?.price) {
-        return {
-          price: snapshot.price.toString(),
-          source: snapshot.source ?? 'PRICE_SNAPSHOT',
-          timestamp: snapshot.createdAt,
-          state: PortfolioValuationState.VALID,
         };
       }
 
@@ -318,6 +309,8 @@ export class ValuationService {
     valuationTimestamp: Date;
     sourceReferences?: string[];
     accountingEventId?: string | null;
+    /** Currency of valuedAmount (the market price quote currency); defaults to baseCurrency. */
+    currency?: string | null;
   }): Promise<any> {
     const idempotencyKey = deterministicIdempotencyKey({
       type: `valuation:${params.symbol}:${params.asset}`,
@@ -328,7 +321,7 @@ export class ValuationService {
     });
 
     try {
-      const existing = await (this.prisma as any).portfolioValuation.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).portfolioValuation.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -337,7 +330,6 @@ export class ValuationService {
         data: {
           tenantId: params.tenantId,
           profileId: params.profileId,
-          accountingEventId: params.accountingEventId ?? null,
           symbol: params.symbol,
           asset: params.asset,
           quantity: params.quantity,
@@ -345,9 +337,11 @@ export class ValuationService {
           marketPriceSource: params.marketPriceSource,
           marketPriceTimestamp: params.marketPriceTimestamp,
           valuationState: params.valuationState as any,
-          valuedAmount: params.valuedAmount,
+          // Columns: grossValue (+ required currency) and baseCurrencyValue; accountingEventId goes to evidence.
+          grossValue: params.valuedAmount,
+          currency: params.currency ?? params.baseCurrency,
           baseCurrency: params.baseCurrency,
-          baseCurrencyAmount: params.baseCurrencyAmount,
+          baseCurrencyValue: params.baseCurrencyAmount,
           conversionRate: params.conversionRate,
           conversionSource: params.conversionSource,
           conversionTimestamp: params.conversionTimestamp,
@@ -357,6 +351,7 @@ export class ValuationService {
           policyVersion: params.policyVersion,
           valuationTimestamp: params.valuationTimestamp,
           sourceReferences: params.sourceReferences ?? [],
+          evidence: { accountingEventId: params.accountingEventId ?? null } as any,
           idempotencyKey,
         },
       });

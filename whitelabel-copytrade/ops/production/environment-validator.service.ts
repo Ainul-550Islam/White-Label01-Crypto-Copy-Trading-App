@@ -105,9 +105,12 @@ export class EnvironmentValidatorService {
       if (jwtRefresh && jwtRefresh.length < 32) {
         errors.push('JWT_REFRESH_SECRET must be at least 32 characters in production');
       }
-      const encKey = envVars['ENCRYPTION_KEY'];
-      if (encKey && encKey.length < 16) {
-        errors.push('ENCRYPTION_KEY must be at least 16 characters in production');
+      // The API needs exactly 32 bytes (AES-256) for both keys.
+      for (const keyName of ['ENCRYPTION_MASTER_KEY_BASE64', 'BLIND_INDEX_KEY_BASE64']) {
+        const encKey = envVars[keyName];
+        if (encKey && Buffer.from(encKey, 'base64').length !== 32) {
+          errors.push(`${keyName} must be base64 of exactly 32 bytes in production`);
+        }
       }
       const dbUrl = envVars['DATABASE_URL'];
       if (dbUrl && dbUrl.includes('localhost') && environment === EnvironmentName.PRODUCTION) {

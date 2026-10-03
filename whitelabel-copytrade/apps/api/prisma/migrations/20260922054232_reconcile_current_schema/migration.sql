@@ -3415,54 +3415,59 @@ CREATE TABLE "withdrawal_requests" (
 
 
 -- Alter existing tables for missing columns (48 total)
-ALTER TABLE "audit_logs" ADD COLUMN "operation_id" VARCHAR(64);
-ALTER TABLE "risk_configurations" ADD COLUMN "config_digest" VARCHAR(64);
-ALTER TABLE "risk_configurations" ADD COLUMN "policy_json" JSONB;
-ALTER TABLE "risk_configurations" ADD COLUMN "daily_loss_includes_unrealized" BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE "risk_configurations" ADD COLUMN "config_version" INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE "risk_configurations" ADD COLUMN "protection_json" JSONB;
-ALTER TABLE "kill_switches" ADD COLUMN "cleared_at" TIMESTAMPTZ(6);
-ALTER TABLE "kill_switches" ADD COLUMN "acknowledged_by_user_id" UUID;
-ALTER TABLE "kill_switches" ADD COLUMN "requires_explicit_clear" BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE "kill_switches" ADD COLUMN "cleared_reason" VARCHAR(500);
-ALTER TABLE "kill_switches" ADD COLUMN "acknowledgement_reason" VARCHAR(500);
-ALTER TABLE "kill_switches" ADD COLUMN "status" "RiskSwitchStatus" NOT NULL DEFAULT 'INACTIVE';
-ALTER TABLE "kill_switches" ADD COLUMN "cleared_by_user_id" UUID;
-ALTER TABLE "kill_switches" ADD COLUMN "trigger_severity" "RiskEventSeverity";
-ALTER TABLE "kill_switches" ADD COLUMN "triggered_at" TIMESTAMPTZ(6);
-ALTER TABLE "kill_switches" ADD COLUMN "triggered_by_rule" VARCHAR(64);
-ALTER TABLE "risk_events" ADD COLUMN "snapshot_version" BIGINT;
-ALTER TABLE "risk_events" ADD COLUMN "scope" VARCHAR(24);
-ALTER TABLE "risk_events" ADD COLUMN "scope_target" VARCHAR(64);
-ALTER TABLE "risk_events" ADD COLUMN "source" VARCHAR(64);
-ALTER TABLE "risk_events" ADD COLUMN "is_simulated" BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE "risk_events" ADD COLUMN "dedupe_key" VARCHAR(64);
-ALTER TABLE "risk_events" ADD COLUMN "rule_id" VARCHAR(64);
-ALTER TABLE "orders" ADD COLUMN "reconciliation_state" "OrderReconciliationState" NOT NULL DEFAULT 'IN_SYNC';
-ALTER TABLE "orders" ADD COLUMN "metadata" JSONB NOT NULL DEFAULT '{}';
-ALTER TABLE "orders" ADD COLUMN "was_dry_run" BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE "orders" ADD COLUMN "reconciliation_detail" VARCHAR(500);
-ALTER TABLE "strategy_configurations" ADD COLUMN "strategy_version_id" UUID;
-ALTER TABLE "strategies" ADD COLUMN "last_heartbeat_at" TIMESTAMPTZ(6);
-ALTER TABLE "strategies" ADD COLUMN "consecutive_errors" INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE "strategies" ADD COLUMN "instance_key" VARCHAR(32);
-ALTER TABLE "strategies" ADD COLUMN "health" "StrategyHealth" NOT NULL DEFAULT 'UNKNOWN';
-ALTER TABLE "strategies" ADD COLUMN "definition_id" UUID;
-ALTER TABLE "strategies" ADD COLUMN "quarantine_reason" VARCHAR(500);
-ALTER TABLE "strategies" ADD COLUMN "failure_policy" "StrategyFailurePolicy" NOT NULL DEFAULT 'STOP_INSTANCE';
-ALTER TABLE "strategies" ADD COLUMN "version_id" UUID;
-ALTER TABLE "strategies" ADD COLUMN "quarantined_at" TIMESTAMPTZ(6);
-ALTER TABLE "fills" ADD COLUMN "side" "OrderSideEnum";
-ALTER TABLE "fills" ADD COLUMN "venue" "TradingVenue";
-ALTER TABLE "fills" ADD COLUMN "source" "FillSource" NOT NULL DEFAULT 'PRIVATE_STREAM';
-ALTER TABLE "fills" ADD COLUMN "symbol" VARCHAR(32);
-ALTER TABLE "fills" ADD COLUMN "quote_quantity" DECIMAL(28,12);
-ALTER TABLE "trading_accounts" ADD COLUMN "live_trading_enabled" BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE "trading_accounts" ADD COLUMN "credential_ref" VARCHAR(512);
-ALTER TABLE "trading_accounts" ADD COLUMN "verified_permissions" TEXT[] DEFAULT ARRAY[]::TEXT[];
-ALTER TABLE "trading_accounts" ADD COLUMN "credential_source" "CredentialSource" NOT NULL DEFAULT 'ENVELOPE_DB';
-ALTER TABLE "trading_accounts" ADD COLUMN "credential_rotated_at" TIMESTAMPTZ(6);
-ALTER TABLE "trading_accounts" ADD COLUMN "private_stream_enabled" BOOLEAN NOT NULL DEFAULT false;
+-- Idempotent on purpose: every column below is already created by an earlier
+-- part migration (part8 risk engine, part5/part6 execution and strategy layers,
+-- part9 operations). A plain ADD COLUMN made this migration fail on a fresh
+-- database with 42701 duplicate_column, so IF NOT EXISTS keeps the intent
+-- (the column exists afterwards) without breaking `prisma migrate deploy`.
+ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "operation_id" VARCHAR(64);
+ALTER TABLE "risk_configurations" ADD COLUMN IF NOT EXISTS "config_digest" VARCHAR(64);
+ALTER TABLE "risk_configurations" ADD COLUMN IF NOT EXISTS "policy_json" JSONB;
+ALTER TABLE "risk_configurations" ADD COLUMN IF NOT EXISTS "daily_loss_includes_unrealized" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "risk_configurations" ADD COLUMN IF NOT EXISTS "config_version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "risk_configurations" ADD COLUMN IF NOT EXISTS "protection_json" JSONB;
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "cleared_at" TIMESTAMPTZ(6);
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "acknowledged_by_user_id" UUID;
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "requires_explicit_clear" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "cleared_reason" VARCHAR(500);
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "acknowledgement_reason" VARCHAR(500);
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "status" "RiskSwitchStatus" NOT NULL DEFAULT 'INACTIVE';
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "cleared_by_user_id" UUID;
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "trigger_severity" "RiskEventSeverity";
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "triggered_at" TIMESTAMPTZ(6);
+ALTER TABLE "kill_switches" ADD COLUMN IF NOT EXISTS "triggered_by_rule" VARCHAR(64);
+ALTER TABLE "risk_events" ADD COLUMN IF NOT EXISTS "snapshot_version" BIGINT;
+ALTER TABLE "risk_events" ADD COLUMN IF NOT EXISTS "scope" VARCHAR(24);
+ALTER TABLE "risk_events" ADD COLUMN IF NOT EXISTS "scope_target" VARCHAR(64);
+ALTER TABLE "risk_events" ADD COLUMN IF NOT EXISTS "source" VARCHAR(64);
+ALTER TABLE "risk_events" ADD COLUMN IF NOT EXISTS "is_simulated" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "risk_events" ADD COLUMN IF NOT EXISTS "dedupe_key" VARCHAR(64);
+ALTER TABLE "risk_events" ADD COLUMN IF NOT EXISTS "rule_id" VARCHAR(64);
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "reconciliation_state" "OrderReconciliationState" NOT NULL DEFAULT 'IN_SYNC';
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "metadata" JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "was_dry_run" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "reconciliation_detail" VARCHAR(500);
+ALTER TABLE "strategy_configurations" ADD COLUMN IF NOT EXISTS "strategy_version_id" UUID;
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "last_heartbeat_at" TIMESTAMPTZ(6);
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "consecutive_errors" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "instance_key" VARCHAR(32);
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "health" "StrategyHealth" NOT NULL DEFAULT 'UNKNOWN';
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "definition_id" UUID;
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "quarantine_reason" VARCHAR(500);
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "failure_policy" "StrategyFailurePolicy" NOT NULL DEFAULT 'STOP_INSTANCE';
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "version_id" UUID;
+ALTER TABLE "strategies" ADD COLUMN IF NOT EXISTS "quarantined_at" TIMESTAMPTZ(6);
+ALTER TABLE "fills" ADD COLUMN IF NOT EXISTS "side" "OrderSideEnum";
+ALTER TABLE "fills" ADD COLUMN IF NOT EXISTS "venue" "TradingVenue";
+ALTER TABLE "fills" ADD COLUMN IF NOT EXISTS "source" "FillSource" NOT NULL DEFAULT 'PRIVATE_STREAM';
+ALTER TABLE "fills" ADD COLUMN IF NOT EXISTS "symbol" VARCHAR(32);
+ALTER TABLE "fills" ADD COLUMN IF NOT EXISTS "quote_quantity" DECIMAL(28,12);
+ALTER TABLE "trading_accounts" ADD COLUMN IF NOT EXISTS "live_trading_enabled" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "trading_accounts" ADD COLUMN IF NOT EXISTS "credential_ref" VARCHAR(512);
+ALTER TABLE "trading_accounts" ADD COLUMN IF NOT EXISTS "verified_permissions" TEXT[] DEFAULT ARRAY[]::TEXT[];
+ALTER TABLE "trading_accounts" ADD COLUMN IF NOT EXISTS "credential_source" "CredentialSource" NOT NULL DEFAULT 'ENVELOPE_DB';
+ALTER TABLE "trading_accounts" ADD COLUMN IF NOT EXISTS "credential_rotated_at" TIMESTAMPTZ(6);
+ALTER TABLE "trading_accounts" ADD COLUMN IF NOT EXISTS "private_stream_enabled" BOOLEAN NOT NULL DEFAULT false;
 
 -- Create indexes for missing tables (403 total)
 CREATE UNIQUE INDEX "account_ownerships_idempotency_key_key" ON "account_ownerships"("idempotency_key");
@@ -4063,8 +4068,42 @@ ALTER TABLE "withdrawal_requests" ADD CONSTRAINT "withdrawal_requests_client_pro
 ALTER TABLE "withdrawal_requests" ADD CONSTRAINT "withdrawal_requests_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Create missing foreign keys for existing tables (5 total)
-ALTER TABLE "engine_incidents" ADD CONSTRAINT "engine_incidents_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "engine_order_events" ADD CONSTRAINT "engine_order_events_tenant_id_order_id_fkey" FOREIGN KEY ("tenant_id", "order_id") REFERENCES "engine_orders"("tenant_id", "order_id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "engine_order_fills" ADD CONSTRAINT "engine_order_fills_tenant_id_order_id_fkey" FOREIGN KEY ("tenant_id", "order_id") REFERENCES "engine_orders"("tenant_id", "order_id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "engine_orders" ADD CONSTRAINT "engine_orders_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "engine_retention_runs" ADD CONSTRAINT "engine_retention_runs_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- Guarded on purpose: the engine_* foreign keys are already created by the
+-- part13, part14 and part17 migrations. Each ADD CONSTRAINT runs only when the
+-- constraint is absent, so a fresh `prisma migrate deploy` no longer fails with
+-- 42710 duplicate_object while an older database still receives the key.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'engine_incidents_tenant_id_fkey' AND conrelid = '"engine_incidents"'::regclass) THEN
+        ALTER TABLE "engine_incidents" ADD CONSTRAINT "engine_incidents_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END
+$$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'engine_order_events_tenant_id_order_id_fkey' AND conrelid = '"engine_order_events"'::regclass) THEN
+        ALTER TABLE "engine_order_events" ADD CONSTRAINT "engine_order_events_tenant_id_order_id_fkey" FOREIGN KEY ("tenant_id", "order_id") REFERENCES "engine_orders"("tenant_id", "order_id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END
+$$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'engine_order_fills_tenant_id_order_id_fkey' AND conrelid = '"engine_order_fills"'::regclass) THEN
+        ALTER TABLE "engine_order_fills" ADD CONSTRAINT "engine_order_fills_tenant_id_order_id_fkey" FOREIGN KEY ("tenant_id", "order_id") REFERENCES "engine_orders"("tenant_id", "order_id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END
+$$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'engine_orders_tenant_id_fkey' AND conrelid = '"engine_orders"'::regclass) THEN
+        ALTER TABLE "engine_orders" ADD CONSTRAINT "engine_orders_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END
+$$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'engine_retention_runs_tenant_id_fkey' AND conrelid = '"engine_retention_runs"'::regclass) THEN
+        ALTER TABLE "engine_retention_runs" ADD CONSTRAINT "engine_retention_runs_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END
+$$;

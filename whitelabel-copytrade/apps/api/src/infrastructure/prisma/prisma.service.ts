@@ -14,6 +14,8 @@ import {
   type RoutedRead,
 } from '../database/read-policy';
 
+import { createNullSafeWriteMiddleware, nullSafeFieldIndexFromClient } from './null-safe-write.middleware';
+
 /**
  * Prisma client wrapper.
  *
@@ -60,6 +62,12 @@ export class PrismaService
             errorFormat: config.isProduction ? 'minimal' : 'pretty',
           })
         : null;
+    // Json / scalar-list columns refuse a plain `null`; see the middleware's
+    // header for why this is one rule here and not a rewrite of every caller.
+    const nullSafeIndex = nullSafeFieldIndexFromClient();
+    if (nullSafeIndex !== null && typeof (this as { $use?: unknown }).$use === 'function') {
+      this.$use(createNullSafeWriteMiddleware(nullSafeIndex));
+    }
     // A configured replica also gets the slow-query surface; a replica that
     // is quietly 10x slower than the primary is a routing bug, and it should
     // show up in the SAME log stream that already carries primary warnings.

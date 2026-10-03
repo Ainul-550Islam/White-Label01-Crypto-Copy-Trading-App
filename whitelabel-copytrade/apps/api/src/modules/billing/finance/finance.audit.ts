@@ -125,7 +125,7 @@ export class FinanceAuditService {
               id: record.id,
               tenantId: record.tenantId,
               action: record.operation,
-              resource: record.referenceType,
+              resourceType: record.referenceType,
               resourceId: record.referenceId,
               metadata: record.metadata ? JSON.parse(JSON.stringify(record.metadata)) : null,
               createdAt: record.createdAt,

@@ -102,25 +102,21 @@ export class ExchangeAuditService {
     const limit = filters?.limit || 20;
     const skip = (page - 1) * limit;
 
-    try {
-      const where: any = { tenantId };
-      if (filters?.accountId) where.resourceId = filters.accountId;
-      if (filters?.event) where.action = filters.event;
-      if (filters?.venue) where.metadata = { path: ['venue'], equals: filters.venue };
-      if (filters?.fromDate || filters?.toDate) {
-        where.createdAt = {};
-        if (filters.fromDate) where.createdAt.gte = filters.fromDate;
-        if (filters.toDate) where.createdAt.lte = filters.toDate;
-      }
-
-      const [data, total] = await this.prisma.$transaction([
-        this.prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }),
-        this.prisma.auditLog.count({ where }),
-      ]);
-
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
+    const where: any = { tenantId };
+    if (filters?.accountId) where.resourceId = filters.accountId;
+    if (filters?.event) where.action = filters.event;
+    if (filters?.venue) where.metadata = { path: ['venue'], equals: filters.venue };
+    if (filters?.fromDate || filters?.toDate) {
+      where.createdAt = {};
+      if (filters.fromDate) where.createdAt.gte = filters.fromDate;
+      if (filters.toDate) where.createdAt.lte = filters.toDate;
     }
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
   }
 }

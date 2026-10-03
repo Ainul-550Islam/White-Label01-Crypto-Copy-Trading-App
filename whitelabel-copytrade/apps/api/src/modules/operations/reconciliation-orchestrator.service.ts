@@ -301,7 +301,7 @@ export class ReconciliationOrchestratorService {
       const staleOrders = await (this.prisma as any).omsOrderIntent.findMany({
         where: { ...where, state: { in: ['SUBMITTED', 'ACKNOWLEDGED'] as any }, updatedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } },
         take: 100,
-      }).catch(() => []);
+      });
       // Do NOT overwrite — just report mismatches as diagnostic
       const mismatches = staleOrders.length;
       return {
@@ -332,7 +332,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const fills = await (this.prisma as any).omsFill.findMany({ where, take: 100, orderBy: { createdAt: 'desc' } }).catch(() => []);
+      const fills = await (this.prisma as any).omsFill.findMany({ where, take: 100, orderBy: { createdAt: 'desc' } });
       // Check for duplicate providerFillId
       const seen = new Set<string>();
       let duplicates = 0;
@@ -368,8 +368,8 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const positions = await (this.prisma as any).position.findMany({ where, take: 100 }).catch(() => []);
-      const trades = await (this.prisma as any).omsTrade.findMany({ where, take: 100 }).catch(() => []);
+      const positions = await (this.prisma as any).position.findMany({ where, take: 100 });
+      const trades = await (this.prisma as any).omsTrade.findMany({ where, take: 100 });
       const mismatches = Math.abs(positions.length - trades.length) > 0 ? 1 : 0;
       return {
         type: OperationalReconciliationType.OMS_POSITION,
@@ -399,7 +399,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const accounts = await this.prisma.tradingAccount.findMany({ where, take: 100 }).catch(() => []);
+      const accounts = await this.prisma.tradingAccount.findMany({ where, take: 100 });
       const withoutCreds = accounts.filter((a: any) => !a.apiKeyCiphertext && !a.credentialRef).length;
       return {
         type: OperationalReconciliationType.EXCHANGE_ACCOUNT,
@@ -429,7 +429,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const records = await (this.prisma as any).copyReconciliationRecord.findMany({ where, take: 100 }).catch(() => []);
+      const records = await (this.prisma as any).copyReconciliationRecord.findMany({ where, take: 100 });
       return {
         type: OperationalReconciliationType.COPY_TRADING,
         status: OperationalReconciliationRunState.SUCCEEDED,
@@ -458,7 +458,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const records = await (this.prisma as any).riskReconciliationRecord.findMany({ where, take: 100 }).catch(() => []);
+      const records = await (this.prisma as any).riskReconciliationRecord.findMany({ where, take: 100 });
       return {
         type: OperationalReconciliationType.RISK,
         status: OperationalReconciliationRunState.SUCCEEDED,
@@ -514,7 +514,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const payments = await (this.prisma as any).payment.findMany({ where, take: 100 }).catch(() => []);
+      const payments = await (this.prisma as any).payment.findMany({ where, take: 100 });
       return {
         type: OperationalReconciliationType.PAYMENT,
         status: OperationalReconciliationRunState.SUCCEEDED,
@@ -543,7 +543,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const invoices = await (this.prisma as any).invoice.findMany({ where, take: 100 }).catch(() => []);
+      const invoices = await (this.prisma as any).invoice.findMany({ where, take: 100 });
       return {
         type: OperationalReconciliationType.BILLING_FINANCE,
         status: OperationalReconciliationRunState.SUCCEEDED,
@@ -572,7 +572,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const accruals = await (this.prisma as any).feeAccrual.findMany({ where, take: 100 }).catch(() => []);
+      const accruals = await (this.prisma as any).feeAccrual.findMany({ where, take: 100 });
       return {
         type: OperationalReconciliationType.FEE,
         status: OperationalReconciliationRunState.SUCCEEDED,
@@ -601,7 +601,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const events = await (this.prisma as any).usageEvent.findMany({ where, take: 100 }).catch(() => []);
+      const events = await (this.prisma as any).usageEvent.findMany({ where, take: 100 });
       return {
         type: OperationalReconciliationType.USAGE,
         status: OperationalReconciliationRunState.SUCCEEDED,
@@ -630,7 +630,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const jobs = await (this.prisma as any).billingNotificationJob.findMany({ where, take: 100 }).catch(() => []);
+      const jobs = await (this.prisma as any).billingNotificationJob.findMany({ where, take: 100 });
       const failed = jobs.filter((j: any) => j.deliveryStatus === 'FAILED' || j.deliveryStatus === 'PERMANENT_FAILURE').length;
       return {
         type: OperationalReconciliationType.NOTIFICATION,
@@ -660,7 +660,7 @@ export class ReconciliationOrchestratorService {
     const start = Date.now();
     try {
       const where = tenantId ? { tenantId } : {};
-      const subs = await (this.prisma as any).tenantSubscription?.findMany({ where, take: 100 }).catch(() => []);
+      const subs = await (this.prisma as any).tenantSubscription?.findMany({ where, take: 100 });
       return {
         type: OperationalReconciliationType.SUBSCRIPTION,
         status: OperationalReconciliationRunState.SUCCEEDED,
@@ -730,19 +730,15 @@ export class ReconciliationOrchestratorService {
     if (type) where.reconciliationType = type;
     if (status) where.status = status;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).operationalReconciliationRun.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).operationalReconciliationRun.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).operationalReconciliationRun.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).operationalReconciliationRun.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

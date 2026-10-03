@@ -1,6 +1,7 @@
 /// Entitlement Service
 /// 
 /// Service for managing billing entitlements in the mobile application.
+library;
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -25,7 +26,7 @@ class EntitlementService {
     final uri = Uri.parse('$baseUrl/api/billing/entitlements/current');
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
-      return Entitlement.fromJson(json.decode(response.body));
+      return Entitlement.fromJson(json.decode(response.body) as Map<String, dynamic>);
     }
     if (response.statusCode == 404) return null;
     throw Exception('Failed to fetch entitlement: ${response.statusCode}');
@@ -36,7 +37,7 @@ class EntitlementService {
     final uri = Uri.parse('$baseUrl/api/billing/entitlements/$entitlementId');
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
-      return Entitlement.fromJson(json.decode(response.body));
+      return Entitlement.fromJson(json.decode(response.body) as Map<String, dynamic>);
     }
     if (response.statusCode == 404) return null;
     throw Exception('Failed to fetch entitlement: ${response.statusCode}');
@@ -89,7 +90,7 @@ class EntitlementService {
         .replace(queryParameters: {'limit': limit.toString()});
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
+      final List<dynamic> data = json.decode(response.body) as List<dynamic>;
       return data.cast<Map<String, dynamic>>();
     }
     throw Exception('Failed to fetch usage history: ${response.statusCode}');
@@ -118,7 +119,7 @@ class EntitlementService {
       body: json.encode({'planId': newPlanId}),
     );
     if (response.statusCode == 200) {
-      return Entitlement.fromJson(json.decode(response.body));
+      return Entitlement.fromJson(json.decode(response.body) as Map<String, dynamic>);
     }
     throw Exception('Failed to upgrade plan: ${response.statusCode}');
   }

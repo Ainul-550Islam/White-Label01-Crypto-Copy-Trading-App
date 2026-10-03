@@ -168,20 +168,16 @@ export class TreasuryBalanceService {
     if (networkId) where.networkId = networkId;
     if (walletId) where.id = walletId;
 
-    try {
-      const wallets = await (this.prisma as any).custodyWallet.findMany({ where, take: limit, skip: (page - 1) * limit });
-      const balances: BalanceObservation[] = [];
+    const wallets = await (this.prisma as any).custodyWallet.findMany({ where, take: limit, skip: (page - 1) * limit });
+    const balances: BalanceObservation[] = [];
 
-      for (const wallet of wallets) {
-        try {
-          const balance = await this.getWalletBalance({ tenantId, walletId: wallet.id, assetId: wallet.assetId, networkId: wallet.networkId });
-          balances.push(balance);
-        } catch {}
-      }
-
-      return { data: balances, total: balances.length, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
+    for (const wallet of wallets) {
+      try {
+        const balance = await this.getWalletBalance({ tenantId, walletId: wallet.id, assetId: wallet.assetId, networkId: wallet.networkId });
+        balances.push(balance);
+      } catch {}
     }
+
+    return { data: balances, total: balances.length, page, limit };
   }
 }

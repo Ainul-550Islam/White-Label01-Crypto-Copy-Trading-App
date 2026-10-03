@@ -1,5 +1,5 @@
 name: wlct_mobile
-description: White-label copy trading mobile client. Part 1 foundation.
+description: White-label copy trading mobile client.
 publish_to: "none"
 version: 1.0.0+1
 
@@ -32,8 +32,10 @@ dependencies:
 
   # Value equality for immutable models and states.
   equatable: ^2.0.5
-  intl: ^0.19.0
+  intl: ^0.20.2
   uuid: ^4.5.1
+  # Used directly by the (orphan) billing plan/entitlement services.
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

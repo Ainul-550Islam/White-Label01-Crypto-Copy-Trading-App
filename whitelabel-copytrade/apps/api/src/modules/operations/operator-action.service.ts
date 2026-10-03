@@ -379,20 +379,16 @@ export class OperatorActionService {
     if (status) where.status = status;
     if (targetType) where.targetType = targetType;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).operationalAction.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).operationalAction.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).operationalAction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).operationalAction.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async getAction(tenantId: string | null, actionId: string): Promise<any> {

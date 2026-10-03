@@ -8,6 +8,8 @@ export interface User {
   email: string;
   tenantId: string;
   roles: string[];
+  /** Effective permission keys from GET /v1/auth/me (e.g. 'exchange_account:manage'). */
+  permissions: string[];
   displayName?: string;
   avatarUrl?: string;
   mfaEnabled?: boolean;

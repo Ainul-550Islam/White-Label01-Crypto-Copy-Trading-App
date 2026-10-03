@@ -63,7 +63,13 @@ export class KrakenProductionAdapter {
     const nonce = params['nonce'] || Date.now().toString();
     const postData = qs.stringify(params);
     const hash = crypto.createHash('sha256').update(nonce + postData).digest();
-    const hmac = crypto.createHmac('sha512', Buffer.from(secret, 'base64')).update(path + hash).digest('base64');
+    // Kraken signs the BYTES path || sha256(nonce + postData). Concatenating the
+    // raw digest onto a JS string (path + hash) would UTF-8-mangle it and every
+    // private call would be answered "EAPI:Invalid signature".
+    const hmac = crypto
+      .createHmac('sha512', Buffer.from(secret, 'base64'))
+      .update(Buffer.concat([Buffer.from(path, 'utf8'), hash]))
+      .digest('base64');
     return hmac;
   }
 

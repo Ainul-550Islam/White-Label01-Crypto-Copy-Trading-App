@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from '@jest/globals';
+import { BASIC_PLAN, getBasicPlan } from '../../../apps/api/src/modules/billing/catalog/basic.plan';
 import {
-  BASIC_PLAN,
   STANDARD_PLAN,
-  PREMIUM_PLAN,
-  getBasicPlan,
   getStandardPlan,
+} from '../../../apps/api/src/modules/billing/catalog/standard.plan';
+import {
+  PREMIUM_PLAN,
   getPremiumPlan,
-} from '../../../apps/api/src/modules/billing/catalog/basic.plan';
+} from '../../../apps/api/src/modules/billing/catalog/premium.plan';
 import {
   FEATURE_DEFINITIONS,
   getFeaturesForTier,
@@ -51,14 +52,14 @@ describe('Plan Catalog', () => {
 
     it('should include basic trading feature', () => {
       const plan = getBasicPlan();
-      const feature = plan.features.find(f => f.key === 'basic_trading');
+      const feature = plan.features.find((f) => f.key === 'basic_trading');
       expect(feature).toBeDefined();
       expect(feature!.enabled).toBe(true);
     });
 
     it('should include copy trading with limit', () => {
       const plan = getBasicPlan();
-      const feature = plan.features.find(f => f.key === 'copy_trading');
+      const feature = plan.features.find((f) => f.key === 'copy_trading');
       expect(feature).toBeDefined();
       expect(feature!.enabled).toBe(true);
       expect(feature!.limit).toBe(3);
@@ -94,9 +95,9 @@ describe('Plan Catalog', () => {
       expect(plan.price.trialDays).toBe(30);
     });
 
-    it('should have 28 features', () => {
+    it('should have 29 features', () => {
       const plan = getPremiumPlan();
-      expect(plan.features).toHaveLength(28);
+      expect(plan.features).toHaveLength(29);
     });
 
     it('should have 13 limits', () => {
@@ -106,7 +107,7 @@ describe('Plan Catalog', () => {
 
     it('should include margin trading', () => {
       const plan = getPremiumPlan();
-      const feature = plan.features.find(f => f.key === 'margin_trading');
+      const feature = plan.features.find((f) => f.key === 'margin_trading');
       expect(feature).toBeDefined();
       expect(feature!.enabled).toBe(true);
     });
@@ -120,15 +121,15 @@ describe('Plan Catalog', () => {
     it('should get features for basic tier', () => {
       const features = getFeaturesForTier('basic');
       expect(features.length).toBeGreaterThan(0);
-      features.forEach(f => {
-        expect(f.supportedTiers).toContain('basic');
+      features.forEach((f) => {
+        expect(f.tiers.basic).toBe(true);
       });
     });
 
     it('should get features by category', () => {
       const tradingFeatures = getFeaturesByCategory('trading');
       expect(tradingFeatures.length).toBeGreaterThan(0);
-      tradingFeatures.forEach(f => {
+      tradingFeatures.forEach((f) => {
         expect(f.category).toBe('trading');
       });
     });
@@ -147,7 +148,7 @@ describe('Plan Catalog', () => {
     it('should build plan features for basic tier', () => {
       const features = buildPlanFeatures('basic');
       expect(features.length).toBeGreaterThan(0);
-      features.forEach(f => {
+      features.forEach((f) => {
         expect(f.key).toBeDefined();
         expect(f.name).toBeDefined();
         expect(f.enabled).toBe(true);
@@ -163,7 +164,7 @@ describe('Plan Catalog', () => {
     it('should get limits for basic tier', () => {
       const limits = getLimitsForTier('basic');
       expect(limits.length).toBeGreaterThan(0);
-      limits.forEach(l => {
+      limits.forEach((l) => {
         expect(l.values.basic).not.toBe(0);
       });
     });
@@ -171,7 +172,7 @@ describe('Plan Catalog', () => {
     it('should get limits by category', () => {
       const portfolioLimits = getLimitsByCategory('portfolio');
       expect(portfolioLimits.length).toBeGreaterThan(0);
-      portfolioLimits.forEach(l => {
+      portfolioLimits.forEach((l) => {
         expect(l.category).toBe('portfolio');
       });
     });
@@ -185,7 +186,7 @@ describe('Plan Catalog', () => {
     it('should build plan limits for basic tier', () => {
       const limits = buildPlanLimits('basic');
       expect(limits.length).toBeGreaterThan(0);
-      limits.forEach(l => {
+      limits.forEach((l) => {
         expect(l.key).toBeDefined();
         expect(l.name).toBeDefined();
         expect(l.value).toBeDefined();
@@ -213,5 +214,45 @@ describe('Plan Catalog', () => {
       const plan = getPlanByTier('unknown' as PlanTier);
       expect(plan).toBeUndefined();
     });
+  });
+
+  describe('Plan templates vs feature/limit definitions', () => {
+    // basic.plan / standard.plan / premium.plan and FEATURE_DEFINITIONS /
+    // LIMIT_DEFINITIONS are two hand-maintained sources. They disagree in the
+    // places listed here; which side is right is a product decision, so the
+    // current differences are pinned and any NEW divergence fails this test.
+    const KNOWN_PLAN_FEATURES_NOT_IN_DEFINITIONS: Record<string, string[]> = {
+      basic: ['real_time_data'],
+      standard: [],
+      premium: [],
+    };
+    const KNOWN_DEFINITION_FEATURES_NOT_IN_PLAN: Record<string, string[]> = {
+      basic: ['market_data', 'two_factor_auth'],
+      standard: ['basic_analytics', 'market_data', 'two_factor_auth'],
+      premium: ['basic_analytics', 'market_data', 'multi_exchange'],
+    };
+    const plans = { basic: getBasicPlan(), standard: getStandardPlan(), premium: getPremiumPlan() };
+
+    for (const tier of ['basic', 'standard', 'premium'] as const) {
+      it(`${tier}: feature differences are exactly the known ones`, () => {
+        const planKeys = plans[tier].features.map((f) => f.key).sort();
+        const defKeys = getFeaturesForTier(tier)
+          .map((f) => f.key)
+          .sort();
+        expect(planKeys.filter((k) => !defKeys.includes(k))).toEqual(
+          KNOWN_PLAN_FEATURES_NOT_IN_DEFINITIONS[tier],
+        );
+        expect(defKeys.filter((k) => !planKeys.includes(k))).toEqual(
+          KNOWN_DEFINITION_FEATURES_NOT_IN_PLAN[tier],
+        );
+      });
+
+      it(`${tier}: every plan limit key is a defined limit for the tier`, () => {
+        const defLimitKeys = getLimitsForTier(tier).map((l) => l.key);
+        for (const limit of plans[tier].limits) {
+          expect(defLimitKeys).toContain(limit.key);
+        }
+      });
+    }
   });
 });

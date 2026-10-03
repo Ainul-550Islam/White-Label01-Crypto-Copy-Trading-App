@@ -2,8 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { TaxProviderFactory } from './tax-provider.interface';
 import type { TaxCalculationInput, TaxCalculationResult, TaxBreakdown, TaxValidationResult, CustomerTaxInfo } from './tax.types';
-import { TaxCategory, TaxType, ExemptionReason, DEFAULT_TAX_RATES, REVERSE_CHARGE_COUNTRIES, EU_COUNTRIES } from './tax.types';
+import { TaxCategory, TaxType, ExemptionReason, REVERSE_CHARGE_COUNTRIES, EU_COUNTRIES } from './tax.types';
 import type { Money } from './money.types';
+import { loadTaxRateTable, resolveTaxRate, TaxRateTable } from './tax-rates.config';
+import {
+  ViesVatClient,
+  VatCheckResult,
+  VatValidationMode,
+  isEuVatFormatValid,
+  vatValidationModeFromEnv,
+  verifyVatForReverseCharge,
+} from './vies-vat.client';
 import { createMoney, calculatePercentageAmount, addMoney, parseToMinorUnits } from './money.types';
 
 /**
@@ -27,11 +36,23 @@ import { createMoney, calculatePercentageAmount, addMoney, parseToMinorUnits } f
 @Injectable()
 export class TaxService {
   private readonly logger = new Logger(TaxService.name);
+  // Built once at construction: an invalid TAX_RATES_JSON fails the boot.
+  private readonly taxRates: TaxRateTable = loadTaxRateTable();
+  // TAX_VAT_VALIDATION (none | format | vies); invalid values fail the boot.
+  private readonly vatValidation: VatValidationMode = vatValidationModeFromEnv();
+  // Seller's own country (ISO-2). A customer in the same member state is
+  // charged domestic VAT: reverse charge only applies across borders.
+  private readonly supplierCountry: string = (process.env.TAX_SUPPLIER_COUNTRY || '').trim().toUpperCase();
+  protected vatChecker: Pick<ViesVatClient, 'check'> = new ViesVatClient();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly taxProviderFactory: TaxProviderFactory,
-  ) {}
+  ) {
+    if (this.taxRates.overridden.length > 0) {
+      this.logger.log(`Tax rates overridden via TAX_RATES_JSON for: ${this.taxRates.overridden.join(', ')}`);
+    }
+  }
 
   async calculateTax(input: TaxCalculationInput): Promise<TaxCalculationResult> {
     this.validateTaxInput(input);
@@ -53,8 +74,31 @@ export class TaxService {
       }
     }
 
-    // Fallback to internal configurable tax rules
-    return this.calculateTaxWithInternalRules(input);
+    // Fallback to internal configurable tax rules. Reverse charge needs
+    // evidence for the VAT number first (TAX_VAT_VALIDATION).
+    const vatCheck = await this.checkReverseChargeEvidence(input);
+    const result = this.calculateTaxWithInternalRules(input, vatCheck);
+    return vatCheck ? { ...result, vatCheck } : result;
+  }
+
+  /**
+   * For an EU business customer with a VAT number in another member state
+   * than the seller, checks the number per TAX_VAT_VALIDATION. Returns
+   * undefined when reverse charge is not in question at all.
+   */
+  private async checkReverseChargeEvidence(input: TaxCalculationInput): Promise<VatCheckResult | undefined> {
+    const country = input.billingCountry.toUpperCase();
+    const vatNumber = (input.vatNumber || input.taxId || '').trim();
+    if (!input.isBusinessCustomer || !vatNumber) return undefined;
+    if (!EU_COUNTRIES.has(country) || !this.isReverseChargeApplicable(country, this.supplierCountry)) return undefined;
+    if (this.supplierCountry && this.supplierCountry === country) return undefined;
+    const check = await verifyVatForReverseCharge(this.vatValidation, country, vatNumber, this.vatChecker);
+    if (check.status !== 'VALID' && check.status !== 'SKIPPED') {
+      this.logger.warn(
+        `Reverse charge not applied for tenant ${input.tenantId} (${country}): VAT number ${check.status} via ${check.source}${check.error ? ` - ${check.error}` : ''}; standard VAT charged`,
+      );
+    }
+    return check;
   }
 
   async validateTaxId(taxId: string, country: string): Promise<TaxValidationResult> {
@@ -77,8 +121,22 @@ export class TaxService {
       }
     }
 
-    // Internal validation: basic format check
-    const isValidFormat = this.validateTaxIdFormat(taxId, country);
+    const upper = country.toUpperCase();
+    if (EU_COUNTRIES.has(upper) && this.vatValidation === 'vies') {
+      const check = await this.vatChecker.check(upper, taxId);
+      return {
+        valid: check.status === 'VALID',
+        taxId,
+        country,
+        validationSource: check.status === 'UNAVAILABLE' ? 'vies_unavailable' : 'vies',
+        companyName: check.name,
+        address: check.address,
+        error: check.status === 'VALID' ? undefined : check.error || 'VAT number not valid in VIES',
+      };
+    }
+
+    // Internal validation: format check (per-member-state VAT formats for EU)
+    const isValidFormat = EU_COUNTRIES.has(upper) ? isEuVatFormatValid(upper, taxId) : this.validateTaxIdFormat(taxId, country);
 
     return {
       valid: isValidFormat,
@@ -90,46 +148,43 @@ export class TaxService {
   }
 
   async getCustomerTaxInfo(tenantId: string): Promise<CustomerTaxInfo | null> {
-    try {
-      const tenant = await this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-          id: true,
-          countryCode: true,
-          metadata: true,
-        },
-      });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        countryCode: true,
+        metadata: true,
+      },
+    });
 
-      if (!tenant) return null;
+    if (!tenant) return null;
 
-      const metadata = tenant.metadata as any;
+    const metadata = tenant.metadata as any;
 
-      return {
-        tenantId,
-        billingCountry: tenant.countryCode || metadata?.billingCountry || 'US',
-        billingRegion: metadata?.billingRegion,
-        taxId: metadata?.taxId,
-        vatNumber: metadata?.vatNumber,
-        isBusinessCustomer: metadata?.isBusinessCustomer || false,
-        isTaxExempt: metadata?.isTaxExempt || false,
-        exemptionReason: metadata?.exemptionReason,
-      };
-    } catch {
-      return null;
-    }
+    return {
+      tenantId,
+      // No country on file: 'US' (0%) historically; with
+      // TAX_UNKNOWN_COUNTRY=reject it stays empty so the invoice fails
+      // instead of silently going out without tax.
+      billingCountry: tenant.countryCode || metadata?.billingCountry || (this.taxRates.unknownCountry === 'reject' ? '' : 'US'),
+      billingRegion: metadata?.billingRegion,
+      taxId: metadata?.taxId,
+      vatNumber: metadata?.vatNumber,
+      isBusinessCustomer: metadata?.isBusinessCustomer || false,
+      isTaxExempt: metadata?.isTaxExempt || false,
+      exemptionReason: metadata?.exemptionReason,
+    };
   }
 
-  private calculateTaxWithInternalRules(input: TaxCalculationInput): TaxCalculationResult {
+  private calculateTaxWithInternalRules(input: TaxCalculationInput, vatCheck?: VatCheckResult): TaxCalculationResult {
     const country = input.billingCountry.toUpperCase();
     const amount = input.amount;
 
-    // Check for reverse charge: B2B within EU
-    if (input.isBusinessCustomer && input.taxId && this.isReverseChargeApplicable(input.billingCountry, 'US')) {
-      // Reverse charge: customer is business in EU, supplier outside EU or B2B EU
-      // Actually for SaaS, reverse charge applies when business customer in EU with valid VAT
-      if (EU_COUNTRIES.has(country) && input.vatNumber) {
-        return this.createReverseChargeResult(input);
-      }
+    // Reverse charge: EU business customer, cross-border, VAT number verified
+    // (VALID) or deliberately not checked (TAX_VAT_VALIDATION=none -> SKIPPED).
+    // An INVALID or UNAVAILABLE check falls through to standard VAT.
+    if (vatCheck && (vatCheck.status === 'VALID' || vatCheck.status === 'SKIPPED')) {
+      return this.createReverseChargeResult(input);
     }
 
     // Check if country is tax-exempt (e.g., US has no federal VAT for SaaS in many states)
@@ -260,20 +315,10 @@ export class TaxService {
   }
 
   private getTaxRateForCountry(country: string, region?: string): number {
-    // Use configurable tax rates, not hardcoded in invoice code
-    // This method uses DEFAULT_TAX_RATES as fallback, but in production
-    // should be configurable via database or external provider
-
-    const upperCountry = country.toUpperCase();
-
-    // Check for custom tax rate in database (if configured)
-    // For now, use default rates map
-    if (DEFAULT_TAX_RATES[upperCountry] !== undefined) {
-      return DEFAULT_TAX_RATES[upperCountry];
-    }
-
-    // Default: 0% for unknown countries (no tax)
-    return 0;
+    // DEFAULT_TAX_RATES overlaid with TAX_RATES_JSON (country or
+    // country-region keys, basis points). Unknown countries are 0% unless
+    // TAX_UNKNOWN_COUNTRY=reject, which throws instead. See tax-rates.config.ts.
+    return resolveTaxRate(this.taxRates, country, region);
   }
 
   private getTaxTypeForCountry(country: string): TaxType {

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CopySubscriptionState, CopySizingMode } from './copy-trading.types';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Persistence abstraction for trader/follower subscriptions, state, allocation, policy references, idempotency, lifecycle history, and tenant isolation.
@@ -27,6 +28,18 @@ export class CopySubscriptionRepository {
     followerAccountId?: string | null;
     idempotencyKey?: string | null;
   }): Promise<any> {
+    // Idempotent replay first: a retried request (same tenant, same key) gets
+    // its original subscription back. Checked before the duplicate-active rule,
+    // because the original subscription IS the active one - checking the rule
+    // first turned every retry into a "duplicate" error.
+    if (input.idempotencyKey) {
+      const existingByKey = await (this.prisma as any).copySubscription?.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
+      if (existingByKey) {
+        this.logger.log(`Idempotent subscription return key=${input.idempotencyKey}`);
+        return existingByKey;
+      }
+    }
+
     // Prevent duplicate active subscription where business rules prohibit it
     const existingActive = await (this.prisma as any).copySubscription?.findFirst({
       where: { tenantId: input.tenantId, followerId: input.followerId, strategyId: input.strategyId, state: { in: ['PENDING', 'ACTIVE', 'PAUSED'] } },
@@ -34,14 +47,6 @@ export class CopySubscriptionRepository {
 
     if (existingActive) {
       throw new Error(`Duplicate active subscription for follower=${input.followerId} strategy=${input.strategyId} existing=${existingActive.id}`);
-    }
-
-    if (input.idempotencyKey) {
-      const existingByKey = await (this.prisma as any).copySubscription?.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
-      if (existingByKey) {
-        this.logger.log(`Idempotent subscription return key=${input.idempotencyKey}`);
-        return existingByKey;
-      }
     }
 
     const id = randomUUID();
@@ -79,7 +84,7 @@ export class CopySubscriptionRepository {
     } catch (e: any) {
       if (e.code === 'P2002') {
         if (input.idempotencyKey) {
-          const existing = await (this.prisma as any).copySubscription.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+          const existing = await (this.prisma as any).copySubscription.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
           if (existing) return existing;
         }
         // Unique follower+strategy
@@ -152,24 +157,27 @@ export class CopySubscriptionRepository {
         where: { id },
         data: { state, ...timestamps, updatedAt: new Date() },
       });
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
   async updateAllocation(id: string, tenantId: string, allocation: { allocationAmount?: string; maxAllocation?: string | null; minAllocation?: string | null; allocationMode?: CopySizingMode }): Promise<any | null> {
     try {
       return await (this.prisma as any).copySubscription.update({ where: { id }, data: { ...allocation, updatedAt: new Date() } });
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
   async updatePolicy(id: string, tenantId: string, policy: { copyPolicy?: Record<string, any>; riskPolicy?: Record<string, any> }): Promise<any | null> {
     try {
       return await (this.prisma as any).copySubscription.update({ where: { id }, data: { ...policy, updatedAt: new Date() } });
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 

@@ -109,18 +109,18 @@ export class EntitlementPolicy {
       return { allowed: true, remaining: -1 };
     }
 
-    // Check if limit has reset
-    if (limit.resetAt && limit.resetAt <= new Date()) {
-      // Limit has reset, allow usage
-      return { allowed: true, remaining: limit.value - requestedAmount, limit };
-    }
-
     // -1 means unlimited
     if (limit.value === -1) {
       return { allowed: true, remaining: -1, limit };
     }
 
-    const remaining = limit.value - limit.used;
+    // Once the reset time has passed the stored usage belongs to the previous
+    // period: count it as zero, but still apply the limit to this request
+    // (a request larger than the whole allowance is not allowed just because
+    // the period rolled over).
+    const periodRolledOver = !!limit.resetAt && limit.resetAt <= new Date();
+    const used = periodRolledOver ? 0 : limit.used;
+    const remaining = limit.value - used;
 
     // Check hard limits
     if (this.config.enforceHardLimits && limit.hardLimit) {
@@ -129,7 +129,7 @@ export class EntitlementPolicy {
       // Check burst allowance
       if (!allowed && this.config.allowLimitBurst) {
         const burstLimit = limit.value * (1 + this.config.burstPercentage / 100);
-        const burstAllowed = (limit.used + requestedAmount) <= burstLimit;
+        const burstAllowed = (used + requestedAmount) <= burstLimit;
         return {
           allowed: burstAllowed,
           remaining: burstAllowed ? remaining - requestedAmount : 0,

@@ -157,7 +157,7 @@ export class MobileCrashService {
       .update([input.applicationId, input.platform, fp, input.versionName, input.buildNumber].join('|'))
       .digest('hex');
 
-    const existing = await this.prisma.mobileCrashEvent.findUnique({ where: { idempotencyKey: key } });
+    const existing = await this.prisma.mobileCrashEvent.findFirst({ where: { tenantId: app.tenantId, idempotencyKey: key } });
     if (existing) {
       const updated = await this.prisma.mobileCrashEvent.update({
         where: { id: existing.id },

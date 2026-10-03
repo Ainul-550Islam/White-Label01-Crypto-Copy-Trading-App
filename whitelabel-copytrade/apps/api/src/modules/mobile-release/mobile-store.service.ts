@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createSign, createPrivateKey, sign as cryptoSign, createHash } from 'crypto';
 
@@ -19,7 +19,7 @@ import {
   STORE_TRANSITIONS,
   transitionOrThrow,
 } from './mobile-release.types';
-import type { MobileReleaseAuditService } from './mobile-release-audit.service';
+import { MobileReleaseAuditService } from './mobile-release-audit.service';
 
 /**
  * Credential material resolved at CALL TIME from the secret system. The
@@ -37,6 +37,17 @@ export interface StoreCredentialMaterial {
 export interface MobileStoreCredentialResolver {
   resolve(reference: string): Promise<StoreCredentialMaterial | null>;
 }
+
+/**
+ * DI tokens. The resolver is an interface (erased at runtime) and the
+ * enterprise and internal distribution providers are two instances of ONE
+ * class that differ only by their provider argument, so class-token injection
+ * cannot tell them apart: without distinct tokens Nest would hand the same
+ * ENTERPRISE_DISTRIBUTION instance to both slots of MobileStoreService.
+ */
+export const MOBILE_STORE_CREDENTIAL_RESOLVER = Symbol('MOBILE_STORE_CREDENTIAL_RESOLVER');
+export const MOBILE_ENTERPRISE_DISTRIBUTION_ADAPTER = Symbol('MOBILE_ENTERPRISE_DISTRIBUTION_ADAPTER');
+export const MOBILE_INTERNAL_DISTRIBUTION_ADAPTER = Symbol('MOBILE_INTERNAL_DISTRIBUTION_ADAPTER');
 
 /** Default resolver: references name process-env variables (vault sidecar in prod). */
 @Injectable()
@@ -169,7 +180,9 @@ function appleToken(material: StoreCredentialMaterial): string {
 export class GooglePlayStoreAdapter implements MobileStoreAdapter {
   readonly provider: MobileStoreProvider = 'GOOGLE_PLAY';
 
-  constructor(private readonly credentials: MobileStoreCredentialResolver) {}
+  constructor(
+    @Inject(MOBILE_STORE_CREDENTIAL_RESOLVER) private readonly credentials: MobileStoreCredentialResolver,
+  ) {}
 
   async isConfigured(): Promise<boolean> {
     const material = await this.credentials.resolve('MOBILE_STORE_GOOGLE_PLAY_CREDENTIAL');
@@ -268,7 +281,9 @@ export class GooglePlayStoreAdapter implements MobileStoreAdapter {
 export class AppleAppStoreAdapter implements MobileStoreAdapter {
   readonly provider: MobileStoreProvider = 'APPLE_APP_STORE';
 
-  constructor(private readonly credentials: MobileStoreCredentialResolver) {}
+  constructor(
+    @Inject(MOBILE_STORE_CREDENTIAL_RESOLVER) private readonly credentials: MobileStoreCredentialResolver,
+  ) {}
 
   async isConfigured(): Promise<boolean> {
     return (await this.credentials.resolve('MOBILE_STORE_APPLE_CREDENTIAL')) !== null;
@@ -427,8 +442,8 @@ export class MobileStoreService {
     private readonly audit: MobileReleaseAuditService,
     private readonly google: GooglePlayStoreAdapter,
     private readonly apple: AppleAppStoreAdapter,
-    private readonly enterprise: EnterpriseDistributionAdapter,
-    private readonly internal: EnterpriseDistributionAdapter,
+    @Inject(MOBILE_ENTERPRISE_DISTRIBUTION_ADAPTER) private readonly enterprise: EnterpriseDistributionAdapter,
+    @Inject(MOBILE_INTERNAL_DISTRIBUTION_ADAPTER) private readonly internal: EnterpriseDistributionAdapter,
   ) {}
 
   adapterFor(provider: MobileStoreProvider): MobileStoreAdapter {

@@ -1001,7 +1001,7 @@ export function describePermissions(): PermissionDefinition[] {
   return Object.values(Permission)
     .filter((value) => value !== Permission.ALL)
     .map((value) => {
-      const [resource, action] = value.split(':');
+      const [resource = '', action = ''] = value.split(':');
       return {
         key: value,
         resource,

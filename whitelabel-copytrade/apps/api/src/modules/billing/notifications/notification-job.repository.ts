@@ -31,7 +31,7 @@ export class NotificationJobRepository {
     renderedBody?: string;
   }): Promise<BillingNotificationJob> {
     // Idempotency check
-    const existingByKey = await this.findByIdempotencyKey(job.idempotencyKey);
+    const existingByKey = await this.findByIdempotencyKey(job.idempotencyKey, job.tenantId);
     if (existingByKey) {
       this.logger.log(`Idempotent notification job return by key: ${job.idempotencyKey}`);
       return existingByKey;
@@ -103,7 +103,7 @@ export class NotificationJobRepository {
     } catch (error: any) {
       if (error.code === 'P2002') {
         this.logger.warn(`Duplicate notification job idempotency: ${job.idempotencyKey}`);
-        const existing = await this.findByIdempotencyKey(job.idempotencyKey);
+        const existing = await this.findByIdempotencyKey(job.idempotencyKey, job.tenantId);
         if (existing) return existing;
       }
       if (error.code === 'P2021' || error.message?.includes('does not exist')) {
@@ -114,7 +114,7 @@ export class NotificationJobRepository {
               id: randomUUID(),
               tenantId: job.tenantId,
               action: 'NOTIFICATION_CREATED',
-              resource: 'BillingNotificationJob',
+              resourceType: 'BillingNotificationJob',
               resourceId: id,
               metadata: { ...notificationJob, fallback: true },
               createdAt: new Date(),
@@ -131,78 +131,58 @@ export class NotificationJobRepository {
   }
 
   async findById(id: string, tenantId?: string): Promise<BillingNotificationJob | null> {
-    try {
-      const result = await (this.prisma as any).billingNotificationJob?.findFirst({
-        where: { id, ...(tenantId ? { tenantId } : {}) },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).billingNotificationJob?.findFirst({
+      where: { id, ...(tenantId ? { tenantId } : {}) },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<BillingNotificationJob | null> {
-    try {
-      const result = await (this.prisma as any).billingNotificationJob?.findFirst({
-        where: { idempotencyKey },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<BillingNotificationJob | null> {
+    const result = await (this.prisma as any).billingNotificationJob?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
   async findPendingJobs(limit: number = 50): Promise<BillingNotificationJob[]> {
-    try {
-      const results = await (this.prisma as any).billingNotificationJob?.findMany({
-        where: {
-          deliveryStatus: { in: [DeliveryStatus.CREATED, DeliveryStatus.PENDING, DeliveryStatus.QUEUED] },
-        },
-        orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-        take: limit,
-      });
-      if (!results) return [];
-      return results.map((r: any) => this.mapToDomain(r));
-    } catch {
-      return [];
-    }
+    const results = await (this.prisma as any).billingNotificationJob?.findMany({
+      where: {
+        deliveryStatus: { in: [DeliveryStatus.CREATED, DeliveryStatus.PENDING, DeliveryStatus.QUEUED] },
+      },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      take: limit,
+    });
+    if (!results) return [];
+    return results.map((r: any) => this.mapToDomain(r));
   }
 
   async findRetryableJobs(limit: number = 50): Promise<BillingNotificationJob[]> {
-    try {
-      const now = new Date();
-      const results = await (this.prisma as any).billingNotificationJob?.findMany({
-        where: {
-          deliveryStatus: DeliveryStatus.RETRY_SCHEDULED,
-          nextAttemptAt: { lte: now },
-          attemptCount: { lt: 10 },
-        },
-        orderBy: { nextAttemptAt: 'asc' },
-        take: limit,
-      });
-      if (!results) return [];
-      return results.map((r: any) => this.mapToDomain(r));
-    } catch {
-      return [];
-    }
+    const now = new Date();
+    const results = await (this.prisma as any).billingNotificationJob?.findMany({
+      where: {
+        deliveryStatus: DeliveryStatus.RETRY_SCHEDULED,
+        nextAttemptAt: { lte: now },
+        attemptCount: { lt: 10 },
+      },
+      orderBy: { nextAttemptAt: 'asc' },
+      take: limit,
+    });
+    if (!results) return [];
+    return results.map((r: any) => this.mapToDomain(r));
   }
 
   async findFailedJobs(limit: number = 50): Promise<BillingNotificationJob[]> {
-    try {
-      const results = await (this.prisma as any).billingNotificationJob?.findMany({
-        where: {
-          deliveryStatus: { in: [DeliveryStatus.FAILED, DeliveryStatus.PERMANENT_FAILURE] },
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: limit,
-      });
-      if (!results) return [];
-      return results.map((r: any) => this.mapToDomain(r));
-    } catch {
-      return [];
-    }
+    const results = await (this.prisma as any).billingNotificationJob?.findMany({
+      where: {
+        deliveryStatus: { in: [DeliveryStatus.FAILED, DeliveryStatus.PERMANENT_FAILURE] },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: limit,
+    });
+    if (!results) return [];
+    return results.map((r: any) => this.mapToDomain(r));
   }
 
   async listByTenant(
@@ -218,30 +198,26 @@ export class NotificationJobRepository {
       offset?: number;
     },
   ): Promise<BillingNotificationJob[]> {
-    try {
-      const where: any = { tenantId };
-      if (filter?.eventKey) where.eventKey = filter.eventKey;
-      if (filter?.channel) where.channel = filter.channel;
-      if (filter?.status) where.deliveryStatus = filter.status;
-      if (filter?.userId) where.userId = filter.userId;
-      if (filter?.fromDate || filter?.toDate) {
-        where.createdAt = {};
-        if (filter.fromDate) where.createdAt.gte = filter.fromDate;
-        if (filter.toDate) where.createdAt.lte = filter.toDate;
-      }
-
-      const results = await (this.prisma as any).billingNotificationJob?.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: filter?.limit || 100,
-        skip: filter?.offset || 0,
-      });
-
-      if (!results) return [];
-      return results.map((r: any) => this.mapToDomain(r));
-    } catch {
-      return [];
+    const where: any = { tenantId };
+    if (filter?.eventKey) where.eventKey = filter.eventKey;
+    if (filter?.channel) where.channel = filter.channel;
+    if (filter?.status) where.deliveryStatus = filter.status;
+    if (filter?.userId) where.userId = filter.userId;
+    if (filter?.fromDate || filter?.toDate) {
+      where.createdAt = {};
+      if (filter.fromDate) where.createdAt.gte = filter.fromDate;
+      if (filter.toDate) where.createdAt.lte = filter.toDate;
     }
+
+    const results = await (this.prisma as any).billingNotificationJob?.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: filter?.limit || 100,
+      skip: filter?.offset || 0,
+    });
+
+    if (!results) return [];
+    return results.map((r: any) => this.mapToDomain(r));
   }
 
   async updateStatus(

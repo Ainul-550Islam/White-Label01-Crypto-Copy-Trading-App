@@ -8,6 +8,14 @@ import { ExchangeRoutingService } from '../exchanges/exchange-routing.service';
 import { ExchangeAccountService } from '../exchanges/exchange-account.service';
 import { ExecutionSafetyService } from '../execution/execution-safety.service';
 import { QueueService } from '../queue/queue.service';
+import { JOB_NAMES, QUEUE_NAMES } from '@wlct/config';
+import {
+  SubmitOrderRefused,
+  buildSubmitOrderJob,
+  buildSubmitSpecification,
+  computeSubmitExposure,
+  submitOrderJobId,
+} from './order-submission.payload';
 
 /**
  * Order Routing Service — coordinates approved intents with:
@@ -173,13 +181,19 @@ export class OrderRoutingService {
       metadata: { routing: routingResult },
     });
 
+    let canonicalOrderId: string | null = null;
     try {
+      // Resolve the symbol WITH its trading rules: the engine validates the
+      // order against exactly these before any gate runs.
+      const symbolRecord = await this.prisma.tradingSymbol.findFirst({ where: { tenantId, symbol: intent.symbol } });
+      if (!symbolRecord) throw new BadRequestException(`Symbol ${intent.symbol} not found for canonical order creation`);
+
+      const intentMetadata = (intent.metadata ?? {}) as Record<string, unknown>;
+      const copyExecutionId = typeof intentMetadata.copyExecutionId === 'string' ? intentMetadata.copyExecutionId : null;
+
       // Create canonical Order if not exists — existing execution engine remains authoritative
       let canonicalOrder = await this.prisma.order.findFirst({ where: { tenantId, clientOrderId: intent.clientOrderId } });
       if (!canonicalOrder) {
-        // Resolve symbolId from trading symbol
-        const symbolRecord = await this.prisma.tradingSymbol.findFirst({ where: { tenantId, symbol: intent.symbol } });
-        if (!symbolRecord) throw new BadRequestException(`Symbol ${intent.symbol} not found for canonical order creation`);
         canonicalOrder = await this.prisma.order.create({
           data: {
             tenantId,
@@ -198,53 +212,92 @@ export class OrderRoutingService {
             stopPrice: intent.stopPrice as any,
             reduceOnly: intent.reduceOnly ?? false,
             isSimulated: intent.environment === 'PAPER',
-            metadata: { omsIntentId: intentId, correlationId, riskDecisionId: riskResult.id, source: intent.source } as any,
+            riskDecisionId: riskResult.id ?? undefined,
+            submittedAt: new Date(),
+            metadata: {
+              omsIntentId: intentId,
+              correlationId,
+              riskDecisionId: riskResult.id,
+              source: intent.source,
+              ...(copyExecutionId ? { copyExecutionId } : {}),
+            } as any,
           },
         });
       }
+      canonicalOrderId = canonicalOrder.id;
 
-      // Enqueue to trade-execution queue — worker will actually place, respecting all live gates
-      // We use the existing QUEUE_NAMES.TRADE_EXECUTION and a custom job name that the worker will treat as order submission
-      // If worker does not have OMS job handler, the canonical Order in SUBMITTED state will still be picked up by reconciliation
-      let jobId = `oms-submit:${intent.clientOrderId}`;
-      try {
-        const enqueued = await this.queueService.enqueueOrThrow(
-          'trade-execution' as any,
-          'oms-order-submission' as any,
-          {
-            tenantId,
-            accountId: intent.accountId,
-            orderId: canonicalOrder.id,
-            clientOrderId: intent.clientOrderId,
-            symbol: intent.symbol,
-            side: intent.side,
-            orderType: intent.orderType,
-            quantity: intent.quantity?.toString() ?? intent.quantity,
-            price: intent.price?.toString() ?? intent.price,
-            omsIntentId: intentId,
-            riskDecisionId: riskResult.id,
-            correlationId,
-            requestedAt: new Date().toISOString(),
-          },
-          { jobId, attempts: 3 },
-        );
-        jobId = enqueued || jobId;
-      } catch (queueErr) {
-        this.logger.warn(`Queue enqueue failed for intent ${intentId}, order ${canonicalOrder.id} will be handled via reconciliation: ${(queueErr as Error).message}`);
-      }
+      // Exposure from the canonical ledger; incomplete marks make the engine refuse.
+      const positions = await this.prisma.position.findMany({
+        where: { tenantId, accountId: intent.accountId },
+        select: { symbolId: true, quantity: true, markPrice: true },
+      });
+
+      const jobData = buildSubmitOrderJob({
+        tenantId,
+        accountId: intent.accountId,
+        orderId: canonicalOrder.id,
+        clientOrderId: intent.clientOrderId,
+        symbol: intent.symbol,
+        side: intent.side,
+        orderType: intent.orderType,
+        quantity: intent.quantity,
+        price: intent.price,
+        timeInForce: intent.timeInForce,
+        reduceOnly: intent.reduceOnly,
+        strategyId: intent.strategyId,
+        riskDecisionId: riskResult.id,
+        environment: intent.environment ?? 'PAPER',
+        specification: buildSubmitSpecification(symbolRecord as any),
+        exposure: computeSubmitExposure(positions as any, symbolRecord.id),
+        omsIntentId: intentId,
+        metadata: {
+          ...(copyExecutionId ? { copyExecutionId } : {}),
+          ...(correlationId ? { correlationId: String(correlationId).slice(0, 128) } : {}),
+          source: String(intent.source ?? 'OMS'),
+        },
+        requestedByUserId: userId ?? null,
+      });
+
+      // Enqueue to trade-execution under the job name the worker actually
+      // consumes (JOB_NAMES.SUBMIT_ORDER). A failed enqueue is a FAILED
+      // submission, not a silent success: nothing else would ever pick the
+      // order up, so swallowing the error here would strand it in SUBMITTED.
+      const deterministicJobId = submitOrderJobId(intent.clientOrderId);
+      const enqueued = await this.queueService.enqueueOrThrow(
+        QUEUE_NAMES.TRADE_EXECUTION,
+        JOB_NAMES.SUBMIT_ORDER,
+        jobData,
+        { jobId: deterministicJobId, attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
+      );
+      const jobId = enqueued || deterministicJobId;
 
       this.logger.log(`Intent ${intentId} submitted to execution engine job ${jobId} tenant ${tenantId} canonicalOrder ${canonicalOrder.id}`);
       return { intentId, jobId, routing: routingResult, riskDecisionId: riskResult.id, canonicalOrderId: canonicalOrder.id };
     } catch (e) {
+      const refusal = e instanceof SubmitOrderRefused ? e : null;
       this.logger.warn(`Execution engine submission failed for intent ${intentId}: ${(e as Error).message}`);
+      if (canonicalOrderId) {
+        await this.prisma.order
+          .update({
+            where: { id: canonicalOrderId },
+            data: {
+              status: (refusal ? 'REJECTED' : 'FAILED') as any,
+              rejectionCode: refusal ? refusal.code : 'SUBMISSION_ENQUEUE_FAILED',
+              rejectionReason: (e as Error).message.slice(0, 500),
+              terminalAt: new Date(),
+            },
+          })
+          .catch((updateErr: Error) => this.logger.warn(`Could not mark order ${canonicalOrderId} failed: ${updateErr.message}`));
+      }
       await this.lifecycleService.transition({
         tenantId,
         intentId,
-        toState: OrderIntentState.FAILED,
+        toState: refusal ? OrderIntentState.REJECTED : OrderIntentState.FAILED,
         source: 'EXECUTION_ENGINE',
-        reason: `Execution submission failed: ${(e as Error).message}`,
+        reason: `Execution submission ${refusal ? 'refused' : 'failed'}: ${(e as Error).message}`,
         correlationId,
       });
+      if (refusal) throw new ForbiddenException(`${refusal.code}: ${refusal.message}`);
       throw e;
     }
   }

@@ -16,7 +16,7 @@ import { MaintenanceBanner } from '@/components/maintenance-banner';
 
 export function DashboardPage(): JSX.Element {
   const { session } = useAuth();
-  const { portfolio, tradingStatus, subscriptions, exchanges, funding, subscription, usage, notifications } = useDashboardData();
+  const { portfolio, tradingStatus, subscriptions, exchanges, funding, billing, canViewBilling, notifications } = useDashboardData();
 
   return (
     <PageContainer
@@ -29,7 +29,7 @@ export function DashboardPage(): JSX.Element {
         <CopySubscriptionsWidget data={subscriptions.data} isLoading={subscriptions.isLoading} />
         <ExchangeHealthWidget data={exchanges.data} isLoading={exchanges.isLoading} />
         <FundingWidget data={funding.data} isLoading={funding.isLoading} />
-        <BillingWidget subscription={subscription.data} usage={usage.data} isLoading={subscription.isLoading} />
+        {canViewBilling && <BillingWidget data={billing.data} isLoading={billing.isLoading} error={billing.error} />}
         <SecurityWidget mfaEnabled={session?.user.mfaEnabled} />
       </div>
 

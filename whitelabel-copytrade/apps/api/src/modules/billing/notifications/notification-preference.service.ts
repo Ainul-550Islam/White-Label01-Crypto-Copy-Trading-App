@@ -119,7 +119,11 @@ export class NotificationPreferenceService {
 
       // No specific preference - check category preference
       const category = this.getCategoryForEvent(eventKey);
-      const categoryPrefs = await this.getChannelPreferences(tenantId, userId || 'unknown', category);
+      // A tenant-level billing event has no recipient user, so there is no
+      // per-user category preference to consult. Querying with a placeholder
+      // id put a non-UUID into a UUID column and logged a database error on
+      // every tenant-level delivery.
+      const categoryPrefs = userId ? await this.getChannelPreferences(tenantId, userId, category) : [];
       const channelPref = categoryPrefs.find((p) => p.channel === channel);
       if (channelPref) {
         if (isMandatory && !channelPref.enabled && (channel === NotificationChannel.EMAIL || channel === NotificationChannel.IN_APP)) {

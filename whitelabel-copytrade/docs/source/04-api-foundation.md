@@ -2,7 +2,7 @@
 
 Entrypoint, configuration service, Swagger, and the cross-cutting filters, guards, interceptors, pipes and middleware.
 
-54 files. Part of the complete Part 1 source dump - see `docs/source/README.md`.
+69 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -122,12 +122,14 @@ FILE: apps/api/package.json
     "@nestjs/terminus": "^10.2.3",
     "@nestjs/throttler": "^6.2.1",
     "@nestjs/websockets": "^10.4.4",
-    "@prisma/client": "^5.20.0",
+    "@node-saml/node-saml": "^5.1.0",
+    "@prisma/client": "^5.22.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "@wlct/config": "1.0.0",
     "@wlct/shared-types": "1.0.0",
     "@wlct/utils": "1.0.0",
     "@wlct/validation": "1.0.0",
+    "@xmldom/xmldom": "^0.8.15",
     "argon2": "^0.41.1",
     "bullmq": "^5.13.2",
     "class-transformer": "^0.5.1",
@@ -137,7 +139,9 @@ FILE: apps/api/package.json
     "express": "^4.21.0",
     "helmet": "^7.1.0",
     "ioredis": "^5.4.1",
+    "jose": "^5.10.0",
     "nestjs-pino": "^4.1.0",
+    "nodemailer": "^6.9.15",
     "otplib": "^12.0.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -147,6 +151,7 @@ FILE: apps/api/package.json
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.0",
+    "stripe": "^14.25.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -158,6 +163,7 @@ FILE: apps/api/package.json
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.13",
     "@types/node": "^20.14.10",
+    "@types/nodemailer": "^6.4.16",
     "@types/passport-jwt": "^4.0.1",
     "@types/qrcode": "^1.5.5",
     "@types/supertest": "^6.0.2",
@@ -170,7 +176,7 @@ FILE: apps/api/package.json
     "jest": "^29.7.0",
     "pino-pretty": "^11.2.2",
     "prettier": "^3.3.3",
-    "prisma": "^5.20.0",
+    "prisma": "^5.22.0",
     "rimraf": "^5.0.7",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
@@ -178,7 +184,8 @@ FILE: apps/api/package.json
     "ts-loader": "^9.5.1",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "xml-crypto": "^6.3.2"
   },
   "jest": {
     "moduleFileExtensions": [
@@ -196,6 +203,7 @@ FILE: apps/api/package.json
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
+    "globalSetup": "<rootDir>/../test/sso-test-keys.global-setup.js",
     "moduleNameMapper": {
       "^@wlct/shared-types$": "<rootDir>/../../../packages/shared-types/src",
       "^@wlct/config$": "<rootDir>/../../../packages/config/src",
@@ -203,8 +211,459 @@ FILE: apps/api/package.json
       "^@wlct/validation$": "<rootDir>/../../../packages/validation/src",
       "^src/(.*)$": "<rootDir>/$1"
     }
+  },
+  "optionalDependencies": {
+    "firebase-admin": "^13.10.0"
   }
 }
+```
+
+FILE: apps/api/scripts/check-prisma-literals.js
+
+```javascript
+#!/usr/bin/env node
+/**
+ * Static check for Prisma calls that bypass the generated types.
+ *
+ * Much of the API calls Prisma through `(this.prisma as any).model.op({...})`,
+ * which turns off type checking: an unknown column, a missing required column or
+ * an enum value that does not exist only fails at runtime (and is often swallowed
+ * by a surrounding try/catch). This script parses every non-spec source file and,
+ * for each `<receiver>.<prismaModel>.<operation>({ ... })` call with an object
+ * literal argument, checks against the Prisma DMMF:
+ *
+ *   - UNKNOWN   keys under data/create/update/where/orderBy/select that are not
+ *               fields of the model (including keys inside conditional spreads
+ *               such as `...(cond ? { closedBy } : {})`);
+ *   - MISSING   required scalar fields without a default in create data;
+ *   - ENUM      string literals (direct, `'X' as any`, both branches of a
+ *               conditional, `{ in: [...] }`, `{ not: 'X' }`, `{ equals: 'X' }`)
+ *               given to an enum field that are not values of that enum.
+ *
+ * Dynamically built objects (`const data: any = {}; data.x = ...`) cannot be seen
+ * statically and must be reviewed by hand.
+ *
+ * Usage: node scripts/check-prisma-literals.js [srcDir]   (default: ./src)
+ * Exit code 1 when findings exist. `scan()` is exported for the jest spec.
+ */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const ts = require('typescript');
+
+const OPERATIONS = new Set([
+  'create',
+  'createMany',
+  'update',
+  'updateMany',
+  'upsert',
+  'delete',
+  'deleteMany',
+  'findMany',
+  'findFirst',
+  'findFirstOrThrow',
+  'findUnique',
+  'findUniqueOrThrow',
+  'count',
+  'aggregate',
+  'groupBy',
+]);
+const CHECKED_ARGS = new Set(['data', 'create', 'update', 'where', 'orderBy', 'select']);
+const LOGICAL_KEYS = new Set(['AND', 'OR', 'NOT', '_count']);
+const ENUM_FILTER_KEYS = new Set(['in', 'notIn', 'not', 'equals']);
+
+/** Builds `{ modelsByDelegate, enums }` from a Prisma DMMF datamodel. */
+function loadDatamodel(dmmf) {
+  const modelsByDelegate = new Map();
+  for (const model of dmmf.datamodel.models) {
+    const delegate = model.name.charAt(0).toLowerCase() + model.name.slice(1);
+    modelsByDelegate.set(delegate, {
+      name: model.name,
+      fields: new Map(model.fields.map((f) => [f.name, f])),
+    });
+  }
+  const enums = new Map(
+    dmmf.datamodel.enums.map((e) => [e.name, new Set(e.values.map((v) => v.name))]),
+  );
+  return { modelsByDelegate, enums };
+}
+
+function listSourceFiles(dir) {
+  const files = [];
+  (function walk(current) {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') walk(full);
+      } else if (/\.ts$/.test(entry.name) && !/\.spec\.ts$|\.d\.ts$/.test(entry.name)) {
+        files.push(full);
+      }
+    }
+  })(dir);
+  return files.sort();
+}
+
+function propertyName(prop) {
+  if (ts.isShorthandPropertyAssignment(prop)) return prop.name.text;
+  if (
+    ts.isPropertyAssignment(prop) &&
+    prop.name &&
+    (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+  )
+    return prop.name.text;
+  return null;
+}
+
+function unwrap(expr) {
+  let current = expr;
+  while (
+    current &&
+    (ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isNonNullExpression(current))
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+/** Object literals reachable from a spread: `...{a}`, `...(c ? {a} : {b})`, `...(c && {a})`. */
+function spreadObjects(expr) {
+  const node = unwrap(expr);
+  if (!node) return [];
+  if (ts.isObjectLiteralExpression(node)) return [node];
+  if (ts.isConditionalExpression(node))
+    return [...spreadObjects(node.whenTrue), ...spreadObjects(node.whenFalse)];
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+  )
+    return spreadObjects(node.right);
+  return [];
+}
+
+/** All (key, property) pairs of an object literal, including those inside conditional spreads. */
+function collectProperties(obj) {
+  const result = [];
+  let hasOpaqueSpread = false;
+  for (const prop of obj.properties) {
+    if (ts.isSpreadAssignment(prop)) {
+      const nested = spreadObjects(prop.expression);
+      if (nested.length === 0) hasOpaqueSpread = true;
+      for (const inner of nested) {
+        const collected = collectProperties(inner);
+        result.push(...collected.properties.map((entry) => ({ ...entry, conditional: true })));
+        if (collected.hasOpaqueSpread) hasOpaqueSpread = true;
+      }
+      continue;
+    }
+    const key = propertyName(prop);
+    if (key) result.push({ key, prop, conditional: false });
+  }
+  return { properties: result, hasOpaqueSpread };
+}
+
+/** String literals a value expression can evaluate to (for enum checks). */
+function literalValues(expr) {
+  const node = unwrap(expr);
+  if (!node) return [];
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+    return [{ value: node.text, node }];
+  if (ts.isConditionalExpression(node))
+    return [...literalValues(node.whenTrue), ...literalValues(node.whenFalse)];
+  if (ts.isArrayLiteralExpression(node))
+    return node.elements.flatMap((element) => literalValues(element));
+  if (ts.isObjectLiteralExpression(node)) {
+    const values = [];
+    for (const prop of node.properties) {
+      const key = propertyName(prop);
+      if (key && ENUM_FILTER_KEYS.has(key) && ts.isPropertyAssignment(prop))
+        values.push(...literalValues(prop.initializer));
+    }
+    return values;
+  }
+  return [];
+}
+
+/**
+ * Scans a source directory and returns findings as strings:
+ *   `<relative path>:<line> <Model>.<operation> <arg>.<key>`            (unknown key)
+ *   `<relative path>:<line> <Model>.<operation> MISSING.<field>`        (required field absent)
+ *   `<relative path>:<line> <Model>.<operation> ENUM.<field>=<value>`   (invalid enum value)
+ */
+function scan(srcDir, dmmf) {
+  const { modelsByDelegate, enums } = loadDatamodel(dmmf);
+  const findings = [];
+  for (const file of listSourceFiles(srcDir)) {
+    const source = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const relative = path.relative(srcDir, file).split(path.sep).join('/');
+    const at = (node) =>
+      `${relative}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
+
+    const visit = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        OPERATIONS.has(node.expression.name.text)
+      ) {
+        const operation = node.expression.name.text;
+        const receiver = unwrap(node.expression.expression);
+        const delegate =
+          receiver && ts.isPropertyAccessExpression(receiver) ? receiver.name.text : null;
+        const model = delegate ? modelsByDelegate.get(delegate) : null;
+        const arg = unwrap(node.arguments[0]);
+        if (model && arg && ts.isObjectLiteralExpression(arg)) {
+          for (const argProp of arg.properties) {
+            const argName = propertyName(argProp);
+            if (!argName || !CHECKED_ARGS.has(argName) || !ts.isPropertyAssignment(argProp))
+              continue;
+            let body = unwrap(argProp.initializer);
+            if (body && ts.isArrayLiteralExpression(body)) body = unwrap(body.elements[0]);
+            if (!body || !ts.isObjectLiteralExpression(body)) continue;
+
+            const { properties, hasOpaqueSpread } = collectProperties(body);
+            const isCreateData =
+              (argName === 'data' && (operation === 'create' || operation === 'createMany')) ||
+              (argName === 'create' && operation === 'upsert');
+
+            if (isCreateData && !hasOpaqueSpread) {
+              const given = new Set(
+                properties.filter((entry) => !entry.conditional).map((entry) => entry.key),
+              );
+              const satisfiedByRelation = new Set();
+              for (const field of model.fields.values()) {
+                if (field.kind === 'object' && given.has(field.name))
+                  for (const fk of field.relationFromFields || []) satisfiedByRelation.add(fk);
+              }
+              for (const field of model.fields.values()) {
+                if (
+                  field.kind === 'object' ||
+                  !field.isRequired ||
+                  field.hasDefaultValue ||
+                  field.isUpdatedAt
+                )
+                  continue;
+                if (given.has(field.name) || satisfiedByRelation.has(field.name)) continue;
+                findings.push(`${at(body)} ${model.name}.${operation} MISSING.${field.name}`);
+              }
+            }
+
+            for (const { key, prop } of properties) {
+              if (LOGICAL_KEYS.has(key)) continue;
+              if (argName === 'where' && key.includes('_')) continue; // compound unique selector, e.g. tenantId_key
+              const field = model.fields.get(key);
+              if (!field) {
+                findings.push(`${at(prop)} ${model.name}.${operation} ${argName}.${key}`);
+                continue;
+              }
+              if (
+                field.kind === 'enum' &&
+                ts.isPropertyAssignment(prop) &&
+                (argName === 'data' ||
+                  argName === 'create' ||
+                  argName === 'update' ||
+                  argName === 'where')
+              ) {
+                const allowed = enums.get(field.type);
+                if (!allowed) continue;
+                for (const { value, node: literal } of literalValues(prop.initializer)) {
+                  if (!allowed.has(value))
+                    findings.push(`${at(literal)} ${model.name}.${operation} ENUM.${key}=${value}`);
+                }
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return findings;
+}
+
+module.exports = { scan, loadDatamodel, listSourceFiles };
+
+if (require.main === module) {
+  const srcDir = path.resolve(process.argv[2] || path.join(__dirname, '..', 'src'));
+  const { Prisma } = require('@prisma/client');
+  const findings = scan(srcDir, Prisma.dmmf);
+  if (findings.length > 0) {
+    console.error(`Prisma literal check: ${findings.length} finding(s) in ${srcDir}`);
+    for (const finding of findings) console.error(`  ${finding}`);
+    console.error(
+      'Fix the field/enum names against prisma/schema.prisma (keep extra data in the model Json columns).',
+    );
+    process.exit(1);
+  }
+  console.log(`Prisma literal check: OK (${listSourceFiles(srcDir).length} files)`);
+}
+```
+
+FILE: apps/api/scripts/check-route-authorization.js
+
+```javascript
+#!/usr/bin/env node
+/**
+ * Route authorization guard.
+ *
+ * The global PermissionsGuard allows any authenticated user through a route
+ * that carries no permission metadata. In the round-4 audit 400 routes in 21
+ * controllers were in that state (GDPR deletion, legal holds, partner payouts,
+ * maintenance mode, risk policy, kill switches, provider enable/disable, ...),
+ * and the payment webhooks lacked @Public() so every provider callback got
+ * 401. This script fails when a route has neither class- nor handler-level
+ * metadata (@RequirePermissions, @RequireAnyPermission, @PlatformOnly,
+ * @Public, @AllowAnyAuthenticated), unless its controller is listed below
+ * with the exact number of reviewed routes and the reason they may stay
+ * undecorated.
+ *
+ * Usage: node scripts/check-route-authorization.js [--list]
+ */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const SRC = path.resolve(__dirname, '..', 'src');
+const MARKER = /@(RequirePermissions|RequireAnyPermission|PlatformOnly|Public|AllowAnyAuthenticated)\s*\(/;
+const ROUTE = /^\s*@(Get|Post|Put|Patch|Delete)\s*\(\s*(?:(['"`])([^'"`]*)\2)?/;
+const SIGNATURE = /^\s*(?:public\s+|protected\s+)?(?:async\s+)?[A-Za-z_$][\w$]*\s*\(/;
+
+/**
+ * Reviewed controllers whose undecorated routes are intentional. `routes` is
+ * the exact number of undecorated routes: adding one fails the check so it
+ * gets reviewed.
+ */
+const REVIEWED = {
+  'modules/client-lifecycle/client-lifecycle.controller.ts': {
+    routes: 46,
+    reason: 'ownership and staff checks enforced in-handler (client-lifecycle.authorization.spec.ts)',
+  },
+  'modules/portfolio-accounting/portfolio-accounting.controller.ts': {
+    routes: 25,
+    reason: 'ownership and staff checks enforced in-handler (portfolio-accounting.authorization.spec.ts)',
+  },
+  'modules/notifications/notifications.controller.ts': {
+    routes: 6,
+    reason: "self-service: the caller's own notifications and preferences",
+  },
+  'modules/auth/two-factor.controller.ts': { routes: 4, reason: "self-service: the caller's own 2FA" },
+  'modules/auth/auth.controller.ts': { routes: 3, reason: 'self-service: logout, me, change-password' },
+  'modules/auth/sessions.controller.ts': { routes: 3, reason: "self-service: the caller's own sessions" },
+  'modules/auth/sso/sso-auth.controller.ts': {
+    routes: 1,
+    reason: "self-service: POST auth/sso/logout-url, the IdP logout URL of the caller's own current session",
+  },
+  'modules/users/users.controller.ts': { routes: 2, reason: 'self-service: GET/PATCH users/me' },
+  'modules/feature-flags/feature-flags.controller.ts': {
+    routes: 1,
+    reason: 'flags resolved for the caller (read-only)',
+  },
+};
+
+function walk(dir, out) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(full, out);
+    else if (entry.name.endsWith('.controller.ts')) out.push(full);
+  }
+  return out;
+}
+
+function scan(file) {
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const classLine = lines.findIndex((l) => /^export (abstract )?class /.test(l));
+  if (classLine < 0) return null;
+  // Class decorators: the contiguous decorator block right above `export class`
+  // (doc comments are skipped so that prose mentioning a decorator does not count).
+  let classDeco = '';
+  for (let i = classLine - 1; i >= 0; i--) {
+    const t = lines[i].trim();
+    if (t === '' || t.startsWith('*') || t.startsWith('/*') || t.startsWith('//')) {
+      if (t.startsWith('*/')) continue;
+      if (classDeco !== '' && (t.startsWith('*') || t.startsWith('/*'))) break;
+      continue;
+    }
+    if (/^import\b|^\}/.test(t) || /;\s*$/.test(t)) break;
+    classDeco = t + '\n' + classDeco;
+  }
+  const classCovered = MARKER.test(classDeco);
+  const routes = [];
+  for (let i = classLine + 1; i < lines.length; i++) {
+    const m = ROUTE.exec(lines[i]);
+    if (!m) continue;
+    let deco = '';
+    // Look backwards over the decorator block and forwards to the signature.
+    for (let j = i - 1; j > classLine; j--) {
+      const t = lines[j].trim();
+      if (t === '' || t === '}' || t.endsWith(';') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('//')) break;
+      deco += t + '\n';
+    }
+    for (let j = i + 1; j < lines.length; j++) {
+      const t = lines[j];
+      if (!t.trim().startsWith('@') && SIGNATURE.test(t)) break;
+      deco += t.trim() + '\n';
+    }
+    routes.push({ method: m[1].toUpperCase(), path: m[3] || '', line: i + 1, covered: classCovered || MARKER.test(deco) });
+  }
+  return { routes };
+}
+
+function main() {
+  const list = process.argv.includes('--list');
+  const files = walk(SRC, []).sort();
+  const problems = [];
+  let total = 0;
+  let open = 0;
+  const seenReviewed = new Set();
+  for (const file of files) {
+    const rel = path.relative(SRC, file).split(path.sep).join('/');
+    const result = scan(file);
+    if (!result) continue;
+    total += result.routes.length;
+    const undecorated = result.routes.filter((r) => !r.covered);
+    open += undecorated.length;
+    if (list && undecorated.length > 0) {
+      console.log(`${String(undecorated.length).padStart(3)}/${String(result.routes.length).padEnd(3)} ${rel}`);
+      for (const r of undecorated) console.log(`        ${r.method} ${r.path}  (line ${r.line})`);
+    }
+    const reviewed = REVIEWED[rel];
+    if (reviewed) {
+      seenReviewed.add(rel);
+      if (undecorated.length !== reviewed.routes) {
+        problems.push(
+          `${rel}: ${undecorated.length} undecorated routes, reviewed count is ${reviewed.routes} (${reviewed.reason}). ` +
+            'Decorate new routes or review and update the count.',
+        );
+      }
+      continue;
+    }
+    for (const r of undecorated) {
+      problems.push(`${rel}:${r.line} ${r.method} ${r.path} has no permission metadata (open to every authenticated user)`);
+    }
+  }
+  for (const rel of Object.keys(REVIEWED)) {
+    if (!seenReviewed.has(rel)) problems.push(`${rel}: listed as reviewed but not found; remove the entry`);
+  }
+  if (problems.length > 0) {
+    console.error(`Route authorization check FAILED (${problems.length}):`);
+    for (const p of problems) console.error(`  - ${p}`);
+    process.exit(1);
+  }
+  console.log(
+    `Route authorization check OK: ${total} routes in ${files.length} controllers; ${open} undecorated, all in reviewed controllers.`,
+  );
+}
+
+main();
 ```
 
 FILE: apps/api/src/app.module.ts
@@ -230,6 +689,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { SecurityModule } from './modules/security/security.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { ComplianceModule } from './modules/compliance/compliance.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ExecutionModule } from './modules/execution/execution.module';
@@ -237,6 +697,20 @@ import { StrategyModule } from './modules/strategy/strategy.module';
 import { DatasetsModule } from './modules/datasets/datasets.module';
 import { RiskModule } from './modules/risk/risk.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
+import { ExchangesModule } from './modules/exchanges/exchanges.module';
+import { CopyTradingModule } from './modules/copy-trading/copy-trading.module';
+import { ResearchModule } from './modules/research/research.module';
+import { RiskManagementModule } from './modules/risk-management/risk-management.module';
+import { OmsModule } from './modules/oms/oms.module';
+import { OperationsModule } from './modules/operations/operations.module';
+import { PortfolioAccountingModule } from './modules/portfolio-accounting/portfolio-accounting.module';
+import { ClientLifecycleModule } from './modules/client-lifecycle/client-lifecycle.module';
+import { CustodyModule } from './modules/custody/custody.module';
+import { DeveloperModule } from './modules/developer-platform/developer.module';
+import { GovernanceModule } from './modules/governance/governance.module';
+import { MobileReleaseModule } from './modules/mobile-release/mobile-release.module';
+import { PartnerModule } from './modules/partners/partner.module';
+import { ProviderModule } from './modules/providers/provider.module';
 
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -287,6 +761,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     AuthModule,
     FeatureFlagsModule,
     BillingModule,
+    ComplianceModule,
     NotificationsModule,
     RealtimeModule,
     ExecutionModule,
@@ -294,6 +769,20 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     DatasetsModule,
     RiskModule,
     ObservabilityModule,
+    ExchangesModule,
+    CopyTradingModule,
+    ResearchModule,
+    RiskManagementModule,
+    OmsModule,
+    OperationsModule,
+    PortfolioAccountingModule,
+    ClientLifecycleModule,
+    CustodyModule,
+    DeveloperModule,
+    GovernanceModule,
+    MobileReleaseModule,
+    PartnerModule,
+    ProviderModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: GlobalValidationPipe },
@@ -319,6 +808,165 @@ export class AppModule implements NestModule {
       // a handler are precisely the ones an incident review asks about.
       .apply(TraceMiddleware, RequestContextMiddleware, TenantResolutionMiddleware)
       .forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}
+```
+
+FILE: apps/api/src/common/__fixtures__/in-memory-prisma.fixture-spec.ts
+
+```typescript
+/**
+ * TEST-ONLY in-memory stand-in for the Prisma client delegates used through
+ * `(prisma as any).<model>`. Excluded from the production build by the
+ * `**\/*spec.ts` pattern of tsconfig.build.json and not collected by jest
+ * (the testRegex only matches `.spec.ts`).
+ *
+ * It models the parts of Prisma 5 that tenant-scoping depends on:
+ *  - `update({ where })` matches EVERY field of `where` (extended unique
+ *    where), so `{ id, tenantId }` with the wrong tenant raises P2025 exactly
+ *    like the real client instead of updating the row;
+ *  - `create` enforces the unique indexes passed to the constructor (P2002),
+ *    the way the database's unique indexes do: a string entry is a
+ *    single-column unique, a string[] entry a composite unique (for example
+ *    `['tenantId', 'idempotencyKey']`, the per-tenant idempotency index). As
+ *    in PostgreSQL, a row with NULL in any indexed column never conflicts;
+ *  - `create` assigns a random UUID `id` when the data has none, like the
+ *    schema's `@default(uuid())` (`seed` stores exactly what it is given);
+ *  - `findMany` honours `orderBy` (single field), `skip` and `take`;
+ *  - filters: equality, `null`, `not`, `lt`/`lte`/`gt`/`gte`, `in`, `OR`, `AND`.
+ */
+
+import { randomUUID } from 'crypto';
+
+export type Row = Record<string, any>;
+
+function isPlainObject(value: unknown): value is Row {
+  return typeof value === 'object' && value !== null && !(value instanceof Date) && !Array.isArray(value);
+}
+
+function comparable(value: any): any {
+  return value instanceof Date ? value.getTime() : value;
+}
+
+function isNullish(value: unknown): boolean {
+  return value === null || value === undefined;
+}
+
+export function rowMatches(row: Row, where: Row | undefined): boolean {
+  if (!where) return true;
+  for (const [key, condition] of Object.entries(where)) {
+    if (condition === undefined) continue;
+    if (key === 'AND') {
+      const all = Array.isArray(condition) ? condition : [condition];
+      if (!all.every((c: Row) => rowMatches(row, c))) return false;
+      continue;
+    }
+    if (key === 'OR') {
+      if (!(condition as Row[]).some((c) => rowMatches(row, c))) return false;
+      continue;
+    }
+    const value = row[key];
+    if (condition === null) {
+      if (!isNullish(value)) return false;
+      continue;
+    }
+    if (isPlainObject(condition)) {
+      if ('not' in condition) {
+        if (condition.not === null ? isNullish(value) : comparable(value) === comparable(condition.not)) return false;
+      }
+      if ('in' in condition && !(condition.in as any[]).map(comparable).includes(comparable(value))) return false;
+      if (isNullish(value) && ('lt' in condition || 'lte' in condition || 'gt' in condition || 'gte' in condition)) return false;
+      if ('lt' in condition && !(comparable(value) < comparable(condition.lt))) return false;
+      if ('lte' in condition && !(comparable(value) <= comparable(condition.lte))) return false;
+      if ('gt' in condition && !(comparable(value) > comparable(condition.gt))) return false;
+      if ('gte' in condition && !(comparable(value) >= comparable(condition.gte))) return false;
+      continue;
+    }
+    if (comparable(value) !== comparable(condition)) return false;
+  }
+  return true;
+}
+
+export class InMemoryPrisma {
+  private readonly tables = new Map<string, Row[]>();
+
+  /**
+   * @param uniques per delegate, its unique indexes: a column name for a
+   *   single-column unique, a column list for a composite unique.
+   */
+  constructor(private readonly uniques: Record<string, Array<string | string[]>> = {}) {
+    return new Proxy(this, {
+      get: (target, prop: string | symbol) => {
+        if (typeof prop === 'symbol' || prop in target) return (target as any)[prop];
+        return target.delegate(prop);
+      },
+    });
+  }
+
+  rows(delegate: string): Row[] {
+    if (!this.tables.has(delegate)) this.tables.set(delegate, []);
+    return this.tables.get(delegate)!;
+  }
+
+  seed(delegate: string, data: Row): Row {
+    this.assertUnique(delegate, data);
+    const row = { ...data };
+    this.rows(delegate).push(row);
+    return { ...row };
+  }
+
+  private assertUnique(delegate: string, data: Row): void {
+    for (const index of this.uniques[delegate] ?? []) {
+      const columns = Array.isArray(index) ? index : [index];
+      if (columns.some((column) => isNullish(data[column]))) continue;
+      const clash = this.rows(delegate).some((row) =>
+        columns.every((column) => comparable(row[column]) === comparable(data[column])),
+      );
+      if (clash) {
+        const fields = columns.map((column) => `\`${column}\``).join(',');
+        throw Object.assign(new Error(`Unique constraint failed on the fields: (${fields})`), {
+          code: 'P2002',
+          meta: { target: [...columns] },
+        });
+      }
+    }
+  }
+
+  private delegate(name: string) {
+    const table = () => this.rows(name);
+    return {
+      create: async ({ data }: { data: Row }) => this.seed(name, data.id === undefined ? { id: randomUUID(), ...data } : data),
+      findFirst: async ({ where }: { where?: Row } = {}) => {
+        const found = table().find((row) => rowMatches(row, where));
+        return found ? { ...found } : null;
+      },
+      findMany: async ({ where, orderBy, skip, take }: { where?: Row; orderBy?: Row; skip?: number; take?: number } = {}) => {
+        let result = table().filter((row) => rowMatches(row, where)).map((row) => ({ ...row }));
+        if (orderBy) {
+          const [field, direction] = Object.entries(orderBy)[0];
+          const sign = direction === 'desc' ? -1 : 1;
+          result = result.sort((a, b) => {
+            const x = comparable(a[field]);
+            const y = comparable(b[field]);
+            return x === y ? 0 : x < y ? -sign : sign;
+          });
+        }
+        const start = skip ?? 0;
+        return result.slice(start, take === undefined ? undefined : start + take);
+      },
+      count: async ({ where }: { where?: Row } = {}) => table().filter((row) => rowMatches(row, where)).length,
+      update: async ({ where, data }: { where: Row; data: Row }) => {
+        const row = table().find((r) => rowMatches(r, where));
+        if (!row) throw Object.assign(new Error('Record to update not found.'), { code: 'P2025' });
+        Object.assign(row, data);
+        return { ...row };
+      },
+      updateMany: async ({ where, data }: { where?: Row; data: Row }) => {
+        const targets = table().filter((row) => rowMatches(row, where));
+        for (const row of targets) Object.assign(row, data);
+        return { count: targets.length };
+      },
+    };
   }
 }
 ```
@@ -535,6 +1183,13 @@ export const RequireAnyPermission = (...permissions: Permission[]): CustomDecora
 
 /** Restricts a route to platform staff (super admins), regardless of tenant. */
 export const PlatformOnly = (): CustomDecorator<string> => SetMetadata(PLATFORM_ONLY_KEY, true);
+
+/**
+ * Explicitly open a route to any authenticated user of the tenant, overriding
+ * a class-level permission default. Use only for self-service or banner-style
+ * reads whose handler scopes the data to the caller.
+ */
+export const AllowAnyAuthenticated = (): CustomDecorator<string> => SetMetadata(PERMISSIONS_KEY, []);
 ```
 
 FILE: apps/api/src/common/decorators/public.decorator.ts
@@ -696,6 +1351,138 @@ FILE: apps/api/src/common/dto/index.ts
 ```typescript
 export * from './api-response.dto';
 export * from './pagination-query.dto';
+```
+
+FILE: apps/api/src/common/dto/pagination-params.spec.ts
+
+```typescript
+import { ValidationException } from '../errors/app.exception';
+
+import { boundedIntParam, limitParam, pageParam } from './pagination-params';
+
+/**
+ * The copy-trading, custody and research list endpoints read pagination from
+ * an untyped query with `parseInt`: `?page=0` became a negative skip (Prisma
+ * UnknownRequestError -> HTTP 500), `?limit=1000000` an unbounded read, and
+ * `?page=abc` NaN (a generic 400 without field detail).
+ */
+describe('pagination params for untyped @Query() handlers', () => {
+  it('uses the handler default when the parameter is absent', () => {
+    expect(pageParam(undefined)).toBe(1);
+    expect(pageParam('')).toBe(1);
+    expect(limitParam(undefined, 50)).toBe(50);
+    expect(limitParam(undefined)).toBe(20);
+  });
+
+  it('parses valid integers', () => {
+    expect(pageParam('3')).toBe(3);
+    expect(limitParam('100')).toBe(100);
+    expect(limitParam(' 25 ')).toBe(25);
+  });
+
+  it.each(['abc', '1.5', '-3', '2e3', '0x10'])('rejects page=%s with a validation error, not NaN', (raw) => {
+    expect(() => pageParam(raw)).toThrow(ValidationException);
+  });
+
+  it('rejects page 0, limit 0 and limit above the maximum', () => {
+    expect(() => pageParam('0')).toThrow(ValidationException);
+    expect(() => limitParam('0')).toThrow(ValidationException);
+    expect(() => limitParam('101')).toThrow(ValidationException);
+  });
+
+  it('rejects repeated parameters (?page=1&page=2 arrives as an array)', () => {
+    expect(() => pageParam(['1', '2'])).toThrow(ValidationException);
+  });
+
+  it('bounded optional integers keep "absent" as undefined and enforce the range', () => {
+    expect(boundedIntParam(undefined, 'limit', 1, 1000)).toBeUndefined();
+    expect(boundedIntParam('500', 'limit', 1, 1000)).toBe(500);
+    expect(() => boundedIntParam('1001', 'limit', 1, 1000)).toThrow(ValidationException);
+    expect(() => boundedIntParam('x', 'limit', 1, 1000)).toThrow(ValidationException);
+  });
+});
+```
+
+FILE: apps/api/src/common/dto/pagination-params.ts
+
+```typescript
+import { PAGINATION_DEFAULTS } from '@wlct/config';
+
+import { ValidationException } from '../errors/app.exception';
+
+/**
+ * Pagination for handlers that still read an untyped `@Query() query: any`
+ * (copy-trading, custody and research controllers).
+ *
+ * Those handlers used `query.page ? parseInt(query.page) : 1`. Measured on
+ * PostgreSQL 16 with Prisma 5.22:
+ *   - `?page=0` / `?page=-3` -> negative `skip` -> PrismaClientUnknownRequestError,
+ *     which no filter maps -> HTTP 500;
+ *   - `?limit=1000000` -> accepted, an unbounded read (the custody and research
+ *     services do not clamp);
+ *   - `?page=abc` -> `take`/`skip` NaN -> a generic 400 with no field detail.
+ * These helpers apply the same rules as PaginationQueryDto
+ * (page >= 1, 1 <= limit <= MAX_LIMIT) and fail with the same field-level
+ * ValidationException (422) a DTO-validated endpoint would return, before any
+ * database call.
+ */
+function parsePositiveInt(raw: unknown, field: 'page' | 'limit'): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const text = typeof raw === 'number' ? String(raw) : raw;
+  if (typeof text !== 'string' || !/^\d+$/.test(text.trim())) {
+    throw new ValidationException([
+      { field, constraint: 'isInt', message: `${field} must be an integer` },
+    ]);
+  }
+  return Number.parseInt(text.trim(), 10);
+}
+
+export function pageParam(raw: unknown, fallback: number = PAGINATION_DEFAULTS.PAGE): number {
+  const page = parsePositiveInt(raw, 'page');
+  if (page === undefined) return fallback;
+  if (page < 1) {
+    throw new ValidationException([{ field: 'page', constraint: 'min', message: 'page must be at least 1' }]);
+  }
+  return page;
+}
+
+export function limitParam(raw: unknown, fallback: number = PAGINATION_DEFAULTS.LIMIT): number {
+  const limit = parsePositiveInt(raw, 'limit');
+  if (limit === undefined) return fallback;
+  if (limit < 1) {
+    throw new ValidationException([{ field: 'limit', constraint: 'min', message: 'limit must be at least 1' }]);
+  }
+  if (limit > PAGINATION_DEFAULTS.MAX_LIMIT) {
+    throw new ValidationException([
+      {
+        field: 'limit',
+        constraint: 'max',
+        message: `limit must not exceed ${PAGINATION_DEFAULTS.MAX_LIMIT}`,
+      },
+    ]);
+  }
+  return limit;
+}
+
+/**
+ * Optional integer with explicit bounds, for limits that are not page sizes
+ * (e.g. candle counts forwarded to an exchange). Absent -> undefined so the
+ * downstream default applies.
+ */
+export function boundedIntParam(raw: unknown, field: string, min: number, max: number): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const text = typeof raw === 'number' ? String(raw) : raw;
+  if (typeof text !== 'string' || !/^\d+$/.test(text.trim())) {
+    throw new ValidationException([{ field, constraint: 'isInt', message: `${field} must be an integer` }]);
+  }
+  const value = Number.parseInt(text.trim(), 10);
+  if (value < min || value > max) {
+    throw new ValidationException([
+      { field, constraint: 'range', message: `${field} must be between ${min} and ${max}` },
+    ]);
+  }
+  return value;
+}
 ```
 
 FILE: apps/api/src/common/dto/pagination-query.dto.ts
@@ -904,6 +1691,468 @@ FILE: apps/api/src/common/errors/index.ts
 export * from './app.exception';
 ```
 
+FILE: apps/api/src/common/errors/prisma-not-found.ts
+
+```typescript
+import { Prisma } from '@prisma/client';
+
+/**
+ * True when `error` is Prisma's "record to update/delete does not exist"
+ * (P2025) - the one storage error that legitimately means "not found".
+ *
+ * Repository update/delete methods that answer `null` (or `false`) for a
+ * missing row use this to keep that answer while letting every other storage
+ * failure propagate: a lost connection, a statement timeout or an RLS denial
+ * is an error, not "not found", and the global PrismaExceptionFilter maps it
+ * to the right HTTP status without leaking the driver message.
+ *
+ * Besides the real PrismaClientKnownRequestError, any error object carrying
+ * `code: 'P2025'` is recognised (test doubles raise plain objects, and some
+ * suites replace @prisma/client entirely, so the class may be absent).
+ */
+export function isRecordNotFound(error: unknown): boolean {
+  const KnownRequestError = (Prisma as { PrismaClientKnownRequestError?: unknown } | undefined)
+    ?.PrismaClientKnownRequestError;
+  if (typeof KnownRequestError === 'function' && error instanceof (KnownRequestError as new (...args: never[]) => object)) {
+    return (error as { code?: unknown }).code === 'P2025';
+  }
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2025';
+}
+```
+
+FILE: apps/api/src/common/fail-soft-reads.spec.ts
+
+```typescript
+import { readdirSync, readFileSync, statSync } from 'fs';
+import { join, relative } from 'path';
+import { Prisma } from '@prisma/client';
+
+import { isRecordNotFound } from './errors/prisma-not-found';
+import { PaymentRepository } from '../modules/billing/payments/payment.repository';
+import { AccountRestrictionService } from '../modules/client-lifecycle/account-restriction.service';
+import { AccountingPeriodService } from '../modules/portfolio-accounting/accounting-period.service';
+import { SessionSecurityService } from '../modules/security/session-security.service';
+import { SsoProviderFactory } from '../modules/security/sso-provider.factory';
+import { CopySubscriptionRepository } from '../modules/copy-trading/copy-subscription.repository';
+import { DependencyHealthService } from '../modules/operations/dependency-health.service';
+import { OperationalMetricsService } from '../modules/operations/operational-metrics.service';
+import { CostBasisService } from '../modules/portfolio-accounting/cost-basis.service';
+import { ReconciliationOrchestratorService } from '../modules/operations/reconciliation-orchestrator.service';
+
+/**
+ * Fail-soft reads (round 8).
+ *
+ * A database read that fails is an error, not "no rows". Before this change
+ * about 300 data-access methods caught every storage error and answered an
+ * empty list, null, 0 or false, so an outage looked like "nothing there" -
+ * and four of those answers failed OPEN: a restriction check said "not
+ * restricted", a closed-period check said "open", a session-revocation check
+ * said "not revoked" and an SSO-enforcement check said "not enforced".
+ *
+ * The methods now let the error propagate (the global PrismaExceptionFilter
+ * maps it to a status without leaking the driver message); update/delete
+ * methods keep `null`/`false` only for Prisma P2025 (record not found).
+ *
+ * The last block is a guard: it scans every non-spec module file for the
+ * catch-everything-and-answer-empty shape and compares the result with an
+ * explicit allowlist, so a new fail-soft read cannot be added silently.
+ */
+
+const STORAGE_DOWN = new Error('connection terminated unexpectedly');
+
+describe('isRecordNotFound', () => {
+  it('recognises Prisma P2025 as "not found"', () => {
+    const known = new Prisma.PrismaClientKnownRequestError('Record to update not found.', {
+      code: 'P2025',
+      clientVersion: 'test',
+    });
+    expect(isRecordNotFound(known)).toBe(true);
+    expect(isRecordNotFound({ code: 'P2025' })).toBe(true);
+  });
+
+  it('treats every other failure as an error', () => {
+    const unique = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: 'test',
+    });
+    expect(isRecordNotFound(unique)).toBe(false);
+    expect(isRecordNotFound(STORAGE_DOWN)).toBe(false);
+    expect(isRecordNotFound({ code: '57014' })).toBe(false);
+    expect(isRecordNotFound(null)).toBe(false);
+    expect(isRecordNotFound(undefined)).toBe(false);
+    expect(isRecordNotFound('P2025')).toBe(false);
+  });
+});
+
+describe('fail-open checks now fail closed (the error propagates)', () => {
+  it('AccountRestrictionService.hasRestriction: a failed read is not "no restriction"', async () => {
+    const prisma = { accountRestriction: { findFirst: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const service = new AccountRestrictionService(prisma as any, {} as any);
+    await expect(
+      service.hasRestriction({ tenantId: 't1', accountId: 'a1', restrictionType: 'TRADING_BLOCK' as any }),
+    ).rejects.toBe(STORAGE_DOWN);
+  });
+
+  it('AccountRestrictionService.hasRestriction still answers true/false from a successful read', async () => {
+    const findFirst = jest.fn().mockResolvedValueOnce({ id: 'r1' }).mockResolvedValueOnce(null);
+    const service = new AccountRestrictionService({ accountRestriction: { findFirst } } as any, {} as any);
+    const params = { tenantId: 't1', accountId: 'a1', restrictionType: 'TRADING_BLOCK' as any };
+    await expect(service.hasRestriction(params)).resolves.toBe(true);
+    await expect(service.hasRestriction(params)).resolves.toBe(false);
+  });
+
+  it('AccountingPeriodService.isPeriodClosed: a failed read is not "period open"', async () => {
+    const prisma = { portfolioAccountingPeriod: { findFirst: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const service = new AccountingPeriodService(prisma as any, {} as any);
+    await expect(service.isPeriodClosed({ tenantId: 't1', profileId: 'p1', at: new Date() })).rejects.toBe(STORAGE_DOWN);
+  });
+
+  it('SessionSecurityService.isSessionRevoked: a failed read is not "not revoked"', async () => {
+    const prisma = { userSession: { findUnique: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const cache = { get: jest.fn().mockResolvedValue(null) };
+    const service = new SessionSecurityService(prisma as any, {} as any, {} as any, {} as any, cache as any);
+    await expect(service.isSessionRevoked('s1')).rejects.toBe(STORAGE_DOWN);
+  });
+
+  it('SessionSecurityService.isSessionRevoked still honours the cache and the stored revokedAt', async () => {
+    const findUnique = jest.fn().mockResolvedValue({ revokedAt: new Date() });
+    const cache = { get: jest.fn().mockResolvedValueOnce({ reason: 'x' }).mockResolvedValueOnce(null) };
+    const service = new SessionSecurityService({ userSession: { findUnique } } as any, {} as any, {} as any, {} as any, cache as any);
+    await expect(service.isSessionRevoked('s1')).resolves.toBe(true);
+    await expect(service.isSessionRevoked('s1')).resolves.toBe(true);
+    expect(findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('SessionSecurityService.revokeAllSessions: a failed read is not "0 sessions revoked"', async () => {
+    const prisma = { userSession: { findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const service = new SessionSecurityService(prisma as any, {} as any, {} as any, {} as any, { set: jest.fn() } as any);
+    await expect(service.revokeAllSessions({ userId: 'u1', tenantId: 't1', reason: 'password_changed' })).rejects.toBe(
+      STORAGE_DOWN,
+    );
+  });
+
+  it('SsoProviderFactory.isSsoEnforced / listTenantProviders: a failed read is not "SSO not enforced"', async () => {
+    const prisma = {
+      ssoConfiguration: {
+        findFirst: jest.fn().mockRejectedValue(STORAGE_DOWN),
+        findMany: jest.fn().mockRejectedValue(STORAGE_DOWN),
+      },
+    };
+    const factory = new SsoProviderFactory(prisma as any, {} as any, {} as any);
+    await expect(factory.isSsoEnforced('t1')).rejects.toBe(STORAGE_DOWN);
+    await expect(factory.listTenantProviders('t1')).rejects.toBe(STORAGE_DOWN);
+  });
+});
+
+describe('fail-soft reads now propagate', () => {
+  it('PaymentRepository lookups used by webhooks and idempotent retries do not report "no such payment" on failure', async () => {
+    const prisma = { payment: { findFirst: jest.fn().mockRejectedValue(STORAGE_DOWN), findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const repository = new PaymentRepository(prisma as any);
+    await expect(repository.findByIdempotencyKey('idem-1', 't1')).rejects.toBe(STORAGE_DOWN);
+    await expect(repository.findByProviderPaymentId('pi_1', 'STRIPE' as any)).rejects.toBe(STORAGE_DOWN);
+    await expect(repository.list({ tenantId: 't1' } as any)).rejects.toBe(STORAGE_DOWN);
+  });
+
+  it('PaymentRepository still answers null for a payment that is really absent', async () => {
+    const prisma = { payment: { findFirst: jest.fn().mockResolvedValue(null) } };
+    await expect(new PaymentRepository(prisma as any).findByIdempotencyKey('idem-1', 't1')).resolves.toBeNull();
+  });
+
+  it('CostBasisService does not compute FIFO cost basis against an unread lot list', async () => {
+    const prisma = { portfolioPositionLot: { findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const policy = { resolvePolicy: jest.fn().mockResolvedValue({}) };
+    const service = new CostBasisService(prisma as any, {} as any, policy as any);
+    await expect(
+      service.calculateCostBasisForFill({
+        tenantId: 't1',
+        profileId: 'p1',
+        fill: {},
+        symbol: 'BTCUSDT',
+        quantity: '1',
+        price: '100',
+        side: 'SELL',
+        occurredAt: new Date(),
+        accountingEventId: 'e1',
+      }),
+    ).rejects.toBe(STORAGE_DOWN);
+  });
+
+  it('OperationalMetricsService does not publish zeros as measured observations', async () => {
+    const prisma = { operationalIncident: { findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const service = new OperationalMetricsService(prisma as any);
+    await expect(service.calculateMetrics({ tenantId: 't1', from: new Date(Date.now() - 3600_000), to: new Date() })).rejects.toBe(
+      STORAGE_DOWN,
+    );
+  });
+});
+
+describe('update methods keep "not found" only for P2025', () => {
+  it('CopySubscriptionRepository.updateState answers null for a missing row', async () => {
+    const prisma = { copySubscription: { update: jest.fn().mockRejectedValue({ code: 'P2025' }) } };
+    await expect(new CopySubscriptionRepository(prisma as any).updateState('s1', 't1', 'PAUSED' as any)).resolves.toBeNull();
+  });
+
+  it('CopySubscriptionRepository.updateState propagates any other failure', async () => {
+    const prisma = { copySubscription: { update: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    await expect(new CopySubscriptionRepository(prisma as any).updateState('s1', 't1', 'PAUSED' as any)).rejects.toBe(
+      STORAGE_DOWN,
+    );
+  });
+});
+
+describe('health and reconciliation report a failed read as a failure, not as clean', () => {
+  it('DependencyHealthService.checkRisk is UNKNOWN (not HEALTHY with 0 policies) when the read fails', async () => {
+    const prisma = { institutionalRiskPolicy: { count: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const service = new DependencyHealthService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+    const result = await service.checkRisk('t1');
+    expect(result.state).toBe('UNKNOWN');
+    expect(result.errorCode).toBe('RISK_CHECK_FAILED');
+  });
+
+  it('DependencyHealthService.checkRisk is HEALTHY with the real count when the read succeeds', async () => {
+    const prisma = { institutionalRiskPolicy: { count: jest.fn().mockResolvedValue(3) } };
+    const service = new DependencyHealthService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+    const result = await service.checkRisk('t1');
+    expect(result.state).toBe('HEALTHY');
+    expect(result.evidence).toEqual(expect.objectContaining({ policyCount: 3 }));
+  });
+
+  it('ReconciliationOrchestratorService: an unreadable OMS order table is FAILED, not SUCCEEDED with 0 mismatches', async () => {
+    const prisma = { omsOrderIntent: { findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const service = new ReconciliationOrchestratorService(prisma as any, {} as any, {} as any, {} as any);
+    const result = await (service as any).reconcileOmsOrder('t1');
+    expect(result.status).toBe('FAILED');
+    expect(result.itemsChecked).toBe(0);
+  });
+
+  it('ReconciliationOrchestratorService: a readable table still reconciles', async () => {
+    const prisma = { omsOrderIntent: { findMany: jest.fn().mockResolvedValue([{ id: 'o1' }]) } };
+    const service = new ReconciliationOrchestratorService(prisma as any, {} as any, {} as any, {} as any);
+    const result = await (service as any).reconcileOmsOrder('t1');
+    expect(result.status).toBe('SUCCEEDED');
+    expect(result.mismatchesFound).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard: the catch-everything-and-answer-empty shape, per module file.
+// ---------------------------------------------------------------------------
+
+const MODULES_ROOT = join(__dirname, '..', 'modules');
+
+/**
+ * Every remaining `try { ... } catch { [log;] return <empty>; }` in a module
+ * file, with the reason it is not a fail-soft storage read. Counts are exact:
+ * adding a site fails this spec, and so does removing one without updating
+ * the list (so the list cannot drift from the code).
+ */
+const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
+  'billing/analytics/analytics-cache.service.ts': { count: 4, reason: 'cache get/invalidate; a cache miss or failure falls back to computing the value' },
+  'billing/analytics/revenue-cohort.service.ts': { count: 1, reason: 'cohort key derivation from a date (pure computation)' },
+  'billing/entitlements/entitlement.resolver.ts': { count: 3, reason: 'EntitlementResolver is exported but not registered in any Nest module (no route reaches it)' },
+  'billing/fees/fee-analytics.service.ts': { count: 1, reason: 'parsing a decimal string into minor units' },
+  'billing/fees/payout-provider.factory.ts': { count: 1, reason: 'provider availability probe; unavailable is the fail-closed answer' },
+  'billing/finance/invoice-number.service.ts': { count: 2, reason: 'Redis sequence readers with no callers (numbers are allocated elsewhere)' },
+  'billing/limits/limit.resolver.ts': { count: 3, reason: 'LimitResolver is exported but not registered in any Nest module (no route reaches it)' },
+  'billing/notifications/notification-worker.service.ts': { count: 1, reason: 'worker loop: logs the (now propagated) repository error and retries on the next tick' },
+  'billing/notifications/push-notification.service.ts': { count: 1, reason: 'optional firebase-admin module import' },
+  'billing/payments/payment-provider.factory.ts': { count: 1, reason: 'provider enabled flag from config; disabled is the fail-closed answer' },
+  'billing/payments/webhook.signature.ts': { count: 2, reason: 'reading id/type fields from an already-parsed provider event' },
+  'oms/allocation.service.ts': { count: 1, reason: 'multi-step write flow that logs its failure (write side, not a read)' },
+  'oms/execution-latency.service.ts': { count: 1, reason: 'parsing a microsecond string' },
+  'oms/execution-quality.service.ts': { count: 1, reason: 'parsing a scaled decimal' },
+  'oms/order-submission-result.service.ts': { count: 1, reason: 'JSON.parse of a queue return value' },
+  'compliance/compliance-case.repository.ts': { count: 1, reason: 'reviewer assignment write flow that logs its failure (write side)' },
+  'compliance/transaction-monitoring.service.ts': { count: 1, reason: 'signal acknowledgement updateMany that logs its failure (write side)' },
+  'copy-trading/copy-execution.repository.ts': { count: 1, reason: 'status-transition write that logs its failure (write side)' },
+  'copy-trading/copy-execution.service.ts': { count: 5, reason: 'fail-closed pre-trade guards: a failed lookup BLOCKS the leader event and logs it' },
+  'custody/custody-audit.service.ts': { count: 1, reason: 'audit record create that logs its failure (write side)' },
+  'exchanges/exchange-rate-limit.service.ts': { count: 1, reason: 'rate-limit state from the cache (status read, not storage)' },
+  'exchanges/exchange-symbol.service.ts': { count: 1, reason: 'symbol string parsing' },
+  'exchanges/secret-store.ts': { count: 1, reason: 'reading VAULT_TOKEN_FILE; a missing token then fails closed with NOT_CONFIGURED' },
+  'governance/compliance-report-template.service.ts': { count: 1, reason: 'in-memory template lookup' },
+  'health/trading-readiness.service.ts': { count: 1, reason: 'queue-depth samples from Redis for a metrics sampler' },
+  'mobile-release/mobile-artifact-verification.service.ts': { count: 1, reason: 'timingSafeEqual on hex digests of different length' },
+  'mobile-release/mobile-build-validation.service.ts': { count: 1, reason: 'file existence check on the build host' },
+  'observability/observability.mapper.ts': { count: 3, reason: 'JSON.parse of stored evidence text' },
+  'observability/observability.service.ts': { count: 1, reason: 'queue-depth samples from Redis for a dashboard' },
+  'operations/incident-escalation.service.ts': { count: 2, reason: 'escalation sweep and transition: cron-driven, logged, retried on the next run' },
+  'portfolio-accounting/attribution.service.ts': { count: 1, reason: 'derived attribution record create that logs its failure (write side)' },
+  'portfolio-accounting/performance.service.ts': { count: 1, reason: 'derived performance record create that logs its failure (write side)' },
+  'portfolio-accounting/valuation.service.ts': { count: 1, reason: 'derived valuation record create that logs its failure (write side)' },
+  'providers/provider-webhook.service.ts': { count: 4, reason: 'webhook signature verification (false = reject) and body parsing' },
+  'research/market-data-service.ts': { count: 1, reason: 'market-data provider availability probe (gated provider)' },
+  'research/research-repository.ts': { count: 1, reason: 'research audit-log create (write side)' },
+  'risk/risk-state.service.ts': { count: 1, reason: 'parsing a stored policy document' },
+  'security/sso-flow.types.ts': { count: 1, reason: 'URL parsing' },
+};
+
+/**
+ * Every remaining promise-style `.catch(() => <empty>)` in a module file.
+ * None of them swallows a read the caller then treats as data.
+ */
+const ALLOWED_PROMISE_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
+  'billing/finance/vies-vat.client.ts': { count: 1, reason: 'parsing a provider response body' },
+  'billing/notifications/email-notification.provider.ts': { count: 1, reason: 'optional nodemailer module import' },
+  'billing/notifications/push-notification.service.ts': { count: 1, reason: 'optional firebase-admin module import' },
+  'billing/notifications/twilio-sms.provider.ts': { count: 1, reason: 'parsing a provider response body' },
+  'billing/payments/checkout.service.ts': { count: 1, reason: 'secondary mark-failed write inside an error path that then reports the failure' },
+  'billing/saas-admin/tenant-feature-access.service.ts': { count: 1, reason: 'best-effort audit of a read-only feature check' },
+  'datasets/dataset-ingestion.service.ts': { count: 2, reason: 'secondary writes inside an error path that then throws ServiceUnavailable' },
+  'developer-platform/developer.module.ts': { count: 1, reason: 'draining a webhook test response body' },
+  'exchanges/secret-store.ts': { count: 2, reason: 'parsing a Vault response body' },
+  'oms/fill-management.service.ts': { count: 1, reason: 'canonical-order fallback path (round 7 item B), not the primary read' },
+  'oms/order-submission-result.service.ts': { count: 3, reason: 'queue-events close on shutdown and BullMQ job lookups (a removed job is absent)' },
+  'operations/dependency-health.service.ts': { count: 1, reason: 'checkOms: a failed count is reported as MISCONFIGURED, not as healthy' },
+  'operations/job-health.service.ts': { count: 1, reason: 'queue-depth metadata (unused by the evaluation)' },
+  'operations/reconciliation-orchestrator.service.ts': { count: 1, reason: 'lock acquisition: no lock means the run is skipped and logged' },
+  'operations/reconciliation-schedule.service.ts': { count: 1, reason: 'lock acquisition: no lock means the run is skipped and logged' },
+  'operations/recovery-plan.service.ts': { count: 2, reason: 'lock acquisition, and a Redis health probe that reports ok:false' },
+  'partners/partner-settlement.service.ts': { count: 1, reason: 'in-memory ledger fallback path after a failed transaction' },
+  'providers/provider-health.service.ts': { count: 1, reason: 'buyer-gated payment-provider HTTP probe' },
+  'queue/processors/maintenance.processor.ts': { count: 2, reason: 'best-effort SLO sample counters' },
+  'queue/queue.service.ts': { count: 1, reason: 'best-effort tracing sidecar capture' },
+  'worker/trade-execution.processor.ts': { count: 2, reason: 'best-effort SLO sample counters' },
+};
+
+function listModuleFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) {
+      out.push(...listModuleFiles(full));
+    } else if (name.endsWith('.ts') && !name.includes('.spec.') && !name.includes('fixture')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+function skipString(s: string, i: number): number {
+  const quote = s[i];
+  i += 1;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '\\') {
+      i += 2;
+      continue;
+    }
+    if (quote === '`' && c === '$' && s[i + 1] === '{') {
+      i = matchBrace(s, i + 1) + 1;
+      continue;
+    }
+    if (c === quote) return i + 1;
+    i += 1;
+  }
+  return i;
+}
+
+/** Index of the `}` matching the `{` at `open` (strings, template literals and comments skipped). */
+function matchBrace(s: string, open: number): number {
+  let depth = 0;
+  let i = open;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '"' || c === "'" || c === '`') {
+      i = skipString(s, i);
+      continue;
+    }
+    if (s.startsWith('//', i)) {
+      const nl = s.indexOf('\n', i);
+      i = nl < 0 ? s.length : nl;
+      continue;
+    }
+    if (s.startsWith('/*', i)) {
+      const end = s.indexOf('*/', i);
+      i = end < 0 ? s.length : end + 2;
+      continue;
+    }
+    if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+const EMPTY_RETURN =
+  /^return\s*(\[\]|null|undefined|0|false|\{\s*\}|\{[^{}]*:\s*\[\][^{}]*\}|\{\s*(data|items)\s*:\s*\[\][^{}]*\})\s*;?$/;
+
+function stripComments(code: string): string {
+  return code.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+function countTryCatchEmpty(source: string): number {
+  let count = 0;
+  const tryRe = /\btry\s*\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = tryRe.exec(source)) !== null) {
+    const tryOpen = m.index + m[0].length - 1;
+    const tryClose = matchBrace(source, tryOpen);
+    if (tryClose < 0) continue;
+    const catchHead = /^\s*catch\s*(\(\s*(\w+)[^)]*\))?\s*\{/.exec(source.slice(tryClose + 1));
+    if (!catchHead) continue;
+    const catchOpen = tryClose + 1 + catchHead[0].length - 1;
+    const catchClose = matchBrace(source, catchOpen);
+    const body = stripComments(source.slice(catchOpen + 1, catchClose)).trim();
+    const statements = body
+      .split(/;\s*\n|\n/)
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0);
+    const rest = statements.filter((x) => !x.startsWith('this.logger') && !x.startsWith('logger'));
+    if (rest.length === 1 && EMPTY_RETURN.test(rest.join(' '))) count += 1;
+  }
+  return count;
+}
+
+const PROMISE_CATCH_EMPTY = /\.catch\(\s*(\([^)]*\))?\s*=>\s*(\[\]|null|0|false|undefined|'0'|\(\{|\{\s*\}|null as any)/g;
+
+function scan(counter: (source: string) => number): Record<string, number> {
+  const found: Record<string, number> = {};
+  for (const file of listModuleFiles(MODULES_ROOT)) {
+    const n = counter(readFileSync(file, 'utf8'));
+    if (n > 0) found[relative(MODULES_ROOT, file).split('\\').join('/')] = n;
+  }
+  return found;
+}
+
+function expectedCounts(list: Record<string, { count: number; reason: string }>): Record<string, number> {
+  return Object.fromEntries(Object.entries(list).map(([file, entry]) => [file, entry.count]));
+}
+
+describe('guard: no new fail-soft reads in module code', () => {
+  it('every try/catch that answers an empty value is on the reviewed allowlist (exact counts)', () => {
+    expect(scan(countTryCatchEmpty)).toEqual(expectedCounts(ALLOWED_TRY_CATCH_EMPTY));
+  });
+
+  it('every promise .catch that answers an empty value is on the reviewed allowlist (exact counts)', () => {
+    expect(scan((source) => (source.match(PROMISE_CATCH_EMPTY) ?? []).length)).toEqual(
+      expectedCounts(ALLOWED_PROMISE_CATCH_EMPTY),
+    );
+  });
+
+  it('every allowlist entry states a reason', () => {
+    for (const entry of [...Object.values(ALLOWED_TRY_CATCH_EMPTY), ...Object.values(ALLOWED_PROMISE_CATCH_EMPTY)]) {
+      expect(entry.reason.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('the scanner sees the shape it guards against (self-test)', () => {
+    const failSoft = "async f() {\n  try {\n    return await this.prisma.x.findMany();\n  } catch {\n    return [];\n  }\n}\n";
+    const logged = "async f() {\n  try {\n    return await this.prisma.x.findFirst();\n  } catch (e) {\n    this.logger.warn(`x ${e}`);\n    return null;\n  }\n}\n";
+    const rethrow = "async f() {\n  try {\n    return await this.prisma.x.findMany();\n  } catch (e) {\n    this.logger.warn('x');\n    throw e;\n  }\n}\n";
+    const braceInString = "async f() {\n  try {\n    const s = `{${'}'}`;\n    return s;\n  } catch {\n    return { data: [], total: 0 };\n  }\n}\n";
+    expect(countTryCatchEmpty(failSoft)).toBe(1);
+    expect(countTryCatchEmpty(logged)).toBe(1);
+    expect(countTryCatchEmpty(rethrow)).toBe(0);
+    expect(countTryCatchEmpty(braceInString)).toBe(1);
+    expect('await this.prisma.x.findMany().catch(() => []);'.match(PROMISE_CATCH_EMPTY)?.length).toBe(1);
+  });
+});
+```
+
 FILE: apps/api/src/common/filters/global-exception.filter.ts
 
 ```typescript
@@ -1019,6 +2268,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       };
     }
 
+    const providerFailure = this.resolveExchangeProviderError(exception);
+    if (providerFailure) {
+      return providerFailure;
+    }
+
     if (exception instanceof ThrottlerException) {
       return {
         statusCode: HttpStatus.TOO_MANY_REQUESTS,
@@ -1056,6 +2310,107 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     };
   }
 
+  /**
+   * A venue refusing a key, throttling us or being unreachable is an expected
+   * outcome of talking to an exchange, not a bug in this service, so it must
+   * reach the client as the matching 4xx/503 instead of a generic 500. The
+   * error is recognised by name so the common layer never imports a feature
+   * module, and only a fixed, safe message is returned - never the venue's
+   * raw response text.
+   */
+  private resolveExchangeProviderError(exception: unknown): {
+    statusCode: number;
+    code: ErrorCode;
+    message: string;
+    context: Record<string, unknown>;
+    stack?: string;
+    internalMessage: string;
+  } | null {
+    if (!(exception instanceof Error) || exception.name !== 'ExchangeProviderError') {
+      return null;
+    }
+    const providerCode = String((exception as Error & { code?: unknown }).code ?? 'UNKNOWN');
+    const venue = (exception as Error & { venue?: unknown }).venue;
+    const mapped = GlobalExceptionFilter.EXCHANGE_PROVIDER_ERROR_MAP[providerCode] ?? {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange could not be reached. Please try again shortly.',
+    };
+    return {
+      statusCode: mapped.status,
+      code: mapped.code,
+      message: mapped.message,
+      context: { providerCode, ...(typeof venue === 'string' ? { venue } : {}) },
+      stack: exception.stack,
+      internalMessage: exception.message,
+    };
+  }
+
+  private static readonly EXCHANGE_PROVIDER_ERROR_MAP: Readonly<
+    Record<string, { code: ErrorCode; status: number; message: string }>
+  > = Object.freeze({
+    AUTH_FAILED: {
+      code: ErrorCode.EXCHANGE_CREDENTIALS_INVALID,
+      status: HttpStatus.BAD_REQUEST,
+      message: 'The exchange rejected these API credentials. Check the key, secret and environment.',
+    },
+    INVALID_CREDENTIALS: {
+      code: ErrorCode.EXCHANGE_CREDENTIALS_INVALID,
+      status: HttpStatus.BAD_REQUEST,
+      message: 'The exchange rejected these API credentials. Check the key, secret and environment.',
+    },
+    ENVIRONMENT_MISMATCH: {
+      code: ErrorCode.EXCHANGE_CREDENTIALS_INVALID,
+      status: HttpStatus.BAD_REQUEST,
+      message: 'These credentials belong to a different exchange environment (live vs testnet).',
+    },
+    PERMISSION_DENIED: {
+      code: ErrorCode.EXCHANGE_PERMISSION_DENIED,
+      status: HttpStatus.FORBIDDEN,
+      message: 'The API key does not have the permissions this action needs.',
+    },
+    WITHDRAWAL_NOT_ALLOWED: {
+      code: ErrorCode.EXCHANGE_PERMISSION_DENIED,
+      status: HttpStatus.FORBIDDEN,
+      message: 'API keys with withdrawal permission are refused. Create a key without withdrawal rights.',
+    },
+    NOT_SUPPORTED: {
+      code: ErrorCode.EXCHANGE_NOT_SUPPORTED,
+      status: HttpStatus.BAD_REQUEST,
+      message: 'This exchange or feature is not supported.',
+    },
+    RATE_LIMITED: {
+      code: ErrorCode.EXCHANGE_RATE_LIMITED,
+      status: HttpStatus.TOO_MANY_REQUESTS,
+      message: 'The exchange is rate limiting requests. Please try again shortly.',
+    },
+    NETWORK_ERROR: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange could not be reached. Please try again shortly.',
+    },
+    TIMEOUT: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange did not respond in time. Please try again shortly.',
+    },
+    SERVER_ERROR: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange could not be reached. Please try again shortly.',
+    },
+    PROVIDER_UNAVAILABLE: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange could not be reached. Please try again shortly.',
+    },
+    CLOCK_DRIFT: {
+      code: ErrorCode.EXCHANGE_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      message: 'The exchange refused the request because of a clock difference. Please try again shortly.',
+    },
+  });
+
   private mapStatusToCode(status: number): ErrorCode {
     switch (status) {
       case HttpStatus.BAD_REQUEST:
@@ -1092,6 +2447,112 @@ export * from './global-exception.filter';
 export * from './prisma-exception.filter';
 ```
 
+FILE: apps/api/src/common/filters/prisma-exception.filter.spec.ts
+
+```typescript
+import { HttpStatus, type ArgumentsHost } from '@nestjs/common';
+import type { HttpAdapterHost } from '@nestjs/core';
+import { Prisma } from '@prisma/client';
+import type { PinoLogger } from 'nestjs-pino';
+
+import type { AppConfigService } from '../../config/app-config.service';
+
+import { PrismaExceptionFilter, postgresSqlState } from './prisma-exception.filter';
+
+/**
+ * The P2023 fixtures are the exact code/meta/message Prisma 5.22 produced on
+ * PostgreSQL 16 for `traderProfile.findFirst({ where: { id: 'not-a-uuid' } })`.
+ * Before the fix this fell through to the default branch: HTTP 500 for any
+ * request with a malformed id in a path parameter that has no ParseUuidPipe.
+ */
+describe('PrismaExceptionFilter', () => {
+  function run(exception: Error) {
+    const reply = jest.fn();
+    const filter = new PrismaExceptionFilter(
+      { httpAdapter: { reply } } as unknown as HttpAdapterHost,
+      { defaultApiVersion: '1' } as unknown as AppConfigService,
+      { error: jest.fn() } as unknown as PinoLogger,
+    );
+    const host = {
+      switchToHttp: () => ({ getRequest: () => ({ requestId: 'req-1' }), getResponse: () => ({}) }),
+    } as unknown as ArgumentsHost;
+    filter.catch(exception, host);
+    const [, body, status] = reply.mock.calls[0] as [unknown, { error: { code: string; message: string } }, number];
+    return { status, body };
+  }
+
+  const known = (code: string, message: string, meta?: Record<string, unknown>) =>
+    new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: '5.22.0', meta });
+
+  const UUID_MESSAGE =
+    'Error creating UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `n` at 1';
+
+  it('maps a malformed UUID (P2023) to 400 without leaking the driver message', () => {
+    const { status, body } = run(
+      known('P2023', `\nInvalid \`prisma.traderProfile.findFirst()\` invocation:\n\nInconsistent column data: ${UUID_MESSAGE}`, {
+        modelName: 'TraderProfile',
+        message: UUID_MESSAGE,
+      }),
+    );
+    expect(status).toBe(HttpStatus.BAD_REQUEST);
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toBe('A malformed identifier was supplied.');
+    expect(JSON.stringify(body)).not.toContain('TraderProfile');
+  });
+
+  it('keeps other P2023 data inconsistencies as 500', () => {
+    const { status } = run(known('P2023', 'Inconsistent column data: Could not convert value "abc" of the field `amount`'));
+    expect(status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+  });
+
+  it('keeps the existing mappings', () => {
+    expect(run(known('P2002', 'Unique constraint failed')).status).toBe(HttpStatus.CONFLICT);
+    expect(run(known('P2025', 'Record not found')).status).toBe(HttpStatus.NOT_FOUND);
+    expect(run(new Prisma.PrismaClientValidationError('Argument `take` is missing.', { clientVersion: '5.22.0' })).status).toBe(
+      HttpStatus.BAD_REQUEST,
+    );
+    expect(run(known('P2010', 'Raw query failed')).status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+  });
+
+  // Exact shape produced by Prisma 5.22 on PostgreSQL 17 (round-7 probe: FORCE ROW LEVEL SECURITY
+  // on custody_wallets, insert by a NOBYPASSRLS role without app.tenant_id).
+  const unknown = (sqlState: string, text: string) =>
+    new Prisma.PrismaClientUnknownRequestError(
+      `\nInvalid \`prisma.custodyWallet.create()\` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "${sqlState}", message: "${text}", severity: "ERROR", detail: None, column: None, hint: None }), transient: false })`,
+      { clientVersion: '5.22.0' },
+    );
+
+  it('maps a row-level security rejection (SQLSTATE 42501) to 403 without leaking the table', () => {
+    const { status, body } = run(unknown('42501', 'new row violates row-level security policy for table \\"custody_wallets\\"'));
+    expect(status).toBe(HttpStatus.FORBIDDEN);
+    expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.message).toBe('The operation is not permitted in this tenant context.');
+    expect(JSON.stringify(body)).not.toContain('custody_wallets');
+    expect(JSON.stringify(body)).not.toContain('row-level');
+  });
+
+  it('maps serialization failures and deadlocks to 409 and statement timeouts to 503', () => {
+    expect(run(unknown('40001', 'could not serialize access due to concurrent update')).status).toBe(HttpStatus.CONFLICT);
+    expect(run(unknown('40P01', 'deadlock detected')).status).toBe(HttpStatus.CONFLICT);
+    expect(run(unknown('57014', 'canceling statement due to statement timeout')).status).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+  });
+
+  it('keeps any other unknown request error a generic 500', () => {
+    const { status, body } = run(unknown('22P02', 'invalid input syntax for type json'));
+    expect(status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    expect(body.error.message).toBe('An unexpected database error occurred.');
+    expect(run(new Prisma.PrismaClientUnknownRequestError('engine said something odd', { clientVersion: '5.22.0' })).status).toBe(
+      HttpStatus.INTERNAL_SERVER_ERROR,
+    );
+  });
+
+  it('extracts the SQLSTATE and nothing else', () => {
+    expect(postgresSqlState(unknown('42501', 'x'))).toBe('42501');
+    expect(postgresSqlState(new Prisma.PrismaClientUnknownRequestError('no code here', { clientVersion: '5.22.0' }))).toBeUndefined();
+  });
+});
+```
+
 FILE: apps/api/src/common/filters/prisma-exception.filter.ts
 
 ```typescript
@@ -1113,6 +2574,7 @@ import type { AppRequest } from '../types/request.types';
 @Injectable()
 @Catch(
   Prisma.PrismaClientKnownRequestError,
+  Prisma.PrismaClientUnknownRequestError,
   Prisma.PrismaClientValidationError,
   Prisma.PrismaClientInitializationError,
   Prisma.PrismaClientRustPanicError,
@@ -1140,6 +2602,8 @@ export class PrismaExceptionFilter implements ExceptionFilter {
         userId: request?.actor?.userId,
         prismaCode:
           exception instanceof Prisma.PrismaClientKnownRequestError ? exception.code : undefined,
+        sqlState:
+          exception instanceof Prisma.PrismaClientUnknownRequestError ? postgresSqlState(exception) : undefined,
         statusCode: mapped.statusCode,
         stack: exception.stack,
       },
@@ -1184,11 +2648,67 @@ export class PrismaExceptionFilter implements ExceptionFilter {
             code: ErrorCode.NOT_FOUND,
             message: 'The requested resource was not found.',
           };
+        case 'P2023':
+          // A malformed UUID in a path/query value (e.g. GET /traders/abc)
+          // reaches the engine as "Inconsistent column data: Error creating
+          // UUID". That is a client error; 312 path parameters across the
+          // controllers have no ParseUuidPipe, and this used to be a 500.
+          // Any other P2023 (stored data not matching the schema) stays a 500.
+          if (isMalformedUuid(exception)) {
+            return {
+              statusCode: HttpStatus.BAD_REQUEST,
+              code: ErrorCode.BAD_REQUEST,
+              message: 'A malformed identifier was supplied.',
+            };
+          }
+          return {
+            statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+            code: ErrorCode.INTERNAL_SERVER_ERROR,
+            message: 'An unexpected database error occurred.',
+          };
         case 'P2034':
           return {
             statusCode: HttpStatus.CONFLICT,
             code: ErrorCode.CONFLICT,
             message: 'The operation conflicted with a concurrent change. Please retry.',
+          };
+        default:
+          return {
+            statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+            code: ErrorCode.INTERNAL_SERVER_ERROR,
+            message: 'An unexpected database error occurred.',
+          };
+      }
+    }
+
+    if (exception instanceof Prisma.PrismaClientUnknownRequestError) {
+      // Errors the engine has no P-code for arrive here with the PostgreSQL SQLSTATE inside the
+      // message (verified on PostgreSQL 17 / Prisma 5.22: an RLS WITH CHECK rejection is
+      // `PostgresError { code: "42501", message: "new row violates row-level security policy
+      // for table ..." }`). Only the SQLSTATE is used; the message is logged, never returned.
+      switch (postgresSqlState(exception)) {
+        case '42501':
+          // insufficient_privilege - raised by row-level security when the row is outside the
+          // transaction's tenant (app.tenant_id). Refused, never a 500 that invites retries.
+          return {
+            statusCode: HttpStatus.FORBIDDEN,
+            code: ErrorCode.FORBIDDEN,
+            message: 'The operation is not permitted in this tenant context.',
+          };
+        case '40001':
+        case '40P01':
+          // serialization_failure / deadlock_detected - the transaction lost a race.
+          return {
+            statusCode: HttpStatus.CONFLICT,
+            code: ErrorCode.CONFLICT,
+            message: 'The operation conflicted with a concurrent change. Please retry.',
+          };
+        case '57014':
+          // query_canceled - statement_timeout or an operator cancel.
+          return {
+            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+            code: ErrorCode.SERVICE_UNAVAILABLE,
+            message: 'The database did not answer in time. Please retry shortly.',
           };
         default:
           return {
@@ -1214,6 +2734,723 @@ export class PrismaExceptionFilter implements ExceptionFilter {
     };
   }
 }
+
+/**
+ * The PostgreSQL SQLSTATE embedded in an unknown-request error's message
+ * (`PostgresError { code: "42501", ... }`), or undefined when there is none.
+ */
+export function postgresSqlState(exception: Prisma.PrismaClientUnknownRequestError): string | undefined {
+  const match = /PostgresError\s*\{\s*code:\s*\\?"([0-9A-Z]{5})\\?"/.exec(exception.message);
+  return match ? match[1] : undefined;
+}
+
+function isMalformedUuid(exception: Prisma.PrismaClientKnownRequestError): boolean {
+  const meta = exception.meta as { message?: unknown } | undefined;
+  const text = `${exception.message} ${typeof meta?.message === 'string' ? meta.message : ''}`;
+  return /Error creating UUID/i.test(text);
+}
+```
+
+FILE: apps/api/src/common/guards/bind-tenant-params.guard.spec.ts
+
+```typescript
+import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
+import { BindTenantParamsGuard } from './bind-tenant-params.guard';
+
+/**
+ * Governance DTOs take tenantId as an ordinary body/query field. The global
+ * TenantGuard binds the tenant from the verified token but never looked at
+ * those fields, so any user could name another tenant. This guard pins them.
+ */
+function run(request: Record<string, unknown>): boolean {
+  const context = {
+    getType: () => 'http',
+    switchToHttp: () => ({ getRequest: () => request }),
+  } as unknown as ExecutionContext;
+  return new BindTenantParamsGuard().canActivate(context);
+}
+
+describe('BindTenantParamsGuard', () => {
+  it('fills a missing tenantId in body and query with the bound tenant', () => {
+    const request = { tenantContext: { tenantId: 't-1' }, query: {}, body: { reason: 'x' } };
+    expect(run(request)).toBe(true);
+    expect(request.query).toEqual({ tenantId: 't-1' });
+    expect(request.body).toEqual({ reason: 'x', tenantId: 't-1' });
+  });
+
+  it('treats null and empty string as missing, so an optional field never means "all tenants"', () => {
+    const request = { tenantContext: { tenantId: 't-1' }, query: { tenantId: '' }, body: { tenantId: null } };
+    run(request);
+    expect(request.query.tenantId).toBe('t-1');
+    expect(request.body.tenantId).toBe('t-1');
+  });
+
+  it('rejects another tenant in the body', () => {
+    const request = { tenantContext: { tenantId: 't-1' }, query: {}, body: { tenantId: 't-2' } };
+    expect(() => run(request)).toThrow(ForbiddenException);
+  });
+
+  it('rejects another tenant in the query', () => {
+    const request = { tenantContext: { tenantId: 't-1' }, query: { tenantId: 't-2' }, body: {} };
+    expect(() => run(request)).toThrow(ForbiddenException);
+  });
+
+  it('passes a matching tenantId unchanged', () => {
+    const request = { tenantContext: { tenantId: 't-1' }, query: { tenantId: 't-1' }, body: { tenantId: 't-1' } };
+    expect(run(request)).toBe(true);
+  });
+
+  it('prefers the resolved tenant context (a platform operator selection) over the token tenant', () => {
+    const request = {
+      tenantContext: { tenantId: 't-selected' },
+      actor: { tenantId: 't-home' },
+      query: {},
+      body: { tenantId: 't-selected' },
+    };
+    expect(run(request)).toBe(true);
+    expect(request.query).toEqual({ tenantId: 't-selected' });
+  });
+
+  it('falls back to the actor tenant and refuses when there is no tenant at all', () => {
+    const withActor = { actor: { tenantId: 't-home' }, query: {}, body: {} };
+    run(withActor);
+    expect(withActor.body).toEqual({ tenantId: 't-home' });
+    expect(() => run({ query: {}, body: {} })).toThrow(ForbiddenException);
+  });
+
+  it('leaves array and non-object bodies alone', () => {
+    const request = { tenantContext: { tenantId: 't-1' }, query: {}, body: ['a'] };
+    expect(run(request)).toBe(true);
+    expect(request.body).toEqual(['a']);
+  });
+});
+```
+
+FILE: apps/api/src/common/guards/bind-tenant-params.guard.ts
+
+```typescript
+import { ForbiddenException, Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
+import type { AppRequest } from '../types/request.types';
+
+/**
+ * Binds `tenantId` in the request body and query string to the tenant the
+ * global TenantGuard resolved from the verified token (or, for platform
+ * operators, the tenant they explicitly selected).
+ *
+ * Some controllers take `tenantId` as an ordinary body/query field and hand it
+ * straight to their services. Without this guard, any authenticated user could
+ * name another tenant's id and act on that tenant's data. With it:
+ * - a `tenantId` that differs from the bound tenant is rejected (403);
+ * - a missing `tenantId` is filled in with the bound tenant, so an optional
+ *   field can never mean "all tenants".
+ *
+ * Apply with `@UseGuards(BindTenantParamsGuard)` only on controllers whose
+ * body/query DTOs declare `tenantId` (the filled value must pass
+ * whitelist validation). Controller-level guards run after the global
+ * JwtAuthGuard/TenantGuard/PermissionsGuard and before validation pipes.
+ */
+@Injectable()
+export class BindTenantParamsGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    if (context.getType() !== 'http') return true;
+    const request = context.switchToHttp().getRequest<AppRequest>();
+    const bound = request.tenantContext?.tenantId ?? request.actor?.tenantId;
+    if (!bound) throw new ForbiddenException('Tenant context required');
+
+    this.bind(request.query as unknown, bound, 'query');
+    this.bind(request.body as unknown, bound, 'body');
+    return true;
+  }
+
+  private bind(container: unknown, tenantId: string, where: 'query' | 'body'): void {
+    if (container === null || typeof container !== 'object' || Array.isArray(container)) return;
+    const record = container as Record<string, unknown>;
+    const supplied = record.tenantId;
+    if (supplied === undefined || supplied === null || supplied === '') {
+      record.tenantId = tenantId;
+      return;
+    }
+    if (supplied !== tenantId) {
+      throw new ForbiddenException(`tenantId in ${where} does not match the authenticated tenant`);
+    }
+  }
+}
+```
+
+FILE: apps/api/src/common/guards/controller-authorization.spec.ts
+
+```typescript
+import 'reflect-metadata';
+import { Reflector } from '@nestjs/core';
+import { METHOD_METADATA, PATH_METADATA, GUARDS_METADATA } from '@nestjs/common/constants';
+import { ForbiddenException, RequestMethod, type ExecutionContext } from '@nestjs/common';
+import { Permission, SYSTEM_ROLE_DEFINITIONS, SystemRole } from '@wlct/shared-types';
+import { PermissionsGuard } from '../../modules/auth/guards/permissions.guard';
+import { IS_PUBLIC_KEY, PERMISSIONS_KEY, PLATFORM_ONLY_KEY } from '../constants/metadata.constants';
+import { BindTenantParamsGuard } from './bind-tenant-params.guard';
+import { GovernanceController } from '../../modules/governance/governance.controller';
+import { PartnerController } from '../../modules/partners/partner.controller';
+import { OperationsController } from '../../modules/operations/operations.controller';
+import { OmsController } from '../../modules/oms/oms.controller';
+import { RiskManagementController } from '../../modules/risk-management/risk.controller';
+import { BillingNotificationController } from '../../modules/billing/notifications/billing-notification.controller';
+import { ProviderController } from '../../modules/providers/provider.controller';
+import { ResearchController } from '../../modules/research/research.controller';
+import { WebhookController } from '../../modules/billing/payments/webhook.controller';
+import { SsoAuthController } from '../../modules/auth/sso/sso-auth.controller';
+import { DeveloperController } from '../../modules/developer-platform/developer.controller';
+
+/**
+ * Authorization audit (round 4). Every controller below used to carry no
+ * permission metadata at all, so each of its routes was open to any
+ * authenticated user of any role (and, where tenantId came from the body or
+ * query, of any tenant): a FOLLOWER could execute GDPR deletions, release
+ * legal holds, trigger partner payouts, enter maintenance mode, rewrite the
+ * risk policy, clear kill switches, disable providers or publish research
+ * signals. The payment webhooks had the opposite defect: without @Public()
+ * the global JwtAuthGuard answered 401 to every Stripe/NowPayments callback.
+ *
+ * These tests drive the real PermissionsGuard with the real system role
+ * definitions against every route of the real controllers.
+ */
+
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+type Ctor = abstract new (...args: never[]) => object;
+
+interface Route {
+  controller: Ctor;
+  handler: string;
+  method: Method;
+  path: string;
+}
+
+const METHOD_NAMES: Partial<Record<RequestMethod, Method>> = {
+  [RequestMethod.GET]: 'GET',
+  [RequestMethod.POST]: 'POST',
+  [RequestMethod.PUT]: 'PUT',
+  [RequestMethod.PATCH]: 'PATCH',
+  [RequestMethod.DELETE]: 'DELETE',
+};
+
+function handlers(controller: Ctor): Record<string, object> {
+  return controller.prototype as unknown as Record<string, object>;
+}
+
+function routesOf(controller: Ctor): Route[] {
+  const proto = handlers(controller);
+  return Object.getOwnPropertyNames(controller.prototype)
+    .filter((name) => name !== 'constructor')
+    .map((name) => {
+      const fn = proto[name];
+      if (typeof fn !== 'function') return null;
+      const rawPath = Reflect.getMetadata(PATH_METADATA, fn) as string | undefined;
+      const method = Reflect.getMetadata(METHOD_METADATA, fn) as RequestMethod | undefined;
+      if (rawPath === undefined || method === undefined) return null;
+      const path = rawPath === '/' ? '' : rawPath.replace(/^\//, '');
+      return { controller, handler: name, method: METHOD_NAMES[method] ?? 'GET', path } as Route;
+    })
+    .filter((r): r is Route => r !== null);
+}
+
+function route(controller: Ctor, method: Method, path: string): Route {
+  const found = routesOf(controller).find((r) => r.method === method && r.path === path);
+  if (!found) throw new Error(`route ${method} ${path} missing on ${controller.name}`);
+  return found;
+}
+
+interface Actor {
+  userId: string;
+  tenantId: string;
+  isPlatformUser: boolean;
+  roles: string[];
+  permissions: string[];
+}
+
+const TENANT_ROLES: SystemRole[] = [
+  SystemRole.TENANT_ADMIN,
+  SystemRole.TRADER,
+  SystemRole.FOLLOWER,
+  SystemRole.SUPPORT,
+  SystemRole.FINANCE,
+  SystemRole.COMPLIANCE,
+];
+
+function roleActor(role: SystemRole): Actor {
+  const def = SYSTEM_ROLE_DEFINITIONS.find((d) => d.key === role);
+  if (!def) throw new Error(`role ${role} missing`);
+  return {
+    userId: `user-${role}`,
+    tenantId: 'tenant-1',
+    isPlatformUser: role === SystemRole.SUPER_ADMIN,
+    roles: [role],
+    permissions: [...def.permissions] as string[],
+  };
+}
+
+/** Holds every permission but is not platform staff: PlatformOnly must still refuse it. */
+const WILDCARD_TENANT_USER: Actor = {
+  userId: 'user-wildcard',
+  tenantId: 'tenant-1',
+  isPlatformUser: false,
+  roles: ['CUSTOM'],
+  permissions: ['*'],
+};
+
+async function allowed(r: Route, actor: Actor | undefined): Promise<boolean> {
+  const guard = new PermissionsGuard(
+    new Reflector(),
+    {
+      getEffectiveAccess: async () => ({
+        permissionKeys: actor?.permissions ?? [],
+        roleKeys: actor?.roles ?? [],
+      }),
+    } as never,
+    { record: async () => undefined } as never,
+  );
+  const request = {
+    actor: actor ? { ...actor, permissions: [...actor.permissions], roles: [...actor.roles] } : undefined,
+    headers: {},
+    originalUrl: `/api/v1/${r.path}`,
+    method: r.method,
+    tenantContext: actor ? { tenantId: actor.tenantId } : undefined,
+  };
+  const context = {
+    getType: () => 'http',
+    getHandler: () => handlers(r.controller)[r.handler],
+    getClass: () => r.controller,
+    switchToHttp: () => ({ getRequest: () => request }),
+  } as unknown as ExecutionContext;
+  try {
+    return await guard.canActivate(context);
+  } catch {
+    return false;
+  }
+}
+
+/** Tenant roles (never platform) the guard lets through, sorted. */
+async function tenantRolesAllowed(r: Route): Promise<SystemRole[]> {
+  const out: SystemRole[] = [];
+  for (const role of TENANT_ROLES) {
+    if (await allowed(r, roleActor(role))) out.push(role);
+  }
+  return out.sort();
+}
+
+function sorted(...roles: SystemRole[]): SystemRole[] {
+  return [...roles].sort();
+}
+
+const { TENANT_ADMIN: TA, TRADER: TR, FOLLOWER: FO, SUPPORT: SU, FINANCE: FI, COMPLIANCE: CO } = SystemRole;
+const SUPER_ADMIN = roleActor(SystemRole.SUPER_ADMIN);
+
+const AUDITED: Array<{ controller: Ctor; routeCount: number; followerRoutes: Array<[Method, string]> }> = [
+  { controller: GovernanceController, routeCount: 47, followerRoutes: [] },
+  { controller: PartnerController, routeCount: 47, followerRoutes: [] },
+  {
+    controller: OperationsController,
+    routeCount: 48,
+    followerRoutes: [['GET', 'maintenance/current']],
+  },
+  { controller: OmsController, routeCount: 35, followerRoutes: [] },
+  { controller: RiskManagementController, routeCount: 28, followerRoutes: [] },
+  {
+    controller: BillingNotificationController,
+    routeCount: 18,
+    followerRoutes: [
+      ['GET', 'inbox'],
+      ['GET', 'inbox/unread-count'],
+      ['PUT', 'inbox/:id/read'],
+      ['PUT', 'inbox/read-all'],
+      ['GET', 'preferences'],
+      ['PUT', 'preferences'],
+      ['PUT', 'preferences/bulk'],
+    ],
+  },
+  { controller: ProviderController, routeCount: 11, followerRoutes: [] },
+  { controller: ResearchController, routeCount: 51, followerRoutes: [] },
+];
+
+describe('controller authorization (audited controllers)', () => {
+  describe.each(AUDITED)('$controller.name', ({ controller, routeCount, followerRoutes }) => {
+    const routes = routesOf(controller);
+
+    it('exposes the expected number of routes (a new route must be classified here)', () => {
+      expect(routes).toHaveLength(routeCount);
+    });
+
+    it('carries explicit permission metadata on every route', () => {
+      const reflector = new Reflector();
+      const open = routes.filter((r) => {
+        const targets = [handlers(controller)[r.handler] as () => void, controller];
+        const required = reflector.getAllAndOverride<unknown>(PERMISSIONS_KEY, targets);
+        const isPublic = reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets);
+        return required === undefined && isPublic !== true;
+      });
+      expect(open.map((r) => `${r.method} ${r.path}`)).toEqual([]);
+    });
+
+    it('lets a FOLLOWER reach only the self-service routes', async () => {
+      const follower = roleActor(FO);
+      const reachable: string[] = [];
+      for (const r of routes) {
+        if (await allowed(r, follower)) reachable.push(`${r.method} ${r.path}`);
+      }
+      expect(reachable.sort()).toEqual(followerRoutes.map(([m, p]) => `${m} ${p}`).sort());
+    });
+
+    it('still lets platform super admins through every route', async () => {
+      for (const r of routes) {
+        expect(await allowed(r, SUPER_ADMIN)).toBe(true);
+      }
+    });
+  });
+
+  describe('governance (GDPR, retention, legal holds, regulatory reports)', () => {
+    it('reads need compliance:read (COMPLIANCE only; TENANT_ADMIN deliberately lacks compliance:*)', async () => {
+      expect(await tenantRolesAllowed(route(GovernanceController, 'GET', 'privacy-requests'))).toEqual([CO]);
+      expect(await tenantRolesAllowed(route(GovernanceController, 'GET', 'legal-holds/active'))).toEqual([CO]);
+    });
+
+    it('writes need compliance:write', async () => {
+      expect(await tenantRolesAllowed(route(GovernanceController, 'POST', 'privacy-requests'))).toEqual([CO]);
+      expect(await tenantRolesAllowed(route(GovernanceController, 'POST', 'legal-holds'))).toEqual([CO]);
+    });
+
+    it.each([
+      'privacy-requests/:id/deletion-execute',
+      'retention/:id/action',
+      'legal-holds/:id/release',
+      'reports/:id/certification/:certId/certify',
+      'evidence-packages/:id/finalize',
+    ])('irreversible step %s needs compliance:write AND compliance:reviewer', async (path) => {
+      const r = route(GovernanceController, 'POST', path);
+      expect(await tenantRolesAllowed(r)).toEqual([CO]);
+      const writerOnly: Actor = { ...roleActor(CO), permissions: [Permission.COMPLIANCE_WRITE] };
+      const reviewerOnly: Actor = { ...roleActor(CO), permissions: [Permission.COMPLIANCE_REVIEWER] };
+      expect(await allowed(r, writerOnly)).toBe(false);
+      expect(await allowed(r, reviewerOnly)).toBe(false);
+    });
+
+    it('audit export needs compliance:read AND audit_log:read', async () => {
+      const r = route(GovernanceController, 'POST', 'audit/export');
+      const readOnly: Actor = { ...roleActor(CO), permissions: [Permission.COMPLIANCE_READ] };
+      expect(await allowed(r, readOnly)).toBe(false);
+      expect(await tenantRolesAllowed(r)).toEqual([CO]);
+    });
+
+    it('binds body/query tenantId to the authenticated tenant', () => {
+      const guards = Reflect.getMetadata(GUARDS_METADATA, GovernanceController) as unknown[] | undefined;
+      expect(guards).toContain(BindTenantParamsGuard);
+    });
+  });
+
+  describe('partners (platform reseller programme)', () => {
+    it('refuses every tenant role and a wildcard non-platform user on every route', async () => {
+      for (const r of routesOf(PartnerController)) {
+        expect(await tenantRolesAllowed(r)).toEqual([]);
+        expect(await allowed(r, WILDCARD_TENANT_USER)).toBe(false);
+      }
+    });
+
+    it('reads accept platform:read_metrics, payouts and transfers need platform:manage', async () => {
+      const metricsOnly: Actor = { ...SUPER_ADMIN, permissions: [Permission.PLATFORM_READ_METRICS] };
+      expect(await allowed(route(PartnerController, 'GET', ':id/payouts'), metricsOnly)).toBe(true);
+      expect(await allowed(route(PartnerController, 'GET', ''), metricsOnly)).toBe(true);
+      expect(await allowed(route(PartnerController, 'POST', ':id/payouts'), metricsOnly)).toBe(false);
+      expect(await allowed(route(PartnerController, 'POST', ':id/tenants/transfer'), metricsOnly)).toBe(false);
+      expect(Reflect.getMetadata(PLATFORM_ONLY_KEY, PartnerController)).toBe(true);
+    });
+  });
+
+  describe('operations', () => {
+    it('reads need operations:read', async () => {
+      expect(await tenantRolesAllowed(route(OperationsController, 'GET', 'incidents'))).toEqual(sorted(TA, SU, CO));
+      expect(await tenantRolesAllowed(route(OperationsController, 'GET', 'recovery/runs'))).toEqual(sorted(TA, SU, CO));
+    });
+
+    it.each([
+      ['POST', 'maintenance/enter'],
+      ['POST', 'maintenance/exit'],
+      ['POST', 'recovery/runs/:id/execute'],
+      ['POST', 'degradations/clear'],
+      ['POST', 'incidents/:id/resolve'],
+    ] as Array<[Method, string]>)('%s %s needs operations:alerts_update (TENANT_ADMIN)', async (m, p) => {
+      expect(await tenantRolesAllowed(route(OperationsController, m, p))).toEqual([TA]);
+    });
+
+    it('the customer maintenance notice is open to every signed-in role', async () => {
+      expect(await tenantRolesAllowed(route(OperationsController, 'GET', 'maintenance/current'))).toEqual(
+        sorted(...TENANT_ROLES),
+      );
+    });
+
+    it('declares maintenance/current before maintenance/:id so Express matches the static segment', () => {
+      const order = routesOf(OperationsController).map((r) => `${r.method} ${r.path}`);
+      expect(order.indexOf('GET maintenance/current')).toBeGreaterThanOrEqual(0);
+      expect(order.indexOf('GET maintenance/current')).toBeLessThan(order.indexOf('GET maintenance/:id'));
+    });
+  });
+
+  describe('oms (no ownership checks, so no customer access)', () => {
+    it('tenant-wide order data needs trading:read or compliance:read', async () => {
+      for (const p of ['intents', 'fills', 'trades', 'orders', 'audit', 'allocations']) {
+        expect(await tenantRolesAllowed(route(OmsController, 'GET', p))).toEqual(sorted(TA, CO));
+      }
+    });
+
+    it.each([
+      ['POST', 'intents'],
+      ['POST', 'intents/:id/route'],
+      ['POST', 'orders/cancel'],
+      ['POST', 'orders/replace'],
+      ['POST', 'operational/recovery'],
+      ['POST', 'post-trade/:intentId'],
+    ] as Array<[Method, string]>)('%s %s needs trading:manage', async (m, p) => {
+      expect(await tenantRolesAllowed(route(OmsController, m, p))).toEqual([TA]);
+    });
+  });
+
+  describe('risk-management (mirrors /risk)', () => {
+    it('reads need risk:read', async () => {
+      expect(await tenantRolesAllowed(route(RiskManagementController, 'GET', 'dashboard'))).toEqual(
+        sorted(TA, TR, SU, CO),
+      );
+    });
+
+    it('policy changes need risk:config:update', async () => {
+      expect(await tenantRolesAllowed(route(RiskManagementController, 'POST', 'policy'))).toEqual([TA]);
+    });
+
+    it('trigger/request/acknowledge need risk:kill_switch_update', async () => {
+      for (const p of ['breaker/trigger', 'breaker/:id/acknowledge', 'kill-switch/request', 'kill-switch/:id/acknowledge']) {
+        expect(await tenantRolesAllowed(route(RiskManagementController, 'POST', p))).toEqual(sorted(TA, TR, CO));
+      }
+    });
+
+    it('clearing a breaker or kill switch needs risk:protection_clear', async () => {
+      for (const p of ['breaker/:id/clear', 'kill-switch/:id/clear']) {
+        expect(await tenantRolesAllowed(route(RiskManagementController, 'POST', p))).toEqual([TA]);
+      }
+    });
+
+    it('the pre-trade check needs execution:submit or risk:config:update', async () => {
+      expect(await tenantRolesAllowed(route(RiskManagementController, 'POST', 'check'))).toEqual(sorted(TA, TR));
+    });
+  });
+
+  describe('billing notifications', () => {
+    it('history needs subscription:read or invoice:read', async () => {
+      expect(await tenantRolesAllowed(route(BillingNotificationController, 'GET', 'history'))).toEqual(
+        sorted(TA, SU, FI),
+      );
+    });
+
+    it('outbound webhook subscriptions need tenant:update', async () => {
+      for (const [m, p] of [
+        ['GET', 'webhooks'],
+        ['POST', 'webhooks'],
+        ['POST', 'webhooks/:id/rotate-secret'],
+        ['DELETE', 'webhooks/:id'],
+      ] as Array<[Method, string]>) {
+        expect(await tenantRolesAllowed(route(BillingNotificationController, m, p))).toEqual([TA]);
+      }
+    });
+
+    it('worker and cross-tenant reconciliation are platform-only', async () => {
+      for (const [m, p] of [
+        ['POST', 'worker/process'],
+        ['GET', 'worker/stuck'],
+        ['GET', 'reconciliation/:tenantId'],
+        ['POST', 'reconciliation/all'],
+      ] as Array<[Method, string]>) {
+        const r = route(BillingNotificationController, m, p);
+        expect(await tenantRolesAllowed(r)).toEqual([]);
+        expect(await allowed(r, WILDCARD_TENANT_USER)).toBe(false);
+      }
+    });
+  });
+
+  describe('providers', () => {
+    it('is platform-only', async () => {
+      for (const r of routesOf(ProviderController)) {
+        expect(await tenantRolesAllowed(r)).toEqual([]);
+        expect(await allowed(r, WILDCARD_TENANT_USER)).toBe(false);
+      }
+      const metricsOnly: Actor = { ...SUPER_ADMIN, permissions: [Permission.PLATFORM_READ_METRICS] };
+      expect(await allowed(route(ProviderController, 'GET', 'health'), metricsOnly)).toBe(true);
+      expect(await allowed(route(ProviderController, 'POST', 'actions/enable-disable'), metricsOnly)).toBe(false);
+    });
+  });
+
+  describe('research', () => {
+    it.each([
+      ['POST', 'datasets', [TA]],
+      ['GET', 'datasets', [TA, TR, SU, CO]],
+      ['POST', 'datasets/:datasetId/validate', [TA]],
+      ['GET', 'market-data/candles', [TA, TR, SU, CO]],
+      ['POST', 'backtests', [TA, TR]],
+      ['POST', 'backtests/monte-carlo', [TA, TR]],
+      ['GET', 'backtests/:runId', [TA, TR, CO]],
+      ['POST', 'paper-sessions/:sessionId/orders', [TA, TR]],
+      ['GET', 'paper-sessions', [TA, TR, SU, CO]],
+      ['GET', 'strategy-versions/:versionId', [TA, TR, CO]],
+      ['POST', 'strategy-versions/:versionId/publish', [TA, TR]],
+      ['POST', 'signals/:signalId/publish', [TA, TR]],
+      ['GET', 'signals', [TA, TR, CO]],
+      ['POST', 'promotions/:promotionId/request', [TA, TR]],
+      ['POST', 'promotions/:promotionId/approve', [TA]],
+      ['POST', 'promotions/:promotionId/promote', [TA]],
+    ] as Array<[Method, string, SystemRole[]]>)('%s %s', async (m, p, roles) => {
+      expect(await tenantRolesAllowed(route(ResearchController, m, p))).toEqual(sorted(...roles));
+    });
+  });
+
+  describe('payment webhooks', () => {
+    it('Stripe and NowPayments callbacks pass the guards without a user (signature is the authentication)', async () => {
+      for (const p of ['stripe', 'nowpayments']) {
+        const r = route(WebhookController, 'POST', p);
+        expect(Reflect.getMetadata(IS_PUBLIC_KEY, handlers(WebhookController)[r.handler])).toBe(true);
+        expect(await allowed(r, undefined)).toBe(true);
+      }
+    });
+
+    it('the signature-bypassing test endpoint is not public and is platform-only', async () => {
+      const r = route(WebhookController, 'POST', 'stripe/test');
+      expect(Reflect.getMetadata(IS_PUBLIC_KEY, handlers(WebhookController)[r.handler])).toBeUndefined();
+      expect(await allowed(r, undefined)).toBe(false);
+      expect(await allowed(r, WILDCARD_TENANT_USER)).toBe(false);
+      expect(await tenantRolesAllowed(r)).toEqual([]);
+      expect(await allowed(r, SUPER_ADMIN)).toBe(true);
+    });
+  });
+});
+
+describe('handler identity fixes', () => {
+  function billingController(overrides: Record<string, unknown> = {}) {
+    const inApp = {
+      listNotifications: jest.fn(async () => []),
+      getUnreadCount: jest.fn(async () => 0),
+      markRead: jest.fn(async () => ({ ok: true })),
+      markAllRead: jest.fn(async () => ({ count: 0 })),
+    };
+    const prefs = {
+      getPreferences: jest.fn(async () => []),
+      updatePreference: jest.fn(async () => ({})),
+      updatePreferencesBulk: jest.fn(async () => []),
+    };
+    const ctrl = new BillingNotificationController(
+      {} as never,
+      prefs as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      inApp as never,
+    );
+    Object.assign(ctrl, overrides);
+    return { ctrl, inApp, prefs };
+  }
+
+  const followerReq = (extra: Record<string, unknown> = {}) => ({
+    user: { userId: 'user-7', tenantId: 'tenant-1', permissions: roleActor(FO).permissions, isPlatformUser: false },
+    ...extra,
+  });
+
+  it('billing inbox uses the actor userId (it used to read user.id and resolve every inbox to "unknown")', async () => {
+    const { ctrl, inApp } = billingController();
+    const res = await ctrl.getInbox(followerReq(), {} as never);
+    expect(inApp.listNotifications).toHaveBeenCalledWith('tenant-1', 'user-7', expect.any(Object));
+    expect(res.userId).toBe('user-7');
+    await ctrl.markAllRead(followerReq());
+    expect(inApp.markAllRead).toHaveBeenCalledWith('tenant-1', 'user-7');
+  });
+
+  it('refuses to guess a user when the actor has no userId', async () => {
+    const { ctrl, inApp } = billingController();
+    await expect(ctrl.getUnreadCount({ user: { tenantId: 'tenant-1' } })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(inApp.getUnreadCount).not.toHaveBeenCalled();
+  });
+
+  it('preference writes are scoped to the caller', async () => {
+    const { ctrl, prefs } = billingController();
+    await ctrl.updatePreference(followerReq(), { eventKey: 'invoice.paid', channel: 'EMAIL', enabled: false } as never);
+    expect(prefs.updatePreference).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-1', userId: 'user-7' }));
+  });
+
+  it("reading another user's preferences needs tenant:update", async () => {
+    const { ctrl, prefs } = billingController();
+    await expect(ctrl.getPreferences(followerReq(), 'user-other')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prefs.getPreferences).not.toHaveBeenCalled();
+
+    await ctrl.getPreferences(followerReq(), 'user-7');
+    expect(prefs.getPreferences).toHaveBeenLastCalledWith('tenant-1', 'user-7');
+
+    const admin = {
+      user: { userId: 'admin-1', tenantId: 'tenant-1', permissions: roleActor(TA).permissions, isPlatformUser: false },
+    };
+    await ctrl.getPreferences(admin, 'user-other');
+    expect(prefs.getPreferences).toHaveBeenLastCalledWith('tenant-1', 'user-other');
+  });
+
+  it('developer-portal audit entries are attributed to the real user, not "system"', () => {
+    const ctrl = Object.create(DeveloperController.prototype) as {
+      actor: (tenantId: string, request: unknown) => { actorId: string; actorType: string };
+    };
+    const result = ctrl.actor('tenant-1', { user: { userId: 'user-9' }, headers: {}, id: 'req-1' });
+    expect(result.actorId).toBe('user-9');
+    expect(result.actorType).toBe('USER');
+  });
+
+  it('the SSO routes (moved to modules/auth/sso in Part 11) take the tenant only from the host and pass no client-supplied tenant or user through', async () => {
+    const complete = jest.fn(async () => ({ result: { tokens: { accessToken: 'a' }, user: { id: 'user-1' }, sessionId: 's' }, returnTo: null }));
+    const start = jest.fn(async () => ({ providerType: 'OIDC', authorizationUrl: 'https://idp/authorize', bindingToken: 'b', expiresIn: 600 }));
+    const ctrl = new SsoAuthController({ complete, start } as never);
+    const tenant = { tenantId: 'tenant-host', slug: 'acme', status: 'ACTIVE', source: 'subdomain', defaultLocale: 'en', defaultCurrency: 'USD' };
+    const meta = { requestId: 'r', correlationId: 'c', ipHash: 'ip', ip: '1.2.3.4', userAgent: 'ua', locale: 'en', method: 'POST', path: '/' };
+    const forgedBody = { state: 's', code: 'c', bindingToken: 'b', deviceId: 'd', tenantId: 'tenant-evil', userId: 'admin-1' };
+    await ctrl.callback(forgedBody as never, tenant as never, meta as never);
+    const [tenantArg, input] = complete.mock.calls[0] as unknown as [{ tenantId: string }, Record<string, unknown>];
+    expect(tenantArg.tenantId).toBe('tenant-host');
+    expect(input).not.toHaveProperty('tenantId');
+    expect(input).not.toHaveProperty('userId');
+    await ctrl.start({ providerType: 'OIDC', deviceId: 'd', tenantId: 'tenant-evil' } as never, tenant as never, meta as never);
+    expect((start.mock.calls[0] as unknown as [{ tenantId: string }])[0].tenantId).toBe('tenant-host');
+
+    // All three are public (no JWT yet) and on a strict throttle.
+    for (const method of ['start', 'callback', 'samlAcs'] as const) {
+      const handler = SsoAuthController.prototype[method];
+      expect(Reflect.getMetadata(IS_PUBLIC_KEY, handler)).toBe(true);
+      expect(Reflect.getMetadataKeys(handler).some((key: unknown) => String(key).startsWith('THROTTLER:LIMIT'))).toBe(true);
+    }
+  });
+
+  it('the SAML ACS answers 303 to the configured completion URI, or a generic 401 when the login is unknown', async () => {
+    const consumeSamlResponse = jest
+      .fn()
+      .mockResolvedValueOnce({ redirectTo: 'https://acme.app.test/api/auth/sso/callback?state=s&code=h' })
+      .mockResolvedValueOnce({ redirectTo: null });
+    const ctrl = new SsoAuthController({ consumeSamlResponse } as never);
+    const res = () => {
+      const r: Record<string, jest.Mock> = {};
+      r.setHeader = jest.fn(() => r);
+      r.redirect = jest.fn(() => r);
+      r.status = jest.fn(() => r);
+      r.json = jest.fn(() => r);
+      return r;
+    };
+    const tenant = { tenantId: 'tenant-host' };
+    const meta = { requestId: 'r', ipHash: 'ip', userAgent: 'ua', locale: 'en' };
+    const ok = res();
+    await ctrl.samlAcs({ body: { SAMLResponse: 'x', RelayState: 's', tenantId: 'evil' } } as never, ok as never, tenant as never, meta as never);
+    expect(consumeSamlResponse).toHaveBeenLastCalledWith(tenant, { SAMLResponse: 'x', RelayState: 's' }, expect.any(Object));
+    expect(ok.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
+    expect(ok.redirect).toHaveBeenCalledWith(303, 'https://acme.app.test/api/auth/sso/callback?state=s&code=h');
+    const unknown = res();
+    await ctrl.samlAcs({ body: {} } as never, unknown as never, tenant as never, meta as never);
+    expect(unknown.status).toHaveBeenCalledWith(401);
+    expect(unknown.redirect).not.toHaveBeenCalled();
+    expect(JSON.stringify(unknown.json.mock.calls)).not.toMatch(/tenant|user|exist/i);
+  });
+});
 ```
 
 FILE: apps/api/src/common/guards/feature-flag.guard.ts
@@ -1312,6 +3549,258 @@ export class InternalServiceGuard implements CanActivate {
 }
 ```
 
+FILE: apps/api/src/common/guards/request-principal.spec.ts
+
+```typescript
+import { ForbiddenException } from '@nestjs/common';
+import {
+  authPermissions,
+  authRoles,
+  authTenantId,
+  authTenantIdOrNull,
+  authUserIdOrNull,
+  isPlatformPrincipal,
+  principal,
+  resolveTargetTenant,
+  hasAdminRole,
+} from './request-principal';
+
+/** Shape produced by JwtStrategy.validate. */
+function jwtUser(overrides: Record<string, unknown> = {}) {
+  return {
+    user: {
+      userId: 'user-1',
+      tenantId: 'tenant-a',
+      sessionId: 's',
+      roles: ['TENANT_ADMIN'],
+      permissions: ['risk:read'],
+      isPlatformUser: false,
+      tokenId: 'j',
+      ...overrides,
+    },
+    headers: { 'x-tenant-id': 'tenant-b' },
+    query: { tenantId: 'tenant-b' },
+  };
+}
+
+describe('request-principal', () => {
+  it('takes the tenant from the token and ignores x-tenant-id / query', () => {
+    expect(authTenantId(jwtUser())).toBe('tenant-a');
+  });
+
+  it('refuses a request whose token carries no tenant, even with a header', () => {
+    const req = { user: { userId: 'u' }, headers: { 'x-tenant-id': 'tenant-b' } };
+    expect(() => authTenantId(req as any)).toThrow(ForbiddenException);
+    expect(authTenantIdOrNull(req as any)).toBeNull();
+    expect(() => authTenantId({ headers: { 'x-tenant-id': 'tenant-b' } } as any)).toThrow(
+      'Tenant context required',
+    );
+  });
+
+  it('reads userId from the JWT principal and the legacy id/sub shapes', () => {
+    expect(authUserIdOrNull(jwtUser())).toBe('user-1');
+    expect(authUserIdOrNull({ user: { id: 'legacy' } })).toBe('legacy');
+    expect(authUserIdOrNull({ user: { sub: 'subject' } })).toBe('subject');
+    expect(authUserIdOrNull({ user: {} })).toBeNull();
+    expect(authUserIdOrNull(undefined)).toBeNull();
+  });
+
+  it('platform reach is the server-side flag only', () => {
+    expect(isPlatformPrincipal(jwtUser({ isPlatformUser: true }))).toBe(true);
+    // TENANT_ADMIN contains "admin"; a tenant can also create a role literally
+    // named PLATFORM_ADMIN. Neither may unlock other tenants.
+    expect(isPlatformPrincipal(jwtUser({ roles: ['TENANT_ADMIN'] }))).toBe(false);
+    expect(isPlatformPrincipal(jwtUser({ roles: ['PLATFORM_ADMIN', 'platform_admin'] }))).toBe(
+      false,
+    );
+    expect(
+      isPlatformPrincipal(jwtUser({ permissions: ['platform:manage', 'PLATFORM_MANAGE'] })),
+    ).toBe(false);
+    expect(isPlatformPrincipal(jwtUser({ isPlatformUser: 'true' }))).toBe(false);
+  });
+
+  it('resolveTargetTenant: own tenant by default, cross-tenant only for platform', () => {
+    expect(resolveTargetTenant(jwtUser())).toBe('tenant-a');
+    expect(resolveTargetTenant(jwtUser(), 'tenant-a')).toBe('tenant-a');
+    expect(() => resolveTargetTenant(jwtUser(), 'tenant-b')).toThrow('Cross-tenant access refused');
+    expect(resolveTargetTenant(jwtUser({ isPlatformUser: true }), 'tenant-b')).toBe('tenant-b');
+    expect(() => resolveTargetTenant({ user: { userId: 'u' } })).toThrow('Tenant context required');
+  });
+
+  it('normalises role and permission lists', () => {
+    expect(
+      authRoles({ user: { roles: ['A', { key: 'B' }, { role: { key: 'C' } }, 7, null] } }),
+    ).toEqual(['A', 'B', 'C']);
+    expect(authPermissions({ user: { permissions: 'not-a-list' } })).toEqual([]);
+  });
+
+  it('principal() requires both tenant and user', () => {
+    expect(principal(jwtUser())).toEqual({
+      tenantId: 'tenant-a',
+      userId: 'user-1',
+      roles: ['TENANT_ADMIN'],
+      permissions: ['risk:read'],
+      isPlatformUser: false,
+    });
+    expect(() => principal({ user: { tenantId: 't' } })).toThrow('Authenticated user required');
+  });
+});
+
+describe('hasAdminRole', () => {
+  it('accepts the canonical upper-case system role keys', () => {
+    expect(hasAdminRole(['TRADER', 'TENANT_ADMIN'])).toBe(true);
+    expect(hasAdminRole(['SUPER_ADMIN'])).toBe(true);
+  });
+
+  it('still accepts the legacy lower-case keys and module-specific extras', () => {
+    expect(hasAdminRole(['tenant_admin'])).toBe(true);
+    expect(hasAdminRole(['research_admin'])).toBe(false);
+    expect(hasAdminRole(['research_admin'], ['research_admin'])).toBe(true);
+  });
+
+  it('is exact: look-alikes and non-admin roles are refused', () => {
+    expect(hasAdminRole(['FOLLOWER', 'TRADER', 'SUPPORT', 'COMPLIANCE'])).toBe(false);
+    expect(hasAdminRole(['Tenant_Admin', 'TENANT_ADMIN_X', 'admins'])).toBe(false);
+    expect(hasAdminRole([])).toBe(false);
+    expect(hasAdminRole(undefined)).toBe(false);
+  });
+});
+```
+
+FILE: apps/api/src/common/guards/request-principal.ts
+
+```typescript
+import { ForbiddenException } from '@nestjs/common';
+
+/**
+ * Identity of the caller, read only from what the JWT strategy put on
+ * `req.user` (see modules/auth/strategies/jwt.strategy.ts):
+ *   { userId, tenantId, sessionId, roles, permissions, isPlatformUser, tokenId }
+ *
+ * Rules (docs/SECURITY.md, contributing rule 3 "never trust a client-supplied
+ * tenant id"):
+ *  - The tenant comes from the verified token. `x-tenant-id` headers, query
+ *    strings and bodies are never a source of the caller's tenant.
+ *  - "Platform" means the server-side `isPlatformUser` flag loaded from the
+ *    user row. Role keys and permission strings are tenant-editable data and
+ *    must not grant cross-tenant reach.
+ */
+export interface RequestPrincipal {
+  tenantId: string;
+  userId: string;
+  roles: string[];
+  permissions: string[];
+  isPlatformUser: boolean;
+}
+
+type AnyRequest = { user?: Record<string, unknown> | null } | null | undefined;
+
+function user(req: AnyRequest): Record<string, unknown> {
+  const u = req?.user;
+  return u && typeof u === 'object' ? u : {};
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') return entry;
+      if (entry && typeof entry === 'object') {
+        const e = entry as Record<string, unknown>;
+        const nested =
+          e.role && typeof e.role === 'object'
+            ? (e.role as Record<string, unknown>).key
+            : undefined;
+        return nonEmptyString(e.key) ?? nonEmptyString(nested) ?? '';
+      }
+      return '';
+    })
+    .filter((s) => s.length > 0);
+}
+
+/** Tenant of the authenticated caller, or null when the token carries none. */
+export function authTenantIdOrNull(req: AnyRequest): string | null {
+  return nonEmptyString(user(req).tenantId);
+}
+
+/** Tenant of the authenticated caller; 403 when absent (never a header fallback). */
+export function authTenantId(req: AnyRequest): string {
+  const tenantId = authTenantIdOrNull(req);
+  if (!tenantId) throw new ForbiddenException('Tenant context required');
+  return tenantId;
+}
+
+/** User id of the authenticated caller, or null. Accepts the legacy `id`/`sub` shapes. */
+export function authUserIdOrNull(req: AnyRequest): string | null {
+  const u = user(req);
+  return nonEmptyString(u.userId) ?? nonEmptyString(u.id) ?? nonEmptyString(u.sub);
+}
+
+/** Server-side platform flag only. */
+export function isPlatformPrincipal(req: AnyRequest): boolean {
+  return user(req).isPlatformUser === true;
+}
+
+export function authRoles(req: AnyRequest): string[] {
+  return stringList(user(req).roles);
+}
+
+/**
+ * Administrative role check for in-controller authorisation.
+ *
+ * System role keys are upper case (`SystemRole` in @wlct/shared-types:
+ * SUPER_ADMIN, TENANT_ADMIN). Several controllers compared against
+ * lower-case keys ('admin', 'tenant_admin', 'platform_admin') that no seeded
+ * role has, so real administrators were refused. Matching is exact and
+ * case-sensitive on the canonical keys; the legacy lower-case keys are still
+ * accepted for tenants that created custom roles with those names, and
+ * `extraRoles` lets a module add its own (e.g. research_admin). Tenant scope
+ * is unaffected: it always comes from the token.
+ */
+export const ADMIN_ROLE_KEYS: readonly string[] = ['SUPER_ADMIN', 'TENANT_ADMIN', 'admin', 'tenant_admin', 'platform_admin'];
+
+export function hasAdminRole(roles: readonly string[] | undefined | null, extraRoles: readonly string[] = []): boolean {
+  if (!Array.isArray(roles)) return false;
+  return roles.some((r) => ADMIN_ROLE_KEYS.includes(r) || extraRoles.includes(r));
+}
+
+export function authPermissions(req: AnyRequest): string[] {
+  return stringList(user(req).permissions);
+}
+
+/**
+ * Resolve the tenant a request may act on. A requested tenant different from
+ * the caller's own is allowed only for platform principals; everyone else gets
+ * 403. With no requested tenant, the caller's own tenant is used.
+ */
+export function resolveTargetTenant(req: AnyRequest, requested?: string | null): string {
+  const own = authTenantIdOrNull(req);
+  const wanted = nonEmptyString(requested ?? null);
+  if (wanted && wanted !== own) {
+    if (isPlatformPrincipal(req)) return wanted;
+    throw new ForbiddenException('Cross-tenant access refused');
+  }
+  if (!own) throw new ForbiddenException('Tenant context required');
+  return own;
+}
+
+export function principal(req: AnyRequest): RequestPrincipal {
+  const userId = authUserIdOrNull(req);
+  if (!userId) throw new ForbiddenException('Authenticated user required');
+  return {
+    tenantId: authTenantId(req),
+    userId,
+    roles: authRoles(req),
+    permissions: authPermissions(req),
+    isPlatformUser: isPlatformPrincipal(req),
+  };
+}
+```
+
 FILE: apps/api/src/common/guards/throttler-behind-proxy.guard.ts
 
 ```typescript
@@ -1366,6 +3855,437 @@ export class ThrottlerBehindProxyGuard extends ThrottlerGuard {
     });
   }
 }
+```
+
+FILE: apps/api/src/common/idempotency-tenant-scope.spec.ts
+
+```typescript
+import { readdirSync, readFileSync } from 'fs';
+import { join, relative } from 'path';
+
+import { InMemoryPrisma } from './__fixtures__/in-memory-prisma.fixture-spec';
+import { PayoutRepository } from '../modules/billing/fees/payout.repository';
+import { BillingLedgerRepository } from '../modules/billing/finance/billing-ledger.repository';
+import { NotificationJobRepository } from '../modules/billing/notifications/notification-job.repository';
+import { UsageEventRepository } from '../modules/billing/usage/usage-event.repository';
+import { ComplianceCaseRepository } from '../modules/compliance/compliance-case.repository';
+import { ClientProfileRepository } from '../modules/client-lifecycle/client-profile.repository';
+import { CopyExecutionRepository } from '../modules/copy-trading/copy-execution.repository';
+import { CopySubscriptionRepository } from '../modules/copy-trading/copy-subscription.repository';
+import { WalletRepository } from '../modules/custody/wallet.repository';
+import { AccountingEventRepository } from '../modules/portfolio-accounting/accounting-event.repository';
+
+/**
+ * Idempotency keys are scoped to the tenant (round 7, migration
+ * 20260924000000_per_tenant_idempotency_keys):
+ *
+ *  1. behaviour - a key that tenant A already used, replayed by tenant B,
+ *     creates tenant B's own row; it never returns (or mutates) tenant A's row,
+ *     and it no longer fails on a platform-wide unique index. A replay by the
+ *     same tenant still returns that tenant's original row.
+ *  2. guard - every Prisma lookup in apps/api/src whose `where` uses an
+ *     idempotency key carries `tenantId` as a TOP-LEVEL condition (inside an
+ *     `OR` branch it would not scope the other branches), except the
+ *     documented platform-level lookups;
+ *  3. guard - schema.prisma has no field-level `idempotencyKey @unique` on a
+ *     model whose tenantId is non-null; those models carry
+ *     `@@unique([tenantId, idempotencyKey])`.
+ */
+
+const TENANT_A = '11111111-1111-4111-8111-111111111111';
+const TENANT_B = '22222222-2222-4222-8222-222222222222';
+const PER_TENANT = ['tenantId', 'idempotencyKey'];
+
+interface ScopeCase {
+  name: string;
+  delegate: string;
+  create: (prisma: any, tenantId: string, idempotencyKey: string, variant: string) => Promise<unknown>;
+}
+
+const CASES: ScopeCase[] = [
+  {
+    name: 'billing PayoutRepository.create',
+    delegate: 'payout',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new PayoutRepository(prisma).create({
+        settlementId: `settlement-${variant}`,
+        beneficiaryId: `beneficiary-${variant}`,
+        beneficiaryType: 'TRADER' as any,
+        tenantId,
+        amount: '10.00',
+        currency: 'USD',
+        destination: { type: 'BANK', reference: `dest-${variant}` } as any,
+        provider: 'MANUAL' as any,
+        status: 'PENDING' as any,
+        idempotencyKey,
+      }),
+  },
+  {
+    name: 'billing BillingLedgerRepository.createEntry',
+    delegate: 'billingLedgerEntry',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new BillingLedgerRepository(prisma).createEntry({
+        tenantId,
+        accountCategory: 'REVENUE' as any,
+        entryType: 'CREDIT' as any,
+        amount: { amount: '5.00', currency: 'USD' } as any,
+        sourceType: 'INVOICE' as any,
+        sourceId: `source-${variant}`,
+        idempotencyKey,
+        description: `entry ${variant}`,
+      }),
+  },
+  {
+    name: 'billing NotificationJobRepository.create',
+    delegate: 'billingNotificationJob',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new NotificationJobRepository(prisma).create({
+        tenantId,
+        recipient: { email: `${variant}@demo.test` },
+        eventKey: 'INVOICE_ISSUED' as any,
+        channel: 'EMAIL' as any,
+        templateKey: 'invoice-issued',
+        locale: 'en',
+        priority: 'NORMAL' as any,
+        category: 'BILLING' as any,
+        deliveryStatus: 'PENDING' as any,
+        maxAttempts: 3,
+        idempotencyKey,
+        safePayload: {},
+      }),
+  },
+  {
+    name: 'billing UsageEventRepository.create',
+    delegate: 'usageEvent',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new UsageEventRepository(prisma).create({
+        tenantId,
+        meterKey: 'api_calls' as any,
+        scope: 'TENANT' as any,
+        quantity: 1,
+        unit: 'COUNT' as any,
+        sourceType: 'test',
+        sourceId: `source-${variant}`,
+        sourceEventId: `event-${variant}`,
+        periodId: '2026-10',
+        periodType: 'MONTHLY' as any,
+        periodStart: new Date('2026-10-01T00:00:00Z'),
+        periodEnd: new Date('2026-11-01T00:00:00Z'),
+        timestamp: new Date('2026-10-02T00:00:00Z'),
+        idempotencyKey,
+        processingState: 'PENDING' as any,
+        dimensions: {},
+      }),
+  },
+  {
+    name: 'compliance ComplianceCaseRepository.createCase',
+    delegate: 'complianceCase',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new ComplianceCaseRepository(prisma).createCase({
+        tenantId,
+        userId: `user-${variant}`,
+        caseType: 'AML_REVIEW' as any,
+        safeSummary: `case ${variant}`,
+        idempotencyKey,
+      }),
+  },
+  {
+    name: 'client-lifecycle ClientProfileRepository.createProfile',
+    delegate: 'clientProfile',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new ClientProfileRepository(prisma).createProfile({ tenantId, displayName: `client ${variant}`, idempotencyKey }),
+  },
+  {
+    name: 'copy-trading CopySubscriptionRepository.create',
+    delegate: 'copySubscription',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new CopySubscriptionRepository(prisma).create({
+        tenantId,
+        followerId: `follower-${variant}`,
+        traderId: `trader-${variant}`,
+        strategyId: `strategy-${variant}`,
+        allocationMode: 'FIXED_AMOUNT' as any,
+        allocationAmount: '100',
+        idempotencyKey,
+      }),
+  },
+  {
+    name: 'copy-trading CopyExecutionRepository.create',
+    delegate: 'copyExecution',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new CopyExecutionRepository(prisma).create({
+        tenantId,
+        leaderEventId: `leader-event-${variant}`,
+        subscriptionId: `subscription-${variant}`,
+        followerId: `follower-${variant}`,
+        traderId: `trader-${variant}`,
+        sizingMode: 'FIXED_AMOUNT' as any,
+        leaderQuantity: '1',
+        idempotencyKey,
+      }),
+  },
+  {
+    name: 'custody WalletRepository.createWallet',
+    delegate: 'custodyWallet',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new WalletRepository(prisma).createWallet({ tenantId, assetId: `asset-${variant}`, networkId: `network-${variant}`, idempotencyKey }),
+  },
+  {
+    name: 'portfolio-accounting AccountingEventRepository.createEvent',
+    delegate: 'portfolioAccountingEvent',
+    create: (prisma, tenantId, idempotencyKey, variant) =>
+      new AccountingEventRepository(prisma).createEvent({
+        tenantId,
+        profileId: `profile-${variant}`,
+        eventType: 'TRADE',
+        sourceType: 'fill',
+        sourceId: `fill-${variant}`,
+        sourceTimestamp: new Date('2026-10-02T00:00:00Z'),
+        calculationVersion: 'v1',
+        policyVersion: 'v1',
+        idempotencyKey,
+      }),
+  },
+];
+
+describe('idempotency keys are tenant-scoped', () => {
+  describe.each(CASES)('$name', ({ delegate, create }) => {
+    let prisma: any;
+
+    beforeEach(() => {
+      prisma = new InMemoryPrisma({ [delegate]: [PER_TENANT] });
+    });
+
+    it("creates tenant B's own row for a key tenant A already used, leaving tenant A's row untouched", async () => {
+      await create(prisma, TENANT_A, 'k-shared', 'a');
+      const rowA = { ...prisma.rows(delegate)[0] };
+      expect(rowA).toMatchObject({ tenantId: TENANT_A, idempotencyKey: 'k-shared' });
+
+      await create(prisma, TENANT_B, 'k-shared', 'b');
+
+      const rows = prisma.rows(delegate);
+      expect(rows).toHaveLength(2);
+      const rowB = rows.find((row: any) => row.tenantId === TENANT_B);
+      expect(rowB).toMatchObject({ tenantId: TENANT_B, idempotencyKey: 'k-shared' });
+      expect(rowB.id).not.toBe(rowA.id);
+      expect(rows.find((row: any) => row.id === rowA.id)).toEqual(rowA);
+    });
+
+    it("replays the same tenant's original row for its own repeated key", async () => {
+      await create(prisma, TENANT_A, 'k-shared', 'a');
+      await create(prisma, TENANT_B, 'k-shared', 'b');
+      const rowA = prisma.rows(delegate).find((row: any) => row.tenantId === TENANT_A);
+
+      await create(prisma, TENANT_A, 'k-shared', 'a');
+
+      expect(prisma.rows(delegate)).toHaveLength(2);
+      expect(prisma.rows(delegate).filter((row: any) => row.tenantId === TENANT_A)).toEqual([rowA]);
+    });
+  });
+});
+
+describe('CopySubscriptionRepository replay vs duplicate-active rule', () => {
+  const input = (idempotencyKey: string) => ({
+    tenantId: TENANT_A,
+    followerId: 'follower-1',
+    traderId: 'trader-1',
+    strategyId: 'strategy-1',
+    allocationMode: 'FIXED_AMOUNT' as any,
+    allocationAmount: '100',
+    idempotencyKey,
+  });
+
+  it('replays the original for a retry with the same key, but still refuses a second active subscription under a new key', async () => {
+    const prisma: any = new InMemoryPrisma({ copySubscription: [PER_TENANT] });
+    const repo = new CopySubscriptionRepository(prisma);
+    const first = await repo.create(input('k-1'));
+
+    await expect(repo.create(input('k-1'))).resolves.toMatchObject({ id: first.id });
+    await expect(repo.create(input('k-2'))).rejects.toThrow(/Duplicate active subscription/);
+    expect(prisma.rows('copySubscription')).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Static guards
+// ---------------------------------------------------------------------------
+
+const API_ROOT = join(__dirname, '..', '..');
+const SRC = join(API_ROOT, 'src');
+
+/**
+ * Lookups that are legitimately key-only, with the reason. Anything else that
+ * filters by an idempotency key without a top-level tenantId fails the guard.
+ */
+const PLATFORM_LEVEL_LOOKUPS: Record<string, string> = {
+  'modules/billing/saas-admin/tenant-provisioning.service.ts:tenant':
+    'the tenants table itself: provisioning runs before the tenant exists, the key lives in tenant.metadata',
+};
+
+const CALL = /(?:prisma|tx|client|this\.db|db)(?:\s+as\s+any\))?\??\.\s*(\w+)\??\.(findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|upsert|update|updateMany|delete|deleteMany|count)\s*\(/g;
+
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sourceFiles(path));
+    else if (entry.name.endsWith('.ts') && !entry.name.endsWith('spec.ts')) out.push(path);
+  }
+  return out;
+}
+
+function balanced(text: string, start: number, open: string, close: string): number {
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === open) depth++;
+    else if (text[i] === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return text.length - 1;
+}
+
+/** The keys written at the top level of an object literal (`{ a, b: 1, ...c }` -> a, b). */
+function topLevelKeys(objectText: string): string[] {
+  const keys: string[] = [];
+  let depth = 0;
+  let token = '';
+  for (let i = 0; i < objectText.length; i++) {
+    const ch = objectText[i];
+    if ('{[('.includes(ch)) {
+      depth++;
+      if (depth > 1) token = '';
+      continue;
+    }
+    if ('}])'.includes(ch)) {
+      if (depth === 1 && token.trim()) keys.push(token.trim());
+      depth--;
+      token = '';
+      continue;
+    }
+    if (depth !== 1) continue;
+    if (ch === ':' || ch === ',') {
+      if (token.trim()) keys.push(token.trim());
+      token = '';
+      if (ch === ':') {
+        // skip the value up to the next top-level comma
+        let d = 0;
+        let j = i + 1;
+        for (; j < objectText.length; j++) {
+          const c = objectText[j];
+          if ('{[('.includes(c)) d++;
+          else if ('}])'.includes(c)) {
+            if (d === 0) break;
+            d--;
+          } else if (c === ',' && d === 0) break;
+        }
+        i = j - 1;
+      }
+      continue;
+    }
+    token += ch;
+  }
+  return keys.map((key) => key.replace(/^\.\.\./, '').replace(/['"]/g, '')).filter((key) => /^\w+$/.test(key));
+}
+
+interface Lookup {
+  file: string;
+  line: number;
+  model: string;
+  method: string;
+  scoped: boolean;
+}
+
+function idempotencyLookups(): Lookup[] {
+  const lookups: Lookup[] = [];
+  for (const path of sourceFiles(SRC)) {
+    const text = readFileSync(path, 'utf8');
+    for (const match of text.matchAll(CALL)) {
+      const argStart = (match.index ?? 0) + match[0].length - 1;
+      const args = text.slice(argStart, balanced(text, argStart, '(', ')') + 1);
+      const where = /where\s*:\s*\{/.exec(args);
+      if (!where) continue;
+      const objectStart = where.index + where[0].length - 1;
+      const objectText = args.slice(objectStart, balanced(args, objectStart, '{', '}') + 1);
+      if (!/idempotencyKey/.test(objectText)) continue;
+      lookups.push({
+        file: relative(SRC, path).split('\\').join('/'),
+        line: text.slice(0, match.index).split('\n').length,
+        model: match[1],
+        method: match[2],
+        scoped: topLevelKeys(objectText).includes('tenantId'),
+      });
+    }
+  }
+  return lookups;
+}
+
+describe('idempotency tenant-scope guards', () => {
+  it('finds the idempotency lookups at all (the scanner is not silently blind)', () => {
+    const lookups = idempotencyLookups();
+    expect(lookups.length).toBeGreaterThanOrEqual(80);
+    expect(lookups.some((l) => l.model === 'payout')).toBe(true);
+    expect(lookups.some((l) => l.model === 'mobileBuild')).toBe(true);
+  });
+
+  it('topLevelKeys sees an OR-nested tenantId as NOT scoping the lookup', () => {
+    expect(topLevelKeys('{ OR: [{ idempotencyKey }, { snapshotId, tenantId }] }')).toEqual(['OR']);
+    expect(topLevelKeys('{ tenantId, OR: [{ idempotencyKey }, { snapshotId }] }')).toEqual(['tenantId', 'OR']);
+    expect(topLevelKeys('{ tenantId: params.tenantId ?? null, idempotencyKey }')).toEqual(['tenantId', 'idempotencyKey']);
+    expect(topLevelKeys("{ metadata: { path: ['a'], equals: x } }")).toEqual(['metadata']);
+  });
+
+  it('every idempotency lookup carries a top-level tenantId, except the documented platform-level ones', () => {
+    const unscoped = idempotencyLookups()
+      .filter((lookup) => !lookup.scoped)
+      .filter((lookup) => !PLATFORM_LEVEL_LOOKUPS[`${lookup.file}:${lookup.model}`])
+      .map((lookup) => `${lookup.file}:${lookup.line} ${lookup.model}.${lookup.method}`);
+    expect(unscoped).toEqual([]);
+  });
+
+  it('no idempotency lookup still uses findUnique on the key alone', () => {
+    const keyOnlyUnique = idempotencyLookups().filter((lookup) => /^findUnique/.test(lookup.method));
+    expect(keyOnlyUnique).toEqual([]);
+  });
+
+  it('schema: tenant-owned models carry @@unique([tenantId, idempotencyKey]) instead of a global key unique', () => {
+    const schema = readFileSync(join(API_ROOT, 'prisma', 'schema.prisma'), 'utf8');
+    const offenders: string[] = [];
+    let perTenant = 0;
+    for (const model of schema.matchAll(/^model (\w+) \{\n([\s\S]*?)^\}/gm)) {
+      const [, name, body] = model;
+      const idem = /^\s+idempotencyKey\s+[^\n]*$/m.exec(body)?.[0];
+      const tenant = /^\s+tenantId\s+String(\??)/m.exec(body);
+      if (!idem || !tenant || tenant[1] === '?') continue;
+      if (/\s@unique\b/.test(idem)) offenders.push(`${name}: field-level @unique on idempotencyKey`);
+      if (/@@unique\(\[tenantId, idempotencyKey\]\)/.test(body)) perTenant++;
+    }
+    expect(offenders).toEqual([]);
+    expect(perTenant).toBe(68);
+  });
+
+  it('the migration that moves the indexes exists and only swaps indexes', () => {
+    const sql = readFileSync(
+      join(API_ROOT, 'prisma', 'migrations', '20260924000000_per_tenant_idempotency_keys', 'migration.sql'),
+      'utf8',
+    );
+    const statements = sql
+      .split('\n')
+      .filter((line) => line.trim() && !line.trim().startsWith('--'))
+      .join('\n')
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+    const drops = statements.filter((statement) => /^DROP INDEX "\w+_idempotency_key_key"$/.test(statement));
+    const creates = statements.filter((statement) =>
+      /^CREATE UNIQUE INDEX "\w+" ON "\w+"\("tenant_id", "idempotency_key"\)$/.test(statement),
+    );
+    expect(drops).toHaveLength(68);
+    expect(creates).toHaveLength(68);
+    expect(statements).toHaveLength(136);
+  });
+});
 ```
 
 FILE: apps/api/src/common/interceptors/audit-context.interceptor.ts
@@ -3599,6 +6519,35 @@ describe('environment schema and .env.example', () => {
     expect(undeclared).toEqual([]);
   });
 
+  it('names every variable the compose files interpolate in the env template they read', () => {
+    // Round 7: docker-compose.yml interpolated four EXECUTION_* names that no
+    // example file at the repo root mentioned, so an operator could only find
+    // them by reading YAML. `${NAME}`, `${NAME:-default}` and `${NAME:?msg}`
+    // all count: a defaulted knob is still a knob. Each compose file is held to
+    // the template its README tells operators to copy.
+    const pairs: Array<{ compose: string; template: string }> = [
+      { compose: 'docker-compose.yml', template: EXAMPLE_SOURCE },
+      { compose: 'docker-compose.override.yml', template: EXAMPLE_SOURCE },
+      { compose: 'docker-compose.observability.yml', template: EXAMPLE_SOURCE },
+      { compose: 'infrastructure/staging/docker-compose.staging.yml', template: 'infrastructure/.env.staging.example' },
+    ];
+    let interpolated = 0;
+    const undocumented: string[] = [];
+    for (const { compose, template } of pairs) {
+      const text = read(compose);
+      const documented = read(template);
+      const names = new Set([...text.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => String(match[1])));
+      interpolated += names.size;
+      for (const name of names) {
+        if (!new RegExp(`\\b${name}\\b`).test(documented)) {
+          undocumented.push(`${compose}: ${name}`);
+        }
+      }
+    }
+    expect(interpolated).toBeGreaterThanOrEqual(50);
+    expect(undocumented).toEqual([]);
+  });
+
   it('is wired to the boot path it claims to police', () => {
     // If `validate: validateEnvironment` were dropped from the module, every assertion
     // above would still pass while the schema stopped mattering: a parity test on a seam
@@ -3880,6 +6829,10 @@ import { HEADER_REQUEST_ID } from '@wlct/config';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
+    // Keep the exact request bytes on req.rawBody (applied to the parsers
+    // registered with app.useBodyParser below). Payment-provider webhooks sign
+    // the raw body; verifying a re-serialised JSON object never matches.
+    rawBody: true,
     // The global exception filter owns error shaping; disable Nest's default.
     abortOnError: false,
   });
@@ -4034,11 +6987,45 @@ FILE: apps/api/src/worker.ts
 import 'reflect-metadata';
 
 import { Logger } from '@nestjs/common';
+import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { Logger as PinoLogger } from 'nestjs-pino';
 
 import { AppConfigService } from './config/app-config.service';
 import { EngineInternalClient } from './modules/worker/engine-internal.client';
 import { WorkerModule } from './modules/worker/worker.module';
+
+/**
+ * Refuse to start: say why, release what the context opened, and exit nonzero.
+ *
+ * Round 8 (Docker run): these paths used to set `process.exitCode = 1` and return.
+ * That only ends the process once the event loop is empty, and after `app.close()`
+ * something in the graph (BullMQ / ioredis handles) kept it alive, so a worker that
+ * had refused its engine stayed "Up" with no consumer and restart: unless-stopped
+ * never fired - exactly the "started and doing nothing" mode point 2 above forbids.
+ * The close is bounded the same way the SIGTERM drain is, so a hung close cannot
+ * hold the refusal hostage either.
+ */
+async function refuseToStart(
+  app: INestApplicationContext,
+  logger: Logger,
+  shutdownTimeoutMs: number,
+  message: string,
+): Promise<never> {
+  logger.error(message);
+  const deadline = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, shutdownTimeoutMs);
+    timer.unref();
+  });
+  try {
+    await Promise.race([app.close(), deadline]);
+  } catch (error) {
+    logger.error(
+      `close after refusal failed (${error instanceof Error ? error.message : 'unknown'}); exiting anyway`,
+    );
+  }
+  process.exit(1);
+}
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('WorkerBootstrap');
@@ -4047,26 +7034,32 @@ async function bootstrap(): Promise<void> {
     bufferLogs: true,
     abortOnError: false,
   });
+  // Same wiring as main.ts. With bufferLogs: true and no useLogger/flushLogs, every
+  // Nest Logger line - including the refusal reasons below - stayed in the buffer
+  // and was never written: the round-8 Docker run showed a worker closing itself
+  // 50 ms after start with no reason anywhere in its output.
+  app.useLogger(app.get(PinoLogger));
+  app.flushLogs();
   const config = app.get(AppConfigService);
 
   if (!config.workerEnabled) {
-    logger.error(
+    await refuseToStart(
+      app,
+      logger,
+      config.workerShutdownTimeoutMs,
       'WORKER_ENABLED=false: this process refuses to idle. A worker that ' +
         'consumes nothing and looks healthy is an outage with extra steps.',
     );
-    await app.close();
-    process.exitCode = 1;
-    return;
   }
 
   if (config.executionEngineToken === undefined) {
-    logger.error(
+    await refuseToStart(
+      app,
+      logger,
+      config.workerShutdownTimeoutMs,
       'EXECUTION_ENGINE_TOKEN is required by the worker: it forwards commands ' +
         'into the process that holds venue credentials.',
     );
-    await app.close();
-    process.exitCode = 1;
-    return;
   }
 
   const client = app.get(EngineInternalClient);
@@ -4077,12 +7070,12 @@ async function bootstrap(): Promise<void> {
         `store=${status.store} commands=${status.commands.join(',')}`,
     );
   } catch (error) {
-    logger.error(
+    await refuseToStart(
+      app,
+      logger,
+      config.workerShutdownTimeoutMs,
       `execution engine gate failed: ${error instanceof Error ? error.message : 'unknown'}`,
     );
-    await app.close();
-    process.exitCode = 1;
-    return;
   }
 
   app.enableShutdownHooks();
@@ -4124,7 +7117,12 @@ void bootstrap().catch((error: unknown) => {
   new Logger('WorkerBootstrap').error(
     `worker failed to start: ${error instanceof Error ? error.message : 'unknown'}`,
   );
-  process.exitCode = 1;
+  // Exit now rather than only setting exitCode: a half-built context keeps
+  // Redis / BullMQ connections open, and those hold the event loop, so the
+  // process would otherwise linger as a running container that consumes
+  // nothing - the "started and doing nothing" failure described above. Exiting
+  // nonzero lets the orchestrator's restart policy see and retry it.
+  process.exit(1);
 });
 ```
 
@@ -4147,6 +7145,46 @@ FILE: apps/api/test/jest-e2e.json
     "^src/(.*)$": "<rootDir>/../src/$1"
   }
 }
+```
+
+FILE: apps/api/test/sso-test-keys.global-setup.js
+
+```javascript
+/**
+ * Jest globalSetup for the API unit tests: generates fresh TEST-ONLY SAML keys
+ * before any spec runs.
+ *
+ * The SAML and SSO specs verify real XML-DSig signatures, so they need an RSA key
+ * pair and certificates. The repository never contains a private key, so each
+ * test run creates a new set with scripts/generate-test-sso-keys.mjs in
+ * apps/api/.generated/sso-test-keys/ (git-ignored). The specs read the keys
+ * through src/modules/security/__fixtures__/saml-test-keys.fixture-spec.ts.
+ *
+ * Requires OpenSSL on PATH. Without it the run stops here with the generator's
+ * explanation: the SAML security tests are never skipped silently.
+ *
+ * Jest runs this once, in the parent process, before any worker starts, so
+ * parallel workers all read one complete set.
+ */
+const { spawnSync } = require('child_process');
+const path = require('path');
+
+module.exports = async function generateSsoTestKeys() {
+  const script = path.resolve(__dirname, '..', '..', '..', 'scripts', 'generate-test-sso-keys.mjs');
+  const result = spawnSync(process.execPath, [script], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error || result.status !== 0) {
+    const reason = result.error
+      ? result.error.message
+      : String(result.stderr || '').trim() || `exit ${result.status}`;
+    throw new Error(
+      `Could not generate the test-only SAML keys required by the SSO specs.\n${reason}\n` +
+        'Run `node scripts/generate-test-sso-keys.mjs` from the repository root to see the full error.',
+    );
+  }
+};
 ```
 
 FILE: apps/api/tsconfig.build.json

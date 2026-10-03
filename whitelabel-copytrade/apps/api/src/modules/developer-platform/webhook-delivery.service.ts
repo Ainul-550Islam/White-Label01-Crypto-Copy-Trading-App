@@ -77,8 +77,8 @@ export class WebhookDeliveryService {
     idempotencyKey: string;
     environment: string;
   }): Promise<DeliveryRecord> {
-    const existing = await this.prisma.developerWebhookDelivery.findUnique({
-      where: { idempotencyKey: input.idempotencyKey },
+    const existing = await this.prisma.developerWebhookDelivery.findFirst({
+      where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey },
     });
     if (existing) {
       return existing as DeliveryRecord;

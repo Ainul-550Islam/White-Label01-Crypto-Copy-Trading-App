@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { NotificationChannel } from './billing-notification.types';
 import { INotificationProvider } from './notification-provider.interface';
 import { EmailNotificationProvider } from './email-notification.provider';
+import { PushNotificationService } from './push-notification.service';
+import { TwilioSmsProvider } from './twilio-sms.provider';
 
 /**
  * Selects configured notification providers using existing app config and availability.
@@ -45,7 +47,10 @@ class InAppOnlyProvider implements INotificationProvider {
 export class NotificationProviderFactory {
   private readonly logger = new Logger(NotificationProviderFactory.name);
 
-  constructor(private readonly emailProvider: EmailNotificationProvider) {}
+  constructor(
+    private readonly emailProvider: EmailNotificationProvider,
+    private readonly pushProvider: PushNotificationService,
+  ) {}
 
   getProvider(channel: NotificationChannel): INotificationProvider {
     switch (channel) {
@@ -61,23 +66,37 @@ export class NotificationProviderFactory {
         return new InAppOnlyProvider();
 
       case NotificationChannel.PUSH:
-        // Push would require FCM/APNS config - check env
-        if (process.env.FCM_SERVER_KEY || process.env.FIREBASE_CONFIG) {
-          this.logger.log('Push provider configured');
-          return new InAppOnlyProvider(); // Placeholder that still marks accepted for in-app style
+        // The real FCM adapter. It reports PUSH_NOT_CONFIGURED /
+        // PUSH_PROVIDER_UNAVAILABLE itself; previously a configured push
+        // channel was handed the in-app stub, which "accepted" every push
+        // without sending anything.
+        if (this.pushProvider.isAvailable()) {
+          return this.pushProvider;
         }
         this.logger.warn('Push provider not configured');
         return new NoOpNotificationProvider();
 
       case NotificationChannel.WEBHOOK:
-        // Webhook delivery handled by dedicated service, not generic provider
-        return new InAppOnlyProvider();
+        // Webhook delivery is performed by NotificationDeliveryService
+        // (deliverWebhook) and never reaches this factory; answering here with
+        // an always-accepting stub would hide a routing mistake.
+        return new NoOpNotificationProvider();
 
-      case NotificationChannel.SMS:
-        if (process.env.SMS_PROVIDER) {
-          return new InAppOnlyProvider();
+      case NotificationChannel.SMS: {
+        // SMS_PROVIDER=twilio selects the Twilio REST adapter; it is only
+        // returned when fully configured. Anything else (unset, unknown
+        // provider, incomplete Twilio settings) fails closed. SMS_PROVIDER
+        // used to select the in-app stub, which reported every SMS as sent.
+        const smsProvider = (process.env.SMS_PROVIDER || '').trim().toLowerCase();
+        if (smsProvider === 'twilio') {
+          const twilio = new TwilioSmsProvider();
+          if (twilio.isAvailable()) return twilio;
+          this.logger.warn(`SMS_PROVIDER=twilio but configuration incomplete (missing: ${twilio.configurationProblems().join(', ')})`);
+        } else if (smsProvider) {
+          this.logger.warn(`SMS_PROVIDER=${smsProvider} is not supported (supported: twilio); SMS deliveries will fail`);
         }
         return new NoOpNotificationProvider();
+      }
 
       default:
         this.logger.error(`Unsupported notification channel: ${channel}`);
@@ -94,8 +113,11 @@ export class NotificationProviderFactory {
     if (this.emailProvider.isAvailable()) {
       available.push(NotificationChannel.EMAIL);
     }
-    if (process.env.FCM_SERVER_KEY || process.env.FIREBASE_CONFIG) {
+    if (this.pushProvider.isAvailable()) {
       available.push(NotificationChannel.PUSH);
+    }
+    if ((process.env.SMS_PROVIDER || '').trim().toLowerCase() === 'twilio' && new TwilioSmsProvider().isAvailable()) {
+      available.push(NotificationChannel.SMS);
     }
     return available;
   }

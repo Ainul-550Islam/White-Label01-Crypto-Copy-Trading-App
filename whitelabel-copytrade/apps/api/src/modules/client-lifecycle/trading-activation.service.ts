@@ -158,8 +158,10 @@ export class TradingActivationService {
       if (policy.tradingActivationPrerequisites.requireExchangeBinding && !account?.exchangeAccountId) {
         checks.push({ check: 'exchangeAccountState', passed: false, reason: 'Exchange account binding required', source: 'ExchangesModule' });
       } else if (account?.exchangeAccountId) {
-        const exchangeAccount = await (this.prisma as any).exchangeAccount?.findFirst?.({ where: { id: account.exchangeAccountId, tenantId } });
-        const passed = !!exchangeAccount && exchangeAccount.status !== 'DISABLED';
+        const exchangeAccount = await this.prisma.tradingAccount.findFirst({ where: { id: account.exchangeAccountId, tenantId, deletedAt: null } });
+        // Only a verified ACTIVE account can trade: PENDING_VALIDATION,
+        // CREDENTIALS_INVALID and WITHDRAWAL_ENABLED_REJECTED fail as DISABLED does.
+        const passed = !!exchangeAccount && exchangeAccount.status === 'ACTIVE';
         checks.push({
           check: 'exchangeAccountState',
           passed,
@@ -205,7 +207,12 @@ export class TradingActivationService {
     // 13. Operational maintenance/degradation — reuse OperationsModule
     try {
       const maintenance = await (this.prisma as any).operationalMaintenanceWindow?.findFirst?.({
-        where: { tenantId, status: 'ACTIVE', scope: { in: ['PLATFORM', 'TRADING'] } },
+        // state (not status); platform-wide windows have tenantId null; TRADING_CAPABILITY is the trading scope.
+        where: {
+          state: 'ACTIVE',
+          OR: [{ tenantId }, { tenantId: null }],
+          scope: { in: ['PLATFORM', 'TENANT', 'TRADING_CAPABILITY'] },
+        },
       });
       const hasMaintenance = !!maintenance;
       checks.push({

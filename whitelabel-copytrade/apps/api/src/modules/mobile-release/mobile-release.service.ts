@@ -15,7 +15,7 @@ import {
   RELEASE_TRANSITIONS,
   transitionOrThrow,
 } from './mobile-release.types';
-import type { MobileReleaseAuditService } from './mobile-release-audit.service';
+import { MobileReleaseAuditService } from './mobile-release-audit.service';
 
 export interface CreateReleaseInput {
   applicationId: string;
@@ -149,7 +149,7 @@ export class MobileReleaseService {
       artifact.versionName,
       artifact.versionCode,
     );
-    const existing = await this.prisma.mobileRelease.findUnique({ where: { idempotencyKey: key } });
+    const existing = await this.prisma.mobileRelease.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: key } });
     if (existing) return { release: existing as unknown as Record<string, unknown>, replayed: true };
 
     const release = await this.prisma.mobileRelease.create({

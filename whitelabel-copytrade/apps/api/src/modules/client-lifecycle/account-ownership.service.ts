@@ -66,7 +66,7 @@ export class AccountOwnershipService {
     });
 
     try {
-      const existing = await (this.prisma as any).accountOwnership.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).accountOwnership.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -165,30 +165,22 @@ export class AccountOwnershipService {
     if (clientProfileId) where.clientProfileId = clientProfileId;
     if (status) where.status = status;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).accountOwnership.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).accountOwnership.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).accountOwnership.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).accountOwnership.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async verifyOwnership(params: { tenantId: string; accountId: string; ownerId: string }): Promise<boolean> {
-    try {
-      const ownership = await (this.prisma as any).accountOwnership.findFirst({
-        where: { tenantId: params.tenantId, accountId: params.accountId, ownerId: params.ownerId, status: 'ACTIVE' },
-      });
-      return !!ownership;
-    } catch {
-      return false;
-    }
+    const ownership = await (this.prisma as any).accountOwnership.findFirst({
+      where: { tenantId: params.tenantId, accountId: params.accountId, ownerId: params.ownerId, status: 'ACTIVE' },
+    });
+    return !!ownership;
   }
 }

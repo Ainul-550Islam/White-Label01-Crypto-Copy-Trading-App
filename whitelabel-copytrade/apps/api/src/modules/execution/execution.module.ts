@@ -19,7 +19,11 @@ import { EnforcementModule } from '../billing/enforcement/enforcement.module';
  * that. If another module ever needs one of these services, adding an explicit
  * import is the point at which someone asks whether it should.
  *
- * The module has no `exports` for the same reason.
+ * Exports are limited to the explicit importers that need them:
+ * ExecutionSafetyService and ExchangeAccountsService (pre-existing), and
+ * ExecutionOrdersService for OmsModule's OrderCancelService, which cancels an
+ * order through the same audited path an operator uses. Without that export
+ * the API could not boot (Nest DI failure in OmsModule).
  *
  * Note also what this module does not provide: no adapter, no signer, no
  * credential provider, no risk engine. Those live in the trading worker. This
@@ -42,6 +46,6 @@ import { EnforcementModule } from '../billing/enforcement/enforcement.module';
     ExecutionSafetyService,
     ExecutionCommandsService,
   ],
-  exports: [ExecutionSafetyService, ExchangeAccountsService],
+  exports: [ExecutionSafetyService, ExchangeAccountsService, ExecutionOrdersService],
 })
 export class ExecutionModule {}

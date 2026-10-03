@@ -71,7 +71,7 @@ import type {
  * Nest matches declaration order for same-prefix literals elsewhere.
  */
 @ApiTags('risk')
-@Controller('v1/risk')
+@Controller('risk')
 export class RiskController {
   constructor(
     private readonly policy: RiskPolicyService,

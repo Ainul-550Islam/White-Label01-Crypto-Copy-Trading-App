@@ -27,6 +27,7 @@ export const routes = {
     fundingHistory: '/funding/history',
     billing: '/billing',
     plans: '/billing/plans',
+    subscription: '/billing/subscription',
     checkout: '/billing/checkout',
     invoices: '/billing/invoices',
     usage: '/billing/usage',

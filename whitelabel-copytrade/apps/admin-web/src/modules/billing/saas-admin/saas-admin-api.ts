@@ -3,22 +3,36 @@
  * Authenticated, tenant/admin scoped, no secrets, no direct DB calls.
  */
 
-const API_BASE = '/api/v1/billing/saas-admin';
+import { apiClient } from '@/lib/api-client';
 
+const PROXY_PREFIX = '/api/proxy';
+const API_BASE = `${PROXY_PREFIX}/billing/saas-admin`;
+
+/**
+ * All calls go through the console's same-origin proxy (/api/proxy/* ->
+ * API_BASE_URL/v1/*): the bearer token lives in an httpOnly cookie that only
+ * the proxy can read, and mutations carry the CSRF header. Before this the
+ * module fetched `{API_BASE}` on the admin origin, which has no such route, so
+ * every call 404'd. apiClient also unwraps the {success, data} envelope, which
+ * is the shape the billing components read (e.g. `result.tenantSlug`).
+ */
 async function fetchJson(url: string, options?: RequestInit): Promise<any> {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers || {}),
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `Request failed: ${res.status}`);
+  const path = url.startsWith(PROXY_PREFIX) ? url.slice(PROXY_PREFIX.length) : url;
+  const method = (options?.method ?? 'GET').toUpperCase();
+  const body =
+    typeof options?.body === 'string' && options.body.length > 0 ? JSON.parse(options.body) : undefined;
+  switch (method) {
+    case 'POST':
+      return apiClient.post(path, body);
+    case 'PATCH':
+      return apiClient.patch(path, body);
+    case 'PUT':
+      return apiClient.put(path, body);
+    case 'DELETE':
+      return apiClient.delete(path, body === undefined ? {} : { body });
+    default:
+      return apiClient.get(path);
   }
-  return res.json();
 }
 
 // Tenants
@@ -157,9 +171,16 @@ export async function disableWhiteLabel(tenantId: string, reason?: string): Prom
   });
 }
 
-// Canonical plan catalog for UI - no hardcoded pricing
+// Canonical plan catalog for UI - no hardcoded pricing.
+// GET /v1/billing/plans through the proxy (the former raw fetch of
+// /api/v1/billing/plans hit the admin origin, which has no such route, so the
+// plan list was always empty). Only purchasable (active) plans are offered
+// for assignment, which is the API default (ListPlansDto.includeInactive =
+// false); the client-side filter is a belt-and-braces check, and the API
+// refuses an inactive plan anyway.
 export async function getPlanCatalog(): Promise<any> {
-  const res = await fetch('/api/v1/billing/plans?includeInactive=false', { credentials: 'include' });
-  if (!res.ok) throw new Error('Failed to fetch plan catalog');
-  return res.json();
+  const page = await apiClient.get<{ items: any[]; pagination: unknown }>('/billing/plans', {
+    searchParams: { limit: 100, sortBy: 'sortOrder', sortOrder: 'asc' },
+  });
+  return { ...page, items: (page.items ?? []).filter((plan: any) => plan.isActive !== false) };
 }

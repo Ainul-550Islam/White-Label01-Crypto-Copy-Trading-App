@@ -9,6 +9,21 @@ import {
   CommissionRateConfig,
 } from './partner.types';
 
+/**
+ * Environment values always arrive as strings - `config.get<number>()` only
+ * changes the static type, it does not convert. Without this the policy would
+ * carry "3000" / "720" as strings into persisted JSON and Int columns.
+ * A malformed value is a misconfiguration and fails loudly.
+ */
+function envInteger(raw: unknown, fallback: number, name: string, min: number, max: number): number {
+  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) return fallback;
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new Error(`partner policy: ${name} must be an integer between ${min} and ${max}, got ${JSON.stringify(raw)}`);
+  }
+  return n;
+}
+
 @Injectable()
 export class PartnerPolicyService {
   private readonly logger = new Logger(PartnerPolicyService.name);
@@ -16,6 +31,8 @@ export class PartnerPolicyService {
   private readonly defaultCommissionBasis: PartnerCommissionBasis;
   private readonly settlementCurrency: string;
   private readonly allowedCurrencies: string[];
+  private readonly maxDiscountBasisPoints: number;
+  private readonly attributionWindowHours: number;
 
   constructor(private readonly config: ConfigService) {
     this.policyVersion = this.config.get<string>('PARTNER_POLICY_VERSION', '2026-01') ?? '2026-01';
@@ -24,6 +41,12 @@ export class PartnerPolicyService {
     this.settlementCurrency = this.config.get<string>('PARTNER_SETTLEMENT_CURRENCY', 'USD') ?? 'USD';
     const currenciesRaw = this.config.get<string>('PARTNER_ALLOWED_CURRENCIES', 'USD,EUR,GBP,USDT,USDC') ?? 'USD,EUR,GBP,USDT,USDC';
     this.allowedCurrencies = currenciesRaw.split(',').map(c => c.trim().toUpperCase()).filter(Boolean);
+    this.maxDiscountBasisPoints = envInteger(
+      this.config.get<unknown>('PARTNER_MAX_DISCOUNT_BPS'), 3000, 'PARTNER_MAX_DISCOUNT_BPS', 0, 10000,
+    );
+    this.attributionWindowHours = envInteger(
+      this.config.get<unknown>('PARTNER_ATTRIBUTION_WINDOW_HOURS'), 720, 'PARTNER_ATTRIBUTION_WINDOW_HOURS', 1, 8760,
+    );
   }
 
   getPolicyVersion(): string {
@@ -56,14 +79,14 @@ export class PartnerPolicyService {
       commissionModels: params.storedPolicy?.commissionModels ?? this.getCommissionModels(params.partnerType),
       commissionRates: params.storedPolicy?.commissionRates ?? baseRates,
       discountRules: params.storedPolicy?.discountRules ?? {
-        maxDiscountBasisPoints: this.config.get<number>('PARTNER_MAX_DISCOUNT_BPS', 3000) ?? 3000,
+        maxDiscountBasisPoints: this.maxDiscountBasisPoints,
         allowedDiscountTypes: [PartnerDiscountType.PERCENTAGE, PartnerDiscountType.FIXED_AMOUNT, PartnerDiscountType.CAMPAIGN],
         stackingAllowed: false,
         requiresApproval: true,
         allowedCurrencies: this.allowedCurrencies,
         maxActiveDiscounts: 10,
       },
-      attributionWindowHours: params.storedPolicy?.attributionWindowHours ?? this.config.get<number>('PARTNER_ATTRIBUTION_WINDOW_HOURS', 720) ?? 720,
+      attributionWindowHours: params.storedPolicy?.attributionWindowHours ?? this.attributionWindowHours,
       settlementSchedule: params.storedPolicy?.settlementSchedule ?? {
         frequency: 'MONTHLY',
         dayOfMonth: 1,

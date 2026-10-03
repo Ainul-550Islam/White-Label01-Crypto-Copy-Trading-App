@@ -217,7 +217,7 @@ export class SaasAdminService {
     let usageSummary: any = null;
     try {
       const usersCount = await this.prisma.user.count({ where: { tenantId: tenant.id, deletedAt: null } });
-      const tradersCount = (await (this.prisma as any).trader?.count({ where: { tenantId: tenant.id } })) ?? 0;
+      const tradersCount = await this.prisma.traderProfile.count({ where: { tenantId: tenant.id, deletedAt: null } });
       usageSummary = {
         tenantId: tenant.id,
         maxUsers: tenant.maxUsers || (subscription?.plan?.limits as any)?.maxUsers || null,

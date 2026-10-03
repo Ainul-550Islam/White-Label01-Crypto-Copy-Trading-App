@@ -95,7 +95,8 @@ export class AccountClosureService {
     // Check: No unresolved critical OMS reconciliation
     try {
       const omsReconciliations = await (this.prisma as any).omsReconciliation?.findMany?.({
-        where: { tenantId, status: 'FAILED', isCritical: true },
+        // OmsReconciliation has resolved + severity (HIGH is the critical level), not status/isCritical.
+        where: { tenantId, resolved: false, severity: { in: ['HIGH', 'CRITICAL'] } },
       });
       if (omsReconciliations && omsReconciliations.length > 0) {
         validationErrors.push(`Unresolved critical OMS reconciliation: ${omsReconciliations.length}`);

@@ -1,0 +1,235 @@
+/*
+ * Billing module styles (round 7).
+ *
+ * The billing portal / SaaS admin components under src/modules/billing were
+ * written with utility class names (p-6, bg-white, text-gray-500, ...), but
+ * the console has no Tailwind - it styles with the CSS custom properties in
+ * globals.css. This sheet defines exactly the utilities those components use,
+ * mapped onto the console's own tokens (dark surfaces, tenant-brandable
+ * primary colour), and ONLY inside `.wlct-billing`, the wrapper the billing
+ * routes render. Nothing here can restyle the rest of the console.
+ *
+ * Imported by the billing route layouts (app/(console)/billing, /plans,
+ * /saas-admin).
+ */
+
+.wlct-billing {
+  --wb-success-tint: rgba(47, 191, 113, 0.14);
+  --wb-warning-tint: rgba(232, 163, 61, 0.14);
+  --wb-danger-tint: rgba(229, 72, 77, 0.14);
+  --wb-info-tint: rgba(79, 124, 255, 0.14);
+  --wb-info-strong: rgba(79, 124, 255, 0.45);
+  color: var(--wlct-color-text);
+}
+
+/* ---- Form controls and tables (unstyled by the components themselves) ---- */
+.wlct-billing input,
+.wlct-billing select,
+.wlct-billing textarea {
+  background: var(--wlct-color-surface-raised);
+  color: var(--wlct-color-text);
+  border: 1px solid var(--wlct-color-border);
+  border-radius: var(--wlct-radius-sm);
+  font: inherit;
+}
+.wlct-billing input:focus,
+.wlct-billing select:focus,
+.wlct-billing textarea:focus {
+  outline: 2px solid var(--wlct-color-primary);
+  outline-offset: 1px;
+}
+.wlct-billing button {
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  border: 0;
+}
+.wlct-billing table {
+  border-collapse: collapse;
+}
+.wlct-billing th {
+  font-weight: 600;
+  color: var(--wlct-color-text-muted);
+}
+.wlct-billing h1,
+.wlct-billing h2,
+.wlct-billing h3,
+.wlct-billing h4,
+.wlct-billing p {
+  margin: 0;
+}
+
+/* ---- Layout ---- */
+.wlct-billing .block { display: block; }
+.wlct-billing .inline-block { display: inline-block; }
+.wlct-billing .inline-flex { display: inline-flex; }
+.wlct-billing .flex { display: flex; }
+.wlct-billing .grid { display: grid; }
+.wlct-billing .flex-1 { flex: 1 1 0%; }
+.wlct-billing .flex-wrap { flex-wrap: wrap; }
+.wlct-billing .items-center { align-items: center; }
+.wlct-billing .justify-between { justify-content: space-between; }
+.wlct-billing .justify-center { justify-content: center; }
+.wlct-billing .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+.wlct-billing .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wlct-billing .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (min-width: 768px) {
+  .wlct-billing .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wlct-billing .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .wlct-billing .md\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.wlct-billing .gap-1 { gap: 4px; }
+.wlct-billing .gap-2 { gap: 8px; }
+.wlct-billing .gap-3 { gap: 12px; }
+.wlct-billing .gap-4 { gap: 16px; }
+.wlct-billing .gap-6 { gap: 24px; }
+.wlct-billing .space-y-1 > * + * { margin-top: 4px; }
+.wlct-billing .space-y-2 > * + * { margin-top: 8px; }
+.wlct-billing .space-y-3 > * + * { margin-top: 12px; }
+.wlct-billing .space-y-4 > * + * { margin-top: 16px; }
+.wlct-billing .space-y-6 > * + * { margin-top: 24px; }
+.wlct-billing .fixed { position: fixed; }
+.wlct-billing .inset-0 { inset: 0; }
+.wlct-billing .z-50 { z-index: 50; }
+.wlct-billing .overflow-x-auto { overflow-x: auto; }
+.wlct-billing .overflow-y-auto { overflow-y: auto; }
+.wlct-billing .mx-auto { margin-left: auto; margin-right: auto; }
+
+/* ---- Sizing ---- */
+.wlct-billing .w-full { width: 100%; }
+.wlct-billing .w-1\/3 { width: 33.333333%; }
+.wlct-billing .w-8 { width: 32px; }
+.wlct-billing .h-2 { height: 8px; }
+.wlct-billing .h-8 { height: 32px; }
+.wlct-billing .h-32 { height: 128px; }
+.wlct-billing .h-48 { height: 192px; }
+.wlct-billing .h-64 { height: 256px; }
+.wlct-billing .max-h-48 { max-height: 192px; }
+.wlct-billing .max-h-64 { max-height: 256px; }
+.wlct-billing .max-w-md { max-width: 448px; }
+
+/* ---- Spacing ---- */
+.wlct-billing .p-3 { padding: 12px; }
+.wlct-billing .p-4 { padding: 16px; }
+.wlct-billing .p-6 { padding: 24px; }
+.wlct-billing .px-1\.5 { padding-left: 6px; padding-right: 6px; }
+.wlct-billing .px-2 { padding-left: 8px; padding-right: 8px; }
+.wlct-billing .px-3 { padding-left: 12px; padding-right: 12px; }
+.wlct-billing .px-4 { padding-left: 16px; padding-right: 16px; }
+.wlct-billing .py-0\.5 { padding-top: 2px; padding-bottom: 2px; }
+.wlct-billing .py-1 { padding-top: 4px; padding-bottom: 4px; }
+.wlct-billing .py-1\.5 { padding-top: 6px; padding-bottom: 6px; }
+.wlct-billing .py-2 { padding-top: 8px; padding-bottom: 8px; }
+.wlct-billing .py-3 { padding-top: 12px; padding-bottom: 12px; }
+.wlct-billing .py-12 { padding-top: 48px; padding-bottom: 48px; }
+.wlct-billing .pt-3 { padding-top: 12px; }
+.wlct-billing .pt-4 { padding-top: 16px; }
+.wlct-billing .mb-1 { margin-bottom: 4px; }
+.wlct-billing .mb-2 { margin-bottom: 8px; }
+.wlct-billing .mb-3 { margin-bottom: 12px; }
+.wlct-billing .mb-4 { margin-bottom: 16px; }
+.wlct-billing .mt-1 { margin-top: 4px; }
+.wlct-billing .mt-2 { margin-top: 8px; }
+.wlct-billing .mt-3 { margin-top: 12px; }
+.wlct-billing .mt-4 { margin-top: 16px; }
+.wlct-billing .mt-6 { margin-top: 24px; }
+.wlct-billing .ml-1 { margin-left: 4px; }
+.wlct-billing .mr-1 { margin-right: 4px; }
+
+/* ---- Typography ---- */
+.wlct-billing .text-xs { font-size: 12px; line-height: 16px; }
+.wlct-billing .text-sm { font-size: 14px; line-height: 20px; }
+.wlct-billing .text-lg { font-size: 18px; line-height: 28px; }
+.wlct-billing .text-xl { font-size: 20px; line-height: 28px; }
+.wlct-billing .text-2xl { font-size: 24px; line-height: 32px; }
+.wlct-billing .text-3xl { font-size: 30px; line-height: 36px; }
+.wlct-billing .font-medium { font-weight: 500; }
+.wlct-billing .font-semibold { font-weight: 600; }
+.wlct-billing .font-bold { font-weight: 700; }
+.wlct-billing .font-mono { font-family: var(--wlct-font-mono); }
+.wlct-billing .text-left { text-align: left; }
+.wlct-billing .text-center { text-align: center; }
+.wlct-billing .hover\:underline:hover { text-decoration: underline; }
+
+/* ---- Borders and radius ---- */
+.wlct-billing .border { border: 1px solid var(--wlct-color-border); }
+.wlct-billing .border-4 { border-width: 4px; border-style: solid; }
+.wlct-billing .border-b { border-bottom: 1px solid var(--wlct-color-border); }
+.wlct-billing .border-t { border-top: 1px solid var(--wlct-color-border); }
+.wlct-billing .border-gray-200,
+.wlct-billing .border-gray-300 { border-color: var(--wlct-color-border); }
+.wlct-billing .border-blue-200 { border-color: var(--wb-info-strong); }
+.wlct-billing .border-blue-500,
+.wlct-billing .border-blue-600 { border-color: var(--wlct-color-primary); }
+.wlct-billing .border-red-200 { border-color: var(--wlct-color-danger); }
+.wlct-billing .border-yellow-200 { border-color: var(--wlct-color-warning); }
+.wlct-billing .border-t-transparent { border-top-color: transparent; }
+.wlct-billing .rounded { border-radius: var(--wlct-radius-sm); }
+.wlct-billing .rounded-lg { border-radius: var(--wlct-radius-md); }
+.wlct-billing .rounded-full { border-radius: 9999px; }
+.wlct-billing .ring-2 { box-shadow: 0 0 0 2px var(--wb-info-strong); }
+.wlct-billing .ring-blue-200 { --wb-ring: var(--wb-info-strong); }
+
+/* ---- Surfaces ---- */
+.wlct-billing .bg-white { background: var(--wlct-color-surface); }
+.wlct-billing .bg-gray-50 { background: var(--wlct-color-surface-raised); }
+.wlct-billing .bg-gray-100 { background: var(--wlct-color-surface-raised); }
+.wlct-billing .bg-gray-200 { background: var(--wlct-color-border); }
+.wlct-billing .bg-gray-600 { background: #4b5563; }
+.wlct-billing .bg-gray-800 { background: var(--wlct-color-surface-raised); border: 1px solid var(--wlct-color-border); }
+.wlct-billing .bg-black\/50 { background: rgba(0, 0, 0, 0.5); }
+.wlct-billing .bg-blue-50,
+.wlct-billing .bg-blue-100 { background: var(--wb-info-tint); }
+.wlct-billing .bg-blue-600 { background: var(--wlct-color-primary); color: var(--wlct-color-primary-contrast); }
+.wlct-billing .bg-green-100 { background: var(--wb-success-tint); }
+.wlct-billing .bg-green-600 { background: var(--wlct-color-success); color: #ffffff; }
+.wlct-billing .bg-red-50,
+.wlct-billing .bg-red-100 { background: var(--wb-danger-tint); }
+.wlct-billing .bg-red-600 { background: var(--wlct-color-danger); color: #ffffff; }
+.wlct-billing .bg-yellow-50,
+.wlct-billing .bg-yellow-100 { background: var(--wb-warning-tint); }
+.wlct-billing .hover\:bg-gray-50:hover { background: var(--wlct-color-surface-raised); }
+.wlct-billing .hover\:bg-gray-900:hover { background: var(--wlct-color-border); }
+.wlct-billing .hover\:bg-blue-700:hover { filter: brightness(0.9); }
+.wlct-billing .hover\:bg-green-700:hover { filter: brightness(0.9); }
+.wlct-billing .hover\:bg-red-700:hover { filter: brightness(0.9); }
+
+/* ---- Text colours ---- */
+.wlct-billing .text-white { color: #ffffff; }
+.wlct-billing .text-gray-300,
+.wlct-billing .text-gray-400,
+.wlct-billing .text-gray-500,
+.wlct-billing .text-gray-600 { color: var(--wlct-color-text-muted); }
+.wlct-billing .text-gray-700,
+.wlct-billing .text-gray-800 { color: var(--wlct-color-text); }
+.wlct-billing .hover\:text-gray-900:hover { color: var(--wlct-color-text); }
+.wlct-billing .text-blue-600,
+.wlct-billing .text-blue-700,
+.wlct-billing .text-blue-800 { color: var(--wlct-color-primary); }
+.wlct-billing .text-green-500,
+.wlct-billing .text-green-600,
+.wlct-billing .text-green-800 { color: var(--wlct-color-success); }
+.wlct-billing .text-red-600,
+.wlct-billing .text-red-700,
+.wlct-billing .text-red-800 { color: var(--wlct-color-danger); }
+.wlct-billing .text-yellow-600,
+.wlct-billing .text-yellow-700,
+.wlct-billing .text-yellow-800,
+.wlct-billing .text-orange-600 { color: var(--wlct-color-warning); }
+
+/* ---- States ---- */
+.wlct-billing .cursor-not-allowed { cursor: not-allowed; }
+.wlct-billing .disabled\:opacity-50:disabled { opacity: 0.5; cursor: not-allowed; }
+.wlct-billing .animate-pulse { animation: wlct-billing-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.wlct-billing .animate-spin { animation: wlct-billing-spin 1s linear infinite; }
+
+@keyframes wlct-billing-pulse {
+  50% { opacity: 0.5; }
+}
+@keyframes wlct-billing-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Bordered utility buttons (`border rounded px-3 py-2`) read as secondary actions. */
+.wlct-billing button.border:hover { background: var(--wlct-color-surface-raised); }

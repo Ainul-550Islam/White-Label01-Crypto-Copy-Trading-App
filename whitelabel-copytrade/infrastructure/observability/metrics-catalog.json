@@ -56,6 +56,8 @@
       "wlct_slo_burn_rate_ppm",
       "wlct_slo_error_budget_remaining_ppm",
       "wlct_slo_state",
+      "wlct_sso_failures_total",
+      "wlct_sso_logins_total",
       "wlct_tracing_export_consecutive_failures",
       "wlct_tracing_export_outcomes_total",
       "wlct_tracing_spans_total",
@@ -380,7 +382,7 @@
     {
       "authHeader": "x-metrics-token",
       "composeService": "api",
-      "familiesNamedInSource": 28,
+      "familiesNamedInSource": 30,
       "metricsPath": "${PROMETHEUS_PATH}",
       "metricsPathIsExpansion": true,
       "pathEvidence": "apps/api/src/config/app-config.service.ts reads PROMETHEUS_PATH (.env.example)",

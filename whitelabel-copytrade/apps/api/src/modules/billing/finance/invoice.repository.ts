@@ -5,6 +5,53 @@ import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 
 /**
+ * Invoice columns hold the amounts, status, dates and the JSON documents
+ * (customer, lines, taxSummary, metadata). Record fields without a column are
+ * kept in `metadata._invoice` and stripped again on read. `lines` is a JSON
+ * column, not a relation: the previous nested `lines.create` / `include`
+ * made Prisma reject every invoice write and read.
+ */
+export const INVOICE_RECORD_METADATA_KEY = '_invoice';
+
+export interface InvoiceRecordExtras {
+  customerId?: string | null;
+  billingPeriodStart?: string | null;
+  billingPeriodEnd?: string | null;
+  billingInterval?: string | null;
+  discountTotal?: string | null;
+  amountCredited?: string | null;
+  providerInvoiceId?: string | null;
+  planCode?: string | null;
+  planName?: string | null;
+  paymentReference?: unknown;
+}
+
+function invoiceObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {};
+}
+
+function invoiceIso(value: Date | string | null | undefined): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+/** Metadata JSON for a write: caller metadata (replacing the stored one when given) plus merged record fields. */
+export function buildInvoiceMetadata(
+  existing: unknown,
+  userMetadata: Record<string, unknown> | null | undefined,
+  extras: InvoiceRecordExtras,
+): Record<string, unknown> {
+  const current = invoiceObject(existing);
+  const stored = invoiceObject(current[INVOICE_RECORD_METADATA_KEY]);
+  const user = userMetadata ? invoiceObject(userMetadata) : current;
+  delete user[INVOICE_RECORD_METADATA_KEY];
+  for (const [key, value] of Object.entries(extras)) {
+    if (value !== undefined) stored[key] = value;
+  }
+  return { ...user, [INVOICE_RECORD_METADATA_KEY]: stored };
+}
+
+/**
  * Persistence abstraction for invoices, invoice lines, invoice numbers,
  * status transitions, payment associations, and tenant-scoped invoice queries.
  *
@@ -47,54 +94,53 @@ export class InvoiceRepository {
           id: this.generateId(),
           invoiceNumber: await this.generateInvoiceNumber(input.tenantId),
           tenantId: input.tenantId,
-          customerId: input.customerId || null,
           subscriptionId: input.subscriptionId || null,
           paymentId: input.paymentId || null,
           currency: input.currency,
           status: 'DRAFT',
-          issueDate: input.issueDate || new Date(),
+          issuedAt: input.issueDate || new Date(),
           dueDate: input.dueDate || null,
-          billingPeriodStart: input.billingPeriod?.start || null,
-          billingPeriodEnd: input.billingPeriod?.end || null,
-          billingInterval: input.billingPeriod?.interval || null,
           subtotal: totals.subtotal,
-          discountTotal: totals.discountTotal,
           taxTotal: totals.taxTotal,
           total: totals.total,
           amountPaid: '0',
           amountDue: totals.total,
           amountRefunded: '0',
-          amountCredited: '0',
           provider: input.provider || null,
-          providerInvoiceId: input.providerInvoiceId || null,
           planId: input.planId || null,
-          planCode: input.planCode || null,
-          planName: input.planName || null,
           idempotencyKey: input.idempotencyKey,
-          metadata: input.metadata || null,
-          lines: {
-            create: input.lines.map((line) => ({
-              id: this.generateId(),
-              type: line.type,
-              description: line.description,
-              quantity: line.quantity,
-              unitPrice: line.unitPrice.amount,
-              amount: line.amount.amount,
-              discountType: line.discountType || null,
-              discountValue: line.discountValue || null,
-              discountAmount: line.discountAmount?.amount || null,
-              taxRate: line.taxRate || null,
-              taxAmount: line.taxAmount?.amount || null,
-              metadata: line.metadata || null,
-              planId: line.planId || null,
-              subscriptionId: line.subscriptionId || null,
-              billingPeriodStart: line.billingPeriodStart ? new Date(line.billingPeriodStart) : null,
-              billingPeriodEnd: line.billingPeriodEnd ? new Date(line.billingPeriodEnd) : null,
-            })),
-          },
-        },
-        include: {
-          lines: true,
+          customer: (input.customer ?? {}) as any,
+          taxSummary: (input.taxSummary ?? []) as any,
+          metadata: buildInvoiceMetadata(null, (input.metadata as any) ?? {}, {
+            customerId: input.customerId || null,
+            billingPeriodStart: invoiceIso(input.billingPeriod?.start),
+            billingPeriodEnd: invoiceIso(input.billingPeriod?.end),
+            billingInterval: input.billingPeriod?.interval || null,
+            discountTotal: totals.discountTotal,
+            amountCredited: '0',
+            providerInvoiceId: input.providerInvoiceId || null,
+            planCode: input.planCode || null,
+            planName: input.planName || null,
+            paymentReference: input.paymentReference ?? null,
+          }) as any,
+          lines: input.lines.map((line) => ({
+            id: this.generateId(),
+            type: line.type,
+            description: line.description,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice.amount,
+            amount: line.amount.amount,
+            discountType: line.discountType || null,
+            discountValue: line.discountValue || null,
+            discountAmount: line.discountAmount?.amount || null,
+            taxRate: line.taxRate || null,
+            taxAmount: line.taxAmount?.amount || null,
+            metadata: line.metadata || null,
+            planId: line.planId || null,
+            subscriptionId: line.subscriptionId || null,
+            billingPeriodStart: invoiceIso(line.billingPeriodStart as any),
+            billingPeriodEnd: invoiceIso(line.billingPeriodEnd as any),
+          })) as any,
         },
       });
 
@@ -125,106 +171,84 @@ export class InvoiceRepository {
   }
 
   async findById(id: string, tenantId?: string): Promise<InvoiceRecord | null> {
-    try {
-      const where: any = { id };
-      if (tenantId) where.tenantId = tenantId;
-      const invoice = await (this.prisma as any).invoice?.findUnique({
-        where,
-        include: { lines: true },
-      });
-      if (invoice) {
-        // If tenantId provided, double-check isolation even when using findUnique
-        if (tenantId && invoice.tenantId !== tenantId) return null;
-        return this.mapToInvoiceRecord(invoice);
-      }
-      // Fallback to findFirst for tenant isolation
-      if (tenantId) {
-        const invoiceFirst = await (this.prisma as any).invoice?.findFirst({
-          where: { id, tenantId },
-          include: { lines: true },
-        });
-        if (invoiceFirst) return this.mapToInvoiceRecord(invoiceFirst);
-      }
-      return null;
-    } catch {
-      return null;
+    const where: any = { id };
+    if (tenantId) where.tenantId = tenantId;
+    const invoice = await (this.prisma as any).invoice?.findUnique({
+      where,
+    });
+    if (invoice) {
+      // If tenantId provided, double-check isolation even when using findUnique
+      if (tenantId && invoice.tenantId !== tenantId) return null;
+      return this.mapToInvoiceRecord(invoice);
     }
+    // Fallback to findFirst for tenant isolation
+    if (tenantId) {
+      const invoiceFirst = await (this.prisma as any).invoice?.findFirst({
+        where: { id, tenantId },
+        });
+      if (invoiceFirst) return this.mapToInvoiceRecord(invoiceFirst);
+    }
+    return null;
   }
 
   async findByInvoiceNumber(invoiceNumber: string): Promise<InvoiceRecord | null> {
-    try {
-      const invoice = await (this.prisma as any).invoice?.findFirst({
-        where: { invoiceNumber },
-        include: { lines: true },
-      });
-      if (invoice) return this.mapToInvoiceRecord(invoice);
-      return null;
-    } catch {
-      return null;
-    }
+    const invoice = await (this.prisma as any).invoice?.findFirst({
+      where: { invoiceNumber },
+    });
+    if (invoice) return this.mapToInvoiceRecord(invoice);
+    return null;
   }
 
   async findByPaymentId(paymentId: string): Promise<InvoiceRecord | null> {
-    try {
-      const invoice = await (this.prisma as any).invoice?.findFirst({
-        where: { paymentId },
-        orderBy: { createdAt: 'desc' },
-        include: { lines: true },
-      });
-      if (invoice) return this.mapToInvoiceRecord(invoice);
-      return null;
-    } catch {
-      return null;
-    }
+    const invoice = await (this.prisma as any).invoice?.findFirst({
+      where: { paymentId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (invoice) return this.mapToInvoiceRecord(invoice);
+    return null;
   }
 
   async findByIdempotencyKey(idempotencyKey: string, tenantId?: string): Promise<InvoiceRecord | null> {
-    try {
-      const invoice = await (this.prisma as any).invoice?.findFirst({
-        where: { idempotencyKey, tenantId },
-        orderBy: { createdAt: 'desc' },
-        include: { lines: true },
-      });
-      if (invoice) return this.mapToInvoiceRecord(invoice);
-      return null;
-    } catch {
-      return null;
-    }
+    const invoice = await (this.prisma as any).invoice?.findFirst({
+      where: { idempotencyKey, tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (invoice) return this.mapToInvoiceRecord(invoice);
+    return null;
   }
 
   async list(filter: InvoiceFilter): Promise<InvoiceRecord[]> {
-    try {
-      const where: any = {};
-      if (filter.tenantId) where.tenantId = filter.tenantId;
-      if (filter.customerId) where.customerId = filter.customerId;
-      if (filter.subscriptionId) where.subscriptionId = filter.subscriptionId;
-      if (filter.paymentId) where.paymentId = filter.paymentId;
-      if (filter.status) where.status = filter.status;
-      if (filter.currency) where.currency = filter.currency;
-      if (filter.planId) where.planId = filter.planId;
-      if (filter.invoiceNumber) where.invoiceNumber = filter.invoiceNumber;
-      if (filter.billingInterval) where.billingInterval = filter.billingInterval;
-
-      if (filter.fromDate || filter.toDate) {
-        where.issueDate = {};
-        if (filter.fromDate) where.issueDate.gte = filter.fromDate;
-        if (filter.toDate) where.issueDate.lte = filter.toDate;
-      }
-
-      const invoices = await (this.prisma as any).invoice?.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-        include: { lines: true },
-      });
-
-      if (invoices) {
-        return invoices.map((inv: any) => this.mapToInvoiceRecord(inv));
-      }
-      return [];
-    } catch {
-      return [];
+    const where: any = {};
+    if (filter.tenantId) where.tenantId = filter.tenantId;
+    const jsonFilters: any[] = [];
+    if (filter.customerId) jsonFilters.push({ metadata: { path: [INVOICE_RECORD_METADATA_KEY, 'customerId'], equals: filter.customerId } });
+    if (filter.subscriptionId) where.subscriptionId = filter.subscriptionId;
+    if (filter.paymentId) where.paymentId = filter.paymentId;
+    if (filter.status) where.status = filter.status;
+    if (filter.currency) where.currency = filter.currency;
+    if (filter.planId) where.planId = filter.planId;
+    if (filter.invoiceNumber) where.invoiceNumber = filter.invoiceNumber;
+    if (filter.billingInterval) {
+      jsonFilters.push({ metadata: { path: [INVOICE_RECORD_METADATA_KEY, 'billingInterval'], equals: filter.billingInterval } });
     }
+    if (jsonFilters.length > 0) where.AND = jsonFilters;
+
+    if (filter.fromDate || filter.toDate) {
+      where.issuedAt = {};
+      if (filter.fromDate) where.issuedAt.gte = filter.fromDate;
+      if (filter.toDate) where.issuedAt.lte = filter.toDate;
+    }
+
+    const invoices = await (this.prisma as any).invoice?.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    if (invoices) {
+      return invoices.map((inv: any) => this.mapToInvoiceRecord(inv));
+    }
+    return [];
   }
 
   async update(id: string, input: UpdateInvoiceInput): Promise<InvoiceRecord> {
@@ -235,9 +259,14 @@ export class InvoiceRepository {
       if (input.amountPaid) updateData.amountPaid = input.amountPaid;
       if (input.amountDue) updateData.amountDue = input.amountDue;
       if (input.amountRefunded) updateData.amountRefunded = input.amountRefunded;
-      if (input.amountCredited) updateData.amountCredited = input.amountCredited;
-      if (input.providerInvoiceId) updateData.providerInvoiceId = input.providerInvoiceId;
-      if (input.metadata) updateData.metadata = input.metadata;
+      const extras: InvoiceRecordExtras = {};
+      if (input.amountCredited) extras.amountCredited = input.amountCredited;
+      if (input.providerInvoiceId) extras.providerInvoiceId = input.providerInvoiceId;
+      if (Object.keys(extras).length > 0 || input.metadata) {
+        const existing = await (this.prisma as any).invoice?.findUnique({ where: { id } });
+        if (!existing) throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Invoice not found' });
+        updateData.metadata = buildInvoiceMetadata(existing.metadata, (input.metadata as any) ?? null, extras);
+      }
       if (input.finalizedAt !== undefined) updateData.finalizedAt = input.finalizedAt;
       if (input.paidAt !== undefined) updateData.paidAt = input.paidAt;
       if (input.voidedAt !== undefined) updateData.voidedAt = input.voidedAt;
@@ -245,7 +274,6 @@ export class InvoiceRepository {
       const invoice = await (this.prisma as any).invoice?.update({
         where: { id },
         data: updateData,
-        include: { lines: true },
       });
 
       if (invoice) return this.mapToInvoiceRecord(invoice);
@@ -340,35 +368,40 @@ export class InvoiceRepository {
   }
 
   private mapToInvoiceRecord(prismaInvoice: any): InvoiceRecord {
+    const metadata = invoiceObject(prismaInvoice.metadata);
+    const extras = invoiceObject(metadata[INVOICE_RECORD_METADATA_KEY]);
+    delete metadata[INVOICE_RECORD_METADATA_KEY];
+    const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+    const date = (value: unknown): Date | null => (text(value) ? new Date(value as string) : null);
     return {
       id: prismaInvoice.id,
       invoiceNumber: prismaInvoice.invoiceNumber,
       tenantId: prismaInvoice.tenantId,
-      customerId: prismaInvoice.customerId || null,
+      customerId: text(extras.customerId) as any,
       subscriptionId: prismaInvoice.subscriptionId || null,
       paymentId: prismaInvoice.paymentId || null,
       currency: prismaInvoice.currency,
       status: prismaInvoice.status as InvoiceStatus,
-      issueDate: prismaInvoice.issueDate,
+      issueDate: prismaInvoice.issuedAt ?? prismaInvoice.createdAt,
       dueDate: prismaInvoice.dueDate || null,
-      billingPeriodStart: prismaInvoice.billingPeriodStart || null,
-      billingPeriodEnd: prismaInvoice.billingPeriodEnd || null,
-      billingInterval: prismaInvoice.billingInterval || null,
+      billingPeriodStart: date(extras.billingPeriodStart),
+      billingPeriodEnd: date(extras.billingPeriodEnd),
+      billingInterval: text(extras.billingInterval) as any,
       subtotal: prismaInvoice.subtotal,
-      discountTotal: prismaInvoice.discountTotal,
+      discountTotal: text(extras.discountTotal) ?? '0',
       taxTotal: prismaInvoice.taxTotal,
       total: prismaInvoice.total,
       amountPaid: prismaInvoice.amountPaid,
       amountDue: prismaInvoice.amountDue,
       amountRefunded: prismaInvoice.amountRefunded,
-      amountCredited: prismaInvoice.amountCredited,
+      amountCredited: text(extras.amountCredited) ?? '0',
       provider: prismaInvoice.provider || null,
-      providerInvoiceId: prismaInvoice.providerInvoiceId || null,
+      providerInvoiceId: text(extras.providerInvoiceId),
       planId: prismaInvoice.planId || null,
-      planCode: prismaInvoice.planCode || null,
-      planName: prismaInvoice.planName || null,
+      planCode: text(extras.planCode),
+      planName: text(extras.planName),
       idempotencyKey: prismaInvoice.idempotencyKey,
-      metadata: prismaInvoice.metadata || null,
+      metadata: prismaInvoice.metadata ? metadata : null,
       finalizedAt: prismaInvoice.finalizedAt || null,
       paidAt: prismaInvoice.paidAt || null,
       voidedAt: prismaInvoice.voidedAt || null,

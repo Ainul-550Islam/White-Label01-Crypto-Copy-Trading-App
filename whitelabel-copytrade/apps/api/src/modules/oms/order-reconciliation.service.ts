@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ReconciliationCategory, isValidDecimal, parseScaled, formatScaled } from './oms.types';
+import { ReconciliationCategory, isValidDecimal, parseScaled, formatScaled, reconciliationErrorCode } from './oms.types';
 import { randomUUID } from 'crypto';
 
 /**
@@ -18,10 +18,20 @@ export class OrderReconciliationService {
   async reconcileOrder(params: { tenantId: string; intentId: string }) {
     const { tenantId, intentId } = params;
 
+    // The OMS intent table is the source of truth. If reading it fails, the canonical order row is
+    // used instead - and that substitution is never silent: it is logged with the error code and
+    // reported as intentSource / intentReadError in the result.
     let intent: any;
+    let intentSource: 'OMS_INTENT' | 'CANONICAL_ORDER_FALLBACK' = 'OMS_INTENT';
+    let intentReadError: string | null = null;
     try {
       intent = await (this.prisma as any).omsOrderIntent.findFirst({ where: { id: intentId, tenantId } });
-    } catch {
+    } catch (e) {
+      intentSource = 'CANONICAL_ORDER_FALLBACK';
+      intentReadError = reconciliationErrorCode(e);
+      this.logger.warn(
+        `Order reconciliation intent ${intentId} tenant ${tenantId}: OMS intent read failed (error ${intentReadError}); reconciling from the canonical order row`,
+      );
       intent = await this.prisma.order.findFirst({ where: { id: intentId, tenantId } });
     }
     if (!intent) throw new Error(`Intent ${intentId} not found`);
@@ -157,7 +167,11 @@ export class OrderReconciliationService {
       }
     }
 
-    // Persist findings
+    // Persist findings. A finding that cannot be stored is never dropped silently: it stays in the
+    // returned result, is counted in persistFailures and is logged at error level (error code only,
+    // never row values).
+    let persistedFindings = 0;
+    let persistFailures = 0;
     for (const f of findings) {
       try {
         await (this.prisma as any).omsReconciliation.create({
@@ -174,23 +188,49 @@ export class OrderReconciliationService {
             resolved: false,
           },
         });
-      } catch {}
+        persistedFindings++;
+      } catch (e) {
+        persistFailures++;
+        this.logger.error(
+          `Order reconciliation finding NOT persisted intent ${intentId} tenant ${tenantId} category ${f.category} severity ${f.severity} error ${reconciliationErrorCode(e)}`,
+        );
+      }
     }
 
-    this.logger.log(`Order reconciliation intent ${intentId} tenant ${tenantId} findings ${findings.length}`);
-    return { intentId, findings, totalFindings: findings.length, timestamp: new Date().toISOString() };
+    if (persistFailures > 0) {
+      this.logger.warn(`Order reconciliation intent ${intentId} tenant ${tenantId} findings ${findings.length} persisted ${persistedFindings} persistFailures ${persistFailures} source ${intentSource}`);
+    } else {
+      this.logger.log(`Order reconciliation intent ${intentId} tenant ${tenantId} findings ${findings.length} source ${intentSource}`);
+    }
+    return {
+      intentId,
+      intentSource,
+      intentReadError,
+      findings,
+      totalFindings: findings.length,
+      persistedFindings,
+      persistFailures,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   async reconcileTenant(params: { tenantId: string; accountId?: string; limit?: number }) {
     const { tenantId, accountId, limit = 20 } = params;
     let intents: any[] = [];
+    let intentSource: 'OMS_INTENT' | 'CANONICAL_ORDER_FALLBACK' = 'OMS_INTENT';
+    let intentReadError: string | null = null;
     try {
       intents = await (this.prisma as any).omsOrderIntent.findMany({
         where: { tenantId, ...(accountId ? { accountId } : {}), state: { in: ['SUBMITTED', 'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'CANCEL_REQUESTED', 'RECONCILIATION_REQUIRED'] } },
         orderBy: { updatedAt: 'asc' },
         take: limit,
       });
-    } catch {
+    } catch (e) {
+      intentSource = 'CANONICAL_ORDER_FALLBACK';
+      intentReadError = reconciliationErrorCode(e);
+      this.logger.warn(
+        `Order reconciliation tenant ${tenantId}: OMS intent list read failed (error ${intentReadError}); selecting open canonical orders instead`,
+      );
       intents = await this.prisma.order.findMany({
         where: { tenantId, ...(accountId ? { accountId } : {}), status: { in: ['SUBMITTED', 'ACKNOWLEDGED', 'PARTIALLY_FILLED'] as any } },
         orderBy: { updatedAt: 'asc' },
@@ -203,6 +243,13 @@ export class OrderReconciliationService {
       const res = await this.reconcileOrder({ tenantId, intentId: intent.id });
       results.push(res);
     }
-    return { totalChecked: intents.length, totalFindings: results.reduce((s, r) => s + r.totalFindings, 0), results };
+    return {
+      totalChecked: intents.length,
+      totalFindings: results.reduce((s, r) => s + r.totalFindings, 0),
+      intentSource,
+      intentReadError,
+      readFallbacks: results.filter((r) => r.intentSource === 'CANONICAL_ORDER_FALLBACK').length,
+      results,
+    };
   }
 }

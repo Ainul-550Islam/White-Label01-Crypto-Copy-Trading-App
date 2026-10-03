@@ -1,6 +1,7 @@
 /// Feature Access
 /// 
 /// Utility class for checking feature access and limits.
+library;
 
 import 'entitlement.dart';
 
@@ -44,11 +45,11 @@ class FeatureAccess {
       return FeatureAccessResult.denied('No active entitlement');
     }
 
-    if (!_entitlement!.isActive && !_entitlement!.isTrial) {
+    if (!_entitlement.isActive && !_entitlement.isTrial) {
       return FeatureAccessResult.denied('Entitlement is not active');
     }
 
-    final feature = _entitlement!.getFeature(featureKey);
+    final feature = _entitlement.getFeature(featureKey);
     if (feature == null) {
       return FeatureAccessResult.denied('Feature not available in your plan');
     }
@@ -66,11 +67,11 @@ class FeatureAccess {
       return FeatureAccessResult.denied('No active entitlement');
     }
 
-    if (!_entitlement!.isActive && !_entitlement!.isTrial) {
+    if (!_entitlement.isActive && !_entitlement.isTrial) {
       return FeatureAccessResult.denied('Entitlement is not active');
     }
 
-    final limit = _entitlement!.getLimit(limitKey);
+    final limit = _entitlement.getLimit(limitKey);
     if (limit == null) {
       return FeatureAccessResult.allowed();
     }
@@ -119,7 +120,7 @@ class FeatureAccess {
   /// Get all available features
   List<String> getAvailableFeatures() {
     if (_entitlement == null) return [];
-    return _entitlement!.features
+    return _entitlement.features
         .where((f) => f.enabled)
         .map((f) => f.key)
         .toList();
@@ -129,7 +130,7 @@ class FeatureAccess {
   Map<String, Map<String, dynamic>> getLimitStatus() {
     if (_entitlement == null) return {};
     return {
-      for (final limit in _entitlement!.limits)
+      for (final limit in _entitlement.limits)
         limit.key: {
           'name': limit.name,
           'value': limit.value,
@@ -147,25 +148,25 @@ class FeatureAccess {
   /// Get features that are near their limits
   List<EntitlementLimit> getNearLimitFeatures() {
     if (_entitlement == null) return [];
-    return _entitlement!.limits.where((l) => l.isNearLimit).toList();
+    return _entitlement.limits.where((l) => l.isNearLimit).toList();
   }
 
   /// Get features that have exceeded their limits
   List<EntitlementLimit> getExceededFeatures() {
     if (_entitlement == null) return [];
-    return _entitlement!.limits.where((l) => l.isOverLimit).toList();
+    return _entitlement.limits.where((l) => l.isOverLimit).toList();
   }
 
   /// Check if user can upgrade their plan
   bool canUpgrade() {
     if (_entitlement == null) return true;
-    return _entitlement!.planTier != 'enterprise';
+    return _entitlement.planTier != 'enterprise';
   }
 
   /// Check if user can downgrade their plan
   bool canDowngrade() {
     if (_entitlement == null) return false;
-    return _entitlement!.planTier != 'free';
+    return _entitlement.planTier != 'free';
   }
 
   /// Get upgrade suggestions based on usage

@@ -79,10 +79,14 @@ services:
       - "yes"
       - --maxmemory
       - 512mb
-      # Queue jobs and session state must never be silently evicted; only keys
-      # with an explicit TTL are eligible.
+      # Nothing is evicted: at the memory limit writes fail loudly instead.
+      # BullMQ requires this (it logs "Eviction policy is volatile-lru. It
+      # should be noeviction" otherwise): its job locks carry a TTL, and
+      # volatile-lru would evict exactly those under pressure, so a running
+      # job could be taken as stalled and processed twice. Keys with a TTL
+      # still expire on time.
       - --maxmemory-policy
-      - volatile-lru
+      - noeviction
     volumes:
       - redis-data:/data
     ports:
@@ -118,6 +122,11 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public
+      # schema.prisma declares `directUrl = env("DIRECT_DATABASE_URL")` and
+      # `prisma migrate` connects through it. The root .env sets it for a host
+      # shell (localhost:5432), which inside this network reaches nothing, so
+      # it is pointed at the compose database here like DATABASE_URL.
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public
     command: >
       sh -c "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma"
     depends_on:
@@ -143,6 +152,8 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 4000
       DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public&connection_limit=20&pool_timeout=20
+      # Same reason as the migrate job: never inherit the host-shell value.
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
       TRADING_ENGINE_URL: http://trading-engine:8001
@@ -170,6 +181,19 @@ services:
       # The API enqueues; the standalone worker consumes. Running the worker
       # inline as well would double-process every job.
       QUEUE_RUN_INLINE_WORKERS: "false"
+      # The fleet declaration, given to the API with the SAME defaults as the
+      # `worker:` service below. The API never claims a partition, but
+      # GET /v1/observability/worker-coordination computes each partition's
+      # expected owner from WORKER_MEMBERSHIP / WORKER_PARTITION_COUNT, and
+      # without them AppConfigService falls back to the API container's own
+      # generated id - the round-8 Docker run showed all 8 healthy claims held
+      # by worker-1 reported as "misaligned" against an owner that does not
+      # exist.
+      WORKER_MEMBERSHIP: ${WORKER_MEMBERSHIP:-worker-1}
+      WORKER_MEMBERSHIP_MODE: ${WORKER_MEMBERSHIP_MODE:-registry}
+      WORKER_MEMBERSHIP_TTL_MS: ${WORKER_MEMBERSHIP_TTL_MS:-30000}
+      WORKER_PARTITION_COUNT: ${WORKER_PARTITION_COUNT:-8}
+      WORKER_PARTITION_LEASE_TTL_MS: ${WORKER_PARTITION_LEASE_TTL_MS:-15000}
     ports:
       - "${API_PORT:-4000}:4000"
     depends_on:
@@ -338,7 +362,10 @@ services:
     container_name: wlct-worker
     <<: *default-restart
     logging: *default-logging
-    command: ["node", "dist/worker.js"]
+    # The runtime image's working directory is /app and the API is compiled to
+    # /app/apps/api/dist (the image's own CMD is apps/api/dist/main.js), so the
+    # worker entry point is addressed the same way.
+    command: ["node", "apps/api/dist/worker.js"]
     env_file:
       - .env
     environment:
@@ -347,6 +374,7 @@ services:
       # notification, trade-execution); the API keeps them off.
       QUEUE_RUN_INLINE_WORKERS: "true"
       DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public&connection_limit=10&pool_timeout=20
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-wlct}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wlct}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
       WORKER_ENABLED: "true"
@@ -380,6 +408,15 @@ services:
     # No ports: the worker serves nothing. Its visibility is structured logs
     # plus the API's read-only GET /v1/observability/worker-coordination,
     # which reads the same Redis claims this process writes.
+    #
+    # The image's HEALTHCHECK probes the API's HTTP /health, which this process
+    # does not serve, so it would report the worker unhealthy forever. It is
+    # switched off here instead: the worker exits nonzero on any start-up
+    # failure (configuration, engine gate, dependency graph) and the restart
+    # policy above restarts it, so a running worker container is a started
+    # worker.
+    healthcheck:
+      disable: true
     networks:
       - wlct-internal
 
@@ -431,6 +468,43 @@ services:
       SESSION_COOKIE_SECRET: ${SESSION_COOKIE_SECRET:?SESSION_COOKIE_SECRET is required}
     ports:
       - "${ADMIN_WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - wlct-internal
+      - wlct-edge
+
+  # Customer-facing web app (apps/web). Talks to the API server-to-server via
+  # its own /api/proxy route, so the browser only ever sees this origin.
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      target: runtime
+      args:
+        NEXT_PUBLIC_APP_NAME: ${WEB_APP_NAME:-Copy Trading}
+        NEXT_PUBLIC_API_VERSION: ${NEXT_PUBLIC_API_VERSION:-v1}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
+        NEXT_PUBLIC_WS_PATH: ${NEXT_PUBLIC_WS_PATH:-/socket.io}
+        NEXT_PUBLIC_PLATFORM_DOMAIN: ${WEB_PLATFORM_DOMAIN:-localhost}
+        NEXT_PUBLIC_SUPPORT_EMAIL: ${WEB_SUPPORT_EMAIL:-support@example.com}
+        NEXT_PUBLIC_SUPPORT_URL: ${WEB_SUPPORT_URL:-/support}
+        NEXT_PUBLIC_ENVIRONMENT: ${WEB_ENVIRONMENT:-production}
+        NEXT_PUBLIC_ENABLE_TELEMETRY: ${WEB_ENABLE_TELEMETRY:-false}
+    container_name: wlct-web
+    <<: *default-restart
+    logging: *default-logging
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      # Server-to-server inside the compose network; the browser never sees it.
+      API_BASE_URL: http://api:4000/api
+      # Deliberately NOT the admin console's secret: a customer session and an
+      # operator session must never be signed with the same key.
+      SESSION_COOKIE_SECRET: ${WEB_SESSION_COOKIE_SECRET:?WEB_SESSION_COOKIE_SECRET is required}
+    ports:
+      - "${WEB_PORT:-3001}:3001"
     depends_on:
       api:
         condition: service_healthy

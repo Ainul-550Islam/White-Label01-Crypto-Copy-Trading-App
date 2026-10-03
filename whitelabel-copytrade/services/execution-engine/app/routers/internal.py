@@ -19,6 +19,7 @@ Contract notes that the worker and the API both depend on:
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -37,8 +38,11 @@ from app.schemas import (
     PlacementStatusView,
     ReconcileResponse,
     StatusResponse,
+    SubmitOrderRequest,
+    SubmitOrderResponse,
     VerifyResponse,
 )
+from app.submission import prepare_submission, record_submission
 from app.security import (
     ServiceCaller,
     require_internal_auth,
@@ -47,6 +51,8 @@ from app.security import (
 )
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
+
+logger = logging.getLogger("execution_engine.internal")
 
 AuthDep = Annotated[ServiceCaller, Depends(require_internal_auth)]
 RuntimeDep = Annotated[EngineRuntime, Depends(get_runtime)]
@@ -281,5 +287,81 @@ async def cancel_order(
         error_code=result.error_code.value if result.error_code is not None else None,
         message=result.message,
         latency_micros=result.latency_micros,
+        is_simulated=result.is_simulated,
+    )
+
+
+@router.post("/orders/submit", response_model=SubmitOrderResponse, response_model_by_alias=True)
+async def submit_order(
+    body: SubmitOrderRequest,
+    caller: AuthDep,
+    runtime: RuntimeDep,
+) -> SubmitOrderResponse:
+    """Phase 3: run one OMS-approved order through the engine's full pipeline.
+
+    Validation, placement review, safety gates, risk, idempotency, the adapter
+    call and position bookkeeping all happen inside ``ExecutionEngine.submit``,
+    which never raises for an expected failure. The context it judges is
+    assembled HERE (app.submission), fail-closed: every input this process has
+    not positively observed is reported as unknown, and unknown blocks.
+
+    A retried job (same clientOrderId) comes back as DUPLICATE from the store's
+    idempotency reservation and is reported with the ORIGINAL order's state, so
+    the API records one order however many times BullMQ redelivers.
+    """
+    require_tenant_match(body.tenant_id, caller)
+    if not runtime.trading_adapter.is_simulated:
+        # Unreachable while build_runtime refuses live; kept so the day it is
+        # reachable the refusal is explicit rather than a real order.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SUBMISSION_REQUIRES_SIMULATED_RUNTIME",
+                "message": (
+                    "This route only submits against the paper simulator; a "
+                    "non-simulated adapter is not wired for OMS submissions."
+                ),
+            },
+        )
+    prepared = await prepare_submission(runtime, body)
+    if prepared.unknowns:
+        logger.warning(
+            "execution_engine.submit_inputs_unknown",
+            extra={
+                "event": "execution_engine.submit_inputs_unknown",
+                "clientOrderId": body.client_order_id,
+                "unknowns": list(prepared.unknowns),
+            },
+        )
+    result = await runtime.engine.submit(prepared.intent, prepared.context)
+    record_submission(runtime, body.tenant_id, body.account_id)
+
+    order = result.order
+    if order is None and result.outcome.value == "DUPLICATE":
+        try:
+            order = await runtime.store.get_by_client_order_id(
+                body.tenant_id, body.client_order_id
+            )
+        except Exception:  # the verdict stands; the order view is best-effort
+            order = None
+    return SubmitOrderResponse(
+        outcome=result.outcome.value,
+        client_order_id=result.client_order_id or body.client_order_id,
+        engine_order_id=order.order_id if order is not None else None,
+        exchange_order_id=order.exchange_order_id if order is not None else None,
+        order_status=order.status.value if order is not None else "UNKNOWN",
+        filled_quantity=str(order.filled_quantity) if order is not None else "0",
+        average_fill_price=(
+            str(order.average_fill_price)
+            if order is not None and order.average_fill_price is not None
+            else None
+        ),
+        cumulative_fee=str(order.cumulative_fee) if order is not None else "0",
+        fee_currency=order.fee_currency if order is not None else None,
+        fill_count=len(order.fills) if order is not None else 0,
+        error_code=result.error_code.value if result.error_code is not None else None,
+        message=result.message,
+        latency_micros=result.latency_micros,
+        transmitted=result.transmitted,
         is_simulated=result.is_simulated,
     )

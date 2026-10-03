@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { UsageEventRepository } from './usage-event.repository';
 import { UsageMeterRepository } from './usage-meter.repository';
 import { UsagePeriodService } from './usage-period.service';
@@ -192,14 +192,10 @@ export class UsageExportService {
   }
 
   async getExportStatus(exportId: string, tenantId: string): Promise<{ id: string; status: string; tenantId: string; createdAt: string }> {
-    // In real implementation, would check persisted export job
-    // For now, return synthetic status
-    return {
-      id: exportId,
-      status: 'COMPLETED',
-      tenantId,
-      createdAt: new Date().toISOString(),
-    };
+    // Exports are produced synchronously (exportJson / exportCsv return the
+    // data in the response) and no export job is persisted, so there is no
+    // status to report. Answering COMPLETED for any id was a fabricated result.
+    throw new NotFoundException(`Usage export ${exportId} is not tracked for tenant ${tenantId}: exports are synchronous and have no stored status`);
   }
 
   private buildMeterBreakdown(records: any[]): Record<string, { count: number; totalQuantity: number }> {

@@ -13,6 +13,11 @@ class RoutePaths {
   static const String risk = '/risk';
   static const String settings = '/settings';
   static const String security = '/settings/security';
+  static const String exchangeAccounts = '/exchange-accounts';
+  static const String copyTrading = '/copy-trading';
+  static const String funding = '/funding';
+  static const String portfolio = '/portfolio';
+  static const String notifications = '/notifications';
 }
 
 class RouteNames {
@@ -26,4 +31,9 @@ class RouteNames {
   static const String risk = 'risk';
   static const String settings = 'settings';
   static const String security = 'security';
+  static const String exchangeAccounts = 'exchangeAccounts';
+  static const String copyTrading = 'copyTrading';
+  static const String funding = 'funding';
+  static const String portfolio = 'portfolio';
+  static const String notifications = 'notifications';
 }

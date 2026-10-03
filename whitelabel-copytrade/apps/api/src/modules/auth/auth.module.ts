@@ -15,6 +15,12 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { UsersModule } from '../users/users.module';
 import { TenantsModule } from '../tenants/tenants.module';
+import { ObservabilityModule } from '../observability/observability.module';
+import { SsoAuthController } from './sso/sso-auth.controller';
+import { SsoLoginService } from './sso/sso-login.service';
+import { SsoTransactionService } from './sso/sso-transaction.service';
+import { SsoIdentityService } from './sso/sso-identity.service';
+import { SsoAuditService } from './sso/sso-audit.service';
 
 /**
  * Authentication and session management.
@@ -22,6 +28,10 @@ import { TenantsModule } from '../tenants/tenants.module';
  * JwtModule is registered without global secrets: TokenService signs access and
  * refresh tokens with *different* keys, so a leaked access-token secret cannot
  * be used to mint refresh tokens.
+ *
+ * Single sign-on (modules/auth/sso) lives here rather than in the security
+ * module because it must finish by issuing a session through AuthService;
+ * the security module's providers only verify IdP responses.
  */
 @Module({
   imports: [
@@ -29,8 +39,9 @@ import { TenantsModule } from '../tenants/tenants.module';
     JwtModule.register({}),
     UsersModule,
     TenantsModule,
+    ObservabilityModule,
   ],
-  controllers: [AuthController, TwoFactorController, SessionsController],
+  controllers: [AuthController, TwoFactorController, SessionsController, SsoAuthController],
   providers: [
     AuthService,
     TokenService,
@@ -40,6 +51,10 @@ import { TenantsModule } from '../tenants/tenants.module';
     JwtStrategy,
     JwtAuthGuard,
     PermissionsGuard,
+    SsoLoginService,
+    SsoTransactionService,
+    SsoIdentityService,
+    SsoAuditService,
   ],
   exports: [AuthService, TokenService, SessionService, TwoFactorService],
 })

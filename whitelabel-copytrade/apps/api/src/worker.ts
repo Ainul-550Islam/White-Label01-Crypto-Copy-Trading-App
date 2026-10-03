@@ -29,11 +29,45 @@
 import 'reflect-metadata';
 
 import { Logger } from '@nestjs/common';
+import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { Logger as PinoLogger } from 'nestjs-pino';
 
 import { AppConfigService } from './config/app-config.service';
 import { EngineInternalClient } from './modules/worker/engine-internal.client';
 import { WorkerModule } from './modules/worker/worker.module';
+
+/**
+ * Refuse to start: say why, release what the context opened, and exit nonzero.
+ *
+ * Round 8 (Docker run): these paths used to set `process.exitCode = 1` and return.
+ * That only ends the process once the event loop is empty, and after `app.close()`
+ * something in the graph (BullMQ / ioredis handles) kept it alive, so a worker that
+ * had refused its engine stayed "Up" with no consumer and restart: unless-stopped
+ * never fired - exactly the "started and doing nothing" mode point 2 above forbids.
+ * The close is bounded the same way the SIGTERM drain is, so a hung close cannot
+ * hold the refusal hostage either.
+ */
+async function refuseToStart(
+  app: INestApplicationContext,
+  logger: Logger,
+  shutdownTimeoutMs: number,
+  message: string,
+): Promise<never> {
+  logger.error(message);
+  const deadline = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, shutdownTimeoutMs);
+    timer.unref();
+  });
+  try {
+    await Promise.race([app.close(), deadline]);
+  } catch (error) {
+    logger.error(
+      `close after refusal failed (${error instanceof Error ? error.message : 'unknown'}); exiting anyway`,
+    );
+  }
+  process.exit(1);
+}
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('WorkerBootstrap');
@@ -42,26 +76,32 @@ async function bootstrap(): Promise<void> {
     bufferLogs: true,
     abortOnError: false,
   });
+  // Same wiring as main.ts. With bufferLogs: true and no useLogger/flushLogs, every
+  // Nest Logger line - including the refusal reasons below - stayed in the buffer
+  // and was never written: the round-8 Docker run showed a worker closing itself
+  // 50 ms after start with no reason anywhere in its output.
+  app.useLogger(app.get(PinoLogger));
+  app.flushLogs();
   const config = app.get(AppConfigService);
 
   if (!config.workerEnabled) {
-    logger.error(
+    await refuseToStart(
+      app,
+      logger,
+      config.workerShutdownTimeoutMs,
       'WORKER_ENABLED=false: this process refuses to idle. A worker that ' +
         'consumes nothing and looks healthy is an outage with extra steps.',
     );
-    await app.close();
-    process.exitCode = 1;
-    return;
   }
 
   if (config.executionEngineToken === undefined) {
-    logger.error(
+    await refuseToStart(
+      app,
+      logger,
+      config.workerShutdownTimeoutMs,
       'EXECUTION_ENGINE_TOKEN is required by the worker: it forwards commands ' +
         'into the process that holds venue credentials.',
     );
-    await app.close();
-    process.exitCode = 1;
-    return;
   }
 
   const client = app.get(EngineInternalClient);
@@ -72,12 +112,12 @@ async function bootstrap(): Promise<void> {
         `store=${status.store} commands=${status.commands.join(',')}`,
     );
   } catch (error) {
-    logger.error(
+    await refuseToStart(
+      app,
+      logger,
+      config.workerShutdownTimeoutMs,
       `execution engine gate failed: ${error instanceof Error ? error.message : 'unknown'}`,
     );
-    await app.close();
-    process.exitCode = 1;
-    return;
   }
 
   app.enableShutdownHooks();
@@ -119,5 +159,10 @@ void bootstrap().catch((error: unknown) => {
   new Logger('WorkerBootstrap').error(
     `worker failed to start: ${error instanceof Error ? error.message : 'unknown'}`,
   );
-  process.exitCode = 1;
+  // Exit now rather than only setting exitCode: a half-built context keeps
+  // Redis / BullMQ connections open, and those hold the event loop, so the
+  // process would otherwise linger as a running container that consumes
+  // nothing - the "started and doing nothing" failure described above. Exiting
+  // nonzero lets the orchestrator's restart policy see and retry it.
+  process.exit(1);
 });

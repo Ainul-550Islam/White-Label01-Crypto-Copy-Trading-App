@@ -201,12 +201,8 @@ export class TraderPerformanceService {
   }
 
   private async getSymbolForOrder(orderId: string): Promise<string | null> {
-    try {
-      const order = await this.prisma.order.findFirst({ where: { id: orderId } });
-      return order?.symbol || null;
-    } catch {
-      return null;
-    }
+    const order = await this.prisma.order.findFirst({ where: { id: orderId } });
+    return order?.symbol || null;
   }
 
   async getBatchPerformance(tenantId: string, traderIds: string[]): Promise<Record<string, TraderPerformance>> {

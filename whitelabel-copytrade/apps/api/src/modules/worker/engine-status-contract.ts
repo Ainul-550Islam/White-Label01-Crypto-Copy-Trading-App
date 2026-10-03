@@ -42,6 +42,7 @@ export type EngineStatusKind =
   | 'string'
   | 'boolean'
   | 'integer'
+  | 'number'
   | 'stringArray'
   | 'scalarMap'
   | 'integerMap'
@@ -104,29 +105,58 @@ export interface EngineIncidentSinkView {
   readonly stats: Readonly<Record<string, number>>;
 }
 
+/*
+ * The three Part 21-23 posture blocks below are declared on the Python side as
+ * `dict[str, object] | None` - schemas.py gives them no model - so their shape is
+ * whatever the publishing `describe()` returns, and THAT is what these views mirror:
+ *   - distributedLockWiring: `DistributedLockWiring.describe()`
+ *     (services/execution-engine/app/distributed_locks.py)
+ *   - venueAttestation:      `VenueAttestationWiring.describe()`
+ *     (services/execution-engine/app/venue_attestation.py)
+ *   - credentialRegistry:    `CredentialRegistryWiring.describe()`
+ *     (services/execution-engine/app/credential_registry.py)
+ * Round 8 (Docker run): the views previously named keys no engine has ever
+ * published (`fencingEnabled`, `ownerId`, `selectedProvider`, ...), and because
+ * they were required, every real engine reply was refused as "older than the
+ * contract" - the worker's start-up gate failed on the first live /status and the
+ * trade-execution consumer never came up. No fixture carried these blocks, so no
+ * unit test could see it; `engine-status-parity.spec.ts` now reads the three
+ * `describe()` bodies from the Python source and pins these key sets to them.
+ */
 export interface EngineDistributedLockWiringView {
   readonly distributed: boolean;
-  readonly fencingEnabled: boolean;
-  readonly ownerId: string;
-  readonly renewalIntervalMs: number;
-  readonly lockTtlMs: number;
+  /** The lock manager class the composition root actually built. */
+  readonly manager: string;
+  /** "redis" when the manager is distributed, otherwise "memory". */
+  readonly mode: string;
+  readonly ttlMs: number;
   readonly acquisitionTimeoutMs: number;
-  readonly description: string;
+  /** Fraction of the TTL after which a held lock is renewed (a float, e.g. 1/3). */
+  readonly renewalRatio: number;
+  readonly instanceId: string;
+  readonly fencingRequired: boolean;
+  /** Whether the built manager is a FencedLockManager - the object, not the flag. */
+  readonly fenced: boolean;
 }
 
 export interface EngineVenueAttestationView {
-  readonly wired: boolean;
-  readonly source: string;
-  readonly restBase: string;
-  readonly includesAccountFlags: boolean;
+  readonly enabled: boolean;
+  readonly testnet: boolean;
+  readonly cacheTtlMs: number;
+  readonly includeAccountFlags: boolean;
+  /** The built attestor's own source label. */
+  readonly attestorSource: string;
+  /** True only when that source names the Binance venue gatherer. */
+  readonly venueBacked: boolean;
 }
 
 export interface EngineCredentialRegistryView {
-  readonly selectedProvider: string;
-  readonly multiTenant: boolean;
-  readonly requiresNetwork: boolean;
-  readonly registeredCount: number;
-  readonly registeredProviders: readonly string[];
+  readonly providerSource: string;
+  readonly credentialSource: string;
+  /** Capability flags (resolvesPerAccount, multiExchange, ...) - no material. */
+  readonly capabilities: Readonly<Record<string, string | number | boolean>>;
+  readonly builtAtMicros: number;
+  readonly selection: string;
 }
 
 export interface EngineStatus {
@@ -264,6 +294,8 @@ const checkOne = (kind: EngineStatusKind, value: unknown): boolean => {
       return typeof value === 'boolean';
     case 'integer':
       return typeof value === 'number' && Number.isInteger(value);
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
     case 'stringArray':
       return Array.isArray(value) && value.every((item) => typeof item === 'string');
     case 'scalarMap':
@@ -287,29 +319,36 @@ const checkOne = (kind: EngineStatusKind, value: unknown): boolean => {
   }
 };
 
-const DISTRIBUTED_LOCK_WIRING_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
+// Every key below is required because each `describe()` emits every key on every
+// call - none of the three bodies has a conditional entry. Key sets are pinned to the
+// Python source by engine-status-parity.spec.ts.
+export const DISTRIBUTED_LOCK_WIRING_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
   { key: 'distributed', kind: 'boolean', required: true },
-  { key: 'fencingEnabled', kind: 'boolean', required: true },
-  { key: 'ownerId', kind: 'string', required: true },
-  { key: 'renewalIntervalMs', kind: 'integer', required: true },
-  { key: 'lockTtlMs', kind: 'integer', required: true },
+  { key: 'manager', kind: 'string', required: true },
+  { key: 'mode', kind: 'string', required: true },
+  { key: 'ttlMs', kind: 'integer', required: true },
   { key: 'acquisitionTimeoutMs', kind: 'integer', required: true },
-  { key: 'description', kind: 'string', required: true },
+  { key: 'renewalRatio', kind: 'number', required: true },
+  { key: 'instanceId', kind: 'string', required: true },
+  { key: 'fencingRequired', kind: 'boolean', required: true },
+  { key: 'fenced', kind: 'boolean', required: true },
 ]);
 
-const VENUE_ATTESTATION_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
-  { key: 'wired', kind: 'boolean', required: true },
-  { key: 'source', kind: 'string', required: true },
-  { key: 'restBase', kind: 'string', required: true },
-  { key: 'includesAccountFlags', kind: 'boolean', required: true },
+export const VENUE_ATTESTATION_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
+  { key: 'enabled', kind: 'boolean', required: true },
+  { key: 'testnet', kind: 'boolean', required: true },
+  { key: 'cacheTtlMs', kind: 'integer', required: true },
+  { key: 'includeAccountFlags', kind: 'boolean', required: true },
+  { key: 'attestorSource', kind: 'string', required: true },
+  { key: 'venueBacked', kind: 'boolean', required: true },
 ]);
 
-const CREDENTIAL_REGISTRY_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
-  { key: 'selectedProvider', kind: 'string', required: true },
-  { key: 'multiTenant', kind: 'boolean', required: true },
-  { key: 'requiresNetwork', kind: 'boolean', required: true },
-  { key: 'registeredCount', kind: 'integer', required: true },
-  { key: 'registeredProviders', kind: 'stringArray', required: true },
+export const CREDENTIAL_REGISTRY_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
+  { key: 'providerSource', kind: 'string', required: true },
+  { key: 'credentialSource', kind: 'string', required: true },
+  { key: 'capabilities', kind: 'scalarMap', required: true },
+  { key: 'builtAtMicros', kind: 'integer', required: true },
+  { key: 'selection', kind: 'string', required: true },
 ]);
 
 const viewFieldsFor = (kind: EngineStatusKind): readonly EngineStatusField[] | null => {

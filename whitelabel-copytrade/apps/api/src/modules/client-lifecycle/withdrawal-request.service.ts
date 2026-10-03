@@ -3,7 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ClientPolicyService } from './client-policy.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
 import { AccountRestrictionService } from './account-restriction.service';
-import { deterministicIdempotencyKey, WithdrawalRequestState, WITHDRAWAL_VALID_TRANSITIONS, isValidDecimal } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, WithdrawalRequestState, WITHDRAWAL_VALID_TRANSITIONS, isValidDecimal, isPositiveDecimal } from './client-lifecycle.types';
 
 /**
  * Creates and manages withdrawal requests with approval, compliance, risk, security, destination validation,
@@ -38,6 +38,7 @@ export class WithdrawalRequestService {
     const { tenantId, accountId, clientProfileId = null, requestedAmount, currency, destinationAddress = null, destinationType = null, externalReference = null, requestedBy = null, correlationId = null, metadata = {} } = params;
 
     if (!isValidDecimal(requestedAmount)) throw new BadRequestException(`Invalid requestedAmount: ${requestedAmount}`);
+    if (!isPositiveDecimal(requestedAmount)) throw new BadRequestException('requestedAmount must be greater than zero');
 
     const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
     if (!account) throw new BadRequestException('Account not found');
@@ -47,21 +48,21 @@ export class WithdrawalRequestService {
     // Withdrawals must require explicit evaluation of:
     // Account ownership, status, NO_WITHDRAWAL restriction, Compliance, Risk, Security/MFA, Destination validation, etc.
 
-    // Account ownership
+    // Account ownership is enforced before this service is reached:
+    // ClientLifecycleController.assertAccountAccess limits customers to the
+    // accounts in their own scope (404 otherwise) and lets tenant-wide staff
+    // act on a client's behalf; the controller is the only caller. Here a
+    // requester who is not a registered owner is recorded as an on-behalf
+    // request for the audit trail. (This lookup used to sit in `catch {}`
+    // behind a "for test purposes, allow but log" comment.)
     if (requestedBy) {
-      try {
-        const ownership = await (this.prisma as any).accountOwnership.findFirst({ where: { tenantId, accountId, ownerId: requestedBy, status: 'ACTIVE' } });
-        if (!ownership) {
-          // Allow if requester is client profile owner
-          if (account.clientProfileId) {
-            const profile = await (this.prisma as any).clientProfile.findFirst({ where: { id: account.clientProfileId, tenantId } });
-            if (!profile || profile.externalIdentityRef !== requestedBy) {
-              // For test purposes, allow but log
-              this.logger.warn({ event: 'client.withdrawal.ownership_not_verified', accountId, requestedBy });
-            }
-          }
-        }
-      } catch {}
+      const ownership = await this.prisma.accountOwnership.findFirst({
+        where: { tenantId, accountId, ownerId: requestedBy, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      if (!ownership) {
+        this.logger.warn({ event: 'client.withdrawal.requested_on_behalf', accountId, requestedBy });
+      }
     }
 
     // Account status
@@ -119,7 +120,7 @@ export class WithdrawalRequestService {
     });
 
     try {
-      const existing = await (this.prisma as any).withdrawalRequest.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).withdrawalRequest.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -246,11 +247,7 @@ export class WithdrawalRequestService {
   }
 
   async getWithdrawalRequest(params: { tenantId: string; withdrawalRequestId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).withdrawalRequest.findFirst({ where: { id: params.withdrawalRequestId, tenantId: params.tenantId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).withdrawalRequest.findFirst({ where: { id: params.withdrawalRequestId, tenantId: params.tenantId } });
   }
 
   async listWithdrawalRequests(params: {
@@ -269,19 +266,15 @@ export class WithdrawalRequestService {
     if (state) where.state = state;
     if (currency) where.currency = currency;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).withdrawalRequest.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).withdrawalRequest.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).withdrawalRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).withdrawalRequest.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

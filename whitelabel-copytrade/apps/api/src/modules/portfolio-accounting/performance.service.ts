@@ -429,7 +429,7 @@ export class PerformanceService {
     });
 
     try {
-      const existing = await (this.prisma as any).portfolioPerformanceRecord.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).portfolioPerformanceRecord.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 

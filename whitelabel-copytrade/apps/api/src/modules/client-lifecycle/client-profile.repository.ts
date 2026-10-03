@@ -33,7 +33,7 @@ export class ClientProfileRepository {
     });
 
     try {
-      const existing = await (this.prisma as any).clientProfile.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).clientProfile.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log({ event: 'client.profile.idempotent_hit', idempotencyKey });
         return existing;
@@ -73,23 +73,15 @@ export class ClientProfileRepository {
   }
 
   async getProfile(params: { tenantId: string; profileId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).clientProfile.findFirst({
-        where: { id: params.profileId, tenantId: params.tenantId },
-      });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).clientProfile.findFirst({
+      where: { id: params.profileId, tenantId: params.tenantId },
+    });
   }
 
   async getProfileByExternalRef(params: { tenantId: string; externalIdentityRef: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).clientProfile.findFirst({
-        where: { tenantId: params.tenantId, externalIdentityRef: params.externalIdentityRef },
-      });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).clientProfile.findFirst({
+      where: { tenantId: params.tenantId, externalIdentityRef: params.externalIdentityRef },
+    });
   }
 
   async listProfiles(params: {
@@ -112,20 +104,16 @@ export class ClientProfileRepository {
       ];
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).clientProfile.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).clientProfile.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).clientProfile.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).clientProfile.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async updateProfileStatus(params: { tenantId: string; profileId: string; status: string; onboardingId?: string | null }): Promise<any> {

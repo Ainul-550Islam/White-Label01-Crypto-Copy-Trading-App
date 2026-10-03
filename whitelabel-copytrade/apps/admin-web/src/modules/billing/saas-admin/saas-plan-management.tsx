@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   getTenantDetail,
   assignPlan,
@@ -24,7 +24,7 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
   const [atPeriodEnd, setAtPeriodEnd] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -36,11 +36,11 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantId]);
 
   useEffect(() => {
-    fetchData();
-  }, [tenantId]);
+    void fetchData();
+  }, [fetchData]);
 
   const handleAssign = async () => {
     if (!selectedPlanId) return;

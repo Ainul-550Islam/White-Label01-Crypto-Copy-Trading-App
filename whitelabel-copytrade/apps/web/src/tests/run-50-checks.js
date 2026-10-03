@@ -52,7 +52,9 @@ const checks = [
   { id: 18, name: 'exchange secrets never rendered', fn: () => !combined.includes('apiSecret') || combined.includes('Never exposes exchange secrets') },
   { id: 19, name: 'funding requested state is not shown as completed', fn: () => combined.includes('Requested') && combined.includes('Pending does not mean completed') },
   { id: 20, name: 'withdrawal approval is not shown as settlement', fn: () => combined.includes('Approval') && combined.toLowerCase().includes('settlement') },
-  { id: 21, name: 'transaction confirmation is backend-derived', fn: () => combined.includes('confirmationCount') && combined.includes('backend-authoritative') },
+  // Funding requests carry no confirmation counter; confirmation is the backend-set confirmedAmount
+  // (with state CONFIRMED). The old marker was an optional type field the API never populated.
+  { id: 21, name: 'transaction confirmation is backend-derived', fn: () => combined.includes('confirmedAmount') && combined.includes('backend-authoritative') },
   { id: 22, name: 'billing price comes from backend', fn: () => combined.includes('billingApi.listPlans') && combined.includes('price') },
   { id: 23, name: 'invoice data comes from backend', fn: () => combined.includes('billingApi.listInvoices') },
   { id: 24, name: 'usage data comes from backend', fn: () => combined.includes('billingApi.getUsage') },

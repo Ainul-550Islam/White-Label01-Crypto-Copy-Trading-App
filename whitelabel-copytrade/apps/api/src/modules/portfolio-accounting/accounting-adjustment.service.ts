@@ -8,6 +8,35 @@ import {
   isValidDecimal,
 } from './portfolio-accounting.types';
 
+/** True when an adjustment row has been reversed (the reversal is recorded in adjustedValues.reversal). */
+export function isAdjustmentReversed(row: any): boolean {
+  const values = row?.adjustedValues;
+  return Boolean(values && typeof values === 'object' && values.reversal);
+}
+
+/**
+ * API view of a PortfolioAccountingAdjustment row: keeps the response fields
+ * (adjustedAmount, adjustedQuantity, asset, operatorId, evidence, isReversed…)
+ * that are stored in the amount/requestedBy columns and adjustedValues Json.
+ */
+export function toAdjustmentView(row: any): any {
+  if (!row) return row;
+  const values = row.adjustedValues && typeof row.adjustedValues === 'object' ? row.adjustedValues : {};
+  const reversal = values.reversal && typeof values.reversal === 'object' ? values.reversal : null;
+  return {
+    ...row,
+    adjustedAmount: values.amount ?? row.amount ?? null,
+    adjustedQuantity: values.quantity ?? null,
+    asset: values.asset ?? null,
+    operatorId: row.requestedBy ?? null,
+    evidence: values.evidence ?? {},
+    isReversed: Boolean(reversal),
+    reversedAt: reversal?.reversedAt ?? null,
+    reversedBy: reversal?.reversedBy ?? null,
+    reversalReason: reversal?.reason ?? null,
+  };
+}
+
 /**
  * Creates auditable adjustments/reversals referencing original event, reason, operator,
  * policy/version, preserves immutable history. Never mutate history — corrections via reversal only.
@@ -52,8 +81,8 @@ export class AccountingAdjustmentService {
     });
 
     try {
-      const existing = await (this.prisma as any).portfolioAccountingAdjustment.findFirst({ where: { idempotencyKey } });
-      if (existing) return existing;
+      const existing = await (this.prisma as any).portfolioAccountingAdjustment.findFirst({ where: { tenantId, idempotencyKey } });
+      if (existing) return toAdjustmentView(existing);
     } catch {}
 
     // If originalEventId provided, verify it exists and belongs to tenant/profile
@@ -90,28 +119,35 @@ export class AccountingAdjustmentService {
         originalEventId: originalEventId ?? null,
         adjustmentType: adjustmentType as any,
         reason,
-        adjustedAmount: adjustedAmount ?? null,
-        adjustedQuantity: adjustedQuantity ?? null,
-        asset: asset ?? null,
-        operatorId,
+        // Model columns: amount + requestedBy; the adjusted values (required Json) carry the rest.
+        amount: adjustedAmount ?? null,
+        requestedBy: operatorId,
+        adjustedValues: {
+          amount: adjustedAmount ?? null,
+          quantity: adjustedQuantity ?? null,
+          asset: asset ?? null,
+          evidence: redactSecrets(params.evidence ?? {}),
+        } as any,
         calculationVersion: policy.calculationVersion,
         policyVersion: policy.policyVersion,
         idempotencyKey,
         correlationId: correlationId ?? null,
-        evidence: redactSecrets(params.evidence ?? {}) as any,
       },
     });
 
     // If reversal, mark original as reversed — preserve history, never mutate history destructively
     if (adjustmentType === PortfolioAdjustmentType.REVERSAL && originalEventId) {
       try {
+        const originalEvent = await (this.prisma as any).portfolioAccountingEvent.findFirst({ where: { id: originalEventId } });
+        const eventMetadata = originalEvent?.metadata && typeof originalEvent.metadata === 'object' ? originalEvent.metadata : {};
         await (this.prisma as any).portfolioAccountingEvent.update({
           where: { id: originalEventId },
           data: {
             isReversed: true,
-            reversedAt: new Date(),
-            reversedBy: operatorId,
-            reversalReason: reason,
+            metadata: {
+              ...eventMetadata,
+              reversal: { reversedAt: new Date().toISOString(), reversedBy: operatorId, reason, adjustmentId: adjustment.id },
+            } as any,
           },
         });
       } catch {}
@@ -159,7 +195,7 @@ export class AccountingAdjustmentService {
 
     this.logger.log({ event: 'portfolio.adjustment.created', tenantId, profileId, adjustmentType, originalEventId });
 
-    return adjustment;
+    return toAdjustmentView(adjustment);
   }
 
   async listAdjustments(params: {
@@ -176,20 +212,16 @@ export class AccountingAdjustmentService {
     if (originalEventId) where.originalEventId = originalEventId;
     if (adjustmentType) where.adjustmentType = adjustmentType;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).portfolioAccountingAdjustment.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).portfolioAccountingAdjustment.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).portfolioAccountingAdjustment.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).portfolioAccountingAdjustment.count({ where }),
+    ]);
+    return { data: data.map(toAdjustmentView), total, page, limit };
   }
 
   async reverseAdjustment(params: { tenantId: string; adjustmentId: string; operatorId: string; reason: string }): Promise<any> {
@@ -198,13 +230,19 @@ export class AccountingAdjustmentService {
     const adjustment = await (this.prisma as any).portfolioAccountingAdjustment.findFirst({ where: { id: adjustmentId, tenantId } });
     if (!adjustment) throw new BadRequestException('Adjustment not found');
 
-    if (adjustment.isReversed) throw new BadRequestException('Adjustment already reversed');
+    if (toAdjustmentView(adjustment).isReversed) throw new BadRequestException('Adjustment already reversed');
 
+    const adjustedValues = adjustment.adjustedValues && typeof adjustment.adjustedValues === 'object' ? adjustment.adjustedValues : {};
     const updated = await (this.prisma as any).portfolioAccountingAdjustment.update({
       where: { id: adjustmentId },
-      data: { isReversed: true, reversedAt: new Date(), reversedBy: operatorId, reversalReason: reason },
+      data: {
+        adjustedValues: {
+          ...adjustedValues,
+          reversal: { reversedAt: new Date().toISOString(), reversedBy: operatorId, reason },
+        } as any,
+      },
     });
 
-    return updated;
+    return toAdjustmentView(updated);
   }
 }

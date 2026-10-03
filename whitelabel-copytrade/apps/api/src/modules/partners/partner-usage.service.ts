@@ -58,8 +58,16 @@ export class PartnerUsageService {
         // Aggregate from existing UsageModule records - never create second metering source
         const users = await (this.prisma as any).user?.count?.({ where: { tenantId } }) ?? 0;
         const subs = await (this.prisma as any).tenantSubscription?.count?.({ where: { tenantId, status: { in: ['ACTIVE', 'TRIALING'] } } }) ?? 0;
-        const apiCalls = await (this.prisma as any).usageMeter?.aggregate?.({ where: { tenantId, timestamp: { gte: periodStart, lte: periodEnd } }, _sum: { count: true } }).then((r: any) => r._sum?.count ?? 0).catch(() => 0);
-        const tradingVolume = await (this.prisma as any).portfolioCashLedgerEntry?.aggregate?.({ where: { tenantId, createdAt: { gte: periodStart, lte: periodEnd } }, _sum: { amount: true } }).then((r: any) => r._sum?.amount ?? '0').catch(() => '0');
+        // UsageMeter rows are per metering period with an Int currentValue (no timestamp/count columns).
+        const apiCalls = await (this.prisma as any).usageMeter?.aggregate?.({
+          where: { tenantId, meterKey: 'API_REQUESTS', periodStart: { gte: periodStart }, periodEnd: { lte: periodEnd } },
+          _sum: { currentValue: true },
+        }).then((r: any) => r._sum?.currentValue ?? 0);
+        // Cash-ledger amounts are decimal strings (Prisma cannot _sum a String column): sum trade settlements here.
+        const tradingVolume = await (this.prisma as any).portfolioCashLedgerEntry?.findMany?.({
+          where: { tenantId, cashFlowType: { in: ['TRADE_SETTLEMENT_BUY', 'TRADE_SETTLEMENT_SELL'] }, occurredAt: { gte: periodStart, lte: periodEnd } },
+          select: { amount: true },
+        }).then((rows: Array<{ amount: string }>) => String(rows.reduce((sum, row) => sum + Math.abs(parseFloat(row.amount) || 0), 0)));
         const copyTrades = await (this.prisma as any).copyExecution?.count?.({ where: { tenantId, createdAt: { gte: periodStart, lte: periodEnd } } }) ?? 0;
 
         totalUsers += users;
@@ -77,8 +85,9 @@ export class PartnerUsageService {
           activeUsers: users,
           subscriptionStatus: subs > 0 ? 'ACTIVE' : 'INACTIVE',
         });
-      } catch {
-        this.logger.debug(`usage aggregate fallback tenant=${tenantId}`);
+      } catch (error) {
+        // Recorded as UNKNOWN (not as zero usage) so the aggregate never presents an unread tenant as an idle one.
+        this.logger.warn(`usage aggregate read failed tenant=${tenantId}: ${(error as Error).message}`);
         usageByTenant.push({ tenantId, apiCalls: 0, tradingVolume: '0', activeUsers: 0, subscriptionStatus: 'UNKNOWN' });
       }
     }

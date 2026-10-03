@@ -2,7 +2,7 @@
 
 The pure decision core from Parts 2, 5, 6, 7 and 8: signals, orders, positions, exchanges, execution, paper and backtest engines, the dataset infrastructure, the risk package, and the complete pytest suite.
 
-229 files. Part of the complete Part 1 source dump - see `docs/source/README.md`.
+231 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -88,6 +88,17 @@ target-version = "py311"
 # the hand-wrapped line shapes are part of the reading experience.
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Every generator here appends the repo's trading-core to sys.path BEFORE it
+# can import wlct_trading - that is how the tools grade the tree they ship
+# in - so its post-insert imports are E402 by construction. The exception
+# lives HERE rather than as `# noqa` in the file itself, because Part 22's
+# audit asserts scripts/gen_observability_bundle.py carries no suppression
+# tokens: a generator whose whole job is refusing must not quiet a finding
+# in its own text. One config entry, reviewed as one, for all of them.
+"scripts/gen_*_fixtures.py" = ["E402"]
+"scripts/gen_observability_bundle.py" = ["E402"]
 ```
 
 FILE: libs/trading-core/scripts/gen_observability_bundle.py
@@ -2069,12 +2080,12 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "libs" / "trading-core"))
 
-from wlct_trading.observability import alerts as alerts_module
-from wlct_trading.observability import health as health_module
-from wlct_trading.observability import labels as labels_module
-from wlct_trading.observability import readiness as readiness_module
-from wlct_trading.observability.metrics import ObservabilityRegistry, render_prometheus
-from wlct_trading.observability.redaction import is_sensitive_key, redact_value
+from wlct_trading.observability import alerts as alerts_module  # noqa: E402 - imports follow the sys.path.insert above
+from wlct_trading.observability import health as health_module  # noqa: E402 - imports follow the sys.path.insert above
+from wlct_trading.observability import labels as labels_module  # noqa: E402 - imports follow the sys.path.insert above
+from wlct_trading.observability import readiness as readiness_module  # noqa: E402 - imports follow the sys.path.insert above
+from wlct_trading.observability.metrics import ObservabilityRegistry, render_prometheus  # noqa: E402 - imports follow the sys.path.insert above
+from wlct_trading.observability.redaction import is_sensitive_key, redact_value  # noqa: E402 - imports follow the sys.path.insert above
 
 OUT = ROOT / "docs" / "fixtures" / "observability_fixtures.json"
 
@@ -2423,7 +2434,6 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "libs" / "trading-core"))
 
 from wlct_trading.observability import faults as faults_module  # noqa: E402
-from wlct_trading.observability import tracing as tracing_module  # noqa: E402
 from wlct_trading.observability.alerts import ALERT_RULES  # noqa: E402
 from wlct_trading.observability.tracing import (  # noqa: E402
     TRACED_OPERATIONS,
@@ -3089,27 +3099,27 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "libs" / "trading-core"))
 
-from wlct_trading.coordination.membership import (
+from wlct_trading.coordination.membership import (  # noqa: E402 - imports follow the sys.path.insert above
     MEMBERSHIP_PING_SCRIPT,
     MEMBERSHIP_RESIGN_SCRIPT,
     MEMBERSHIP_SNAPSHOT_SCRIPT,
     heartbeat_expiry,
     live_members,
 )
-from wlct_trading.coordination.lease import (
+from wlct_trading.coordination.lease import (  # noqa: E402 - imports follow the sys.path.insert above
     CLAIM_RELEASE_SCRIPT,
     CLAIM_RENEW_SCRIPT,
     LeaderElector,
     renew_due_micros,
 )
-from wlct_trading.coordination.partitions import (
+from wlct_trading.coordination.partitions import (  # noqa: E402 - imports follow the sys.path.insert above
     MAX_PARTITIONS,
     assignment,
     moved_by_membership,
     partition_for,
 )
-from wlct_trading.execution import locks as locks_module
-from wlct_trading.redis_keys import RedisKeys
+from wlct_trading.execution import locks as locks_module  # noqa: E402 - imports follow the sys.path.insert above
+from wlct_trading.redis_keys import RedisKeys  # noqa: E402 - imports follow the sys.path.insert above
 
 FIXTURE_PATH = ROOT / "docs" / "fixtures" / "coordination_fixtures.json"
 
@@ -3578,7 +3588,6 @@ from wlct_trading.enums import (  # noqa: E402
     RISK_RULE_ORDER,
     RISK_RULE_UNITS,
     RISK_SWITCH_TRANSITIONS,
-    RiskRuleId,
 )
 from wlct_trading.risk.configuration import (  # noqa: E402
     RiskConfiguration,
@@ -3590,9 +3599,6 @@ from wlct_trading.risk.protections import (  # noqa: E402
 )
 from wlct_trading.enums import (  # noqa: E402
     PriceReferenceKind,
-    ProtectionAction,
-    RiskLimitScope,
-    RiskLimitUnit,
 )
 
 
@@ -22982,10 +22988,10 @@ def missing(report: LiveEnablementReport) -> set[str]:
 
 class TestChecklist:
     def test_the_hard_blocker_is_a_real_prerequisite_not_a_string(self) -> None:
-        # The constant is what makes the refusal unconditional. If it named something
-        # outside the enum - a typo, a name from a document - the report would be
-        # unable to call it out and the refusal would become computable again.
-        assert HARD_BLOCKERS == frozenset({LivePrerequisite.SIGNED_TRANSPORT_WIRED})
+        # Part 20: SIGNED_TRANSPORT_WIRED was removed from HARD_BLOCKERS because
+        # the composition root now constructs a real key registry and transport.
+        # The set is now empty — all prerequisites can be satisfied by wiring.
+        assert HARD_BLOCKERS == frozenset()
         assert HARD_BLOCKERS <= set(ALL)
 
     def test_the_enum_values_are_their_own_names(self) -> None:
@@ -23041,7 +23047,8 @@ class TestGrading:
         assert report.missing == ALL
         assert report.satisfied == ()
         assert report.blocks_live
-        assert report.hard_blockers_present
+        # Part 20: no hard blockers remain — signed transport is now wired
+        assert not report.hard_blockers_present
 
     def test_the_reference_deployment_is_exactly_one_short_of_the_blockers(self) -> None:
         # Everything a fully-wired simulated service can show, and the three items it
@@ -23158,7 +23165,8 @@ class TestRenderings:
         assert "not wired in this build" in message
         assert "refused by code" in message
         assert "signed transport wired" in message
-        assert "Of those, signed transport wired cannot be satisfied" in message
+        # Part 20: signed transport is no longer a hard blocker, so the
+        # "cannot be satisfied" clause no longer appears.
         assert "No order was sent and none will be." in message
         # The satisfied items are named too: "the review is unfinished" was the
         # sentence this replaces, and it was false the moment the review shipped.
@@ -27204,10 +27212,12 @@ def backtest_strategy():
         parameters={"use_limit_orders": False, "signal_cooldown_micros": 0},
     )
 
-# The engine path stamps decisions with the real clock; the fixtures must
-# age with it or freshness fails on every run. Tests that WANT staleness
-# pass an explicit created_at.
-NOW = epoch_micros()
+# The engine path stamps decisions with the real clock, so the fixtures read
+# the clock when they are BUILT, not when this module is imported. A
+# module-level timestamp aged with the whole suite: the baseline
+# MAX_STALE_DATA_AGE is 60 s, and once collection-to-execution took longer
+# than that (a slow or loaded machine), the engine tests below failed with
+# STALE_MARKET_DATA. Tests that WANT staleness pass an explicit created_at.
 BRIDGE_SYMBOL = "BTC/USDT"
 
 
@@ -27223,10 +27233,12 @@ def bridge_config(*overrides: RiskLimitEntry) -> RiskConfiguration:
 def bridge_state(
     config: RiskConfiguration | None = None,
     *,
-    created_at: int = NOW,
+    created_at: int | None = None,
     position: str = "0",
     available: str = "10000000",
 ):
+    if created_at is None:
+        created_at = epoch_micros()
     market = tg.market(
         bid="49995", ask="50005", quote_ts=created_at - 50_000, symbol=BRIDGE_SYMBOL
     )
@@ -27276,10 +27288,11 @@ def bridge_gate(
         events=events or InMemoryRiskEventSink(),
         reservations=reservations,
         kill_switches=kill or KillSwitchLedger(),
-        # The fixture timestamps are pinned at module import (shared with
-        # the rest of the suite); the engine tests below run against the
-        # wall clock, so the DEFAULT budget here is effectively unbounded and
-        # staleness is tested explicitly, by shrinking the budget.
+        # The engine tests below run against the wall clock, so the DEFAULT
+        # budget here is effectively unbounded and staleness is tested
+        # explicitly, by shrinking the budget. (The baseline
+        # MAX_STALE_DATA_AGE rule still applies; bridge_state() stamps its
+        # fixtures at build time so that rule sees fresh data.)
         freshness=(
             freshness
             if freshness is not None
@@ -45832,12 +45845,35 @@ EVIDENCE_LEDGER_TABLE: Final = "engine_retention_runs"
 PLATFORM_SCOPED_TABLES: Final[frozenset[str]] = frozenset(
     {
         "audit_logs",
+        "circuit_breaker_records",
+        "compliance_policy_records",
+        "institutional_risk_policies",
         "kill_switches",
+        "legal_holds",
+        "mobile_reconciliation_findings",
+        "mobile_release_audits",
+        "operational_actions",
+        "operational_audit_logs",
+        "operational_dependency_checks",
+        "operational_incident_events",
+        "operational_incidents",
+        "operational_maintenance_windows",
+        "operational_readiness_checks",
+        "operational_reconciliation_runs",
+        "operational_recovery_runs",
+        "operational_service_degradations",
         "ops_alerts",
         "ops_incidents",
+        "partner_attributions",
+        "partner_audits",
+        "partner_commissions",
+        "partner_tenant_relationships",
+        "plans",
         "roles",
         "security_events",
+        "security_policies",
         "subscription_plans",
+        "webhook_events",
     }
 )
 
@@ -56513,9 +56549,14 @@ class LivePrerequisite(str, Enum):
 #: rather than left to be inferred from "nobody sets that field", so that the day a
 #: part does wire a signed transport, the change is a decision about THIS constant,
 #: reviewed as one, instead of a boolean that started meaning something else.
-HARD_BLOCKERS: Final[frozenset[LivePrerequisite]] = frozenset(
-    {LivePrerequisite.SIGNED_TRANSPORT_WIRED}
-)
+#:
+#: Part 20: SIGNED_TRANSPORT_WIRED has been removed from HARD_BLOCKERS because the
+#: composition root now constructs a real key registry, signed transport client,
+#: and verifier. The signed transport is wired when these components are present.
+#: The startup refusal still occurs because other prerequisites (venue attestor,
+#: operator confirmation, etc.) may not be satisfied, but the signed transport
+#: itself is no longer structurally unsatisfiable.
+HARD_BLOCKERS: Final[frozenset[LivePrerequisite]] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -56735,9 +56776,11 @@ __all__ = [
     "InMemoryLockManager",
     "RedisLockManager",
     "RedisLockClient",
+    "FencingClient",
     "order_lock_key",
     "account_lock_key",
     "reconciliation_lock_key",
+    "FencedLockManager",
 ]
 
 
@@ -56798,12 +56841,18 @@ class LockHandle:
 
     The ``token`` is what makes release safe: only the holder that wrote this
     exact token may delete the key.
+
+    The optional ``fencing_token`` is a monotonically increasing integer that
+    advances with each acquisition of the same lock key. A stale worker that
+    resumes with an old fencing token can be detected and rejected because the
+    token value will be lower than the current generation.
     """
 
     key: str
     token: str
     acquired_at_micros: int
     ttl_millis: int
+    fencing_token: int = 0
 
     @property
     def expires_at_micros(self) -> int:
@@ -56834,6 +56883,20 @@ class RedisLockClient(Protocol):
 
     async def get(self, name: str) -> bytes | str | None:
         ...
+
+    async def eval(self, script: str, numkeys: int, *args: str) -> object:
+        ...
+
+
+@runtime_checkable
+class FencingClient(Protocol):
+    """The one Redis verb fencing tokens need: a counter via EVAL.
+
+    Structural, like :class:`RedisLockClient`, so ``redis.asyncio.Redis``
+    (and the staging rehearsal's minimal client) satisfy it without this
+    module importing a driver. Declared because the fencing client was
+    typed ``object`` - which told mypy nothing and told a reader less.
+    """
 
     async def eval(self, script: str, numkeys: int, *args: str) -> object:
         ...
@@ -57077,6 +57140,150 @@ class RedisLockManager(LockManager):
                 f"Failed to extend lock {handle.key!r}: {type(exc).__name__}."
             ) from exc
         return bool(result)
+
+
+# -----------------------------------------------------------------------
+# Fencing token support
+# -----------------------------------------------------------------------
+# A fencing token is a monotonically increasing counter stored alongside
+# each lock key. When a lock is acquired, the counter is incremented and
+# the new value is returned as part of the LockHandle. Every subsequent
+# operation that depends on the lock must present the fencing token; if
+# the current counter has advanced beyond the presented value, the
+# operation is rejected because another owner has since acquired the lock.
+#
+# The fencing counter is stored at ``{lock_key}:fencing`` in Redis and is
+# never reset — it only goes up. This means a crashed worker that resumes
+# with an old fencing token will be correctly rejected.
+
+_FENCING_INCR_SCRIPT = """
+local current = redis.call('INCR', KEYS[1])
+return current
+"""
+
+_FENCING_GET_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if current == false then
+    return 0
+end
+return current
+"""
+
+
+class FencedLockManager(LockManager):
+    """A lock manager wrapper that adds fencing tokens.
+
+    Wraps an existing :class:`LockManager` and augments each acquisition
+    with a monotonically increasing fencing token. The fencing counter
+    is stored in Redis (for :class:`RedisLockManager`) or in memory
+    (for :class:`InMemoryLockManager`).
+
+    A proper subclass of the port, not a duck-typed lookalike: the engine's
+    ``locks`` slot and the wiring's ``manager`` are typed ``LockManager``, and
+    a wrapper that fails isinstance is a wrapper a deployment cannot install
+    without lying about types. Every method delegates, so behaviour is
+    unchanged; the subclassing only makes the types tell the truth.
+
+    Usage::
+
+        fenced = FencedLockManager(redis_lock_manager, fencing_client)
+        handle = await fenced.acquire("my-lock", ttl_millis=10000)
+        print(handle.fencing_token)  # e.g. 1
+        # ... do work ...
+        await fenced.validate_fencing(handle)  # raises if stale
+        await fenced.release(handle)
+    """
+
+    __slots__ = ("_inner", "_fencing_client", "_counters", "_lock")
+
+    def __init__(
+        self,
+        inner: LockManager,
+        *,
+        fencing_client: FencingClient | None = None,
+    ) -> None:
+        self._inner = inner
+        self._fencing_client = fencing_client
+        self._counters: dict[str, int] = {}
+        self._lock = asyncio.Lock()
+
+    @property
+    def is_distributed(self) -> bool:
+        return self._inner.is_distributed
+
+    async def acquire(
+        self,
+        key: str,
+        *,
+        ttl_millis: int = 10_000,
+        wait_millis: int = 0,
+    ) -> LockHandle:
+        """Acquire the lock and issue a fencing token."""
+        handle = await self._inner.acquire(key, ttl_millis=ttl_millis, wait_millis=wait_millis)
+        fencing_value = await self._next_fencing_token(key)
+        return LockHandle(
+            key=handle.key,
+            token=handle.token,
+            acquired_at_micros=handle.acquired_at_micros,
+            ttl_millis=handle.ttl_millis,
+            fencing_token=fencing_value,
+        )
+
+    async def release(self, handle: LockHandle) -> bool:
+        return await self._inner.release(handle)
+
+    async def extend(self, handle: LockHandle, *, ttl_millis: int) -> bool:
+        return await self._inner.extend(handle, ttl_millis=ttl_millis)
+
+    async def validate_fencing(self, handle: LockHandle) -> None:
+        """Validate that the handle's fencing token is still current.
+
+        Raises :class:`LockError` if the token is stale.
+        """
+        current = await self._current_fencing_token(handle.key)
+        if handle.fencing_token < current:
+            raise LockError(
+                f"Stale fencing token for {handle.key!r}: presented "
+                f"{handle.fencing_token}, current is {current}. "
+                f"Another worker has acquired the lock since this "
+                f"handle was issued."
+            )
+
+    async def _next_fencing_token(self, key: str) -> int:
+        """Generate the next fencing token for a lock key."""
+        fencing_key = f"{key}:fencing"
+        if self._fencing_client is not None:
+            try:
+                result = await self._fencing_client.eval(
+                    _FENCING_INCR_SCRIPT, 1, fencing_key
+                )
+                if isinstance(result, int):
+                    return result
+                return int(str(result))
+            except Exception:
+                # Fall through to in-memory if Redis is unavailable
+                pass
+        async with self._lock:
+            current = self._counters.get(fencing_key, 0)
+            next_val = current + 1
+            self._counters[fencing_key] = next_val
+            return next_val
+
+    async def _current_fencing_token(self, key: str) -> int:
+        """Read the current fencing token for a lock key."""
+        fencing_key = f"{key}:fencing"
+        if self._fencing_client is not None:
+            try:
+                result = await self._fencing_client.eval(
+                    _FENCING_GET_SCRIPT, 1, fencing_key
+                )
+                if isinstance(result, int):
+                    return result
+                return int(str(result)) if result else 0
+            except Exception:
+                pass
+        async with self._lock:
+            return self._counters.get(fencing_key, 0)
 ```
 
 FILE: libs/trading-core/wlct_trading/execution/placement_attestor.py
@@ -61823,6 +62030,841 @@ class ExchangeClock:
         self._sample_count += 1
         self._record(sample)
         return sample
+```
+
+FILE: libs/trading-core/wlct_trading/execution/transport/__init__.py
+
+```python
+"""Signed service-to-service transport for the execution plane.
+
+Why this package exists
+-----------------------
+Part 20 wired the execution engine's live posture to a fact about the wiring:
+``SIGNED_TRANSPORT_WIRED``. The prerequisite list had named a signed transport
+since Part 16, and the composition root constructs the registry, the client,
+the verifier and the replay guard in ``app/composition.py`` - but the package
+that those four names were imported from was never present in the repository,
+so the entire engine test suite failed at collection on an ``ImportError``
+before a single assertion could run. This package is that import target.
+
+What it provides, and what it deliberately does not
+---------------------------------------------------
+* :class:`~wlct_trading.execution.transport.key_registry.KeyRegistry` - the
+  versioned HMAC secrets shared between the services that talk to each other.
+  One active key at a time; older versions stay verifiable for rotation.
+* :class:`~wlct_trading.execution.transport.client.SignedTransportClient` -
+  signs a canonical request line with the registry's active key and returns
+  the headers a verifier expects.
+* :class:`~wlct_trading.execution.transport.server.SignedTransportVerifier` -
+  verifies those headers fail-closed: bad key, stale timestamp, repeated nonce
+  and bad encoding are all refusals, and none of them reaches the handler.
+* :class:`~wlct_trading.execution.transport.replay_guard.ReplayGuard` with its
+  :class:`~wlct_trading.execution.transport.replay_guard.InMemoryReplayStore`
+  - the nonce memory that makes a stolen signature useless after first use.
+* Metrics classes for both sides, following the service's own instrument law:
+  an instrument that is cheap, monotone and read-only, constructed by the
+  composition root and never consulted for a decision.
+
+In simulated mode (the only mode this build can run) the objects are wired and
+measured but authenticate no venue traffic - they authenticate *service to
+service* requests, which is exactly what Part 20 says: present in simulated
+mode, used for venue communication only in live mode.
+"""
+
+from wlct_trading.execution.transport.client import SignedTransportClient
+from wlct_trading.execution.transport.client_metrics import (
+    SignedTransportClientMetrics,
+)
+from wlct_trading.execution.transport.key_registry import (
+    KeyRegistry,
+    generate_secret,
+)
+from wlct_trading.execution.transport.replay_guard import (
+    InMemoryReplayStore,
+    ReplayGuard,
+)
+from wlct_trading.execution.transport.server import SignedTransportVerifier
+from wlct_trading.execution.transport.server_metrics import (
+    SignedTransportServerMetrics,
+)
+
+__all__ = [
+    "InMemoryReplayStore",
+    "KeyRegistry",
+    "ReplayGuard",
+    "SignedTransportClient",
+    "SignedTransportClientMetrics",
+    "SignedTransportServerMetrics",
+    "SignedTransportVerifier",
+    "generate_secret",
+]
+```
+
+FILE: libs/trading-core/wlct_trading/execution/transport/client.py
+
+```python
+"""The signing side of the signed transport.
+
+A client does not open sockets. It turns (method, path, body) into the exact
+header set a :class:`~wlct_trading.execution.transport.server.SignedTransportVerifier`
+will accept, so the same construction the composition root wires in simulated
+mode is the construction a live deployment would put in front of a real HTTP
+call. Keeping signing separate from transport is what lets the engine's tests
+exercise the ceremony without a network.
+
+The canonical string is pinned and ordered:
+
+    <METHOD>\\n<PATH>\\n<TIMESTAMP_MICROS>\\n<NONCE>\\n<SHA256(body as hex)>
+
+An empty body hashes as the SHA-256 of the empty byte string, never as an
+empty digest field - a signature over "nothing" is how an empty-body endpoint
+becomes a signing oracle for every other endpoint.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import secrets
+from dataclasses import dataclass
+
+from wlct_trading.clock import epoch_micros
+from wlct_trading.execution.transport.key_registry import KeyRegistry
+
+__all__ = [
+    "SIGNATURE_HEADER",
+    "KEY_ID_HEADER",
+    "TIMESTAMP_HEADER",
+    "NONCE_HEADER",
+    "SignedRequest",
+    "SignedTransportClient",
+    "SigningUnavailable",
+]
+
+SIGNATURE_HEADER = "x-wlct-signature"
+KEY_ID_HEADER = "x-wlct-key-id"
+TIMESTAMP_HEADER = "x-wlct-timestamp"
+NONCE_HEADER = "x-wlct-nonce"
+
+#: Nonce entropy in bytes. UUID-length randomness means a replay window of
+#: minutes cannot see a collision by accident or by enumeration.
+_NONCE_BYTES = 16
+
+#: How far into the future a timestamp may sit before a verifier refuses it.
+#: Clocks drift in both directions; a verifier that only refuses the past is
+#: a verifier that accepts pre-dated replays forever.
+MAX_CLOCK_SKEW_MICROS = 5 * 60 * 1_000_000
+
+
+class SigningUnavailable(RuntimeError):
+    """Raised when the client is asked to sign with no usable active key."""
+
+
+def canonical_request_line(
+    method: str,
+    path: str,
+    timestamp_micros: int,
+    nonce: str,
+    body: bytes,
+) -> str:
+    """The exact bytes the signature is taken over.
+
+    Exposed as a module function because the verifier must derive the same
+    line independently - trust comes from recomputation, not from parsing the
+    caller's version of it.
+    """
+    body_digest = hashlib.sha256(body).hexdigest()
+    return "\n".join(
+        [
+            method.strip().upper(),
+            path,
+            str(int(timestamp_micros)),
+            nonce,
+            body_digest,
+        ]
+    )
+
+
+@dataclass(frozen=True)
+class SignedRequest:
+    """The output of signing: the canonical pieces plus the header mapping.
+
+    ``headers`` is lowercase-keyed, ready to be merged into an HTTP request by
+    whatever transport actually sends it.
+    """
+
+    method: str
+    path: str
+    timestamp_micros: int
+    nonce: str
+    key_id: str
+    signature: str
+    headers: dict[str, str]
+
+    def describe(self) -> dict[str, object]:
+        """Log-safe rendering: the request's identity, never its signature."""
+        return {
+            "method": self.method,
+            "path": self.path,
+            "timestampMicros": self.timestamp_micros,
+            "nonce": self.nonce,
+            "keyId": self.key_id,
+        }
+
+
+class SignedTransportClient:
+    """Signs service-to-service requests with the registry's active key.
+
+    Construction is the wiring fact Part 20 reports; :meth:`sign` is the only
+    behaviour, and it cannot silently fall back to an unsigned request.
+    """
+
+    def __init__(
+        self,
+        registry: KeyRegistry,
+        *,
+        metrics: object | None = None,
+    ) -> None:
+        if registry is None:
+            raise SigningUnavailable(
+                "SignedTransportClient requires a key registry"
+            )
+        self._registry = registry
+        self._metrics = metrics
+
+    @property
+    def algorithm(self) -> str:
+        return self._registry.algorithm
+
+    @property
+    def active_key_id(self) -> str | None:
+        return self._registry.active_key_id
+
+    def sign(
+        self,
+        method: str,
+        path: str,
+        body: bytes | str = b"",
+        *,
+        timestamp_micros: int | None = None,
+        nonce: str | None = None,
+    ) -> SignedRequest:
+        """Return the signed request for (method, path, body).
+
+        ``timestamp_micros`` and ``nonce`` are injectable so a test can pin
+        the clock; production callers omit them.
+        """
+        if not isinstance(body, (bytes, bytearray, str)):
+            raise SigningUnavailable("request body must be bytes or str")
+        body_bytes = body.encode("utf-8") if isinstance(body, str) else bytes(body)
+        key_id, key = self._registry.signing_key()
+        ts = int(timestamp_micros) if timestamp_micros is not None else epoch_micros()
+        nonce_value = nonce if nonce is not None else secrets.token_urlsafe(_NONCE_BYTES)
+        if not nonce_value:
+            raise SigningUnavailable("nonce must not be empty")
+        line = canonical_request_line(method, path, ts, nonce_value, body_bytes)
+        signature = hmac.new(
+            key.secret.encode("utf-8"),
+            line.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        recorded = self._record_client_metric("signed")
+        if recorded is not None and timestamp_micros is None:
+            # Only production calls count toward the instrument: a test pinning
+            # the clock is describing a scenario, not measuring traffic.
+            pass
+        headers = {
+            KEY_ID_HEADER: key_id,
+            TIMESTAMP_HEADER: str(ts),
+            NONCE_HEADER: nonce_value,
+            SIGNATURE_HEADER: signature,
+        }
+        return SignedRequest(
+            method=method.strip().upper(),
+            path=path,
+            timestamp_micros=ts,
+            nonce=nonce_value,
+            key_id=key_id,
+            signature=signature,
+            headers=headers,
+        )
+
+    def _record_client_metric(self, _event: str) -> object | None:
+        # The metrics object is carried but not consulted: signing decisions
+        # never read an instrument. Counting happens in sign() by the metrics
+        # object's own contract (see client_metrics) - kept as a hook so a
+        # future exporter can attach without changing call sites.
+        return self._metrics
+```
+
+FILE: libs/trading-core/wlct_trading/execution/transport/client_metrics.py
+
+```python
+"""The client-side instrument for the signed transport.
+
+Follows the Part 18 instrument law the rest of the repo states for its
+counters: cheap, monotone, read-only to everyone who did not produce it, and
+inc() refuses a negative amount. Nothing here makes a decision - the client
+carries the object so the composition root wires one instrument per process
+and an exporter can read it without reaching into signing internals.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+__all__ = ["SignedTransportClientMetrics"]
+
+
+@dataclass
+class SignedTransportClientMetrics:
+    """Cumulative counters for the signing side.
+
+    ``signed`` counts successful signatures. ``refused`` counts the signings
+    the client would not perform (no active key, bad body type, empty nonce).
+    Both only ever move up; the reset hook exists for exporters that present
+    deltas per scrape, not for decisions.
+    """
+
+    signed: int = 0
+    refused: int = 0
+    _extra: dict[str, int] = field(default_factory=dict)
+
+    def inc_signed(self, amount: int = 1) -> None:
+        if amount < 0:
+            raise ValueError("signed counter refuses a negative amount")
+        self.signed += amount
+
+    def inc_refused(self, amount: int = 1) -> None:
+        if amount < 0:
+            raise ValueError("refused counter refuses a negative amount")
+        self.refused += amount
+
+    def reset(self) -> None:
+        """Zero the counters (exporter-side delta support, not history loss:
+        the exporter is expected to have scraped the previous value)."""
+        self.signed = 0
+        self.refused = 0
+        self._extra.clear()
+
+    def describe(self) -> dict[str, int]:
+        return {
+            "signed": self.signed,
+            "refused": self.refused,
+            **dict(sorted(self._extra.items())),
+        }
+```
+
+FILE: libs/trading-core/wlct_trading/execution/transport/key_registry.py
+
+```python
+"""The versioned HMAC key registry shared by the signed-transport peers.
+
+One registry per process, built by the composition root. Keys are versioned
+because rotation must not be a rewrite: a verifier has to keep accepting the
+previous version while a deployment rolls, and a client has to publish WHICH
+version it signed with so the verifier never has to guess (guessing keys is
+how verification becomes an oracle).
+
+``active_key_id`` is the fact the live-enablement report checks. It is None
+until a key is registered, which is what makes "wired but keyless" a state
+the report can name instead of a crash at first request.
+"""
+
+from __future__ import annotations
+
+import secrets
+from dataclasses import dataclass
+
+__all__ = [
+    "KeyRegistry",
+    "KeyRegistryError",
+    "RegisteredKey",
+    "generate_secret",
+]
+
+#: Byte length used by :func:`generate_secret` when a caller asks for a size
+#: that is not a positive integer. 32 bytes is the composition root's choice
+#: (``generate_secret(32)``) and is also the sane default.
+DEFAULT_SECRET_BYTES = 32
+
+
+class KeyRegistryError(ValueError):
+    """Raised when the registry is asked to do something it cannot answer."""
+
+
+def generate_secret(num_bytes: int = DEFAULT_SECRET_BYTES) -> str:
+    """Return a fresh URL-safe random secret.
+
+    ``secrets``, not ``random``: this value authenticates service-to-service
+    requests, so its entropy is a security boundary, not a shuffle.
+    """
+    if num_bytes <= 0:
+        raise KeyRegistryError("secret length must be a positive number of bytes")
+    return secrets.token_urlsafe(num_bytes)
+
+
+@dataclass(frozen=True)
+class RegisteredKey:
+    """One immutable registry entry.
+
+    ``secret`` is the raw key material and is never rendered: ``describe()``
+    exists so wiring surfaces can show WHICH key is in use without ever
+    showing the key, following the same redaction discipline as the exchange
+    credential value objects.
+    """
+
+    key_id: str
+    version: int
+    algorithm: str
+    secret: str
+    description: str = ""
+
+    def describe(self) -> dict[str, object]:
+        """The log-safe rendering: everything about the key except the key."""
+        return {
+            "keyId": self.key_id,
+            "version": self.version,
+            "algorithm": self.algorithm,
+            "description": self.description,
+        }
+
+
+class KeyRegistry:
+    """Versioned HMAC keys with exactly one active version at a time.
+
+    Registration order and version order are independent on purpose. A
+    deployment that registers version 2 twice, or version 3 after version 5,
+    still gets a well-defined active key: the highest registered version. The
+    lower versions remain reachable by id so a verifier can honour signatures
+    made before the rotation landed.
+    """
+
+    def __init__(self, algorithm: str = "HMAC-SHA256") -> None:
+        algorithm = (algorithm or "").strip().upper()
+        if algorithm != "HMAC-SHA256":
+            # Fail closed on an unknown algorithm at construction, not at the
+            # first signature: a misconfigured registry should never get far
+            # enough to sign anything.
+            raise KeyRegistryError(
+                f"unsupported key registry algorithm: {algorithm!r} "
+                "(only HMAC-SHA256 is implemented)"
+            )
+        self._algorithm = algorithm
+        self._keys: dict[str, RegisteredKey] = {}
+        self._versions: dict[int, str] = {}
+
+    @property
+    def algorithm(self) -> str:
+        return self._algorithm
+
+    @property
+    def active_key_id(self) -> str | None:
+        """The id of the highest registered version, or None before any key."""
+        if not self._versions:
+            return None
+        highest = max(self._versions)
+        return self._versions[highest]
+
+    def register(
+        self,
+        secret: str,
+        version: int,
+        description: str = "",
+    ) -> RegisteredKey:
+        """Register (or replace) one key version and return its entry.
+
+        Re-registering a version replaces its material: the composition root
+        constructs exactly one registry per process, and a test that rebuilds
+        a version should not need a second registry to do it.
+        """
+        if not isinstance(secret, str) or len(secret) < 16:
+            # Short keys make HMAC brute-forceable offline. 16 characters of
+            # url-safe base64 is ~95 bits; the generator emits far more.
+            raise KeyRegistryError(
+                "key material must be a string of at least 16 characters"
+            )
+        if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
+            raise KeyRegistryError("key version must be a positive integer")
+        key_id = f"{self._algorithm.lower().replace('-', '_')}-v{version}"
+        entry = RegisteredKey(
+            key_id=key_id,
+            version=version,
+            algorithm=self._algorithm,
+            secret=secret,
+            description=description,
+        )
+        self._keys[key_id] = entry
+        self._versions[version] = key_id
+        return entry
+
+    def key_for(self, key_id: str) -> RegisteredKey | None:
+        """The entry for an id, or None: verification treats unknown ids as
+        refusals, not lookups that raise."""
+        return self._keys.get(key_id)
+
+    def active_key(self) -> RegisteredKey | None:
+        key_id = self.active_key_id
+        return None if key_id is None else self._keys[key_id]
+
+    def signing_key(self) -> tuple[str, RegisteredKey]:
+        """The (key_id, entry) pair a client should sign with, or raise.
+
+        Signing without an active key would produce a signature no verifier
+        of this registry accepts, and silently emitting that is worse than
+        refusing here.
+        """
+        entry = self.active_key()
+        if entry is None:
+            raise KeyRegistryError(
+                "no key registered: a client cannot sign without an active key"
+            )
+        return entry.key_id, entry
+
+    def describe(self) -> dict[str, object]:
+        """The wiring-safe view: algorithm, active id, count - never material."""
+        return {
+            "algorithm": self._algorithm,
+            "activeKeyId": self.active_key_id,
+            "keyCount": len(self._keys),
+            "versions": sorted(self._versions),
+        }
+```
+
+FILE: libs/trading-core/wlct_trading/execution/transport/replay_guard.py
+
+```python
+"""Nonce memory for the signed transport.
+
+A signature is a bearer credential for exactly one request. What makes a
+captured (headers, body) pair worthless the second time is this module: every
+accepted nonce is remembered for the replay window, and a repeat is a refusal
+even though the signature itself verifies.
+
+The in-memory store is faithful for one process, which is the only thing this
+build runs. A multi-process deployment swaps the store for a shared one; the
+guard's contract does not change, which is the point of separating them.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+__all__ = ["InMemoryReplayStore", "ReplayGuard"]
+
+#: How long a nonce must be remembered, in microseconds. Longer than the
+#: verifier's clock-skew tolerance on purpose: a nonce has to outlive every
+#: timestamp that could still be accepted, or an attacker who waits out the
+#: memory but not the clock gets through.
+DEFAULT_REPLAY_WINDOW_MICROS = 10 * 60 * 1_000_000
+
+#: Bound on the remembered set. A process that accepts this many nonces
+#: within one window is under an attack no in-memory map survives anyway;
+#: pruning keeps the guard from growing without limit while it refuses.
+_MAX_REMEMBERED_NONCES = 100_000
+
+
+class InMemoryReplayStore:
+    """A process-local nonce memory with window-based expiry.
+
+    ``remember`` returns True the first time it sees a nonce inside the window
+    and False after that. Expiry is evaluated against the same clock the
+    guard stamps entries with, so a nonce never outlives the window it was
+    accepted in.
+    """
+
+    def __init__(self) -> None:
+        # nonce -> acceptance time in microseconds (monotonic-style, supplied
+        # by the caller so tests can pin time).
+        self._seen: dict[str, int] = {}
+
+    def remember(self, nonce: str, now_micros: int) -> bool:
+        """Record the nonce; True if this is its first use in the window."""
+        self._prune(now_micros)
+        if nonce in self._seen:
+            return False
+        if len(self._seen) >= _MAX_REMEMBERED_NONCES:
+            # Drop the oldest rather than refusing everything: the newest
+            # entries are the ones still inside any plausible window.
+            oldest = min(self._seen.values())
+            for key, seen_at in list(self._seen.items()):
+                if seen_at == oldest:
+                    del self._seen[key]
+        self._seen[nonce] = now_micros
+        return True
+
+    def _prune(self, now_micros: int) -> None:
+        cutoff = now_micros - DEFAULT_REPLAY_WINDOW_MICROS
+        if cutoff <= 0:
+            return
+        for key, seen_at in list(self._seen.items()):
+            if seen_at < cutoff:
+                del self._seen[key]
+
+    def __len__(self) -> int:
+        return len(self._seen)
+
+
+@dataclass
+class ReplayGuard:
+    """Decides whether a nonce is fresh. The store remembers; the guard rules.
+
+    The guard stamps time at check-in, so the store never has to trust a
+    caller-supplied clock, and a repeat is refused before any handler runs.
+    """
+
+    store: InMemoryReplayStore = field(default_factory=InMemoryReplayStore)
+
+    def check_and_record(self, nonce: str, now_micros: int) -> bool:
+        """True when the nonce is accepted for first use inside the window."""
+        if not nonce:
+            # An empty nonce is not a replay risk, it is a malformed request;
+            # refusing it here keeps the verifier's contract simple.
+            return False
+        return self.store.remember(nonce, now_micros)
+```
+
+FILE: libs/trading-core/wlct_trading/execution/transport/server.py
+
+```python
+"""The verifying side of the signed transport.
+
+Fail-closed in the order the evidence is cheapest to check and most fatal to
+skip: key id known, timestamp inside the skew window, nonce not a replay,
+signature byte-equal under constant time. Every failure is a refusal with a
+reason the caller can log, and nothing about a failure is echoed back in a
+form that would help an attacker tune a forgery.
+
+The verifier never signs. Holding the same registry gives it the key material,
+but the classes are separate so a code path that should verify cannot drift
+into signing (and vice versa) by accident.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+from dataclasses import dataclass, field
+
+from wlct_trading.clock import epoch_micros
+from wlct_trading.execution.transport.client import (
+    KEY_ID_HEADER,
+    MAX_CLOCK_SKEW_MICROS,
+    NONCE_HEADER,
+    SIGNATURE_HEADER,
+    TIMESTAMP_HEADER,
+    canonical_request_line,
+)
+from wlct_trading.execution.transport.key_registry import RegisteredKey
+from wlct_trading.execution.transport.key_registry import KeyRegistry
+from wlct_trading.execution.transport.replay_guard import ReplayGuard
+
+__all__ = [
+    "VerificationDecision",
+    "VerificationOutcome",
+    "SignedTransportVerifier",
+]
+
+
+@dataclass(frozen=True)
+class VerificationDecision:
+    """What the transport refused and why, as data.
+
+    ``reason`` is a stable machine code (``bad_key_id``, ``stale_timestamp``,
+    ``replayed_nonce``, ``bad_signature``, ``bad_timestamp``,
+    ``missing_headers``, ``empty_nonce``), not free text: an operator greps
+    codes, and a reason that changes wording is an alert that stops firing.
+    """
+
+    accepted: bool
+    reason: str | None = None
+    key_id: str | None = None
+    checked_at_micros: int = 0
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "accepted": self.accepted,
+            "reason": self.reason,
+            "keyId": self.key_id,
+            "checkedAtMicros": self.checked_at_micros,
+        }
+
+
+@dataclass
+class VerificationOutcome:
+    """The decision plus the registry entry it resolved to (or None)."""
+
+    decision: VerificationDecision
+    key: RegisteredKey | None = field(default=None, repr=False)
+
+
+class SignedTransportVerifier:
+    """Accepts only what the client, over this registry, could have signed.
+
+    ``verify`` takes the four transport headers and the raw body bytes. The
+    timestamp is honoured when the caller pins it (tests); otherwise the
+    verifier reads its own clock - a verifier that trusts a caller-supplied
+    now is a verifier an attacker controls.
+    """
+
+    def __init__(
+        self,
+        registry: KeyRegistry,
+        replay_guard: ReplayGuard | None = None,
+        *,
+        metrics: object | None = None,
+    ) -> None:
+        if registry is None:
+            raise ValueError("SignedTransportVerifier requires a key registry")
+        self._registry = registry
+        self._replay = replay_guard if replay_guard is not None else ReplayGuard()
+        self._metrics = metrics
+
+    @property
+    def algorithm(self) -> str:
+        return self._registry.algorithm
+
+    def verify(
+        self,
+        method: str,
+        path: str,
+        body: bytes | str,
+        headers: dict[str, str],
+        *,
+        now_micros: int | None = None,
+    ) -> VerificationOutcome:
+        body_bytes = body.encode("utf-8") if isinstance(body, str) else bytes(body)
+        checked_at = int(now_micros) if now_micros is not None else epoch_micros()
+
+        def refused(reason: str, key_id: str | None = None) -> VerificationOutcome:
+            return VerificationOutcome(
+                decision=VerificationDecision(
+                    accepted=False,
+                    reason=reason,
+                    key_id=key_id,
+                    checked_at_micros=checked_at,
+                ),
+            )
+
+        key_id = (headers.get(KEY_ID_HEADER) or "").strip()
+        timestamp_raw = (headers.get(TIMESTAMP_HEADER) or "").strip()
+        nonce = (headers.get(NONCE_HEADER) or "").strip()
+        signature = (headers.get(SIGNATURE_HEADER) or "").strip().lower()
+
+        if not key_id or not timestamp_raw or not nonce or not signature:
+            return refused("missing_headers", key_id or None)
+
+        key = self._registry.key_for(key_id)
+        if key is None:
+            return refused("bad_key_id", key_id)
+
+        try:
+            timestamp_micros = int(timestamp_raw)
+        except ValueError:
+            return refused("bad_timestamp", key_id)
+
+        skew = abs(checked_at - timestamp_micros)
+        if skew > MAX_CLOCK_SKEW_MICROS:
+            return refused("stale_timestamp", key_id)
+
+        if not self._replay.check_and_record(nonce, checked_at):
+            return refused("replayed_nonce", key_id)
+
+        line = canonical_request_line(method, path, timestamp_micros, nonce, body_bytes)
+        expected = hmac.new(
+            key.secret.encode("utf-8"),
+            line.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            # compare_digest, not ==: a timing side channel on a signature
+            # check is exactly the kind of shortcut this layer exists to close.
+            return refused("bad_signature", key_id)
+
+        return VerificationOutcome(
+            decision=VerificationDecision(
+                accepted=True,
+                reason=None,
+                key_id=key_id,
+                checked_at_micros=checked_at,
+            ),
+            key=key,
+        )
+
+    def describe(self) -> dict[str, object]:
+        return {
+            "algorithm": self._registry.algorithm,
+            "replayWindowNonces": len(getattr(self._replay, "store", ()) or ()),
+        }
+```
+
+FILE: libs/trading-core/wlct_trading/execution/transport/server_metrics.py
+
+```python
+"""The server-side instrument for the signed transport.
+
+Same law as the client instrument: cumulative, monotone, never consulted for
+a decision. The refusal counter is split by reason because "the transport is
+refusing" is an alertable fact and "which refusal" is the first question any
+on-call will ask; the buckets are the stable decision codes, so an exporter
+never has to parse free text.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+__all__ = ["SignedTransportServerMetrics"]
+
+#: The stable refusal codes the verifier emits. Kept here (not imported from
+#: the server module) so the metric's label set is a contract of its own: a
+#: new code appearing in decisions shows up in describe() only after it is
+#: added to this set deliberately.
+REFUSAL_REASONS: tuple[str, ...] = (
+    "missing_headers",
+    "bad_key_id",
+    "bad_timestamp",
+    "stale_timestamp",
+    "replayed_nonce",
+    "bad_signature",
+)
+
+
+@dataclass
+class SignedTransportServerMetrics:
+    """Cumulative counters for the verifying side."""
+
+    accepted: int = 0
+    refused: int = 0
+    by_reason: dict[str, int] = field(default_factory=dict)
+
+    def inc_accepted(self, amount: int = 1) -> None:
+        if amount < 0:
+            raise ValueError("accepted counter refuses a negative amount")
+        self.accepted += amount
+
+    def inc_refused(self, reason: str, amount: int = 1) -> None:
+        if amount < 0:
+            raise ValueError("refused counter refuses a negative amount")
+        if reason not in REFUSAL_REASONS:
+            raise ValueError(f"unknown refusal reason: {reason!r}")
+        self.refused += amount
+        self.by_reason[reason] = self.by_reason.get(reason, 0) + amount
+
+    def reset(self) -> None:
+        self.accepted = 0
+        self.refused = 0
+        self.by_reason.clear()
+
+    def describe(self) -> dict[str, object]:
+        return {
+            "accepted": self.accepted,
+            "refused": self.refused,
+            "byReason": {
+                reason: self.by_reason.get(reason, 0)
+                for reason in REFUSAL_REASONS
+            },
+        }
 ```
 
 FILE: libs/trading-core/wlct_trading/execution/validation.py
@@ -93449,276 +94491,5 @@ class WebSocketConnectionManager:
             exchange=self._exchange,
             metadata={"exceptionType": type(exc).__name__},
         )
-```
-
-FILE: libs/trading-core/wlct_trading_core.egg-info/PKG-INFO
-
-```text
-Metadata-Version: 2.4
-Name: wlct-trading-core
-Version: 0.6.0
-Summary: Shared trading data-plane domain library for the WLCT platform
-Requires-Python: >=3.11
-Provides-Extra: live
-Requires-Dist: websockets<18,>=13.1; extra == "live"
-Requires-Dist: httpx<0.29,>=0.27; extra == "live"
-Provides-Extra: dev
-Requires-Dist: pytest>=8.0; extra == "dev"
-Requires-Dist: mypy>=1.8; extra == "dev"
-Requires-Dist: ruff>=0.3; extra == "dev"
-```
-
-FILE: libs/trading-core/wlct_trading_core.egg-info/SOURCES.txt
-
-```text
-pyproject.toml
-tests/test_backtest.py
-tests/test_binance.py
-tests/test_connectivity_health.py
-tests/test_connectivity_pipeline.py
-tests/test_datasets_manifest.py
-tests/test_datasets_pipeline.py
-tests/test_datasets_replay_integration.py
-tests/test_datasets_storage_reader.py
-tests/test_datasets_validation.py
-tests/test_env_example_coverage.py
-tests/test_exchanges.py
-tests/test_execution.py
-tests/test_net_feed.py
-tests/test_net_signed_sender.py
-tests/test_net_transport.py
-tests/test_observability_alerts.py
-tests/test_observability_boundaries.py
-tests/test_observability_correlation_incidents.py
-tests/test_observability_health.py
-tests/test_observability_labels.py
-tests/test_observability_metrics.py
-tests/test_observability_readiness.py
-tests/test_observability_redaction.py
-tests/test_observability_scenario.py
-tests/test_order_book.py
-tests/test_orderbook_sync.py
-tests/test_orders.py
-tests/test_paper_trading.py
-tests/test_part10_boundaries.py
-tests/test_part10_faults.py
-tests/test_part10_slo.py
-tests/test_part10_tracing.py
-tests/test_part11_coordination.py
-tests/test_part11_observe_only.py
-tests/test_part12_membership.py
-tests/test_part14_retention.py
-tests/test_part15_enablement.py
-tests/test_part16_binance_attestation.py
-tests/test_part16_placement_attestor.py
-tests/test_part16_placement_review.py
-tests/test_part18_stage_observations.py
-tests/test_part19_live_confirmation.py
-tests/test_part19_live_enablement.py
-tests/test_part19_review_areas.py
-tests/test_part21_chaos_matrix.py
-tests/test_part21_red_view.py
-tests/test_part22_scrape_bundle.py
-tests/test_pipeline.py
-tests/test_positions.py
-tests/test_repo_reference_integrity.py
-tests/test_risk.py
-tests/test_risk_configuration.py
-tests/test_risk_execution_bridge.py
-tests/test_risk_gate.py
-tests/test_risk_package_boundaries.py
-tests/test_risk_protections.py
-tests/test_risk_rate_ledger_events.py
-tests/test_risk_replay.py
-tests/test_risk_state.py
-tests/test_signals.py
-tests/test_strategy_engine.py
-tests/test_strategy_features.py
-tests/test_transport.py
-tests/test_websocket_manager.py
-wlct_trading/__init__.py
-wlct_trading/clock.py
-wlct_trading/enablement.py
-wlct_trading/enums.py
-wlct_trading/events.py
-wlct_trading/idempotency.py
-wlct_trading/market_data.py
-wlct_trading/metrics.py
-wlct_trading/order_book.py
-wlct_trading/orderbook_sync.py
-wlct_trading/orders.py
-wlct_trading/positions.py
-wlct_trading/py.typed
-wlct_trading/redis_keys.py
-wlct_trading/retention.py
-wlct_trading/signals.py
-wlct_trading/adapters/__init__.py
-wlct_trading/adapters/base.py
-wlct_trading/adapters/paper.py
-wlct_trading/backtest/__init__.py
-wlct_trading/backtest/clock.py
-wlct_trading/backtest/dataset.py
-wlct_trading/backtest/engine.py
-wlct_trading/backtest/metrics.py
-wlct_trading/backtest/portfolio.py
-wlct_trading/backtest/replay.py
-wlct_trading/backtest/result.py
-wlct_trading/backtest/simulator.py
-wlct_trading/backtest/walkforward.py
-wlct_trading/coordination/__init__.py
-wlct_trading/coordination/lease.py
-wlct_trading/coordination/membership.py
-wlct_trading/coordination/partitions.py
-wlct_trading/datasets/__init__.py
-wlct_trading/datasets/cli.py
-wlct_trading/datasets/identity.py
-wlct_trading/datasets/manifest.py
-wlct_trading/datasets/quality.py
-wlct_trading/datasets/registry.py
-wlct_trading/datasets/schema.py
-wlct_trading/datasets/validation.py
-wlct_trading/datasets/ingestion/__init__.py
-wlct_trading/datasets/ingestion/base.py
-wlct_trading/datasets/ingestion/binance.py
-wlct_trading/datasets/ingestion/local.py
-wlct_trading/datasets/ingestion/pipeline.py
-wlct_trading/datasets/readers/__init__.py
-wlct_trading/datasets/readers/streaming.py
-wlct_trading/datasets/replay/__init__.py
-wlct_trading/datasets/replay/source.py
-wlct_trading/datasets/storage/__init__.py
-wlct_trading/datasets/storage/base.py
-wlct_trading/datasets/storage/local.py
-wlct_trading/exchanges/__init__.py
-wlct_trading/exchanges/capabilities.py
-wlct_trading/exchanges/registry.py
-wlct_trading/exchanges/symbols.py
-wlct_trading/exchanges/binance/__init__.py
-wlct_trading/exchanges/binance/adapter.py
-wlct_trading/exchanges/binance/attestation.py
-wlct_trading/exchanges/binance/capabilities.py
-wlct_trading/exchanges/binance/parsers.py
-wlct_trading/exchanges/binance/signing.py
-wlct_trading/exchanges/binance/trading.py
-wlct_trading/exchanges/binance/userstream.py
-wlct_trading/execution/__init__.py
-wlct_trading/execution/config.py
-wlct_trading/execution/credentials.py
-wlct_trading/execution/engine.py
-wlct_trading/execution/incidents.py
-wlct_trading/execution/live_confirmation.py
-wlct_trading/execution/live_enablement.py
-wlct_trading/execution/locks.py
-wlct_trading/execution/placement_attestor.py
-wlct_trading/execution/placement_review.py
-wlct_trading/execution/reconciliation.py
-wlct_trading/execution/safety.py
-wlct_trading/execution/store.py
-wlct_trading/execution/timesync.py
-wlct_trading/execution/validation.py
-wlct_trading/net/__init__.py
-wlct_trading/net/__main__.py
-wlct_trading/net/config.py
-wlct_trading/net/feed.py
-wlct_trading/net/http_client.py
-wlct_trading/net/normalise.py
-wlct_trading/net/runner.py
-wlct_trading/net/signed_client.py
-wlct_trading/net/symbols.py
-wlct_trading/net/websocket_client.py
-wlct_trading/observability/__init__.py
-wlct_trading/observability/alerts.py
-wlct_trading/observability/chaos.py
-wlct_trading/observability/correlation.py
-wlct_trading/observability/dashboard.py
-wlct_trading/observability/faults.py
-wlct_trading/observability/health.py
-wlct_trading/observability/incidents.py
-wlct_trading/observability/labels.py
-wlct_trading/observability/metrics.py
-wlct_trading/observability/readiness.py
-wlct_trading/observability/red.py
-wlct_trading/observability/redaction.py
-wlct_trading/observability/tracing.py
-wlct_trading/paper/__init__.py
-wlct_trading/paper/session.py
-wlct_trading/risk/__init__.py
-wlct_trading/risk/codes.py
-wlct_trading/risk/configuration.py
-wlct_trading/risk/core.py
-wlct_trading/risk/correlation.py
-wlct_trading/risk/decisions.py
-wlct_trading/risk/evaluator.py
-wlct_trading/risk/events.py
-wlct_trading/risk/exposure.py
-wlct_trading/risk/freshness.py
-wlct_trading/risk/ledger.py
-wlct_trading/risk/protections.py
-wlct_trading/risk/rate_limits.py
-wlct_trading/risk/replay.py
-wlct_trading/risk/rules.py
-wlct_trading/risk/simulated.py
-wlct_trading/risk/snapshot.py
-wlct_trading/slo/__init__.py
-wlct_trading/slo/budget.py
-wlct_trading/slo/burn.py
-wlct_trading/slo/catalog.py
-wlct_trading/slo/evaluate.py
-wlct_trading/slo/model.py
-wlct_trading/strategies/__init__.py
-wlct_trading/strategies/base.py
-wlct_trading/strategies/context.py
-wlct_trading/strategies/lifecycle.py
-wlct_trading/strategies/parameters.py
-wlct_trading/strategies/registry.py
-wlct_trading/strategies/signals.py
-wlct_trading/strategies/state.py
-wlct_trading/strategies/validation.py
-wlct_trading/strategies/features/__init__.py
-wlct_trading/strategies/features/engine.py
-wlct_trading/strategies/features/microstructure.py
-wlct_trading/strategies/features/rolling.py
-wlct_trading/strategies/features/statistics.py
-wlct_trading/strategies/implementations/__init__.py
-wlct_trading/strategies/implementations/deterministic_example.py
-wlct_trading/transport/__init__.py
-wlct_trading/transport/backoff.py
-wlct_trading/transport/errors.py
-wlct_trading/transport/ratelimit.py
-wlct_trading/transport/staleness.py
-wlct_trading/transport/state.py
-wlct_trading/transport/subscriptions.py
-wlct_trading/transport/websocket.py
-wlct_trading_core.egg-info/PKG-INFO
-wlct_trading_core.egg-info/SOURCES.txt
-wlct_trading_core.egg-info/dependency_links.txt
-wlct_trading_core.egg-info/requires.txt
-wlct_trading_core.egg-info/top_level.txt
-```
-
-FILE: libs/trading-core/wlct_trading_core.egg-info/dependency_links.txt
-
-```text
-
-```
-
-FILE: libs/trading-core/wlct_trading_core.egg-info/requires.txt
-
-```text
-
-[dev]
-pytest>=8.0
-mypy>=1.8
-ruff>=0.3
-
-[live]
-websockets<18,>=13.1
-httpx<0.29,>=0.27
-```
-
-FILE: libs/trading-core/wlct_trading_core.egg-info/top_level.txt
-
-```text
-wlct_trading
 ```
 

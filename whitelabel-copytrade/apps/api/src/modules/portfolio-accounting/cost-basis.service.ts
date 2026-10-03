@@ -49,7 +49,7 @@ export class CostBasisService {
     const openLots = await (this.prisma as any).portfolioPositionLot.findMany({
       where: { tenantId, profileId, symbol, isClosed: false, isReversed: false },
       orderBy: { openedAt: 'asc' },
-    }).catch(() => []);
+    });
 
     if (side === 'BUY') {
       // Opening/increasing long — cost basis is fill price

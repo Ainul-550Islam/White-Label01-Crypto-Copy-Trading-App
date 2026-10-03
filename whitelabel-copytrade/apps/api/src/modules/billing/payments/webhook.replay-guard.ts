@@ -180,7 +180,7 @@ export class WebhookReplayGuard {
   async markEventVerified(provider: PaymentProvider, providerEventId: string): Promise<void> {
     try {
       await (this.prisma as any).webhookEvent?.updateMany({
-        where: { provider, providerEventId },
+        where: { provider, providerEventId, processingStatus: { not: WebhookProcessingStatus.PROCESSED } },
         data: {
           processingStatus: WebhookProcessingStatus.VERIFIED,
           updatedAt: new Date(),
@@ -194,7 +194,7 @@ export class WebhookReplayGuard {
   async markEventProcessing(provider: PaymentProvider, providerEventId: string): Promise<void> {
     try {
       await (this.prisma as any).webhookEvent?.updateMany({
-        where: { provider, providerEventId },
+        where: { provider, providerEventId, processingStatus: { not: WebhookProcessingStatus.PROCESSED } },
         data: {
           processingStatus: WebhookProcessingStatus.PROCESSING,
           processingAttempts: { increment: 1 },
@@ -230,7 +230,7 @@ export class WebhookReplayGuard {
   async markEventFailed(provider: PaymentProvider, providerEventId: string, errorMessage: string): Promise<void> {
     try {
       await (this.prisma as any).webhookEvent?.updateMany({
-        where: { provider, providerEventId },
+        where: { provider, providerEventId, processingStatus: { not: WebhookProcessingStatus.PROCESSED } },
         data: {
           processingStatus: WebhookProcessingStatus.FAILED,
           lastProcessingError: errorMessage.substring(0, 1000),
@@ -245,7 +245,7 @@ export class WebhookReplayGuard {
   async markEventDuplicate(provider: PaymentProvider, providerEventId: string): Promise<void> {
     try {
       await (this.prisma as any).webhookEvent?.updateMany({
-        where: { provider, providerEventId },
+        where: { provider, providerEventId, processingStatus: { not: WebhookProcessingStatus.PROCESSED } },
         data: {
           processingStatus: WebhookProcessingStatus.DUPLICATE,
           processedAt: new Date(),
@@ -282,19 +282,26 @@ export class WebhookReplayGuard {
   }
 
   private async findExistingEvent(provider: PaymentProvider, providerEventId: string): Promise<WebhookEventRecord | null> {
-    try {
-      const record = await (this.prisma as any).webhookEvent?.findFirst({
-        where: { provider, providerEventId },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      if (record) {
-        return this.mapToRecord(record);
-      }
-      return null;
-    } catch {
-      return null;
+    // A PROCESSED row wins over any newer one. The webhook service records
+    // every delivery (recordEventReceived runs before checkReplay), so for a
+    // replay the NEWEST row is always the fresh RECEIVED one; answering from
+    // it would let a replay through once the Redis entry has expired.
+    const processed = await (this.prisma as any).webhookEvent?.findFirst({
+      where: { provider, providerEventId, processingStatus: WebhookProcessingStatus.PROCESSED },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (processed) {
+      return this.mapToRecord(processed);
     }
+    const record = await (this.prisma as any).webhookEvent?.findFirst({
+      where: { provider, providerEventId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (record) {
+      return this.mapToRecord(record);
+    }
+    return null;
   }
 
   private computeEventHash(event: NormalizedWebhookEvent): string {

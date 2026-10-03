@@ -101,9 +101,19 @@ export class ChurnAnalyticsService {
     const mrrAtStart = await this.calculateMrrAtDate({ tenantId: params.tenantId, currency, date: start });
     const revenueChurnRate = calculateRate(revenueChurnMinor, mrrAtStart.totalMinor);
 
-    // Retention: 100 - churn
-    const netRetention = (100 - parseFloat(subscriptionChurnRate)).toFixed(2);
-    const grossRetention = netRetention; // Simplified, no expansion considered here
+    // Revenue retention is a revenue metric, so it is derived from revenue
+    // churn (not from the subscription-count churn rate used previously).
+    //  - Gross revenue retention = 100 - revenue churn %, floored at 0; by
+    //    definition it excludes expansion, so it is fully measurable here.
+    //  - Net revenue retention also needs expansion/upgrade revenue, which
+    //    this service does not measure: it is reported as null (unknown)
+    //    rather than copied from gross.
+    // With no MRR at the start of the period there is nothing to retain, and
+    // both are null instead of a misleading 100%.
+    const grossRetention: string | null = mrrAtStart.totalMinor > 0
+      ? Math.max(0, 100 - parseFloat(revenueChurnRate)).toFixed(2)
+      : null;
+    const netRetention: string | null = null;
 
     return {
       period: params.period,
@@ -179,30 +189,22 @@ export class ChurnAnalyticsService {
   }
 
   private async fetchActiveAtDate(params: { tenantId?: string; date: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
-        currentPeriodStart: { lte: params.date },
-        currentPeriodEnd: { gte: params.date },
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
+      currentPeriodStart: { lte: params.date },
+      currentPeriodEnd: { gte: params.date },
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
   }
 
   private async fetchChurnedInPeriod(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      const where: any = {
-        status: { in: [SubscriptionStatus.CANCELED, SubscriptionStatus.EXPIRED] },
-        OR: [{ canceledAt: { gte: params.start, lte: params.end } }, { currentPeriodEnd: { gte: params.start, lte: params.end } }],
-      };
-      if (params.tenantId) where.tenantId = params.tenantId;
-      return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
-    } catch {
-      return [];
-    }
+    const where: any = {
+      status: { in: [SubscriptionStatus.CANCELED, SubscriptionStatus.EXPIRED] },
+      OR: [{ canceledAt: { gte: params.start, lte: params.end } }, { currentPeriodEnd: { gte: params.start, lte: params.end } }],
+    };
+    if (params.tenantId) where.tenantId = params.tenantId;
+    return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
   }
 
   private async calculateMrrAtDate(params: { tenantId?: string; currency: string; date: Date }): Promise<{ totalMinor: number }> {

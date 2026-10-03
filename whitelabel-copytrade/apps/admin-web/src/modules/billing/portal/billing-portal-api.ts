@@ -4,22 +4,36 @@
  * No secrets exposed.
  */
 
-const API_BASE = '/api/v1/billing/portal';
+import { apiClient } from '@/lib/api-client';
 
+const PROXY_PREFIX = '/api/proxy';
+const API_BASE = `${PROXY_PREFIX}/billing/portal`;
+
+/**
+ * All calls go through the console's same-origin proxy (/api/proxy/* ->
+ * API_BASE_URL/v1/*): the bearer token lives in an httpOnly cookie that only
+ * the proxy can read, and mutations carry the CSRF header. Before this the
+ * module fetched `{API_BASE}` on the admin origin, which has no such route, so
+ * every call 404'd. apiClient also unwraps the {success, data} envelope, which
+ * is the shape the billing components read (e.g. `result.tenantSlug`).
+ */
 async function fetchJson(url: string, options?: RequestInit): Promise<any> {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers || {}),
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(errText || `Request failed: ${res.status}`);
+  const path = url.startsWith(PROXY_PREFIX) ? url.slice(PROXY_PREFIX.length) : url;
+  const method = (options?.method ?? 'GET').toUpperCase();
+  const body =
+    typeof options?.body === 'string' && options.body.length > 0 ? JSON.parse(options.body) : undefined;
+  switch (method) {
+    case 'POST':
+      return apiClient.post(path, body);
+    case 'PATCH':
+      return apiClient.patch(path, body);
+    case 'PUT':
+      return apiClient.put(path, body);
+    case 'DELETE':
+      return apiClient.delete(path, body === undefined ? {} : { body });
+    default:
+      return apiClient.get(path);
   }
-  return res.json();
 }
 
 export async function getBillingOverview(): Promise<any> {

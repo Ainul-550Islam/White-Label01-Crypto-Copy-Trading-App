@@ -213,19 +213,15 @@ export class DeviceTrustService {
     const limit = filters?.limit || 20;
     const offset = (page - 1) * limit;
 
-    try {
-      const where: any = { tenantId, userId };
-      if (filters?.state) where.state = filters.state;
+    const where: any = { tenantId, userId };
+    if (filters?.state) where.state = filters.state;
 
-      const [data, total] = await Promise.all([
-        (this.prisma as any).deviceTrust?.findMany({ where, orderBy: { lastSeenAt: 'desc' }, skip: offset, take: limit }) || [],
-        (this.prisma as any).deviceTrust?.count({ where }) || 0,
-      ]);
+    const [data, total] = await Promise.all([
+      (this.prisma as any).deviceTrust?.findMany({ where, orderBy: { lastSeenAt: 'desc' }, skip: offset, take: limit }) || [],
+      (this.prisma as any).deviceTrust?.count({ where }) || 0,
+    ]);
 
-      return { data: data.map((d: any) => this.sanitizeDeviceRecord(d)), total };
-    } catch {
-      return { data: [], total: 0 };
-    }
+    return { data: data.map((d: any) => this.sanitizeDeviceRecord(d)), total };
   }
 
   async evaluateDeviceTrust(params: { tenantId: string; userId: string; deviceId: string; userAgent?: string; ipHash?: string }): Promise<{ trusted: boolean; state: DeviceState; decision: SecurityDecision; requiresStepUp: boolean }> {

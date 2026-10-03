@@ -27,6 +27,10 @@ import { HEADER_REQUEST_ID } from '@wlct/config';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
+    // Keep the exact request bytes on req.rawBody (applied to the parsers
+    // registered with app.useBodyParser below). Payment-provider webhooks sign
+    // the raw body; verifying a re-serialised JSON object never matches.
+    rawBody: true,
     // The global exception filter owns error shaping; disable Nest's default.
     abortOnError: false,
   });

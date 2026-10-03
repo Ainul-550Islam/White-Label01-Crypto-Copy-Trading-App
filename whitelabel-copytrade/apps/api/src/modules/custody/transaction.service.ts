@@ -67,7 +67,7 @@ export class TransactionService {
     });
 
     try {
-      const existing = await (this.prisma as any).custodyTransaction.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).custodyTransaction.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log({ event: 'custody.transaction.idempotent_hit', idempotencyKey, transactionHash });
         return existing;
@@ -197,19 +197,11 @@ export class TransactionService {
   }
 
   async getTransaction(params: { tenantId: string; transactionId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).custodyTransaction.findFirst({ where: { id: params.transactionId, tenantId: params.tenantId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).custodyTransaction.findFirst({ where: { id: params.transactionId, tenantId: params.tenantId } });
   }
 
   async getTransactionByHash(params: { tenantId: string; transactionHash: string; networkId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).custodyTransaction.findFirst({ where: { tenantId: params.tenantId, transactionHash: params.transactionHash, networkId: params.networkId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).custodyTransaction.findFirst({ where: { tenantId: params.tenantId, transactionHash: params.transactionHash, networkId: params.networkId } });
   }
 
   async listTransactions(params: {
@@ -232,14 +224,10 @@ export class TransactionService {
     if (direction) where.direction = direction;
     if (sourceWorkflowId) where.sourceWorkflowId = sourceWorkflowId;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyTransaction.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyTransaction.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyTransaction.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyTransaction.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

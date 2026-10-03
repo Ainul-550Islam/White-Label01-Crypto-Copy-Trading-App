@@ -256,6 +256,11 @@ export function parseScaled(value: string): bigint {
   return isNeg ? -scaled : scaled;
 }
 
+/** A decimal string strictly greater than zero at DECIMAL_SCALE precision (no sign). */
+export function isPositiveDecimal(value: string): boolean {
+  return /^\d+(\.\d+)?$/.test(value) && parseScaled(value) > 0n;
+}
+
 export function formatScaled(scaled: bigint): string {
   const isNeg = scaled < 0n;
   const abs = isNeg ? -scaled : scaled;

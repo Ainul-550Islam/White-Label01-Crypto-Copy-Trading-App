@@ -27,7 +27,7 @@ export class BillingLedgerRepository {
 
   async createEntry(input: CreateLedgerEntryInput): Promise<LedgerEntry> {
     // Idempotency check
-    const existing = await this.findByIdempotencyKey(input.idempotencyKey);
+    const existing = await this.findByIdempotencyKey(input.idempotencyKey, input.tenantId);
     if (existing) {
       this.logger.log(`Idempotent ledger entry return: ${input.idempotencyKey}`);
       return existing;
@@ -42,7 +42,7 @@ export class BillingLedgerRepository {
 
   async createTransaction(input: CreateLedgerTransactionInput): Promise<LedgerEntry[]> {
     // Idempotency: check if transaction already exists by idempotencyKey
-    const existing = await this.findByIdempotencyKey(input.idempotencyKey);
+    const existing = await this.findByIdempotencyKey(input.idempotencyKey, input.tenantId);
     if (existing) {
       // Return all entries with same idempotencyKey prefix
       const allEntries = await this.findBySource(input.sourceType, input.sourceId);
@@ -71,7 +71,7 @@ export class BillingLedgerRepository {
           const entryIdempotencyKey = `${input.idempotencyKey}_${i}_${entryInput.accountCategory}`;
 
           // Check individual idempotency
-          const existingEntry = await this.findByIdempotencyKeyInTx(tx, entryIdempotencyKey);
+          const existingEntry = await this.findByIdempotencyKeyInTx(tx, entryIdempotencyKey, input.tenantId);
           if (existingEntry) {
             created.push(existingEntry);
             continue;
@@ -125,68 +125,56 @@ export class BillingLedgerRepository {
     }
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<LedgerEntry | null> {
-    try {
-      const result = await (this.prisma as any).billingLedgerEntry?.findFirst({
-        where: { idempotencyKey },
-      });
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<LedgerEntry | null> {
+    const result = await (this.prisma as any).billingLedgerEntry?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
 
-      if (!result) return null;
+    if (!result) return null;
 
-      return this.mapToLedgerEntry(result);
-    } catch {
-      return null;
-    }
+    return this.mapToLedgerEntry(result);
   }
 
   async findBySource(sourceType: LedgerSourceType, sourceId: string): Promise<LedgerEntry[]> {
-    try {
-      const results = await (this.prisma as any).billingLedgerEntry?.findMany({
-        where: { sourceType, sourceId },
-        orderBy: { createdAt: 'asc' },
-      });
+    const results = await (this.prisma as any).billingLedgerEntry?.findMany({
+      where: { sourceType, sourceId },
+      orderBy: { createdAt: 'asc' },
+    });
 
-      if (!results) return [];
+    if (!results) return [];
 
-      return results.map((r: any) => this.mapToLedgerEntry(r));
-    } catch {
-      return [];
-    }
+    return results.map((r: any) => this.mapToLedgerEntry(r));
   }
 
   async findByTenant(tenantId: string, filter?: LedgerFilter): Promise<LedgerEntry[]> {
-    try {
-      const where: any = { tenantId };
+    const where: any = { tenantId };
 
-      if (filter) {
-        if (filter.accountCategory) where.accountCategory = filter.accountCategory;
-        if (filter.entryType) where.entryType = filter.entryType;
-        if (filter.sourceType) where.sourceType = filter.sourceType;
-        if (filter.sourceId) where.sourceId = filter.sourceId;
-        if (filter.invoiceId) where.invoiceId = filter.invoiceId;
-        if (filter.paymentId) where.paymentId = filter.paymentId;
-        if (filter.refundId) where.refundId = filter.refundId;
-        if (filter.currency) where.currency = filter.currency;
-        if (filter.status) where.status = filter.status;
-        if (filter.idempotencyKey) where.idempotencyKey = filter.idempotencyKey;
-        if (filter.fromDate || filter.toDate) {
-          where.effectiveAt = {};
-          if (filter.fromDate) where.effectiveAt.gte = filter.fromDate;
-          if (filter.toDate) where.effectiveAt.lte = filter.toDate;
-        }
+    if (filter) {
+      if (filter.accountCategory) where.accountCategory = filter.accountCategory;
+      if (filter.entryType) where.entryType = filter.entryType;
+      if (filter.sourceType) where.sourceType = filter.sourceType;
+      if (filter.sourceId) where.sourceId = filter.sourceId;
+      if (filter.invoiceId) where.invoiceId = filter.invoiceId;
+      if (filter.paymentId) where.paymentId = filter.paymentId;
+      if (filter.refundId) where.refundId = filter.refundId;
+      if (filter.currency) where.currency = filter.currency;
+      if (filter.status) where.status = filter.status;
+      if (filter.idempotencyKey) where.idempotencyKey = filter.idempotencyKey;
+      if (filter.fromDate || filter.toDate) {
+        where.effectiveAt = {};
+        if (filter.fromDate) where.effectiveAt.gte = filter.fromDate;
+        if (filter.toDate) where.effectiveAt.lte = filter.toDate;
       }
-
-      const results = await (this.prisma as any).billingLedgerEntry?.findMany({
-        where,
-        orderBy: { effectiveAt: 'desc' },
-      });
-
-      if (!results) return [];
-
-      return results.map((r: any) => this.mapToLedgerEntry(r));
-    } catch {
-      return [];
     }
+
+    const results = await (this.prisma as any).billingLedgerEntry?.findMany({
+      where,
+      orderBy: { effectiveAt: 'desc' },
+    });
+
+    if (!results) return [];
+
+    return results.map((r: any) => this.mapToLedgerEntry(r));
   }
 
   async getBalance(tenantId: string, accountCategory: LedgerAccountCategory, currency: string): Promise<LedgerBalance> {
@@ -288,28 +276,24 @@ export class BillingLedgerRepository {
       return this.findByTenant(filter.tenantId, filter);
     }
 
-    try {
-      const where: any = {};
+    const where: any = {};
 
-      if (filter.accountCategory) where.accountCategory = filter.accountCategory;
-      if (filter.entryType) where.entryType = filter.entryType;
-      if (filter.sourceType) where.sourceType = filter.sourceType;
-      if (filter.sourceId) where.sourceId = filter.sourceId;
-      if (filter.currency) where.currency = filter.currency;
-      if (filter.status) where.status = filter.status;
+    if (filter.accountCategory) where.accountCategory = filter.accountCategory;
+    if (filter.entryType) where.entryType = filter.entryType;
+    if (filter.sourceType) where.sourceType = filter.sourceType;
+    if (filter.sourceId) where.sourceId = filter.sourceId;
+    if (filter.currency) where.currency = filter.currency;
+    if (filter.status) where.status = filter.status;
 
-      const results = await (this.prisma as any).billingLedgerEntry?.findMany({
-        where,
-        orderBy: { effectiveAt: 'desc' },
-        take: 100,
-      });
+    const results = await (this.prisma as any).billingLedgerEntry?.findMany({
+      where,
+      orderBy: { effectiveAt: 'desc' },
+      take: 100,
+    });
 
-      if (!results) return [];
+    if (!results) return [];
 
-      return results.map((r: any) => this.mapToLedgerEntry(r));
-    } catch {
-      return [];
-    }
+    return results.map((r: any) => this.mapToLedgerEntry(r));
   }
 
   private async persistEntry(input: CreateLedgerEntryInput): Promise<LedgerEntry> {
@@ -394,18 +378,14 @@ export class BillingLedgerRepository {
     }
   }
 
-  private async findByIdempotencyKeyInTx(tx: any, idempotencyKey: string): Promise<LedgerEntry | null> {
-    try {
-      const result = await (tx as any).billingLedgerEntry?.findFirst({
-        where: { idempotencyKey },
-      });
+  private async findByIdempotencyKeyInTx(tx: any, idempotencyKey: string, tenantId: string): Promise<LedgerEntry | null> {
+    const result = await (tx as any).billingLedgerEntry?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
 
-      if (!result) return null;
+    if (!result) return null;
 
-      return this.mapToLedgerEntry(result);
-    } catch {
-      return null;
-    }
+    return this.mapToLedgerEntry(result);
   }
 
   private createFallbackEntry(input: CreateLedgerEntryInput): LedgerEntry {

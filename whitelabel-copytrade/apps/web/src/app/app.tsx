@@ -49,7 +49,10 @@ function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
           email: res.user.email,
           tenantId: res.user.tenantId,
           roles: res.user.roles,
+          permissions: res.user.permissions,
           displayName: res.user.displayName,
+          avatarUrl: res.user.avatarUrl,
+          mfaEnabled: res.user.mfaEnabled,
         },
         tenant: res.tenant,
         entitlements: res.entitlements,
@@ -68,14 +71,18 @@ function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   };
 
   const logout = async () => {
+    // The BFF returns /login, or the IdP's end-session URL for an OIDC SSO
+    // session (RP-initiated logout); the local session is revoked either way.
+    let redirectTo = '/login';
     try {
-      await authApi.logout();
+      const result = await authApi.logout();
+      if (result?.redirectTo) redirectTo = result.redirectTo;
     } catch {
       // ignore
     } finally {
       clearSensitiveSessionState();
       setSession(null);
-      window.location.href = '/login';
+      window.location.href = redirectTo;
     }
   };
 

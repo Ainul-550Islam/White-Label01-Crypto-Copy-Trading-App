@@ -78,8 +78,9 @@ export class PlanService {
       throw new Error(`Plan not found: ${id}`);
     }
 
-    // Check if plan has subscribers (would need subscription service)
-    // For now, just delete
+    // Catalogue plans (`plans`) are not referenced by subscriptions, which
+    // point at `subscription_plans` (onDelete: Restrict protects those). The
+    // delete is tenant-scoped in the repository.
     await this.repository.delete(id, tenantId);
   }
 

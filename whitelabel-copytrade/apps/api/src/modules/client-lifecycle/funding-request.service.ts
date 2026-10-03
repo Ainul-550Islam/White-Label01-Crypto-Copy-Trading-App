@@ -3,7 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ClientPolicyService } from './client-policy.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
 import { AccountRestrictionService } from './account-restriction.service';
-import { deterministicIdempotencyKey, FundingRequestState, FUNDING_VALID_TRANSITIONS, isValidDecimal } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, FundingRequestState, FUNDING_VALID_TRANSITIONS, isValidDecimal, isPositiveDecimal } from './client-lifecycle.types';
 
 /**
  * Creates and manages deposit/funding requests with explicit states, requested amount/currency,
@@ -38,6 +38,7 @@ export class FundingRequestService {
     const { tenantId, accountId, clientProfileId = null, requestedAmount, currency, externalReference = null, sourceType = null, requestedBy = null, correlationId = null, metadata = {} } = params;
 
     if (!isValidDecimal(requestedAmount)) throw new BadRequestException(`Invalid requestedAmount decimal: ${requestedAmount}`);
+    if (!isPositiveDecimal(requestedAmount)) throw new BadRequestException('requestedAmount must be greater than zero');
 
     const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
     if (!account) throw new BadRequestException('Account not found or tenant mismatch');
@@ -78,7 +79,7 @@ export class FundingRequestService {
     });
 
     try {
-      const existing = await (this.prisma as any).fundingRequest.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).fundingRequest.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log({ event: 'client.funding.idempotent_hit', idempotencyKey });
         return existing;
@@ -202,11 +203,7 @@ export class FundingRequestService {
   }
 
   async getFundingRequest(params: { tenantId: string; fundingRequestId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).fundingRequest.findFirst({ where: { id: params.fundingRequestId, tenantId: params.tenantId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).fundingRequest.findFirst({ where: { id: params.fundingRequestId, tenantId: params.tenantId } });
   }
 
   async listFundingRequests(params: {
@@ -227,19 +224,15 @@ export class FundingRequestService {
     if (currency) where.currency = currency;
     if (externalReference) where.externalReference = externalReference;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).fundingRequest.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).fundingRequest.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).fundingRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).fundingRequest.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

@@ -56,8 +56,23 @@ export class BinanceProductionAdapter {
     private readonly observationService: ProviderObservationService,
   ) {}
 
+  /**
+   * Whether this adapter may be used at all in the current deployment.
+   *
+   * Binance credentials are per tenant account and arrive with every call in
+   * {@link BinanceContext}, so a process-wide BINANCE_API_KEY says nothing
+   * about availability (the previous `!!process.env['BINANCE_API_KEY'] || true`
+   * was always true, even with no policy and no key anywhere). Availability is
+   * a policy decision: the provider policy must exist, be enabled, and allow
+   * the current environment, and the environment policy must allow Binance.
+   * Anything missing answers `false` - fail closed.
+   */
   isAvailable(): boolean {
-    return !!process.env['BINANCE_API_KEY'] || true;
+    const policy = this.policyService.getPolicy(this.domain, this.provider);
+    if (!policy || !policy.enabled) return false;
+    const environment = process.env['NODE_ENV'] || 'development';
+    if (!policy.allowedEnvironments.includes(environment)) return false;
+    return this.policyService.isProviderAllowed(this.provider, environment);
   }
 
   getCapabilities(): ProviderCapability[] {

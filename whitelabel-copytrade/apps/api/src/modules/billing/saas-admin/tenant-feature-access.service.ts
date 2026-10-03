@@ -94,7 +94,8 @@ export class TenantFeatureAccessService {
         } else {
           // Check feature flag
           try {
-            const flag = await (this.prisma as any).tenantFeatureFlag?.findFirst({ where: { tenantId, key: featureKey } });
+            // The flag key lives on the related FeatureFlag, not on the tenant override row.
+            const flag = await (this.prisma as any).tenantFeatureFlag?.findFirst({ where: { tenantId, featureFlag: { key: featureKey } } });
             if (flag?.enabled) source = 'feature_flag';
           } catch {}
         }
@@ -196,23 +197,51 @@ export class TenantFeatureAccessService {
   }
 
   private async getCurrentUsage(tenantId: string, limitKey: string): Promise<number> {
-    try {
-      switch (limitKey) {
-        case 'maxUsers':
-          return await this.prisma.user.count({ where: { tenantId, deletedAt: null } });
-        case 'maxTraders':
-          return (await (this.prisma as any).trader?.count({ where: { tenantId } })) ?? 0;
-        case 'maxFollowersPerTrader':
-          return (await (this.prisma as any).copySubscription?.count({ where: { tenantId } })) ?? 0;
-        case 'maxExchangeAccountsPerUser':
-          return (await (this.prisma as any).exchangeAccount?.count({ where: { tenantId } })) ?? 0;
-        case 'maxCopySubscriptionsPerFollower':
-          return (await (this.prisma as any).copySubscription?.count({ where: { tenantId } })) ?? 0;
-        default:
-          return 0;
+    switch (limitKey) {
+      case 'maxUsers':
+        return await this.prisma.user.count({ where: { tenantId, deletedAt: null } });
+      case 'maxTraders':
+        return await this.prisma.traderProfile.count({ where: { tenantId, deletedAt: null } });
+      // The three "per X" limits are compared against the busiest X, not the
+      // tenant-wide total: 10 traders with 5 followers each is 5 against a
+      // maxFollowersPerTrader of 10, not 50.
+      case 'maxFollowersPerTrader': {
+        const perTrader = await this.prisma.copySubscription.groupBy({
+          by: ['traderId'],
+          where: { tenantId, state: 'ACTIVE' },
+          _count: { _all: true },
+        });
+        return this.maxGroupCount(perTrader);
       }
-    } catch {
-      return 0;
+      case 'maxExchangeAccountsPerUser': {
+        const perUser = await this.prisma.tradingAccount.groupBy({
+          by: ['userId'],
+          where: { tenantId, deletedAt: null, userId: { not: null } },
+          _count: { _all: true },
+        });
+        return this.maxGroupCount(perUser);
+      }
+      case 'maxCopySubscriptionsPerFollower': {
+        const perFollower = await this.prisma.copySubscription.groupBy({
+          by: ['followerId'],
+          where: { tenantId, state: 'ACTIVE' },
+          _count: { _all: true },
+        });
+        return this.maxGroupCount(perFollower);
+      }
+      default:
+        return 0;
     }
+  }
+
+  /** Largest `_count._all` across groupBy rows; 0 for no rows. */
+  private maxGroupCount(rows: ReadonlyArray<{ _count: { _all: number } }>): number {
+    let max = 0;
+    for (const row of rows) {
+      if (row._count._all > max) {
+        max = row._count._all;
+      }
+    }
+    return max;
   }
 }

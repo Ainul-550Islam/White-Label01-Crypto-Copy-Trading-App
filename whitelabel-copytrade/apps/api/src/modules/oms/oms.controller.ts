@@ -10,6 +10,8 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { Permission } from '@wlct/shared-types';
+import { RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { OrderIntentService } from './order-intent.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
 import { OrderRoutingService } from './order-routing.service';
@@ -33,6 +35,7 @@ import { CreateOrderIntentDto } from './dto/order-intent.dto';
 import { CancelOrderDto, ReplaceOrderDto, RetryOrderDto, RecoveryOrderDto, AcknowledgeExceptionDto, OperatorNoteDto, AcknowledgeReconciliationDto } from './dto/order-action.dto';
 import { OmsOrdersQueryDto, OmsFillsQueryDto, OmsTradesQueryDto, OmsRejectionQueryDto, OmsReconciliationQueryDto, OmsExecutionQualityQueryDto, OmsAuditQueryDto } from './dto/oms-query.dto';
 import { OmsAuditEventType } from './oms.types';
+import { authTenantId, authUserIdOrNull, isPlatformPrincipal } from '../../common/guards/request-principal';
 
 /**
  * RBAC-protected OMS API.
@@ -42,6 +45,18 @@ import { OmsAuditEventType } from './oms.types';
  * Never allow arbitrary order-status mutation from API.
  */
 
+/**
+ * Order management console (intents, routing, cancels, fills, trades,
+ * reconciliation, operator recovery).
+ *
+ * The handlers check the tenant but not account ownership, and the controller
+ * carried no permission metadata: any tenant user could create order intents
+ * against any account of the tenant, cancel or replace other users' orders
+ * and read every fill. No customer client calls these routes. Reads now need
+ * trading:read or compliance:read; every change needs trading:manage (class
+ * default). The in-handler operator checks remain on top.
+ */
+@RequirePermissions(Permission.TRADING_MANAGE)
 @Controller('oms')
 export class OmsController {
   constructor(
@@ -67,18 +82,20 @@ export class OmsController {
   ) {}
 
   private getTenantId(req: any): string {
-    const tid = req.user?.tenantId ?? req.headers['x-tenant-id'];
-    if (!tid) throw new ForbiddenException('Tenant ID required');
-    return tid;
+    // Token tenant only; a header can never select the tenant.
+    return authTenantId(req);
   }
 
   private getUserId(req: any): string {
-    return req.user?.id ?? req.user?.userId ?? 'system';
+    return authUserIdOrNull(req) ?? 'system';
   }
 
   private checkTenantAccess(req: any, targetTenantId: string): void {
     const userTenantId = req.user?.tenantId;
-    const isPlatform = req.user?.isPlatformUser || req.user?.roles?.includes('PLATFORM_ADMIN') || req.user?.permissions?.includes('PLATFORM_MANAGE');
+    // Platform reach comes from the server-side flag only: role keys are
+    // tenant-editable, so a tenant-created "PLATFORM_ADMIN" role must not
+    // unlock other tenants.
+    const isPlatform = isPlatformPrincipal(req);
     if (!isPlatform && userTenantId && userTenantId !== targetTenantId) {
       throw new ForbiddenException('Cross-tenant access denied');
     }
@@ -180,6 +197,7 @@ export class OmsController {
   }
 
   @Get('intents')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async listIntents(@Req() req: any, @Query() query: OmsOrdersQueryDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -195,6 +213,7 @@ export class OmsController {
   }
 
   @Get('intents/:id')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getIntent(@Req() req: any, @Param('id') id: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -202,6 +221,7 @@ export class OmsController {
   }
 
   @Get('intents/:id/lifecycle')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getLifecycle(@Req() req: any, @Param('id') id: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -268,6 +288,7 @@ export class OmsController {
   // ---------- Fills ----------
 
   @Get('fills')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async listFills(@Req() req: any, @Query() query: OmsFillsQueryDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -285,6 +306,7 @@ export class OmsController {
   }
 
   @Get('intents/:id/fills')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getFillsForIntent(@Req() req: any, @Param('id') id: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -294,6 +316,7 @@ export class OmsController {
   // ---------- Trades ----------
 
   @Get('trades')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async listTrades(@Req() req: any, @Query() query: OmsTradesQueryDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -311,6 +334,7 @@ export class OmsController {
   }
 
   @Get('trades/:id')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getTrade(@Req() req: any, @Param('id') id: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -320,6 +344,7 @@ export class OmsController {
   // ---------- Execution Quality & Latency ----------
 
   @Get('execution-quality')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getExecutionQuality(@Req() req: any, @Query() query: OmsExecutionQualityQueryDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -338,6 +363,7 @@ export class OmsController {
   }
 
   @Get('intents/:id/latency')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getLatency(@Req() req: any, @Param('id') id: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -345,6 +371,7 @@ export class OmsController {
   }
 
   @Get('venue-scores')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getVenueScores(@Req() req: any, @Query() query: OmsExecutionQualityQueryDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -359,6 +386,7 @@ export class OmsController {
   // ---------- Rejections ----------
 
   @Get('rejections')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getRejections(@Req() req: any, @Query() query: OmsRejectionQueryDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -375,6 +403,7 @@ export class OmsController {
   }
 
   @Get('rejections/stats')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getRejectionStats(@Req() req: any, @Query('from') from?: string, @Query('to') to?: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -384,6 +413,7 @@ export class OmsController {
   // ---------- Reconciliation ----------
 
   @Get('reconciliation/orders/:id')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async reconcileOrder(@Req() req: any, @Param('id') id: string) {
     const tenantId = this.getTenantId(req);
     if (!this.isOperator(req)) throw new ForbiddenException('Operator required');
@@ -399,6 +429,7 @@ export class OmsController {
   }
 
   @Get('reconciliation/fills/:orderId')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async reconcileFills(@Req() req: any, @Param('orderId') orderId: string, @Query('intentId') intentId?: string) {
     const tenantId = this.getTenantId(req);
     if (!this.isOperator(req)) throw new ForbiddenException('Operator required');
@@ -406,6 +437,7 @@ export class OmsController {
   }
 
   @Get('reconciliation/positions/:accountId/:symbol')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async reconcilePosition(@Req() req: any, @Param('accountId') accountId: string, @Param('symbol') symbol: string) {
     const tenantId = this.getTenantId(req);
     if (!this.isOperator(req)) throw new ForbiddenException('Operator required');
@@ -413,6 +445,7 @@ export class OmsController {
   }
 
   @Get('reconciliation/positions/:accountId')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async reconcileAccountPositions(@Req() req: any, @Param('accountId') accountId: string) {
     const tenantId = this.getTenantId(req);
     if (!this.isOperator(req)) throw new ForbiddenException('Operator required');
@@ -420,6 +453,7 @@ export class OmsController {
   }
 
   @Get('reconciliation/queue')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getReconQueue(@Req() req: any, @Query() query: OmsReconciliationQueryDto) {
     const tenantId = this.getTenantId(req);
     if (!this.isOperator(req)) throw new ForbiddenException('Operator required');
@@ -429,6 +463,7 @@ export class OmsController {
   // ---------- Operational ----------
 
   @Get('operational/stale-orders')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getStaleOrders(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     if (!this.isOperator(req)) throw new ForbiddenException('Operator required');
@@ -436,6 +471,7 @@ export class OmsController {
   }
 
   @Get('operational/rejected-orders')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getRejectedOperational(@Req() req: any, @Query('accountId') accountId?: string) {
     const tenantId = this.getTenantId(req);
     if (!this.isOperator(req)) throw new ForbiddenException('Operator required');
@@ -506,6 +542,7 @@ export class OmsController {
   // ---------- Allocation ----------
 
   @Get('allocations')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getAllocations(@Req() req: any, @Query('accountId') accountId?: string, @Query('strategyId') strategyId?: string, @Query('traderId') traderId?: string, @Query('followerId') followerId?: string, @Query('symbol') symbol?: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -513,6 +550,7 @@ export class OmsController {
   }
 
   @Get('allocations/summary')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getAllocationSummary(@Req() req: any, @Query('strategyId') strategyId?: string, @Query('traderId') traderId?: string, @Query('followerId') followerId?: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -544,6 +582,7 @@ export class OmsController {
   // ---------- Audit ----------
 
   @Get('audit/:intentId')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getAuditForIntent(@Req() req: any, @Param('intentId') intentId: string) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -551,6 +590,7 @@ export class OmsController {
   }
 
   @Get('audit')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async getAuditHistory(@Req() req: any, @Query() query: OmsAuditQueryDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
@@ -569,6 +609,7 @@ export class OmsController {
   // ---------- Search (generic) ----------
 
   @Get('orders')
+  @RequireAnyPermission(Permission.TRADING_READ, Permission.COMPLIANCE_READ)
   async searchOrders(@Req() req: any, @Query() query: OmsOrdersQueryDto) {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);

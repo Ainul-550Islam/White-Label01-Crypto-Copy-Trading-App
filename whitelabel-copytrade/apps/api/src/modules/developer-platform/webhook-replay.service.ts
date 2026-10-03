@@ -55,8 +55,8 @@ export class WebhookReplayService {
       'webhook.delivery.replay',
       `${subscriptionId}|${eventId}|${new Date().toISOString().slice(0, 13)}`, // hourly bucket
     );
-    const existingReplay = await this.prisma.developerWebhookDelivery.findUnique({
-      where: { idempotencyKey: replayKey },
+    const existingReplay = await this.prisma.developerWebhookDelivery.findFirst({
+      where: { tenantId: actor.tenantId, idempotencyKey: replayKey },
     });
     if (existingReplay) {
       // Same-hour duplicate replay request is idempotent, not a new delivery.

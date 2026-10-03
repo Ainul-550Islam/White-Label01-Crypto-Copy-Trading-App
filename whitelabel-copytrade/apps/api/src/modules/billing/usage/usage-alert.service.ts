@@ -4,6 +4,7 @@ import { UsageAlertConfig, UsageAlertEvent, AlertThresholdType, AlertSeverity, A
 import { MeterKey } from './usage-metering.types';
 import { BillingEventService } from '../notifications/billing-event.service';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../../common/errors/prisma-not-found';
 
 /**
  * Generates threshold alerts when usage approaches/exceeds limits,
@@ -76,7 +77,7 @@ export class UsageAlertService {
         const idempotencyKey = `alert_${params.tenantId}_${config.id}_${params.periodId}_${config.thresholdValue}`;
 
         // Deduplication check
-        const existing = await this.findEventByIdempotencyKey(idempotencyKey);
+        const existing = await this.findEventByIdempotencyKey(idempotencyKey, params.tenantId);
         if (existing) {
           this.logger.log(`Duplicate alert suppressed by idempotencyKey: ${idempotencyKey}`);
           continue;
@@ -281,8 +282,9 @@ export class UsageAlertService {
 
       if (!updated) return null;
       return this.mapConfigToDomain(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
@@ -290,29 +292,25 @@ export class UsageAlertService {
     tenantId: string,
     filter?: { meterKey?: MeterKey; severity?: AlertSeverity; state?: AlertState; fromDate?: Date; toDate?: Date; limit?: number; offset?: number },
   ): Promise<UsageAlertEvent[]> {
-    try {
-      const where: any = { tenantId };
-      if (filter?.meterKey) where.meterKey = filter.meterKey;
-      if (filter?.severity) where.severity = filter.severity;
-      if (filter?.state) where.state = filter.state;
-      if (filter?.fromDate || filter?.toDate) {
-        where.triggeredAt = {};
-        if (filter.fromDate) where.triggeredAt.gte = filter.fromDate;
-        if (filter.toDate) where.triggeredAt.lte = filter.toDate;
-      }
-
-      const results = await (this.prisma as any).usageAlertEvent?.findMany({
-        where,
-        orderBy: { triggeredAt: 'desc' },
-        take: filter?.limit || 100,
-        skip: filter?.offset || 0,
-      });
-
-      if (!results) return [];
-      return results.map((r: any) => this.mapEventToDomain(r));
-    } catch {
-      return [];
+    const where: any = { tenantId };
+    if (filter?.meterKey) where.meterKey = filter.meterKey;
+    if (filter?.severity) where.severity = filter.severity;
+    if (filter?.state) where.state = filter.state;
+    if (filter?.fromDate || filter?.toDate) {
+      where.triggeredAt = {};
+      if (filter.fromDate) where.triggeredAt.gte = filter.fromDate;
+      if (filter.toDate) where.triggeredAt.lte = filter.toDate;
     }
+
+    const results = await (this.prisma as any).usageAlertEvent?.findMany({
+      where,
+      orderBy: { triggeredAt: 'desc' },
+      take: filter?.limit || 100,
+      skip: filter?.offset || 0,
+    });
+
+    if (!results) return [];
+    return results.map((r: any) => this.mapEventToDomain(r));
   }
 
   private async createAlertEvent(params: {
@@ -390,7 +388,7 @@ export class UsageAlertService {
               id: randomUUID(),
               tenantId: params.tenantId,
               action: 'USAGE_ALERT_TRIGGERED',
-              resource: 'UsageAlert',
+              resourceType: 'UsageAlert',
               resourceId: id,
               metadata: { ...event, fallback: true },
               createdAt: new Date(),
@@ -400,7 +398,7 @@ export class UsageAlertService {
         return event;
       }
       if (error.code === 'P2002') {
-        const existing = await this.findEventByIdempotencyKey(params.idempotencyKey);
+        const existing = await this.findEventByIdempotencyKey(params.idempotencyKey, params.tenantId);
         if (existing) return existing;
       }
       throw error;
@@ -409,16 +407,12 @@ export class UsageAlertService {
     return event;
   }
 
-  private async findEventByIdempotencyKey(idempotencyKey: string): Promise<UsageAlertEvent | null> {
-    try {
-      const result = await (this.prisma as any).usageAlertEvent?.findFirst({
-        where: { idempotencyKey },
-      });
-      if (!result) return null;
-      return this.mapEventToDomain(result);
-    } catch {
-      return null;
-    }
+  private async findEventByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<UsageAlertEvent | null> {
+    const result = await (this.prisma as any).usageAlertEvent?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
+    if (!result) return null;
+    return this.mapEventToDomain(result);
   }
 
   private async updateConfigLastTriggered(id: string): Promise<void> {

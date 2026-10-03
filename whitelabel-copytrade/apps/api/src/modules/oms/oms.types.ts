@@ -536,3 +536,14 @@ export function isValidTransition(from: string, to: string): boolean {
   if (!allowed) return false;
   return allowed.includes(to);
 }
+
+/**
+ * A loggable identifier for a persistence error: the Prisma error code or the error class name.
+ * The message is deliberately not used, because Prisma messages can echo the row being written.
+ */
+export function reconciliationErrorCode(e: unknown): string {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && code.length > 0) return code;
+  const name = (e as { name?: unknown } | null)?.name;
+  return typeof name === 'string' && name.length > 0 ? name : 'UNKNOWN';
+}

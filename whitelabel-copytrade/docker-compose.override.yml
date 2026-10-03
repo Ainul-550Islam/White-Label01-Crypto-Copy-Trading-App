@@ -84,3 +84,16 @@ services:
       - ./apps/admin-web/public:/app/apps/admin-web/public
       - ./apps/admin-web/next.config.mjs:/app/apps/admin-web/next.config.mjs
       - ./packages:/app/packages
+
+  web:
+    build:
+      target: deps
+    environment:
+      NODE_ENV: development
+      API_BASE_URL: http://api:4000/api
+    command: sh -c "npm run dev --workspace @wlct/web"
+    volumes:
+      - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/public:/app/apps/web/public
+      - ./apps/web/next.config.mjs:/app/apps/web/next.config.mjs
+      - ./packages:/app/packages

@@ -1,6 +1,6 @@
 'use client';
 
-import { ApiError } from './api-errors';
+import { ApiError, isAuthenticationFailureBody } from './api-errors';
 import { getRuntimeConfig } from '@/config/runtime-config';
 
 /**
@@ -33,13 +33,21 @@ export interface ClientFetchOptions {
   signal?: AbortSignal;
   skipAuthRefresh?: boolean;
   correlationId?: string;
+  /**
+   * The path is one of this app's own route handlers (for example
+   * '/api/auth/login') and is used as-is instead of being sent through
+   * /api/proxy. Such calls establish or end the session themselves, so a 401
+   * is returned to the caller rather than triggering a refresh attempt.
+   */
+  appRoute?: boolean;
 }
 
 async function request<T>(path: string, options: ClientFetchOptions, retry: boolean): Promise<T> {
   const { method = 'GET', body, searchParams, signal, correlationId } = options;
 
+  const normalisedPath = path.startsWith('/') ? path : `/${path}`;
   const url = new URL(
-    `${PROXY_PREFIX}${path.startsWith('/') ? path : `/${path}`}`,
+    options.appRoute ? normalisedPath : `${PROXY_PREFIX}${normalisedPath}`,
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001'
   );
 
@@ -85,7 +93,13 @@ async function request<T>(path: string, options: ClientFetchOptions, retry: bool
       signal: combinedSignal,
     });
 
-    if (response.status === 401 && retry && !options.skipAuthRefresh) {
+    if (
+      response.status === 401 &&
+      retry &&
+      !options.skipAuthRefresh &&
+      !options.appRoute &&
+      !isAuthenticationFailureBody(await response.clone().json().catch(() => undefined))
+    ) {
       const refreshed = await fetch('/api/auth/refresh', {
         method: 'POST',
         credentials: 'same-origin',
@@ -139,6 +153,11 @@ export const apiClient = {
     request<T>(path, { ...options, method: 'PUT', body }, true),
   delete: <T>(path: string, options: ClientFetchOptions = {}) =>
     request<T>(path, { ...options, method: 'DELETE' }, true),
+  /** Calls to this app's own route handlers (session BFF), never proxied. */
+  app: {
+    post: <T>(path: string, body?: unknown, options: ClientFetchOptions = {}) =>
+      request<T>(path, { ...options, method: 'POST', body, appRoute: true }, false),
+  },
 };
 
 export function createAbortController(): AbortController {

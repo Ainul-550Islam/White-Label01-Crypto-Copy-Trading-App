@@ -60,7 +60,11 @@ export class CustodyVisibilityService {
           if (accountId && wallet.accountId !== accountId) {
             return { allowed: false, reason: 'Client cannot access wallet of other account' };
           }
-        } catch {}
+        } catch {
+          // Deny when ownership cannot be verified (this used to fall through
+          // to `allowed: true`).
+          return { allowed: false, reason: 'Wallet ownership could not be verified' };
+        }
       }
       return { allowed: true };
     }
@@ -156,8 +160,10 @@ export class CustodyVisibilityService {
       scope: params.scope,
       resourceTenantId: wallet.tenantId,
       walletId: params.walletId,
-      accountId: params.accountId ?? wallet.accountId,
-      clientProfileId: params.clientProfileId ?? wallet.clientProfileId,
+      // The caller's own ownership identifiers only. Substituting the wallet's ids (as before)
+      // made the CLIENT ownership check compare the wallet with itself - always true.
+      accountId: params.accountId ?? null,
+      clientProfileId: params.clientProfileId ?? null,
     });
 
     if (!check.allowed) {

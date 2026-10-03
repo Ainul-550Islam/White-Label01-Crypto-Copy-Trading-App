@@ -8,6 +8,7 @@ import {
   MAINTENANCE_VALID_TRANSITIONS,
   isValidTransition,
   deterministicIdempotencyKey,
+  activeMaintenanceWhere,
   redactSecrets,
 } from './operations.types';
 import { randomUUID } from 'crypto';
@@ -17,6 +18,24 @@ import { randomUUID } from 'crypto';
  * platform/tenant/venue/service scope, UTC-safe time handling, conflict detection,
  * authorization, and audit history.
  */
+
+/** Customer-safe view of the maintenance currently affecting a tenant. */
+export interface CustomerMaintenanceNotice {
+  active: boolean;
+  title: string | null;
+  message: string | null;
+  scope: string | null;
+  scopeTarget: string | null;
+  isEmergency: boolean;
+  startedAt: string | null;
+  endsAt: string | null;
+  /**
+   * True when an active window covers trading for this tenant (PLATFORM,
+   * this TENANT, or TRADING_CAPABILITY - see activeMaintenanceWhere). The API
+   * then rejects copy subscribe/resume with 503; the web disables copying.
+   */
+  blocksTrading: boolean;
+}
 
 @Injectable()
 export class MaintenanceWindowService {
@@ -124,7 +143,7 @@ export class MaintenanceWindowService {
     // Idempotency: check existing by key
     try {
       const existing = await (this.prisma as any).operationalMaintenanceWindow.findFirst({
-        where: { idempotencyKey },
+        where: { tenantId: params.tenantId ?? null, idempotencyKey },
       });
       if (existing) return existing;
     } catch {}
@@ -168,6 +187,69 @@ export class MaintenanceWindowService {
     return created;
   }
 
+  /**
+   * The maintenance a signed-in customer should be told about: the ACTIVE
+   * window covering now that applies to their tenant or to the whole platform
+   * (the one ending last, if several overlap). Only banner fields leave this
+   * method: no operator identities, metadata or audit references. Database
+   * errors propagate; the caller must not read "no maintenance" from a failure.
+   */
+  async getCurrentForTenant(tenantId: string): Promise<CustomerMaintenanceNotice> {
+    const now = new Date();
+    const select = {
+      title: true,
+      description: true,
+      scope: true,
+      scopeTarget: true,
+      isEmergency: true,
+      scheduledStart: true,
+      scheduledEnd: true,
+    } as const;
+    // A window that stops trading is reported first, so a concurrent billing
+    // or venue notice cannot hide it.
+    const blocking = await this.prisma.operationalMaintenanceWindow.findFirst({
+      where: activeMaintenanceWhere({ scope: OperationalMaintenanceScope.TRADING_CAPABILITY, tenantId, now }),
+      orderBy: { scheduledEnd: 'desc' },
+      select,
+    });
+    const window =
+      blocking ??
+      (await this.prisma.operationalMaintenanceWindow.findFirst({
+        where: {
+          state: 'ACTIVE',
+          scheduledStart: { lte: now },
+          scheduledEnd: { gte: now },
+          OR: [{ tenantId }, { tenantId: null }],
+        },
+        orderBy: { scheduledEnd: 'desc' },
+        select,
+      }));
+    if (!window) {
+      return {
+        active: false,
+        title: null,
+        message: null,
+        scope: null,
+        scopeTarget: null,
+        isEmergency: false,
+        startedAt: null,
+        endsAt: null,
+        blocksTrading: false,
+      };
+    }
+    return {
+      active: true,
+      title: window.title,
+      message: window.description ?? window.title,
+      scope: window.scope,
+      scopeTarget: window.scopeTarget,
+      isEmergency: window.isEmergency,
+      startedAt: window.scheduledStart.toISOString(),
+      endsAt: window.scheduledEnd.toISOString(),
+      blocksTrading: blocking !== null,
+    };
+  }
+
   async getWindow(tenantId: string | null, windowId: string): Promise<any> {
     const where: any = { id: windowId };
     if (tenantId !== null) {
@@ -206,20 +288,16 @@ export class MaintenanceWindowService {
       if (to) where.scheduledStart.lte = to;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).operationalMaintenanceWindow.findMany({
-          where,
-          orderBy: { scheduledStart: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).operationalMaintenanceWindow.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).operationalMaintenanceWindow.findMany({
+        where,
+        orderBy: { scheduledStart: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).operationalMaintenanceWindow.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async transitionWindow(params: {

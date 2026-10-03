@@ -126,14 +126,10 @@ export class ConfirmationService {
   }
 
   async getConfirmations(params: { tenantId: string; transactionId: string }): Promise<any[]> {
-    try {
-      return await (this.prisma as any).custodyTransactionConfirmation.findMany({
-        where: { tenantId: params.tenantId, transactionId: params.transactionId },
-        orderBy: { confirmationCount: 'asc' },
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).custodyTransactionConfirmation.findMany({
+      where: { tenantId: params.tenantId, transactionId: params.transactionId },
+      orderBy: { confirmationCount: 'asc' },
+    });
   }
 
   async isTransactionConfirmed(params: { tenantId: string; transactionId: string }): Promise<{ confirmed: boolean; final: boolean; confirmationCount: number; requiredCount: number }> {

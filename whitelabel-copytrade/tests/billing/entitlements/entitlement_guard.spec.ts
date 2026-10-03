@@ -1,197 +1,164 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { EntitlementGuard } from '../../../apps/api/src/modules/billing/entitlements/entitlement.guard';
+import { describe, it, expect, beforeEach } from '@jest/globals';
+import {
+  EntitlementGuard,
+  GuardContext,
+} from '../../../apps/api/src/modules/billing/entitlements/entitlement.guard';
+import { EntitlementService } from '../../../apps/api/src/modules/billing/entitlements/entitlement.service';
 import { EntitlementStatus } from '../../../apps/api/src/modules/billing/entitlements/entitlement.types';
+import { makeEntitlement, MemoryEntitlementRepository } from './entitlement.fixtures';
+
+const ctx: GuardContext = {
+  userId: 'user-1',
+  tenantId: 'tenant-1',
+  roles: ['TENANT_ADMIN'],
+  permissions: ['billing:read'],
+};
 
 describe('EntitlementGuard', () => {
+  let repo: MemoryEntitlementRepository;
   let guard: EntitlementGuard;
 
   beforeEach(() => {
-    guard = new EntitlementGuard();
+    repo = new MemoryEntitlementRepository();
+    repo.rows.set('ent-1', makeEntitlement());
+    guard = new EntitlementGuard(new EntitlementService(repo));
   });
 
   describe('hasFeatureAccess', () => {
-    it('should return true when feature is enabled', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [{ key: 'basic_trading', enabled: true }],
-        limits: [],
-      };
-
-      const result = guard.hasFeatureAccess(entitlement as any, 'basic_trading');
-      expect(result).toBe(true);
+    it('allows an enabled feature and returns the access detail', async () => {
+      const r = await guard.hasFeatureAccess('copy_trading', ctx);
+      expect(r.allowed).toBe(true);
+      expect(r.featureAccess?.featureKey).toBe('copy_trading');
     });
 
-    it('should return false when feature is disabled', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [{ key: 'margin_trading', enabled: false }],
-        limits: [],
-      };
-
-      const result = guard.hasFeatureAccess(entitlement as any, 'margin_trading');
-      expect(result).toBe(false);
+    it('denies a disabled feature with the reason', async () => {
+      const r = await guard.hasFeatureAccess('api_access', ctx);
+      expect(r).toMatchObject({ allowed: false, reason: 'Feature not enabled' });
     });
 
-    it('should return false when entitlement is suspended', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.SUSPENDED,
-        features: [{ key: 'basic_trading', enabled: true }],
-        limits: [],
-      };
-
-      const result = guard.hasFeatureAccess(entitlement as any, 'basic_trading');
-      expect(result).toBe(false);
+    it('denies everything on a suspended entitlement', async () => {
+      repo.rows.set('ent-1', makeEntitlement({ status: EntitlementStatus.SUSPENDED }));
+      const r = await guard.hasFeatureAccess('copy_trading', ctx);
+      expect(r).toMatchObject({ allowed: false, reason: 'Entitlement is not active' });
     });
 
-    it('should return false when feature not found', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [],
-        limits: [],
-      };
-
-      const result = guard.hasFeatureAccess(entitlement as any, 'unknown');
-      expect(result).toBe(false);
+    it('denies an unknown feature', async () => {
+      expect((await guard.hasFeatureAccess('white_label', ctx)).allowed).toBe(false);
     });
   });
 
-  describe('hasAllFeatures', () => {
-    it('should return true when all features are enabled', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [
-          { key: 'basic_trading', enabled: true },
-          { key: 'copy_trading', enabled: true },
-        ],
-        limits: [],
-      };
-
-      const result = guard.hasAllFeatures(entitlement as any, ['basic_trading', 'copy_trading']);
-      expect(result).toBe(true);
+  describe('hasAllFeatures / hasAnyFeature', () => {
+    it('all: allowed only when every feature is accessible, naming the first missing one', async () => {
+      expect((await guard.hasAllFeatures(['copy_trading', 'signals'], ctx)).allowed).toBe(true);
+      const r = await guard.hasAllFeatures(['copy_trading', 'api_access', 'white_label'], ctx);
+      expect(r).toMatchObject({ allowed: false, reason: 'Missing access to feature: api_access' });
     });
 
-    it('should return false when any feature is missing', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [{ key: 'basic_trading', enabled: true }],
-        limits: [],
-      };
-
-      const result = guard.hasAllFeatures(entitlement as any, ['basic_trading', 'margin_trading']);
-      expect(result).toBe(false);
+    it('any: allowed when one feature is accessible', async () => {
+      expect((await guard.hasAnyFeature(['api_access', 'copy_trading'], ctx)).allowed).toBe(true);
+      const r = await guard.hasAnyFeature(['api_access', 'white_label'], ctx);
+      expect(r).toMatchObject({
+        allowed: false,
+        reason: 'No access to any of: api_access, white_label',
+      });
     });
   });
 
-  describe('hasAnyFeature', () => {
-    it('should return true when at least one feature is enabled', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [
-          { key: 'basic_trading', enabled: true },
-          { key: 'margin_trading', enabled: false },
-        ],
-        limits: [],
-      };
+  describe('roles and permissions come from the verified context only', () => {
+    it('hasRole / hasPermission', async () => {
+      expect((await guard.hasRole('TENANT_ADMIN', ctx)).allowed).toBe(true);
+      expect(await guard.hasRole('PLATFORM_ADMIN', ctx)).toEqual({
+        allowed: false,
+        reason: 'Missing role: PLATFORM_ADMIN',
+      });
+      expect((await guard.hasPermission('billing:read', ctx)).allowed).toBe(true);
+      expect((await guard.hasPermission('billing:write', ctx)).allowed).toBe(false);
+      expect((await guard.hasRole('TENANT_ADMIN', { userId: 'u', tenantId: 't' })).allowed).toBe(
+        false,
+      );
+    });
+  });
 
-      const result = guard.hasAnyFeature(entitlement as any, ['basic_trading', 'margin_trading']);
-      expect(result).toBe(true);
+  describe('limits', () => {
+    it('canPerformAction allows within the limit and denies beyond it', async () => {
+      expect(
+        (await guard.canPerformAction('copy_trading', 'orders_per_day', ctx, 60)).allowed,
+      ).toBe(true);
+      const r = await guard.canPerformAction('copy_trading', 'orders_per_day', ctx, 61);
+      expect(r).toMatchObject({ allowed: false, reason: 'Limit exceeded' });
+      expect(r.entitlementCheck?.limit?.key).toBe('orders_per_day');
     });
 
-    it('should return false when no features are enabled', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [
-          { key: 'basic_trading', enabled: false },
-          { key: 'margin_trading', enabled: false },
-        ],
-        limits: [],
-      };
-
-      const result = guard.hasAnyFeature(entitlement as any, ['basic_trading', 'margin_trading']);
-      expect(result).toBe(false);
+    it('isNearLimits lists the keys at or above the threshold', async () => {
+      expect(await guard.isNearLimits(ctx, 80)).toEqual({
+        nearLimits: true,
+        limits: ['api_calls'],
+      });
+      expect(await guard.isNearLimits(ctx, 99)).toEqual({ nearLimits: false, limits: [] });
     });
   });
 
   describe('checkAndRecordUsage', () => {
-    it('should allow action when within limits', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [{ key: 'api_access', enabled: true }],
-        limits: [{ key: 'api_requests_per_minute', value: 100, usage: 50, unit: 'req/min', hardLimit: true }],
-      };
+    it('records usage only after access is granted', async () => {
+      expect((await guard.checkAndRecordUsage('orders_per_day', ctx, 2)).allowed).toBe(true);
+      expect(repo.usage).toHaveLength(1);
 
-      const result = guard.checkAndRecordUsage(entitlement as any, 'api_requests_per_minute', 1);
-      expect(result.allowed).toBe(true);
+      expect((await guard.checkAndRecordUsage('api_access', ctx)).allowed).toBe(false);
+      expect(repo.usage).toHaveLength(1);
     });
 
-    it('should deny action when limit exceeded', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        features: [{ key: 'api_access', enabled: true }],
-        limits: [{ key: 'api_requests_per_minute', value: 100, usage: 100, unit: 'req/min', hardLimit: true }],
-      };
-
-      const result = guard.checkAndRecordUsage(entitlement as any, 'api_requests_per_minute', 1);
-      expect(result.allowed).toBe(false);
-      expect(result.reason).toContain('exceeded');
+    it('reports a failed usage write as denied, not as success', async () => {
+      const r = await guard.checkAndRecordUsage('orders_per_day', ctx, 61);
+      expect(r.allowed).toBe(false);
+      expect(r.reason).toBe('Failed to record usage: Limit exceeded');
+      expect(repo.usage).toHaveLength(0);
     });
   });
 
-  describe('canUpgradePlan', () => {
-    it('should allow upgrade from basic', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        planTier: 'basic',
-      };
-
-      const result = guard.canUpgradePlan(entitlement as any);
-      expect(result).toBe(true);
+  describe('plan changes', () => {
+    it('upgrade needs an active entitlement', async () => {
+      expect((await guard.canUpgradePlan(ctx)).allowed).toBe(true);
+      repo.rows.clear();
+      expect(await guard.canUpgradePlan(ctx)).toEqual({
+        allowed: false,
+        reason: 'No active entitlement to upgrade',
+      });
     });
 
-    it('should not allow upgrade from enterprise', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        planTier: 'enterprise',
-      };
-
-      const result = guard.canUpgradePlan(entitlement as any);
-      expect(result).toBe(false);
+    it('downgrade is allowed when no limit is in use', async () => {
+      repo.rows.set(
+        'ent-1',
+        makeEntitlement({
+          limits: [
+            {
+              key: 'orders_per_day',
+              name: 'Orders',
+              value: 100,
+              used: 0,
+              unit: 'orders',
+              hardLimit: true,
+            },
+            {
+              key: 'exchanges',
+              name: 'Exchanges',
+              value: 5,
+              used: 0,
+              unit: 'accounts',
+              hardLimit: true,
+            },
+          ],
+        }),
+      );
+      expect(await guard.canDowngradePlan(ctx)).toEqual({ allowed: true });
     });
-  });
 
-  describe('canDowngradePlan', () => {
-    it('should allow downgrade from premium', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        planTier: 'premium',
-      };
-
-      const result = guard.canDowngradePlan(entitlement as any);
-      expect(result).toBe(true);
-    });
-
-    it('should not allow downgrade from free', () => {
-      const entitlement = {
-        id: 'ent-1',
-        status: EntitlementStatus.ACTIVE,
-        planTier: 'free',
-      };
-
-      const result = guard.canDowngradePlan(entitlement as any);
-      expect(result).toBe(false);
+    it('downgrade is refused while limits are in use, and without an entitlement', async () => {
+      expect(await guard.canDowngradePlan(ctx)).toEqual({
+        allowed: false,
+        reason: 'Cannot downgrade: current usage exceeds lower plan limits',
+      });
+      repo.rows.clear();
+      expect((await guard.canDowngradePlan(ctx)).reason).toBe('No active entitlement to downgrade');
     });
   });
 });

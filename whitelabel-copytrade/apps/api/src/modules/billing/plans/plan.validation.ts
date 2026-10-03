@@ -275,3 +275,15 @@ export function validatePlanPrice(amount: number, currency: string, interval: st
     errors,
   };
 }
+/**
+ * Short-name entry points used by the plan test suite and callers that hold a
+ * price as one object. They delegate to the canonical validators above so
+ * there is exactly one set of slug and price rules.
+ */
+export function validateSlug(slug: string): ValidationResult {
+  return validatePlanSlug(slug);
+}
+
+export function validatePrice(price: { amount: number; currency: string; interval: string }): ValidationResult {
+  return validatePlanPrice(price.amount, price.currency, price.interval);
+}

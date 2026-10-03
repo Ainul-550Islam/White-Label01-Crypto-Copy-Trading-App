@@ -1,0 +1,40 @@
+PROPRIETARY SOFTWARE LICENCE
+
+Copyright (c) 2026 the copyright holder of this repository
+(github.com/Ainul-550Islam/White-Label01-Crypto-Copy-Trading-App).
+All rights reserved.
+
+1. Ownership. This software, including its source code, object code,
+   database schemas, documentation, designs and associated files (the
+   "Software"), is the confidential and proprietary property of the copyright
+   holder named above (the "Owner").
+
+2. No licence without agreement. No right to use, copy, modify, merge,
+   publish, distribute, sublicense, host, sell or otherwise exploit the
+   Software is granted except under a separate written agreement signed by the
+   Owner (for example a source-code purchase, assignment or white-label
+   licence agreement). Where such an agreement exists, its terms govern and
+   prevail over this notice.
+
+3. Transfer of ownership. On a sale or assignment of the Software, the
+   assignee named in the signed assignment becomes the Owner for the purposes
+   of this notice, and should replace the copyright line above.
+
+4. Third-party components. The Software depends on third-party open-source
+   packages (npm, pub.dev, PyPI and crates). Those components are licensed by
+   their respective authors under their own terms, which are not modified by
+   this notice. The dependency manifests and lockfiles in this repository
+   identify them.
+
+5. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+   The Software can connect to cryptocurrency exchanges and may place orders;
+   trading digital assets carries a risk of loss. IN NO EVENT SHALL THE OWNER
+   BE LIABLE FOR ANY CLAIM, DAMAGES, TRADING LOSSES OR OTHER LIABILITY ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+6. Regulatory responsibility. Operating a copy-trading, brokerage or custody
+   service may require licences or registrations in the operator's
+   jurisdiction. Obtaining them is the responsibility of whoever deploys the
+   Software, not of the Owner.

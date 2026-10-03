@@ -181,53 +181,41 @@ export class PlanPerformanceService {
       return plans.filter((p: any) => !params.currency || p.currency?.toUpperCase() === params.currency.toUpperCase());
     } catch (e: any) {
       this.logger.warn(`Failed to fetch plans: ${e.message}`);
-      return [];
+      throw e;
     }
   }
 
   private async fetchSubscriptionsForPlan(params: { planId: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      return await (this.prisma as any).tenantSubscription?.findMany({
-        where: {
-          planId: params.planId,
-          createdAt: { lte: params.end },
-          currentPeriodEnd: { gte: params.start },
-        },
-      }) || [];
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).tenantSubscription?.findMany({
+      where: {
+        planId: params.planId,
+        createdAt: { lte: params.end },
+        currentPeriodEnd: { gte: params.start },
+      },
+    }) || [];
   }
 
   private async fetchPaymentsForPlan(params: { planId: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      return await (this.prisma as any).payment?.findMany({
-        where: {
-          planId: params.planId,
-          currency: params.currency,
-          createdAt: { gte: params.start, lte: params.end },
-        },
-      }) || [];
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).payment?.findMany({
+      where: {
+        planId: params.planId,
+        currency: params.currency,
+        createdAt: { gte: params.start, lte: params.end },
+      },
+    }) || [];
   }
 
   private async fetchRefundsForPlan(params: { planId: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    try {
-      // Refunds linked via payment -> plan, so we need to join
-      const payments = await (this.prisma as any).payment?.findMany({ where: { planId: params.planId } }) || [];
-      const paymentIds = payments.map((p: any) => p.id);
-      if (paymentIds.length === 0) return [];
-      return await (this.prisma as any).refund?.findMany({
-        where: {
-          paymentId: { in: paymentIds },
-          currency: params.currency,
-          createdAt: { gte: params.start, lte: params.end },
-        },
-      }) || [];
-    } catch {
-      return [];
-    }
+    // Refunds linked via payment -> plan, so we need to join
+    const payments = await (this.prisma as any).payment?.findMany({ where: { planId: params.planId } }) || [];
+    const paymentIds = payments.map((p: any) => p.id);
+    if (paymentIds.length === 0) return [];
+    return await (this.prisma as any).refund?.findMany({
+      where: {
+        paymentId: { in: paymentIds },
+        currency: params.currency,
+        createdAt: { gte: params.start, lte: params.end },
+      },
+    }) || [];
   }
 }

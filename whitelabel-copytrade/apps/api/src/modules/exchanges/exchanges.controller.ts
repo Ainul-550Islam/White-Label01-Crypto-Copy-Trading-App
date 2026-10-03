@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { Permission } from '@wlct/shared-types';
+import { Permission, hasPermission } from '@wlct/shared-types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CurrentTenant, TenantId } from '../../common/decorators/current-tenant.decorator';
 import { ExchangeAccountService } from './exchange-account.service';
@@ -70,9 +70,31 @@ export class ExchangesController {
   }
 
   // ===== Accounts =====
+  //
+  // Connecting, listing, reading, disabling and revoking an exchange account
+  // are owner operations: a follower or trader brings their own non-custodial
+  // key, so these routes need only the account-level permission and every
+  // lookup is scoped to the caller unless the caller holds tenant-wide
+  // trading authority. Arming live trading, rotating a credential and the
+  // tenant-wide connectivity/sync/routing surface below keep their
+  // administrator permissions.
+
+  /** Tenant-wide authority over every account in the tenant. */
+  private static hasTenantWideAccountAuthority(user: any): boolean {
+    const granted: string[] = Array.isArray(user?.permissions) ? user.permissions : [];
+    return user?.isPlatformUser === true || hasPermission(granted, Permission.TRADING_MANAGE) || hasPermission(granted, Permission.PLATFORM_MANAGE);
+  }
+
+  /** Resolves the account or throws 404 when it does not exist or is not the caller's. */
+  private async requireAccessibleAccount(tenantId: string, id: string, user: any) {
+    const ownerScope = ExchangesController.hasTenantWideAccountAuthority(user) ? null : user.userId || user.id;
+    const account = await this.accountService.getAccount(tenantId, id, ownerScope);
+    if (!account) throw new NotFoundException('Exchange account not found');
+    return account;
+  }
 
   @Post('accounts')
-  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE, Permission.TRADING_WRITE)
+  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE)
   async connectAccount(@Body() dto: CreateExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
     return this.accountService.connectAccount({
       tenantId,
@@ -93,10 +115,9 @@ export class ExchangesController {
   }
 
   @Get('accounts')
-  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
+  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ)
   async listAccounts(@Query() query: ListExchangeAccountsDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
-    const perms = user.permissions || user.roles || [];
-    const isPrivileged = perms.includes('ADMIN') || perms.includes('OWNER') || perms.includes('PLATFORM_MANAGE') || perms.includes('TRADING_MANAGE');
+    const isPrivileged = ExchangesController.hasTenantWideAccountAuthority(user);
     const requesterUserId = user.userId || user.id;
 
     return this.accountService.listAccounts(
@@ -116,15 +137,9 @@ export class ExchangesController {
   }
 
   @Get('accounts/:id')
-  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
+  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ)
   async getAccount(@Param('id') id: string, @TenantId() tenantId: string, @CurrentUser() user: any) {
-    const perms = user.permissions || user.roles || [];
-    const isPrivileged = perms.includes('ADMIN') || perms.includes('OWNER') || perms.includes('PLATFORM_MANAGE');
-    const userId = isPrivileged ? null : user.userId || user.id;
-
-    const account = await this.accountService.getAccount(tenantId, id, userId);
-    if (!account) throw new BadRequestException('Account not found');
-    return account;
+    return this.requireAccessibleAccount(tenantId, id, user);
   }
 
   @Put('accounts/:id')
@@ -155,16 +170,18 @@ export class ExchangesController {
   }
 
   @Post('accounts/:id/disable')
-  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE, Permission.TRADING_WRITE)
+  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE)
   async disableAccount(@Param('id') id: string, @Body() dto: DisableExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+    await this.requireAccessibleAccount(tenantId, id, user);
     const result = await this.accountService.disableAccount(tenantId, id, user.userId || user.id, dto.reason, req.headers['x-request-id']);
     if (!result) throw new BadRequestException('Account not found');
     return result;
   }
 
   @Post('accounts/:id/revoke')
-  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE, Permission.TRADING_MANAGE)
+  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE)
   async revokeAccount(@Param('id') id: string, @Body() dto: RevokeExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+    await this.requireAccessibleAccount(tenantId, id, user);
     const result = await this.accountService.revokeAccount(tenantId, id, user.userId || user.id, req.headers['x-request-id']);
     if (!result) throw new BadRequestException('Account not found');
     return result;

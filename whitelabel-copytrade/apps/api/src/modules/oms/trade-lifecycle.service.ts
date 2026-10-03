@@ -200,40 +200,28 @@ export class TradeLifecycleService {
 
   async getOpenTrades(params: { tenantId: string; accountId?: string; symbol?: string; strategyId?: string }) {
     const { tenantId, accountId, symbol, strategyId } = params;
-    try {
-      return await (this.prisma as any).omsTrade.findMany({
-        where: { tenantId, ...(accountId ? { accountId } : {}), ...(symbol ? { symbol } : {}), ...(strategyId ? { strategyId } : {}), state: { in: [TradeState.OPEN, TradeState.PARTIAL] } },
-        orderBy: { openedAt: 'desc' },
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).omsTrade.findMany({
+      where: { tenantId, ...(accountId ? { accountId } : {}), ...(symbol ? { symbol } : {}), ...(strategyId ? { strategyId } : {}), state: { in: [TradeState.OPEN, TradeState.PARTIAL] } },
+      orderBy: { openedAt: 'desc' },
+    });
   }
 
   async getTradeHistory(params: { tenantId: string; accountId?: string; symbol?: string; from?: Date; to?: Date; page?: number; limit?: number }) {
     const { tenantId, accountId, symbol, from, to, page = 1, limit = 20 } = params;
-    try {
-      return await (this.prisma as any).omsTrade.findMany({
-        where: {
-          tenantId,
-          ...(accountId ? { accountId } : {}),
-          ...(symbol ? { symbol } : {}),
-          ...(from || to ? { openedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-        },
-        orderBy: { openedAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).omsTrade.findMany({
+      where: {
+        tenantId,
+        ...(accountId ? { accountId } : {}),
+        ...(symbol ? { symbol } : {}),
+        ...(from || to ? { openedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+      },
+      orderBy: { openedAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
   }
 
   async getTradeById(tenantId: string, tradeId: string) {
-    try {
-      return await (this.prisma as any).omsTrade.findFirst({ where: { id: tradeId, tenantId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).omsTrade.findFirst({ where: { id: tradeId, tenantId } });
   }
 }

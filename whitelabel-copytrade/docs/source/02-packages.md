@@ -2,7 +2,7 @@
 
 The contracts every runtime agrees on: shared types, validated configuration, validation schemas and the crypto/util layer.
 
-40 files. Part of the complete Part 1 source dump - see `docs/source/README.md`.
+52 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -128,6 +128,11 @@ export const JOB_NAMES = {
   RECONCILE_TRADING_ACCOUNT: 'reconcile-trading-account',
   RESYNC_PRIVATE_STREAM: 'resync-private-stream',
   CANCEL_ORDER: 'cancel-order',
+  // Phase 3: an OMS-approved order (manual, strategy or copy-trading) handed
+  // to the worker, which forwards it to the execution engine's
+  // /internal/v1/orders/submit. The engine runs its full pipeline against a
+  // simulated adapter only; nothing in the API signs or transmits it.
+  SUBMIT_ORDER: 'submit-order',
 
   // Strategy layer (Part 6). Produced by the API, consumed by the strategy
   // worker. None of them can place a live order: the strategy worker holds no
@@ -1723,6 +1728,2629 @@ FILE: packages/config/tsconfig.json
 }
 ```
 
+FILE: packages/sdk-python/pyproject.toml
+
+```toml
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wlct-sdk"
+version = "1.0.0"
+description = "Typed Python SDK for the white-label developer platform API"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["wlct_sdk*"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+```
+
+FILE: packages/sdk-python/tests/test_client.py
+
+```python
+"""Deterministic SDK tests: route contract, pagination, webhook verify.
+No network: the transport is an in-memory fake bound to canned responses."""
+
+from __future__ import annotations
+
+import hashlib
+import hmac as hmac_module
+import json
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib import parse as urllib_parse
+
+import pytest
+
+from wlct_sdk import (
+    APPLICATION_STATES,
+    DEVELOPER_EVENT_TYPES,
+    DEVELOPER_SCOPES,
+    BearerCredentials,
+    DeveloperApiError,
+    DeveloperPlatformClient,
+    verify_webhook,
+)
+
+
+class FakeTransport:
+    def __init__(self) -> None:
+        self.calls: List[Tuple[str, str]] = []
+        self.routes: Dict[Tuple[str, str], Callable[[Optional[bytes]], Tuple[int, Dict[str, str], Any]]] = {}
+        self.register("GET", "/developer-platform/api-versions", lambda _: (200, {}, {"versions": [{"version": "v2", "state": "SUPPORTED"}]}))
+
+    def register(self, method: str, path: str, handler: Callable[[Optional[bytes]], Tuple[int, Dict[str, str], Any]]) -> None:
+        self.routes[(method, path)] = handler
+
+    def __call__(self, method: str, url: str, headers: Dict[str, str], body: Optional[bytes]) -> Tuple[int, Dict[str, str], bytes]:
+        base = urllib_parse.urlsplit(url).path
+        self.calls.append((method, base))
+        handler = self.routes.get((method, base))
+        if handler is None:
+            return 404, {}, json.dumps({"code": "NOT_FOUND", "message": "no such route"}).encode()
+        status, extra_headers, payload = handler(body)
+        raw = b"" if payload is None else json.dumps(payload).encode("utf-8")
+        return status, {**extra_headers, "x-correlation-id": "corr-test"}, raw
+
+
+@pytest.fixture()
+def transport() -> FakeTransport:
+    return FakeTransport()
+
+
+@pytest.fixture()
+def client(transport: FakeTransport) -> DeveloperPlatformClient:
+    return DeveloperPlatformClient(
+        base_url="https://api.example.test",
+        credentials=BearerCredentials(token="tok"),
+        transport=transport,
+    )
+
+
+def test_route_inventory_matches_backend_contract(client: DeveloperPlatformClient, transport: FakeTransport) -> None:
+    client.api_versions()
+    assert transport.calls == [("GET", "/developer-platform/api-versions")]
+
+
+def test_application_crud_and_transition(client: DeveloperPlatformClient, transport: FakeTransport) -> None:
+    transport.register("POST", "/developer-platform/applications", lambda _: (201, {}, {"id": "app-1", "state": "PENDING"}))
+    transport.register("GET", "/developer-platform/applications/app-1", lambda _: (200, {}, {"id": "app-1", "state": "PENDING"}))
+    transport.register("PATCH", "/developer-platform/applications/app-1", lambda _: (200, {}, {"id": "app-1", "state": "PENDING"}))
+    transport.register("POST", "/developer-platform/applications/app-1/transitions", lambda body: (200, {}, {"id": "app-1", "state": json.loads(body or b"{}").get("targetState")}))
+    assert client.create_application({"name": "n"})["state"] == "PENDING"
+    assert client.get_application("app-1")["id"] == "app-1"
+    client.update_application("app-1", {"name": "n2"})
+    assert client.transition_application("app-1", "ACTIVE")["state"] == "ACTIVE"
+    with pytest.raises(ValueError):
+        client.transition_application("app-1", "EXPLODED")
+
+
+def test_pagination_follows_cursors(client: DeveloperPlatformClient, transport: FakeTransport) -> None:
+    seen: List[str] = []
+
+    def smart(body: Optional[bytes]) -> Tuple[int, Dict[str, str], Any]:
+        seen.append("call")
+        rows = [f"row-{len(seen)}"]
+        next_cursor = None if len(seen) >= 3 else f"cursor-{len(seen)}"
+        return 200, {}, {"rows": rows, "nextCursor": next_cursor}
+
+    transport.register("GET", "/developer-platform/webhooks", smart)
+    rows = list(client.paginate("/developer-platform/webhooks"))
+    assert rows == ["row-1", "row-2", "row-3"]
+    assert len(seen) == 3
+
+
+def test_error_normalisation(client: DeveloperPlatformClient, transport: FakeTransport) -> None:
+    transport.register("GET", "/developer-platform/usage", lambda _: (403, {}, {"code": "SCOPE_NOT_AUTHORIZED", "message": "denied"}))
+    with pytest.raises(DeveloperApiError) as failure:
+        client.usage_rollup()
+    assert failure.value.status == 403
+    assert failure.value.code == "SCOPE_NOT_AUTHORIZED"
+    assert failure.value.correlation_id == "corr-test"
+
+
+def test_webhook_verify_roundtrip_and_rejection() -> None:
+    secret = "whsec_" + "a" * 40
+    body = json.dumps({"id": "pay-1"}).encode()
+    timestamp = int(time.time())
+    event_id = "evt-1"
+    canonical = f"t={timestamp}.id={event_id}.v=v1.".encode() + body
+    signature = "v1=" + hmac_module.new(secret.encode(), canonical, hashlib.sha256).hexdigest()
+    result = verify_webhook(
+        raw_body=body,
+        secret=secret,
+        headers={"X-Webhook-Timestamp": str(timestamp), "X-Webhook-Event-Id": event_id, "X-Webhook-Version": "v1", "X-Webhook-Signature": signature},
+        now_seconds=timestamp,
+    )
+    assert result["eventId"] == event_id
+    with pytest.raises(DeveloperApiError):
+        verify_webhook(raw_body=body, secret=secret, headers={"X-Webhook-Timestamp": str(timestamp - 4000), "X-Webhook-Event-Id": event_id, "X-Webhook-Version": "v1", "X-Webhook-Signature": signature}, now_seconds=timestamp)
+    with pytest.raises(DeveloperApiError):
+        verify_webhook(raw_body=body, secret="whsec_" + "b" * 40, headers={"X-Webhook-Timestamp": str(timestamp), "X-Webhook-Event-Id": event_id, "X-Webhook-Version": "v1", "X-Webhook-Signature": signature}, now_seconds=timestamp)
+
+
+def test_catalog_constants_are_backend_pinned() -> None:
+    assert len(DEVELOPER_SCOPES) == 16
+    assert len(DEVELOPER_EVENT_TYPES) == 23
+    assert "trading:execute" in DEVELOPER_SCOPES
+    assert "customer.created" in DEVELOPER_EVENT_TYPES
+    assert APPLICATION_STATES[-1] == "REVOKED"
+```
+
+FILE: packages/sdk-python/wlct_sdk/__init__.py
+
+```python
+"""wlct_sdk — production Python SDK for the white-label developer platform.
+
+Exports the typed client, credential models, pagination, normalized errors
+and the webhook signature verifier. Credentials are accepted as constructor
+arguments only and are never logged by this package.
+"""
+
+from .client import (
+    APPLICATION_STATES,
+    DEVELOPER_EVENT_TYPES,
+    DEVELOPER_SCOPES,
+    BearerCredentials,
+    DeveloperApiError,
+    DeveloperKeyCredentials,
+    DeveloperPlatformClient,
+    Page,
+    verify_webhook,
+)
+
+__version__ = "1.0.0"
+
+__all__ = [
+    "DeveloperPlatformClient",
+    "DeveloperApiError",
+    "BearerCredentials",
+    "DeveloperKeyCredentials",
+    "Page",
+    "verify_webhook",
+    "APPLICATION_STATES",
+    "DEVELOPER_SCOPES",
+    "DEVELOPER_EVENT_TYPES",
+    "__version__",
+]
+```
+
+FILE: packages/sdk-python/wlct_sdk/client.py
+
+```python
+"""Production Python SDK for the developer platform.
+
+Every method maps to a REAL backend route (inventory pinned by
+developer.contract.spec.ts CHECK 47); no endpoint is invented. The client
+propagates correlation ids, pins the API version per request, retries only
+safe GET transport failures, normalises errors and paginates by cursor.
+`verify_webhook` validates platform signatures over the raw body with a
+constant-time comparison and timestamp tolerance. Credentials are never
+logged or persisted by this module.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac as hmac_module
+import json
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, cast
+
+try:  # stdlib only; httpx-style transports stay injectable
+    from urllib import error as urllib_error
+    from urllib import parse as urllib_parse
+    from urllib import request as urllib_request
+except ImportError:  # pragma: no cover - Python 3 always has urllib
+    urllib_error = urllib_parse = urllib_request = None  # type: ignore[assignment]
+
+APPLICATION_STATES = ("PENDING", "ACTIVE", "SUSPENDED", "REACTIVATION_REVIEW", "REVOKED")
+
+DEVELOPER_SCOPES: Tuple[str, ...] = (
+    "profile:read",
+    "account:read",
+    "portfolio:read",
+    "portfolio:write",
+    "trading:read",
+    "trading:execute",
+    "copy:read",
+    "copy:manage",
+    "billing:read",
+    "billing:manage",
+    "funding:read",
+    "funding:request",
+    "statements:read",
+    "reports:read",
+    "webhooks:manage",
+    "developer:manage",
+)
+
+DEVELOPER_EVENT_TYPES: Tuple[str, ...] = (
+    "customer.created",
+    "customer.updated",
+    "subscription.created",
+    "subscription.changed",
+    "subscription.cancelled",
+    "payment.succeeded",
+    "payment.failed",
+    "invoice.created",
+    "invoice.paid",
+    "funding.requested",
+    "funding.confirmed",
+    "withdrawal.requested",
+    "withdrawal.confirmed",
+    "copy.subscription.created",
+    "copy.subscription.cancelled",
+    "order.created",
+    "order.acknowledged",
+    "order.filled",
+    "order.rejected",
+    "portfolio.snapshot.created",
+    "statement.generated",
+    "compliance.review.required",
+    "security.event",
+)
+
+
+class DeveloperApiError(Exception):
+    """Normalised API failure with backend error code and correlation id."""
+
+    def __init__(self, status: int, code: str, message: str, correlation_id: Optional[str]) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.correlation_id = correlation_id
+
+
+@dataclass(frozen=True)
+class BearerCredentials:
+    token: str
+
+
+@dataclass(frozen=True)
+class DeveloperKeyCredentials:
+    key_id: str
+    secret: str
+
+
+@dataclass(frozen=True)
+class Page:
+    rows: List[Dict[str, Any]]
+    next_cursor: Optional[str]
+
+    def __iter__(self) -> Iterator[Dict[str, Any]]:
+        return iter(self.rows)
+
+
+Transport = Callable[[str, str, Dict[str, str], Optional[bytes]], Tuple[int, Dict[str, str], bytes]]
+
+
+def _default_transport(method: str, url: str, headers: Dict[str, str], body: Optional[bytes]) -> Tuple[int, Dict[str, str], bytes]:
+    request = urllib_request.Request(url, data=body, method=method)  # noqa: S310 - caller-provided base URL
+    for key, value in headers.items():
+        request.add_header(key, value)
+    try:
+        with urllib_request.urlopen(request, timeout=20) as response:  # noqa: S310
+            return response.status, dict(response.headers.items()), response.read()
+    except urllib_error.HTTPError as failure:  # non-2xx
+        return failure.code, dict(failure.headers.items()), failure.read()
+
+
+@dataclass
+class DeveloperPlatformClient:
+    """Typed client over the developer-platform controller routes."""
+
+    base_url: str
+    credentials: Optional[Any] = None
+    api_version: str = "v2"
+    transport: Transport = field(default_factory=lambda: _default_transport)
+    max_safe_retries: int = 2
+
+    def set_credentials(self, credentials: Any) -> None:
+        self.credentials = credentials
+
+    # ---------------------------------------------------------------- internals
+
+    def _auth_header(self) -> str:
+        if self.credentials is None:
+            raise DeveloperApiError(0, "SDK_NO_AUTH", "credentials not configured", None)
+        if isinstance(self.credentials, BearerCredentials):
+            return f"Bearer {self.credentials.token}"
+        if isinstance(self.credentials, DeveloperKeyCredentials):
+            return f"Developer {self.credentials.key_id}.{self.credentials.secret}"
+        raise DeveloperApiError(0, "SDK_NO_AUTH", "unsupported credential kind", None)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+        query: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Any, Dict[str, str]]:
+        url = self.base_url.rstrip("/") + path
+        if query:
+            filtered = {key: str(value) for key, value in query.items() if value is not None}
+            if filtered:
+                url += "?" + urllib_parse.urlencode(filtered)
+        headers = {
+            "X-Api-Version": self.api_version,
+            "x-correlation-id": f"sdk-{uuid.uuid4().hex[:12]}",
+            "Authorization": self._auth_header(),
+        }
+        payload: Optional[bytes] = None
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+            payload = json.dumps(body).encode("utf-8")
+        attempt = 0
+        while True:
+            status, response_headers, raw = self.transport(method, url, headers, payload)
+            if status in (502, 503, 504) and method == "GET" and attempt < self.max_safe_retries:
+                attempt += 1
+                time.sleep(0.2 * (2 ** attempt))
+                continue
+            correlation_id = response_headers.get("x-correlation-id") or response_headers.get("X-Correlation-Id")
+            if status >= 400:
+                code, message = "HTTP_ERROR", f"request failed with HTTP {status}"
+                try:
+                    parsed = json.loads(raw.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    # Non-JSON error bodies stay generic; never guessed into success.
+                    parsed = {}
+                code = str(parsed.get("code", code))
+                message = str(parsed.get("message", message))
+                raise DeveloperApiError(status, code, message, correlation_id)
+            if status == 204 or not raw:
+                return None, response_headers
+            return json.loads(raw.decode("utf-8")), response_headers
+
+    def _call(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+        query: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        data, _headers = self._request(method, path, body, query)
+        return cast(Dict[str, Any], data)
+
+    def _page(self, path: str, query: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        data, _headers = self._request("GET", path, None, query)
+        return cast(Dict[str, Any], data)
+
+    def paginate(self, path: str, query: Optional[Dict[str, Any]] = None) -> Iterator[Dict[str, Any]]:
+        """Cursor-aware iteration over any list endpoint."""
+        cursor: Optional[str] = None
+        while True:
+            page = self._page(path, {**(query or {}), "cursor": cursor} if cursor else query)
+            for row in page.get("rows", []):
+                yield row
+            cursor = page.get("nextCursor")
+            if not cursor:
+                return
+
+    # -------------------------------------------------------------- applications
+
+    def create_application(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("POST", "/developer-platform/applications", payload)
+
+    def list_applications(self, query: Optional[Dict[str, Any]] = None) -> Page:
+        data = self._page("/developer-platform/applications", query)
+        return Page(data.get("rows", []), data.get("nextCursor"))
+
+    def get_application(self, application_id: str) -> Dict[str, Any]:
+        return self._call("GET", f"/developer-platform/applications/{application_id}")
+
+    def update_application(self, application_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("PATCH", f"/developer-platform/applications/{application_id}", patch)
+
+    def transition_application(
+        self,
+        application_id: str,
+        target_state: str,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if target_state not in APPLICATION_STATES:
+            raise ValueError(f"unknown lifecycle state: {target_state}")
+        return self._call(
+            "POST",
+            f"/developer-platform/applications/{application_id}/transitions",
+            {"targetState": target_state, "reason": reason},
+        )
+
+    def add_redirect_uri(self, application_id: str, uri: str) -> Dict[str, Any]:
+        return self._call(
+            "POST",
+            f"/developer-platform/applications/{application_id}/redirect-uris",
+            {"redirect": {"uri": uri}},
+        )
+
+    def update_application_scopes(
+        self,
+        application_id: str,
+        scopes: Iterable[str],
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        unknown = set(scopes) - set(DEVELOPER_SCOPES)
+        if unknown:
+            raise ValueError(f"unknown scopes: {sorted(unknown)}")
+        return self._call(
+            "PUT",
+            f"/developer-platform/applications/{application_id}/scopes",
+            {"scopes": list(scopes), "reason": reason},
+        )
+
+    # --------------------------------------------------------------- credentials
+
+    def create_credential(self, application_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """The returned secret is shown exactly once by the platform."""
+        return self._call(
+            "POST",
+            f"/developer-platform/applications/{application_id}/credentials",
+            payload,
+        )
+
+    def list_credentials(self, query: Optional[Dict[str, Any]] = None) -> Page:
+        data = self._page("/developer-platform/credentials", query)
+        return Page(data.get("rows", []), data.get("nextCursor"))
+
+    def rotate_credential(self, application_id: str, key_id: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        return self._call(
+            "POST",
+            f"/developer-platform/applications/{application_id}/credentials/{key_id}/rotate",
+            {"keyId": key_id, "reason": reason},
+        )
+
+    def revoke_credential(self, application_id: str, key_id: str, reason: Optional[str] = None) -> None:
+        self._request(
+            "DELETE",
+            f"/developer-platform/applications/{application_id}/credentials/{key_id}",
+            {"reason": reason},
+        )
+
+    # -------------------------------------------------------------------- oauth
+
+    def exchange_oauth_token(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("POST", "/developer-platform/oauth/token", payload)
+
+    def revoke_oauth_token(self, token: str) -> None:
+        self._request("POST", "/developer-platform/oauth/revoke", {"token": token})
+
+    # ------------------------------------------------------------------ webhooks
+
+    def create_webhook_subscription(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        unknown = set(payload.get("eventTypes", [])) - set(DEVELOPER_EVENT_TYPES)
+        if unknown:
+            raise ValueError(f"unknown event types: {sorted(unknown)}")
+        return self._call("POST", "/developer-platform/webhooks", payload)
+
+    def list_webhook_subscriptions(self, query: Optional[Dict[str, Any]] = None) -> Page:
+        data = self._page("/developer-platform/webhooks", query)
+        return Page(data.get("rows", []), data.get("nextCursor"))
+
+    def update_webhook_subscription(self, subscription_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("PATCH", f"/developer-platform/webhooks/{subscription_id}", patch)
+
+    def webhook_action(self, subscription_id: str, action: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        if action not in ("pause", "resume", "revoke"):
+            raise ValueError(f"unknown webhook action: {action}")
+        return self._call(
+            "POST",
+            f"/developer-platform/webhooks/{subscription_id}/actions",
+            {"action": action, "reason": reason},
+        )
+
+    def rotate_webhook_secret(self, subscription_id: str) -> Dict[str, Any]:
+        return self._call("POST", f"/developer-platform/webhooks/{subscription_id}/rotate-secret", {})
+
+    def replay_webhook_event(self, subscription_id: str, event_id: str) -> Dict[str, Any]:
+        return self._call(
+            "POST",
+            f"/developer-platform/webhooks/{subscription_id}/replay",
+            {"eventId": event_id},
+        )
+
+    def list_webhook_deliveries(
+        self,
+        subscription_id: str,
+        query: Optional[Dict[str, Any]] = None,
+    ) -> Page:
+        data = self._page(f"/developer-platform/webhooks/{subscription_id}/deliveries", query)
+        return Page(data.get("rows", []), data.get("nextCursor"))
+
+    # --------------------------------------------------------- usage & analytics
+
+    def usage_rollup(self, query: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._call("GET", "/developer-platform/usage", None, query)
+
+    def application_analytics(self, application_id: str, query: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._call(
+            "GET",
+            "/developer-platform/analytics",
+            None,
+            {**(query or {}), "applicationId": application_id},
+        )
+
+    # --------------------------------------------------------- versions & docs
+
+    def api_versions(self) -> Dict[str, Any]:
+        return self._call("GET", "/developer-platform/api-versions")
+
+    def event_types(self) -> Dict[str, Any]:
+        return self._call("GET", "/developer-platform/event-types")
+
+
+def verify_webhook(
+    raw_body: bytes,
+    secret: str,
+    headers: Dict[str, str],
+    now_seconds: Optional[int] = None,
+    tolerance_seconds: int = 300,
+) -> Dict[str, str]:
+    """Verify a platform webhook signature over the RAW request body.
+
+    Headers are matched case-insensitively. Raises DeveloperApiError on a
+    stale timestamp or a signature that does not verify (constant-time).
+    """
+    lowered = {key.lower(): value for key, value in headers.items()}
+    try:
+        timestamp = int(str(lowered.get("x-webhook-timestamp", "")))
+    except ValueError as failure:
+        raise DeveloperApiError(400, "WEBHOOK_TIMESTAMP_INVALID", "missing or malformed timestamp", None) from failure
+    event_id = str(lowered.get("x-webhook-event-id", ""))
+    version = str(lowered.get("x-webhook-version", ""))
+    signature = str(lowered.get("x-webhook-signature", ""))
+    now = now_seconds if now_seconds is not None else int(time.time())
+    if abs(now - timestamp) > tolerance_seconds:
+        raise DeveloperApiError(400, "WEBHOOK_TIMESTAMP_EXPIRED", "signature timestamp outside tolerance", None)
+    canonical = f"t={timestamp}.id={event_id}.v={version}.".encode("utf-8") + raw_body
+    expected = "v1=" + hmac_module.new(secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+    if not hmac_module.compare_digest(expected, signature):
+        raise DeveloperApiError(401, "WEBHOOK_SIGNATURE_INVALID", "signature does not verify", None)
+    return {"eventId": event_id, "version": version, "valid": "true"}
+
+
+__all__ = [
+    "DeveloperPlatformClient",
+    "DeveloperApiError",
+    "BearerCredentials",
+    "DeveloperKeyCredentials",
+    "Page",
+    "verify_webhook",
+    "APPLICATION_STATES",
+    "DEVELOPER_SCOPES",
+    "DEVELOPER_EVENT_TYPES",
+]
+```
+
+FILE: packages/sdk-rust/Cargo.lock
+
+```text
+# This file is automatically @generated by Cargo.
+# It is not intended for manual editing.
+version = 4
+
+[[package]]
+name = "bitflags"
+version = "2.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
+
+[[package]]
+name = "block-buffer"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
+name = "bytes"
+version = "1.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+
+[[package]]
+name = "cfg-if"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
+name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "crypto-common"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
+
+[[package]]
+name = "digest"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
+dependencies = [
+ "block-buffer",
+ "crypto-common",
+ "subtle",
+]
+
+[[package]]
+name = "errno"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+dependencies = [
+ "libc",
+ "windows-sys",
+]
+
+[[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
+]
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
+
+[[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "libc"
+version = "0.2.189"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+
+[[package]]
+name = "lock_api"
+version = "0.4.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
+name = "memchr"
+version = "2.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "mio"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b18443e9c262bfe8fa82f51666e2642c53393f7e5c27b3e1aeab922cff5b9d8"
+dependencies = [
+ "libc",
+ "wasi",
+ "windows-sys",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
+dependencies = [
+ "lock_api",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.9.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "redox_syscall",
+ "smallvec",
+ "windows-link",
+]
+
+[[package]]
+name = "pin-project-lite"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "proc-macro2"
+version = "1.0.107"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
+dependencies = [
+ "unicode-ident",
+]
+
+[[package]]
+name = "quote"
+version = "1.0.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
+dependencies = [
+ "proc-macro2",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.5.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
+name = "scopeguard"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "serde"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.151"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
+name = "smallvec"
+version = "1.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+
+[[package]]
+name = "socket2"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
+dependencies = [
+ "libc",
+ "windows-sys",
+]
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "syn"
+version = "2.0.119"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "tokio"
+version = "1.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+dependencies = [
+ "bytes",
+ "libc",
+ "mio",
+ "parking_lot",
+ "pin-project-lite",
+ "signal-hook-registry",
+ "socket2",
+ "tokio-macros",
+ "windows-sys",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "typenum"
+version = "1.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+
+[[package]]
+name = "version_check"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "wasi"
+version = "0.11.1+wasi-snapshot-preview1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
+
+[[package]]
+name = "windows-link"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
+
+[[package]]
+name = "windows-sys"
+version = "0.61.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
+dependencies = [
+ "windows-link",
+]
+
+[[package]]
+name = "wlct-sdk"
+version = "1.0.0"
+dependencies = [
+ "hex",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+```
+
+FILE: packages/sdk-rust/Cargo.toml
+
+```toml
+[package]
+name = "wlct-sdk"
+version = "1.0.0"
+edition = "2021"
+description = "Typed Rust SDK for the white-label developer platform API"
+
+[dependencies]
+hmac = "0.12"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "1"
+tokio = { version = "1", features = ["io-util", "net", "rt", "macros", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+```
+
+FILE: packages/sdk-rust/src/lib.rs
+
+```text
+//! Production Rust SDK for the developer platform: a typed async client over
+//! a hand-rolled HTTP/1.1 transport (tokio TcpStream, no external HTTP deps),
+//! with cursor pagination, normalized errors, correlation-id propagation,
+//! per-request API version pinning and a constant-time webhook verifier.
+//!
+//! Every method maps to a REAL backend route (inventory pinned by
+//! developer.contract.spec.ts CHECK 47); no endpoint is invented. Credentials
+//! are never logged or persisted by this crate. No `unsafe` anywhere.
+
+use std::collections::BTreeMap;
+use std::time::Duration;
+
+use hmac::{Hmac, Mac};
+use serde::de::DeserializeOwned;
+use sha2::Sha256;
+use thiserror::Error;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+/// The 16 backend-authoritative scopes; the SDK never invents extra ones.
+pub const DEVELOPER_SCOPES: [&str; 16] = [
+    "profile:read",
+    "account:read",
+    "portfolio:read",
+    "portfolio:write",
+    "trading:read",
+    "trading:execute",
+    "copy:read",
+    "copy:manage",
+    "billing:read",
+    "billing:manage",
+    "funding:read",
+    "funding:request",
+    "statements:read",
+    "reports:read",
+    "webhooks:manage",
+    "developer:manage",
+];
+
+/// The 23 authoritative event types mirrored from the platform catalog.
+pub const DEVELOPER_EVENT_TYPES: [&str; 23] = [
+    "customer.created",
+    "customer.updated",
+    "subscription.created",
+    "subscription.changed",
+    "subscription.cancelled",
+    "payment.succeeded",
+    "payment.failed",
+    "invoice.created",
+    "invoice.paid",
+    "funding.requested",
+    "funding.confirmed",
+    "withdrawal.requested",
+    "withdrawal.confirmed",
+    "copy.subscription.created",
+    "copy.subscription.cancelled",
+    "order.created",
+    "order.acknowledged",
+    "order.filled",
+    "order.rejected",
+    "portfolio.snapshot.created",
+    "statement.generated",
+    "compliance.review.required",
+    "security.event",
+];
+
+/// Application lifecycle states enforced by the backend.
+pub const APPLICATION_STATES: [&str; 5] = [
+    "PENDING",
+    "ACTIVE",
+    "SUSPENDED",
+    "REACTIVATION_REVIEW",
+    "REVOKED",
+];
+
+#[derive(Debug, Clone)]
+pub enum Credentials {
+    Bearer { token: String },
+    DeveloperKey { key_id: String, secret: String },
+}
+
+#[derive(Debug, Error)]
+pub enum SdkError {
+    #[error("transport failure: {0}")]
+    Transport(String),
+    #[error("api error {status}: {code} — {message}")]
+    Api {
+        status: u16,
+        code: String,
+        message: String,
+        correlation_id: Option<String>,
+    },
+    #[error("protocol violation: {0}")]
+    Protocol(String),
+}
+
+type Result<T> = std::result::Result<T, SdkError>;
+
+#[derive(Debug, Clone)]
+pub struct SdkConfig {
+    /// Host header + connect target, e.g. `api.example.test:443` (TLS terminates upstream).
+    pub authority: String,
+    pub api_version: String,
+    pub timeout: Duration,
+    pub max_safe_retries: u32,
+}
+
+impl Default for SdkConfig {
+    fn default() -> Self {
+        Self {
+            authority: "127.0.0.1:3000".to_string(),
+            api_version: "v2".to_string(),
+            timeout: Duration::from_secs(15),
+            max_safe_retries: 2,
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct Page<T> {
+    pub rows: Vec<T>,
+    #[serde(rename = "nextCursor")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ApplicationView {
+    pub id: String,
+    #[serde(rename = "tenantId")]
+    pub tenant_id: String,
+    pub name: String,
+    #[serde(rename = "clientId")]
+    pub client_id: String,
+    pub state: String,
+    pub environment: String,
+    #[serde(rename = "redirectUris")]
+    pub redirect_uris: Vec<String>,
+    pub scopes: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct IssuedCredential {
+    #[serde(rename = "keyId")]
+    pub key_id: String,
+    /// One-time presentation; the platform never shows this value again.
+    pub secret: String,
+    pub scopes: Vec<String>,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct WebhookSubscriptionView {
+    pub id: String,
+    #[serde(rename = "applicationId")]
+    pub application_id: String,
+    #[serde(rename = "endpointUrl")]
+    pub endpoint_url: String,
+    #[serde(rename = "eventTypes")]
+    pub event_types: Vec<String>,
+    pub state: String,
+    pub environment: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct DeliveryView {
+    pub id: String,
+    #[serde(rename = "eventId")]
+    pub event_id: String,
+    #[serde(rename = "eventType")]
+    pub event_type: String,
+    pub attempt: u32,
+    pub state: String,
+    #[serde(rename = "responseStatus")]
+    pub response_status: Option<u16>,
+}
+
+pub struct DeveloperPlatformClient {
+    config: SdkConfig,
+    credentials: Option<Credentials>,
+    correlation_counter: std::sync::atomic::AtomicU64,
+}
+
+impl DeveloperPlatformClient {
+    pub fn new(config: SdkConfig) -> Self {
+        Self {
+            config,
+            credentials: None,
+            correlation_counter: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn with_credentials(mut self, credentials: Credentials) -> Self {
+        self.credentials = Some(credentials);
+        self
+    }
+
+    fn correlation_id(&self) -> String {
+        let counter = self
+            .correlation_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("sdk-rust-{}", counter)
+    }
+
+    fn authorization(&self) -> Result<String> {
+        match &self.credentials {
+            None => Err(SdkError::Api {
+                status: 0,
+                code: "SDK_NO_AUTH".to_string(),
+                message: "credentials not configured".to_string(),
+                correlation_id: None,
+            }),
+            Some(Credentials::Bearer { token }) => Ok(format!("Bearer {token}")),
+            Some(Credentials::DeveloperKey { key_id, secret }) => {
+                Ok(format!("Developer {key_id}.{secret}"))
+            }
+        }
+    }
+
+    async fn request<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<serde_json::Value>,
+        query: &[(&str, String)],
+    ) -> Result<T> {
+        let mut query_string = String::new();
+        for (index, (key, value)) in query.iter().enumerate() {
+            query_string.push(if index == 0 { '?' } else { '&' });
+            query_string.push_str(key);
+            query_string.push('=');
+            query_string.push_str(&value.replace(' ', "%20"));
+        }
+        let payload: Option<String> = body
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .ok()
+            .flatten();
+        let mut attempt = 0u32;
+        loop {
+            let outcome = self
+                .request_once(method, path, &query_string, payload.as_deref())
+                .await;
+            match outcome {
+                Err(SdkError::Transport(_))
+                    if method == "GET" && attempt < self.config.max_safe_retries =>
+                {
+                    attempt += 1;
+                    continue;
+                }
+                other => return other,
+            }
+        }
+    }
+
+    async fn request_once<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        query_string: &str,
+        payload: Option<&str>,
+    ) -> Result<T> {
+        let target = format!("/developer-platform{path}{query_string}");
+        let mut request = format!(
+            "{method} {target} HTTP/1.1\r\nHost: {}\r\nX-Api-Version: {}\r\nx-correlation-id: {}\r\nAuthorization: {}\r\nConnection: close\r\n",
+            self.config.authority,
+            self.config.api_version,
+            self.correlation_id(),
+            self.authorization()?,
+        );
+        if let Some(body) = payload {
+            request.push_str("Content-Type: application/json\r\n");
+            request.push_str(&format!("Content-Length: {}\r\n", body.len()));
+        }
+        request.push_str("\r\n");
+        if let Some(body) = payload {
+            request.push_str(body);
+        }
+
+        let connect = tokio::time::timeout(
+            self.config.timeout,
+            TcpStream::connect(&self.config.authority),
+        )
+        .await
+        .map_err(|_| SdkError::Transport("connect timeout".to_string()))?;
+        let mut stream = connect.map_err(|error| SdkError::Transport(error.to_string()))?;
+        tokio::time::timeout(self.config.timeout, stream.write_all(request.as_bytes()))
+            .await
+            .map_err(|_| SdkError::Transport("write timeout".to_string()))?
+            .map_err(|error| SdkError::Transport(error.to_string()))?;
+
+        let mut raw = Vec::new();
+        tokio::time::timeout(self.config.timeout, stream.read_to_end(&mut raw))
+            .await
+            .map_err(|_| SdkError::Transport("read timeout".to_string()))?
+            .map_err(|error| SdkError::Transport(error.to_string()))?;
+
+        let text = std::str::from_utf8(&raw)
+            .map_err(|error| SdkError::Protocol(format!("non-utf8 response: {error}")))?;
+        let (head, body) = text
+            .split_once("\r\n\r\n")
+            .ok_or_else(|| SdkError::Protocol("missing header/body separator".to_string()))?;
+        let mut lines = head.lines();
+        let status_line = lines
+            .next()
+            .ok_or_else(|| SdkError::Protocol("empty status line".to_string()))?;
+        let status: u16 = status_line
+            .split_whitespace()
+            .nth(1)
+            .and_then(|code| code.parse().ok())
+            .ok_or_else(|| SdkError::Protocol("unparsable status line".to_string()))?;
+        let mut headers: BTreeMap<String, String> = BTreeMap::new();
+        for line in lines {
+            if let Some((name, value)) = line.split_once(':') {
+                headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+            }
+        }
+        let correlation_id = headers.get("x-correlation-id").cloned();
+
+        // Chunked responses are reassembled deterministically.
+        let body_text: String = match headers.get("transfer-encoding").map(String::as_str) {
+            Some(encoding) if encoding.eq_ignore_ascii_case("chunked") => {
+                let mut out = String::new();
+                let mut rest = body;
+                loop {
+                    let (size_line, remainder) = rest
+                        .split_once("\r\n")
+                        .ok_or_else(|| SdkError::Protocol("truncated chunk".to_string()))?;
+                    let size = usize::from_str_radix(size_line.trim(), 16)
+                        .map_err(|error| SdkError::Protocol(format!("bad chunk size: {error}")))?;
+                    if size == 0 {
+                        break;
+                    }
+                    let end = remainder.len().min(size);
+                    out.push_str(&remainder[..end]);
+                    rest = &remainder[end..];
+                    rest = rest.strip_prefix("\r\n").unwrap_or(rest);
+                }
+                out
+            }
+            _ => body.to_string(),
+        };
+
+        if status >= 400 {
+            let parsed: serde_json::Value =
+                serde_json::from_str(&body_text).unwrap_or(serde_json::Value::Null);
+            let code = parsed
+                .get("code")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("HTTP_ERROR")
+                .to_string();
+            let message = parsed
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("request failed with HTTP {status}"));
+            return Err(SdkError::Api {
+                status,
+                code,
+                message,
+                correlation_id,
+            });
+        }
+        if body_text.trim().is_empty() {
+            return serde_json::from_str("null")
+                .map_err(|error| SdkError::Protocol(error.to_string()));
+        }
+        serde_json::from_str(&body_text).map_err(|error| SdkError::Protocol(error.to_string()))
+    }
+
+    // ------------------------------------------------------------- applications
+
+    pub async fn create_application(&self, input: &serde_json::Value) -> Result<ApplicationView> {
+        self.request("POST", "/applications", Some(input.clone()), &[])
+            .await
+    }
+
+    pub async fn get_application(&self, application_id: &str) -> Result<ApplicationView> {
+        self.request("GET", &format!("/applications/{application_id}"), None, &[])
+            .await
+    }
+
+    pub async fn list_applications(
+        &self,
+        query: &[(&str, String)],
+    ) -> Result<Page<ApplicationView>> {
+        self.request("GET", "/applications", None, query).await
+    }
+
+    pub async fn update_application(
+        &self,
+        application_id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<ApplicationView> {
+        self.request(
+            "PATCH",
+            &format!("/applications/{application_id}"),
+            Some(patch.clone()),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn transition_application(
+        &self,
+        application_id: &str,
+        target_state: &str,
+        reason: Option<&str>,
+    ) -> Result<ApplicationView> {
+        if !APPLICATION_STATES.contains(&target_state) {
+            return Err(SdkError::Protocol(format!(
+                "unknown lifecycle state: {target_state}"
+            )));
+        }
+        self.request(
+            "POST",
+            &format!("/applications/{application_id}/transitions"),
+            Some(serde_json::json!({ "targetState": target_state, "reason": reason })),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn add_redirect_uri(
+        &self,
+        application_id: &str,
+        uri: &str,
+    ) -> Result<ApplicationView> {
+        self.request(
+            "POST",
+            &format!("/applications/{application_id}/redirect-uris"),
+            Some(serde_json::json!({ "redirect": { "uri": uri } })),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn update_application_scopes(
+        &self,
+        application_id: &str,
+        scopes: &[&str],
+        reason: Option<&str>,
+    ) -> Result<ApplicationView> {
+        for scope in scopes {
+            if !DEVELOPER_SCOPES.contains(scope) {
+                return Err(SdkError::Protocol(format!("unknown scope: {scope}")));
+            }
+        }
+        self.request(
+            "PUT",
+            &format!("/applications/{application_id}/scopes"),
+            Some(serde_json::json!({ "scopes": scopes, "reason": reason })),
+            &[],
+        )
+        .await
+    }
+
+    // -------------------------------------------------------------- credentials
+
+    pub async fn create_credential(
+        &self,
+        application_id: &str,
+        input: &serde_json::Value,
+    ) -> Result<IssuedCredential> {
+        self.request(
+            "POST",
+            &format!("/applications/{application_id}/credentials"),
+            Some(input.clone()),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn list_credentials(
+        &self,
+        query: &[(&str, String)],
+    ) -> Result<Page<serde_json::Value>> {
+        self.request("GET", "/credentials", None, query).await
+    }
+
+    pub async fn rotate_credential(
+        &self,
+        application_id: &str,
+        key_id: &str,
+        reason: Option<&str>,
+    ) -> Result<IssuedCredential> {
+        self.request(
+            "POST",
+            &format!("/applications/{application_id}/credentials/{key_id}/rotate"),
+            Some(serde_json::json!({ "keyId": key_id, "reason": reason })),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn revoke_credential(
+        &self,
+        application_id: &str,
+        key_id: &str,
+        reason: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.request(
+            "DELETE",
+            &format!("/applications/{application_id}/credentials/{key_id}"),
+            Some(serde_json::json!({ "reason": reason })),
+            &[],
+        )
+        .await
+    }
+
+    // -------------------------------------------------------------------- oauth
+
+    pub async fn exchange_oauth_token(
+        &self,
+        input: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        self.request("POST", "/oauth/token", Some(input.clone()), &[])
+            .await
+    }
+
+    pub async fn revoke_oauth_token(&self, token: &str) -> Result<serde_json::Value> {
+        self.request(
+            "POST",
+            "/oauth/revoke",
+            Some(serde_json::json!({ "token": token })),
+            &[],
+        )
+        .await
+    }
+
+    // ------------------------------------------------------------------ webhooks
+
+    pub async fn create_webhook_subscription(
+        &self,
+        input: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        if let Some(event_types) = input
+            .get("eventTypes")
+            .and_then(serde_json::Value::as_array)
+        {
+            for event_type in event_types {
+                let name = event_type.as_str().ok_or_else(|| {
+                    SdkError::Protocol("eventTypes entries must be strings".to_string())
+                })?;
+                if !DEVELOPER_EVENT_TYPES.contains(&name) {
+                    return Err(SdkError::Protocol(format!("unknown event type: {name}")));
+                }
+            }
+        }
+        self.request("POST", "/webhooks", Some(input.clone()), &[])
+            .await
+    }
+
+    pub async fn list_webhook_subscriptions(
+        &self,
+        query: &[(&str, String)],
+    ) -> Result<Page<WebhookSubscriptionView>> {
+        self.request("GET", "/webhooks", None, query).await
+    }
+
+    pub async fn update_webhook_subscription(
+        &self,
+        subscription_id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<WebhookSubscriptionView> {
+        self.request(
+            "PATCH",
+            &format!("/webhooks/{subscription_id}"),
+            Some(patch.clone()),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn webhook_action(
+        &self,
+        subscription_id: &str,
+        action: &str,
+        reason: Option<&str>,
+    ) -> Result<WebhookSubscriptionView> {
+        if !matches!(action, "pause" | "resume" | "revoke") {
+            return Err(SdkError::Protocol(format!(
+                "unknown webhook action: {action}"
+            )));
+        }
+        self.request(
+            "POST",
+            &format!("/webhooks/{subscription_id}/actions"),
+            Some(serde_json::json!({ "action": action, "reason": reason })),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn rotate_webhook_secret(&self, subscription_id: &str) -> Result<serde_json::Value> {
+        self.request(
+            "POST",
+            &format!("/webhooks/{subscription_id}/rotate-secret"),
+            Some(serde_json::json!({})),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn replay_webhook_event(
+        &self,
+        subscription_id: &str,
+        event_id: &str,
+    ) -> Result<serde_json::Value> {
+        self.request(
+            "POST",
+            &format!("/webhooks/{subscription_id}/replay"),
+            Some(serde_json::json!({ "eventId": event_id })),
+            &[],
+        )
+        .await
+    }
+
+    pub async fn list_webhook_deliveries(
+        &self,
+        subscription_id: &str,
+        query: &[(&str, String)],
+    ) -> Result<Page<DeliveryView>> {
+        self.request(
+            "GET",
+            &format!("/webhooks/{subscription_id}/deliveries"),
+            None,
+            query,
+        )
+        .await
+    }
+
+    // -------------------------------------------------------- usage & analytics
+
+    pub async fn usage_rollup(&self, query: &[(&str, String)]) -> Result<serde_json::Value> {
+        self.request("GET", "/usage", None, query).await
+    }
+
+    pub async fn application_analytics(
+        &self,
+        application_id: &str,
+        query: &[(&str, String)],
+    ) -> Result<serde_json::Value> {
+        let mut full: Vec<(&str, String)> = vec![("applicationId", application_id.to_string())];
+        full.extend_from_slice(query);
+        self.request("GET", "/analytics", None, &full).await
+    }
+
+    // -------------------------------------------------------- versions & catalog
+
+    pub async fn api_versions(&self) -> Result<serde_json::Value> {
+        self.request("GET", "/api-versions", None, &[]).await
+    }
+
+    pub async fn event_types(&self) -> Result<serde_json::Value> {
+        self.request("GET", "/event-types", None, &[]).await
+    }
+}
+
+/// Verify a platform webhook signature over the RAW body (constant-time),
+/// enforcing the timestamp tolerance. Consumers dedupe on the event id.
+pub fn verify_webhook(
+    raw_body: &[u8],
+    secret: &str,
+    headers: &BTreeMap<String, String>,
+    now_seconds: u64,
+    tolerance_seconds: u64,
+) -> Result<String> {
+    let get = |name: &str| -> Option<String> {
+        headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.clone())
+    };
+    let timestamp: u64 = get("x-webhook-timestamp")
+        .ok_or_else(|| SdkError::Protocol("missing x-webhook-timestamp".to_string()))?
+        .parse()
+        .map_err(|_| SdkError::Protocol("malformed timestamp".to_string()))?;
+    let event_id = get("x-webhook-event-id").unwrap_or_default();
+    let version = get("x-webhook-version").unwrap_or_default();
+    let signature = get("x-webhook-signature").unwrap_or_default();
+    let now_lower = now_seconds.saturating_sub(timestamp);
+    let now_upper = timestamp.saturating_sub(now_seconds);
+    if now_lower.max(now_upper) > tolerance_seconds {
+        return Err(SdkError::Api {
+            status: 400,
+            code: "WEBHOOK_TIMESTAMP_EXPIRED".to_string(),
+            message: "signature timestamp outside tolerance".to_string(),
+            correlation_id: None,
+        });
+    }
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
+        .map_err(|_| SdkError::Protocol("hmac key error".to_string()))?;
+    mac.update(format!("t={timestamp}.id={event_id}.v={version}.").as_bytes());
+    mac.update(raw_body);
+    let expected = format!("v1={}", hex::encode(mac.finalize().into_bytes()));
+    if expected.len() != signature.len() {
+        return Err(SdkError::Api {
+            status: 401,
+            code: "WEBHOOK_SIGNATURE_INVALID".to_string(),
+            message: "signature does not verify".to_string(),
+            correlation_id: None,
+        });
+    }
+    let mut mismatch = 0u8;
+    for (expected_byte, signature_byte) in expected.bytes().zip(signature.bytes()) {
+        mismatch |= expected_byte ^ signature_byte;
+    }
+    if mismatch != 0 {
+        return Err(SdkError::Api {
+            status: 401,
+            code: "WEBHOOK_SIGNATURE_INVALID".to_string(),
+            message: "signature does not verify".to_string(),
+            correlation_id: None,
+        });
+    }
+    Ok(event_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalogs_are_backend_pinned() {
+        assert_eq!(DEVELOPER_SCOPES.len(), 16);
+        assert_eq!(DEVELOPER_EVENT_TYPES.len(), 23);
+        assert!(DEVELOPER_SCOPES.contains(&"trading:execute"));
+        assert!(DEVELOPER_EVENT_TYPES.contains(&"order.filled"));
+        assert_eq!(APPLICATION_STATES[4], "REVOKED");
+    }
+
+    #[test]
+    fn webhook_verify_accepts_and_rejects() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        let secret = "whsec_test";
+        let body = br#"{"id":"pay-1"}"#;
+        let timestamp = 1_790_000_000u64;
+        let event_id = "evt-1";
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(format!("t={timestamp}.id={event_id}.v=v1.").as_bytes());
+        mac.update(body);
+        let signature = format!("v1={}", hex::encode(mac.finalize().into_bytes()));
+        let mut headers = BTreeMap::new();
+        headers.insert("x-webhook-timestamp".to_string(), timestamp.to_string());
+        headers.insert("x-webhook-event-id".to_string(), event_id.to_string());
+        headers.insert("x-webhook-version".to_string(), "v1".to_string());
+        headers.insert("x-webhook-signature".to_string(), signature);
+        assert_eq!(
+            verify_webhook(body, secret, &headers, timestamp, 300).unwrap(),
+            event_id
+        );
+        headers.insert(
+            "x-webhook-timestamp".to_string(),
+            (timestamp - 4_000).to_string(),
+        );
+        assert!(verify_webhook(body, secret, &headers, timestamp, 300).is_err());
+    }
+
+    #[tokio::test]
+    async fn unknown_scope_and_event_are_rejected_client_side() {
+        let client = DeveloperPlatformClient::new(SdkConfig::default());
+        assert!(client
+            .update_application_scopes("app", &["galaxy:read"], None)
+            .await
+            .is_err());
+        assert!(client
+            .create_webhook_subscription(&serde_json::json!({
+                "applicationId": "app",
+                "endpointUrl": "https://hooks.example.test",
+                "eventTypes": ["wallet.drained"]
+            }))
+            .await
+            .is_err());
+    }
+}
+```
+
+FILE: packages/sdk-typescript/package.json
+
+```json
+{
+  "name": "@wlct/sdk-typescript",
+  "version": "1.0.0",
+  "description": "Typed TypeScript SDK for the white-label developer platform API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/__tests__/sdk.test.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}
+```
+
+FILE: packages/sdk-typescript/src/__tests__/sdk.test.ts
+
+```typescript
+/**
+ * Deterministic SDK tests (node:test): route contract parity with the
+ * backend inventory, pagination, error normalization and webhook signature
+ * verification. No network — the transport is an in-process fake.
+ */
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
+import {
+  APPLICATION_STATES,
+  DEVELOPER_EVENT_TYPES,
+  DEVELOPER_SCOPES,
+  DeveloperApiError,
+  DeveloperPlatformClient,
+  verifyWebhook,
+} from '../index';
+
+interface RecordedCall {
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: unknown;
+}
+
+function makeClient(routes: Map<string, { status: number; body: unknown }>) {
+  const calls: RecordedCall[] = [];
+  const transport = async (input: string, init: RequestInit) => {
+    const url = new URL(input);
+    const key = `${init.method ?? 'GET'} ${url.pathname}`;
+    calls.push({
+      method: init.method ?? 'GET',
+      path: `${url.pathname}${url.search}`,
+      headers: init.headers as Record<string, string>,
+      body: init.body ? JSON.parse(String(init.body)) : undefined,
+    });
+    const route = routes.get(key);
+    if (!route) {
+      return new Response(JSON.stringify({ code: 'NOT_FOUND', message: 'no such route' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (route.status === 204) {
+      return new Response(null, { status: 204, headers: { 'x-correlation-id': 'corr-test' } });
+    }
+    return new Response(JSON.stringify(route.body ?? {}), {
+      status: route.status,
+      headers: { 'content-type': 'application/json', 'x-correlation-id': 'corr-test' },
+    });
+  };
+  const client = new DeveloperPlatformClient({
+    baseUrl: 'https://api.example.test',
+    auth: { kind: 'bearer', token: 'tok' },
+    transport,
+  });
+  return { client, calls };
+}
+
+test('SDK route inventory: every method hits exactly its backend route', async () => {
+  const routes = new Map([
+    ['GET /developer-platform/api-versions', { status: 200, body: { versions: [{ version: 'v2', state: 'SUPPORTED' }] } }],
+    ['GET /developer-platform/event-types', { status: 200, body: { eventTypes: [] } }],
+    ['POST /developer-platform/applications', { status: 201, body: { id: 'app-1', state: 'PENDING' } }],
+    ['GET /developer-platform/applications/app-1', { status: 200, body: { id: 'app-1' } }],
+    ['PATCH /developer-platform/applications/app-1', { status: 200, body: { id: 'app-1' } }],
+    ['POST /developer-platform/applications/app-1/transitions', { status: 200, body: { id: 'app-1', state: 'ACTIVE' } }],
+    ['POST /developer-platform/applications/app-1/redirect-uris', { status: 200, body: { id: 'app-1' } }],
+    ['PUT /developer-platform/applications/app-1/scopes', { status: 200, body: { id: 'app-1' } }],
+    ['POST /developer-platform/applications/app-1/credentials', { status: 201, body: { keyId: 'k', secret: 's', scopes: [], expiresAt: null } }],
+    ['POST /developer-platform/applications/app-1/credentials/k/rotate', { status: 201, body: { keyId: 'k2', secret: 's2', scopes: [], expiresAt: null } }],
+    ['DELETE /developer-platform/applications/app-1/credentials/k', { status: 204, body: undefined }],
+    ['GET /developer-platform/credentials', { status: 200, body: { rows: [], nextCursor: null } }],
+    ['POST /developer-platform/oauth/token', { status: 200, body: { accessToken: 'at', tokenType: 'Bearer', expiresIn: 3600, scope: 'profile:read' } }],
+    ['POST /developer-platform/oauth/revoke', { status: 204, body: undefined }],
+    ['POST /developer-platform/webhooks', { status: 201, body: { subscription: { id: 'wh-1' }, secret: 'whsec_x' } }],
+    ['GET /developer-platform/webhooks', { status: 200, body: { rows: [], nextCursor: null } }],
+    ['PATCH /developer-platform/webhooks/wh-1', { status: 200, body: { id: 'wh-1' } }],
+    ['POST /developer-platform/webhooks/wh-1/actions', { status: 200, body: { id: 'wh-1', state: 'PAUSED' } }],
+    ['POST /developer-platform/webhooks/wh-1/rotate-secret', { status: 201, body: { secret: 'whsec_y' } }],
+    ['POST /developer-platform/webhooks/wh-1/replay', { status: 202, body: { deliveryId: 'd2', eventId: 'evt-1' } }],
+    ['GET /developer-platform/webhooks/wh-1/deliveries', { status: 200, body: { rows: [], nextCursor: null } }],
+    ['GET /developer-platform/usage', { status: 200, body: { totalRequests: 0, totalRateLimited: 0, totalWebhookDeliveries: 0, totalWebhookFailures: 0, byEndpoint: [], byApiVersion: [] } }],
+    ['GET /developer-platform/analytics', { status: 200, body: { p95LatencyMs: null } }],
+  ]);
+  const { client, calls } = makeClient(routes);
+  await client.meta.apiVersions();
+  await client.meta.eventTypes();
+  await client.applications.create({ name: 'n', description: 'd', redirectUris: ['https://cb'] });
+  await client.applications.get('app-1');
+  await client.applications.update('app-1', { name: 'n2' });
+  await client.applications.transition('app-1', 'ACTIVE', 'go');
+  await client.applications.addRedirectUri('app-1', 'https://cb2');
+  await client.applications.updateScopes('app-1', ['profile:read']);
+  await client.credentials.create('app-1', { label: 'l' });
+  await client.credentials.rotate('app-1', 'k');
+  await client.credentials.revoke('app-1', 'k', 'done');
+  await client.credentials.list().first();
+  await client.oauth.exchangeToken({ clientId: 'c', code: 'x', redirectUri: 'https://cb' });
+  await client.oauth.revoke('at');
+
+  await client.webhooks.list().first();
+  const created = await client.webhooks.create({ applicationId: 'app-1', endpointUrl: 'https://h', eventTypes: ['payment.succeeded'] });
+  await client.webhooks.update(created.data.subscription.id, { description: 'd' });
+  // (created subscription id asserted implicitly via route hit above)
+  await client.webhooks.action(created.data.subscription.id, 'pause', 'maint');
+  await client.webhooks.rotateSecret('wh-1');
+  await client.webhooks.replay('wh-1', 'evt-1');
+  await client.webhooks.deliveries('wh-1').first();
+  await client.usage.rollup();
+  await client.analytics.application('app-1');
+  assert.equal(calls.length, 23);
+  assert.ok(calls.every((call) => call.headers['X-Api-Version'] === 'v2'));
+  assert.ok(calls.every((call) => typeof call.headers['x-correlation-id'] === 'string'));
+  const paths = calls.map((call) => `${call.method} ${call.path.split('?')[0]}`);
+  assert.ok(paths.includes('POST /developer-platform/applications/app-1/transitions'));
+});
+
+test('pagination follows nextCursor until exhaustion', async () => {
+  const routes = new Map<string, { status: number; body: unknown }>();
+  let page = 0;
+  routes.set('GET /developer-platform/webhooks', {
+    status: 200,
+    get body() {
+      page += 1;
+      return page < 3 ? { rows: [`row-${page}`], nextCursor: `c${page}` } : { rows: ['row-3'], nextCursor: null };
+    },
+  });
+  const { client } = makeClient(routes);
+  const iterator = client.webhooks.list();
+  const seen: unknown[] = [];
+  let result = await iterator.first();
+  seen.push(...result.rows);
+  while (result.nextCursor) {
+    result = await iterator.next(result.nextCursor);
+    seen.push(...result.rows);
+  }
+  assert.deepEqual(seen.map((row) => String(row)), ['row-1', 'row-2', 'row-3']);
+});
+
+test('errors normalize with backend code, status and correlation id', async () => {
+  const routes = new Map([['GET /developer-platform/usage', { status: 403, body: { code: 'SCOPE_NOT_AUTHORIZED', message: 'denied' } }]]);
+  const { client } = makeClient(routes);
+  await assert.rejects(
+    client.usage.rollup(),
+    (error: unknown) => {
+      assert.ok(error instanceof DeveloperApiError);
+      assert.equal(error.status, 403);
+      assert.equal(error.code, 'SCOPE_NOT_AUTHORIZED');
+      assert.equal(error.correlationId, 'corr-test');
+      return true;
+    },
+  );
+});
+
+test('webhook verification: valid, tampered, stale, wrong secret', async () => {
+  const secret = 'whsec_test';
+  const rawBody = JSON.stringify({ id: 'pay-1' });
+  const timestamp = 1_790_000_000;
+  const canonical = `t=${timestamp}.id=evt-1.v=v1.${rawBody}`;
+  const signature = `v1=${createHmac('sha256', secret).update(canonical).digest('hex')}`;
+  const valid = await verifyWebhook({
+    rawBody,
+    secret,
+    headers: {
+      'x-webhook-timestamp': String(timestamp),
+      'x-webhook-event-id': 'evt-1',
+      'x-webhook-version': 'v1',
+      'x-webhook-signature': signature,
+    },
+    nowSeconds: timestamp,
+  });
+  assert.equal(valid.eventId, 'evt-1');
+  await assert.rejects(
+    verifyWebhook({
+      rawBody: rawBody.replace('pay-1', 'pay-2'),
+      secret,
+      headers: {
+        'x-webhook-timestamp': String(timestamp),
+        'x-webhook-event-id': 'evt-1',
+        'x-webhook-version': 'v1',
+        'x-webhook-signature': signature,
+      },
+      nowSeconds: timestamp,
+    }),
+    /does not verify/,
+  );
+  await assert.rejects(
+    verifyWebhook({
+      rawBody,
+      secret,
+      headers: {
+        'x-webhook-timestamp': String(timestamp - 4_000),
+        'x-webhook-event-id': 'evt-1',
+        'x-webhook-version': 'v1',
+        'x-webhook-signature': signature,
+      },
+      nowSeconds: timestamp,
+    }),
+    /timestamp/,
+  );
+  await assert.rejects(
+    verifyWebhook({
+      rawBody,
+      secret: 'whsec_other',
+      headers: {
+        'x-webhook-timestamp': String(timestamp),
+        'x-webhook-event-id': 'evt-1',
+        'x-webhook-version': 'v1',
+        'x-webhook-signature': signature,
+      },
+      nowSeconds: timestamp,
+    }),
+    /does not verify/,
+  );
+});
+
+test('catalogs are backend-pinned (16 scopes, 23 events, 5 states)', () => {
+  assert.equal(DEVELOPER_SCOPES.length, 16);
+  assert.equal(DEVELOPER_EVENT_TYPES.length, 23);
+  assert.equal(APPLICATION_STATES.length, 5);
+  assert.ok(DEVELOPER_SCOPES.includes('trading:execute'));
+  assert.ok(DEVELOPER_EVENT_TYPES.includes('compliance.review.required'));
+  assert.equal(APPLICATION_STATES[4], 'REVOKED');
+});
+```
+
+FILE: packages/sdk-typescript/src/client.ts
+
+```typescript
+/**
+ * Production TypeScript SDK client for the developer platform.
+ *
+ * - typed resource clients whose every method maps to a REAL backend route
+ *   (the inventory is pinned by developer.contract.spec.ts CHECK 47);
+ * - explicit API version on every request (X-Api-Version);
+ * - correlation ids propagated end to end (x-correlation-id);
+ * - retries ONLY for safe (GET) transport failures, with capped backoff;
+ * - cursor pagination helpers;
+ * - normalized errors (DeveloperApiError with code/status/correlationId);
+ * - webhook signature verification helper (constant-time);
+ * - no credential is ever logged or persisted by the client.
+ */
+
+export type ApiVersion = 'v1' | 'v2';
+
+export interface DeveloperCredentials {
+  kind: 'bearer';
+  token: string;
+}
+
+export interface DeveloperKeyCredentials {
+  kind: 'developer-key';
+  keyId: string;
+  secret: string;
+}
+
+export type DeveloperAuth = DeveloperCredentials | DeveloperKeyCredentials;
+
+export interface SdkOptions {
+  baseUrl: string;
+  apiVersion?: ApiVersion;
+  auth?: DeveloperAuth;
+  /** Injectable transport (fetch-compatible); defaults to global fetch. */
+  transport?: (input: string, init: RequestInit) => Promise<Response>;
+  timeoutMs?: number;
+  maxSafeRetries?: number;
+}
+
+export class DeveloperApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly correlationId: string | null;
+
+  constructor(status: number, code: string, message: string, correlationId: string | null) {
+    super(message);
+    this.name = 'DeveloperApiError';
+    this.status = status;
+    this.code = code;
+    this.correlationId = correlationId;
+  }
+}
+
+export interface Paginated<T> {
+  rows: T[];
+  nextCursor: string | null;
+}
+
+export interface DeveloperApplicationView {
+  id: string;
+  tenantId: string;
+  name: string;
+  clientId: string;
+  state: string;
+  environment: string;
+  redirectUris: string[];
+  scopes: string[];
+  createdAt: string;
+}
+
+export interface IssuedCredential {
+  keyId: string;
+  /** One-time presentation: the platform never shows this value again. */
+  secret: string;
+  scopes: string[];
+  expiresAt: string | null;
+}
+
+export interface ApplicationLifecycleInput {
+  name: string;
+  description: string;
+  redirectUris: string[];
+  requestedScopes?: string[];
+  environment?: 'SANDBOX' | 'PRODUCTION';
+  naturalKey?: string;
+}
+
+export interface WebhookSubscriptionInput {
+  applicationId: string;
+  endpointUrl: string;
+  eventTypes: string[];
+  eventVersion?: 'v1' | 'v2';
+  environment?: 'SANDBOX' | 'PRODUCTION';
+  description?: string;
+}
+
+export interface WebhookSubscriptionView {
+  id: string;
+  applicationId: string;
+  endpointUrl: string;
+  eventTypes: string[];
+  state: string;
+  environment: string;
+}
+
+export interface UsageRollup {
+  totalRequests: number;
+  totalRateLimited: number;
+  totalWebhookDeliveries: number;
+  totalWebhookFailures: number;
+  byEndpoint: { endpoint: string; requests: number; errors4xx: number; errors5xx: number }[];
+  byApiVersion: { version: string; requests: number }[];
+}
+
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
+export class DeveloperPlatformClient {
+  private readonly baseUrl: string;
+  private readonly apiVersion: ApiVersion;
+  private auth?: DeveloperAuth;
+  private readonly transport: (input: string, init: RequestInit) => Promise<Response>;
+  private readonly timeoutMs: number;
+  private readonly maxSafeRetries: number;
+
+  constructor(options: SdkOptions) {
+    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.apiVersion = options.apiVersion ?? 'v2';
+    this.auth = options.auth;
+    this.transport = options.transport ?? ((input, init) => fetch(input, init));
+    this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.maxSafeRetries = options.maxSafeRetries ?? 2;
+  }
+
+  setAuth(auth: DeveloperAuth): void {
+    this.auth = auth;
+  }
+
+  private correlationId(): string {
+    return `sdk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  private authHeaders(): Record<string, string> {
+    if (!this.auth) throw new DeveloperApiError(0, 'SDK_NO_AUTH', 'credentials not configured', null);
+    if (this.auth.kind === 'bearer') {
+      return { Authorization: `Bearer ${this.auth.token}` };
+    }
+    return { Authorization: `Developer ${this.auth.keyId}.${this.auth.secret}` };
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    query?: Record<string, string | number | undefined>,
+  ): Promise<{ data: T; headers: Headers }> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    for (const [key, value] of Object.entries(query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
+    const headers: Record<string, string> = {
+      'X-Api-Version': this.apiVersion,
+      'x-correlation-id': this.correlationId(),
+      ...this.authHeaders(),
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    };
+    let attempt = 0;
+    for (;;) {
+      const response = await this.transport(url.toString(), {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (RETRYABLE_STATUS.has(response.status) && method === 'GET' && attempt < this.maxSafeRetries) {
+        attempt += 1;
+        await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+        continue;
+      }
+      const correlationId = response.headers.get('x-correlation-id');
+      if (!response.ok) {
+        let code = 'HTTP_ERROR';
+        let message = `request failed with HTTP ${response.status}`;
+        try {
+          const parsed = (await response.json()) as { code?: string; message?: string };
+          code = parsed.code ?? code;
+          message = parsed.message ?? message;
+        } catch {
+          // Non-JSON error bodies stay generic; never guessed into success.
+        }
+        throw new DeveloperApiError(response.status, code, message, correlationId);
+      }
+      if (response.status === 204) return { data: undefined as T, headers: response.headers };
+      const data = (await response.json()) as T;
+      return { data, headers: response.headers };
+    }
+  }
+
+  private paginated<T>(path: string, query?: Record<string, string | number | undefined>) {
+    return {
+      first: async (): Promise<Paginated<T>> => {
+        const { data } = await this.request<Paginated<T>>('GET', path, undefined, query);
+        return data;
+      },
+      next: async (cursor: string): Promise<Paginated<T>> => {
+        const { data } = await this.request<Paginated<T>>('GET', path, undefined, { ...query, cursor });
+        return data;
+      },
+    };
+  }
+
+  // ------------------------------------------------------------- applications
+
+  readonly applications = {
+    create: (input: ApplicationLifecycleInput) =>
+      this.request<DeveloperApplicationView & { id: string }>('POST', '/developer-platform/applications', input),
+    list: (query?: { state?: string; environment?: string; limit?: number; cursor?: string }) =>
+      this.paginated<DeveloperApplicationView>('/developer-platform/applications', query),
+    get: (applicationId: string) =>
+      this.request<DeveloperApplicationView>('GET', `/developer-platform/applications/${applicationId}`),
+    update: (applicationId: string, patch: { name?: string; description?: string; redirectUris?: string[] }) =>
+      this.request<DeveloperApplicationView>('PATCH', `/developer-platform/applications/${applicationId}`, patch),
+    transition: (
+      applicationId: string,
+      targetState: 'ACTIVE' | 'SUSPENDED' | 'REACTIVATION_REVIEW' | 'REVOKED',
+      reason?: string,
+    ) =>
+      this.request<{ id: string; state: string }>(
+        'POST',
+        `/developer-platform/applications/${applicationId}/transitions`,
+        { targetState, reason },
+      ),
+    addRedirectUri: (applicationId: string, uri: string) =>
+      this.request<DeveloperApplicationView>(
+        'POST',
+        `/developer-platform/applications/${applicationId}/redirect-uris`,
+        { redirect: { uri } },
+      ),
+    updateScopes: (applicationId: string, scopes: string[], reason?: string) =>
+      this.request<DeveloperApplicationView>(
+        'PUT',
+        `/developer-platform/applications/${applicationId}/scopes`,
+        { scopes, reason },
+      ),
+  };
+
+  // -------------------------------------------------------------- credentials
+
+  readonly credentials = {
+    create: (
+      applicationId: string,
+      input: { label: string; expiresInDays?: number; scopes?: string[] },
+    ) =>
+      this.request<IssuedCredential>(
+        'POST',
+        `/developer-platform/applications/${applicationId}/credentials`,
+        input,
+      ),
+    list: (query?: { applicationId?: string; status?: string; limit?: number; cursor?: string }) =>
+      this.paginated<{ keyId: string; label: string; kind: string; scopes: string[]; revokedAt: string | null }>(
+        '/developer-platform/credentials',
+        query,
+      ),
+    rotate: (applicationId: string, keyId: string, reason?: string) =>
+      this.request<IssuedCredential>(
+        'POST',
+        `/developer-platform/applications/${applicationId}/credentials/${keyId}/rotate`,
+        { keyId, reason },
+      ),
+    revoke: (applicationId: string, keyId: string, reason?: string) =>
+      this.request<void>(
+        'DELETE',
+        `/developer-platform/applications/${applicationId}/credentials/${keyId}`,
+        { reason },
+      ),
+  };
+
+  // -------------------------------------------------------------------- oauth
+
+  readonly oauth = {
+    exchangeToken: (input: {
+      clientId: string;
+      code: string;
+      redirectUri: string;
+      codeVerifier?: string;
+      clientSecret?: string;
+    }) => this.request<{ accessToken: string; tokenType: string; expiresIn: number; scope: string }>(
+      'POST',
+      '/developer-platform/oauth/token',
+      input,
+    ),
+    revoke: (token: string) =>
+      this.request<void>('POST', '/developer-platform/oauth/revoke', { token }),
+  };
+
+  // ----------------------------------------------------------------- webhooks
+
+  readonly webhooks = {
+    create: (input: WebhookSubscriptionInput) =>
+      this.request<{ subscription: WebhookSubscriptionView; secret: string }>(
+        'POST',
+        '/developer-platform/webhooks',
+        input,
+      ),
+    list: (query?: { applicationId?: string; status?: string; limit?: number; cursor?: string }) =>
+      this.paginated<WebhookSubscriptionView>('/developer-platform/webhooks', query),
+    update: (subscriptionId: string, patch: { endpointUrl?: string; eventTypes?: string[]; description?: string }) =>
+      this.request<WebhookSubscriptionView>('PATCH', `/developer-platform/webhooks/${subscriptionId}`, patch),
+    action: (
+      subscriptionId: string,
+      action: 'pause' | 'resume' | 'revoke',
+      reason?: string,
+    ) =>
+      this.request<WebhookSubscriptionView | { id: string; state: string }>(
+        'POST',
+        `/developer-platform/webhooks/${subscriptionId}/actions`,
+        { action, reason },
+      ),
+    rotateSecret: (subscriptionId: string) =>
+      this.request<{ secret: string }>(
+        'POST',
+        `/developer-platform/webhooks/${subscriptionId}/rotate-secret`,
+        {},
+      ),
+    replay: (subscriptionId: string, eventId: string) =>
+      this.request<{ deliveryId: string; eventId: string }>(
+        'POST',
+        `/developer-platform/webhooks/${subscriptionId}/replay`,
+        { eventId },
+      ),
+    deliveries: (
+      subscriptionId: string,
+      query?: { state?: string; eventId?: string; limit?: number; cursor?: string },
+    ) =>
+      this.paginated<{
+        id: string;
+        eventId: string;
+        eventType: string;
+        attempt: number;
+        state: string;
+        responseStatus: number | null;
+      }>(`/developer-platform/webhooks/${subscriptionId}/deliveries`, query),
+  };
+
+  // ------------------------------------------------------- usage & analytics
+
+  readonly usage = {
+    rollup: (query?: { applicationId?: string; from?: string; to?: string; granularity?: 'minute' | 'hour' | 'day' }) =>
+      this.request<UsageRollup>('GET', '/developer-platform/usage', undefined, query),
+  };
+
+  readonly analytics = {
+    application: (applicationId: string, query?: { from?: string; to?: string }) =>
+      this.request<Record<string, unknown>>('GET', '/developer-platform/analytics', undefined, {
+        applicationId,
+        ...query,
+      }),
+  };
+
+  // --------------------------------------------------------- versions & docs
+
+  readonly meta = {
+    apiVersions: () =>
+      this.request<{ versions: { version: string; state: string; deprecatedAt?: string; sunsetAt?: string; replacement?: string }[] }>(
+        'GET',
+        '/developer-platform/api-versions',
+      ),
+    eventTypes: () =>
+      this.request<{ eventTypes: { eventType: string; resourceType: string; eventVersion: string; source: string }[] }>(
+        'GET',
+        '/developer-platform/event-types',
+      ),
+  };
+}
+
+/**
+ * Server-side webhook receiver helper: verifies the platform's signature
+ * headers over the raw body (constant-time) and enforces the timestamp
+ * tolerance. Consumers dedupe on the event id — replays reuse the SAME id.
+ */
+export async function verifyWebhook(input: {
+  rawBody: string;
+  secret: string;
+  headers: Record<string, string>;
+  nowSeconds?: number;
+  toleranceSeconds?: number;
+}): Promise<{ eventId: string; version: string; valid: true }> {
+  const timestamp = Number.parseInt(input.headers['x-webhook-timestamp'] ?? '', 10);
+  const eventId = input.headers['x-webhook-event-id'] ?? '';
+  const version = input.headers['x-webhook-version'] ?? '';
+  const signature = input.headers['x-webhook-signature'] ?? '';
+  const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1000);
+  const tolerance = input.toleranceSeconds ?? 300;
+  if (!Number.isFinite(timestamp) || Math.abs(nowSeconds - timestamp) > tolerance) {
+    throw new DeveloperApiError(400, 'WEBHOOK_TIMESTAMP_EXPIRED', 'signature timestamp outside tolerance', null);
+  }
+  const canonical = `t=${timestamp}.id=${eventId}.v=${version}.${input.rawBody}`;
+  const expected = `v1=${await hmacSha256Hex(input.secret, canonical)}`;
+  if (!timingSafeEqualHex(expected, signature)) {
+    throw new DeveloperApiError(401, 'WEBHOOK_SIGNATURE_INVALID', 'signature does not verify', null);
+  }
+  return { eventId, version, valid: true };
+}
+
+async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
+  // Implemented over WebCrypto so the SDK works in Node (>=16) and browsers
+  // without pulling an extra crypto dependency.
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new DeveloperApiError(0, 'SDK_NO_CRYPTO', 'WebCrypto unavailable in this runtime', null);
+  }
+  const encoder = new TextEncoder();
+  const key = await subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await subtle.sign('HMAC', key, encoder.encode(payload));
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    mismatch |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return mismatch === 0;
+}
+```
+
+FILE: packages/sdk-typescript/src/index.ts
+
+```typescript
+/**
+ * Public entrypoint of the developer-platform TypeScript SDK.
+ * Exports the typed client, errors, pagination and webhook verification.
+ */
+
+export {
+  DeveloperPlatformClient,
+  DeveloperApiError,
+  verifyWebhook,
+} from './client';
+
+export type {
+  ApiVersion,
+  SdkOptions,
+  DeveloperAuth,
+  DeveloperCredentials,
+  DeveloperKeyCredentials,
+  Paginated,
+  DeveloperApplicationView,
+  IssuedCredential,
+  ApplicationLifecycleInput,
+  WebhookSubscriptionInput,
+  WebhookSubscriptionView,
+  UsageRollup,
+} from './client';
+
+/** Application lifecycle states as enforced by the backend. */
+export const APPLICATION_STATES = [
+  'PENDING',
+  'ACTIVE',
+  'SUSPENDED',
+  'REACTIVATION_REVIEW',
+  'REVOKED',
+] as const;
+
+/** The 16 backend-authoritative scopes; the SDK never invents extra ones. */
+export const DEVELOPER_SCOPES = [
+  'profile:read',
+  'account:read',
+  'portfolio:read',
+  'portfolio:write',
+  'trading:read',
+  'trading:execute',
+  'copy:read',
+  'copy:manage',
+  'billing:read',
+  'billing:manage',
+  'funding:read',
+  'funding:request',
+  'statements:read',
+  'reports:read',
+  'webhooks:manage',
+  'developer:manage',
+] as const;
+
+/** The 23 authoritative event types mirrored from the platform catalog. */
+export const DEVELOPER_EVENT_TYPES = [
+  'customer.created',
+  'customer.updated',
+  'subscription.created',
+  'subscription.changed',
+  'subscription.cancelled',
+  'payment.succeeded',
+  'payment.failed',
+  'invoice.created',
+  'invoice.paid',
+  'funding.requested',
+  'funding.confirmed',
+  'withdrawal.requested',
+  'withdrawal.confirmed',
+  'copy.subscription.created',
+  'copy.subscription.cancelled',
+  'order.created',
+  'order.acknowledged',
+  'order.filled',
+  'order.rejected',
+  'portfolio.snapshot.created',
+  'statement.generated',
+  'compliance.review.required',
+  'security.event',
+] as const;
+```
+
+FILE: packages/sdk-typescript/tsconfig.json
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2022", "DOM"],
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "noUnusedLocals": true,
+    "noImplicitReturns": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
+```
+
 FILE: packages/shared-types/package.json
 
 ```json
@@ -2081,6 +4709,13 @@ export interface JwtTwoFactorPayload {
   typ: '2fa_challenge';
   did: string;
   jti: string;
+  /**
+   * Present when the challenge follows a single sign-on login: the id of that
+   * (consumed) SSO login transaction, so the session issued after the second
+   * factor records the SSO method, configuration and SAML logout context.
+   * An opaque reference only; it carries no identity data.
+   */
+  sso?: string;
   iat: number;
   exp: number;
 }
@@ -2314,6 +4949,8 @@ export enum ErrorCode {
   TWO_FACTOR_INVALID = 'TWO_FACTOR_INVALID',
   TWO_FACTOR_ALREADY_ENABLED = 'TWO_FACTOR_ALREADY_ENABLED',
   TWO_FACTOR_NOT_ENABLED = 'TWO_FACTOR_NOT_ENABLED',
+  /** The tenant enforces single sign-on for this account; password login is refused. */
+  SSO_REQUIRED = 'SSO_REQUIRED',
 
   // Authorization
   FORBIDDEN = 'FORBIDDEN',
@@ -2366,6 +5003,7 @@ export const ERROR_CODE_HTTP_STATUS: Readonly<Record<ErrorCode, number>> = Objec
   [ErrorCode.TWO_FACTOR_INVALID]: 401,
   [ErrorCode.TWO_FACTOR_ALREADY_ENABLED]: 409,
   [ErrorCode.TWO_FACTOR_NOT_ENABLED]: 409,
+  [ErrorCode.SSO_REQUIRED]: 403,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
   [ErrorCode.TENANT_MISMATCH]: 403,
@@ -2927,6 +5565,71 @@ export enum Permission {
    *  write audited; no permission here changes what a failed objective does
    *  beyond firing burn-rate alerts. */
   OPERATIONS_SLO_UPDATE = 'operations:slo_update',
+
+  // ---------------------------------------------------------------------------
+  // Application compliance surface (compliance module).
+  //
+  // These were introduced to give the compliance console enforceable codes in
+  // the same `resource:action` shape as every other permission. Without them
+  // the controllers had to pass bare UPPER_SNAKE strings that no seeded role
+  // could ever hold (only the global `*` matched), which silently locked the
+  // whole surface behind the break-glass identity.
+  // ---------------------------------------------------------------------------
+
+  /** Read the compliance posture: policies, providers, dashboards. */
+  COMPLIANCE_READ = 'compliance:read',
+  /** Change compliance configuration and resolve compliance work. */
+  COMPLIANCE_WRITE = 'compliance:write',
+  /** Act as the reviewer on compliance cases and KYC/AML reviews. */
+  COMPLIANCE_REVIEWER = 'compliance:reviewer',
+  /** Submit or update KYC data on behalf of a user. */
+  KYC_WRITE = 'kyc:write',
+  /** Read AML monitoring results and alerts. */
+  AML_READ = 'aml:read',
+  /** Update AML monitoring configuration and dispositions. */
+  AML_WRITE = 'aml:write',
+
+  // ---------------------------------------------------------------------------
+  // Security console surface (security module).
+  // ---------------------------------------------------------------------------
+
+  /** Read security policy configuration. */
+  SECURITY_POLICY_READ = 'security_policy:read',
+  /** Change security policy configuration. */
+  SECURITY_POLICY_WRITE = 'security_policy:write',
+  /** Read single sign-on configuration. */
+  SSO_READ = 'sso:read',
+  /** Change single sign-on configuration. */
+  SSO_MANAGE = 'sso:manage',
+  /** List platform/tenant API keys (metadata only, never secrets). */
+  API_KEY_READ = 'api_key:read',
+  /** Create, rotate or revoke API keys. */
+  API_KEY_WRITE = 'api_key:write',
+  /** Full API key lifecycle control, including policy overrides. */
+  API_KEY_MANAGE = 'api_key:manage',
+  /** Read session inventory for the tenant. */
+  SESSION_READ = 'session:read',
+  /** Revoke or constrain sessions. */
+  SESSION_WRITE = 'session:write',
+  /** Read the trusted device inventory. */
+  DEVICE_READ = 'device:read',
+  /** Trust, untrust or remove devices. */
+  DEVICE_WRITE = 'device:write',
+  /** Read MFA enrolment posture for the tenant. */
+  MFA_READ = 'mfa:read',
+  /** Write security events (machine-to-machine ingestion path). */
+  SECURITY_EVENT_WRITE = 'security_event:write',
+
+  // ---------------------------------------------------------------------------
+  // Trading surface (exchange connectivity console).
+  // ---------------------------------------------------------------------------
+
+  /** Read trading configuration: exchanges, symbols, mirror state. */
+  TRADING_READ = 'trading:read',
+  /** Change trading configuration for accounts the actor owns. */
+  TRADING_WRITE = 'trading:write',
+  /** Tenant-wide trading configuration control. */
+  TRADING_MANAGE = 'trading:manage',
 }
 
 /**
@@ -3241,6 +5944,25 @@ export const SYSTEM_ROLE_DEFINITIONS: readonly RoleDefinition[] = Object.freeze(
       Permission.SECURITY_EVENT_READ,
       Permission.KYC_READ,
       Permission.EXCHANGE_ACCOUNT_READ,
+
+      // Security console and trading surface: the tenant administrator owns
+      // these for its tenant (policy, SSO, API keys, sessions, devices, MFA
+      // posture and the exchange/trading configuration console).
+      Permission.SECURITY_POLICY_READ,
+      Permission.SECURITY_POLICY_WRITE,
+      Permission.SSO_READ,
+      Permission.SSO_MANAGE,
+      Permission.API_KEY_READ,
+      Permission.API_KEY_WRITE,
+      Permission.API_KEY_MANAGE,
+      Permission.SESSION_READ,
+      Permission.SESSION_WRITE,
+      Permission.DEVICE_READ,
+      Permission.DEVICE_WRITE,
+      Permission.MFA_READ,
+      Permission.TRADING_READ,
+      Permission.TRADING_WRITE,
+      Permission.TRADING_MANAGE,
       Permission.STRATEGY_READ,
       Permission.STRATEGY_MANAGE,
       Permission.COPY_SUBSCRIPTION_READ,
@@ -3427,6 +6149,15 @@ export const SYSTEM_ROLE_DEFINITIONS: readonly RoleDefinition[] = Object.freeze(
       Permission.SECURITY_EVENT_READ,
       Permission.REPORT_READ,
 
+      // Application compliance surface: the compliance console routes are
+      // gated on these, so the officer role must hold them to do its job.
+      Permission.COMPLIANCE_READ,
+      Permission.COMPLIANCE_WRITE,
+      Permission.COMPLIANCE_REVIEWER,
+      Permission.KYC_WRITE,
+      Permission.AML_READ,
+      Permission.AML_WRITE,
+
       // Part 5. Compliance reads the whole execution audit trail and can
       // engage a kill switch - stopping trading is never the wrong call for a
       // compliance officer to be able to make.
@@ -3525,7 +6256,7 @@ export function describePermissions(): PermissionDefinition[] {
   return Object.values(Permission)
     .filter((value) => value !== Permission.ALL)
     .map((value) => {
-      const [resource, action] = value.split(':');
+      const [resource = '', action = ''] = value.split(':');
       return {
         key: value,
         resource,

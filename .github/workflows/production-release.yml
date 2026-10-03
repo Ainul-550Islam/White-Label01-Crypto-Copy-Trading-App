@@ -1,0 +1,281 @@
+# -----------------------------------------------------------------------------
+# Production release: verify -> build immutable images -> release manifest ->
+# human approval -> deploy exactly those digests.
+#
+# Invariants this workflow enforces (and ops/production-validation-50-checks.js
+# checks 46/47 pin):
+#   * the artifact comes from the expected commit - every image is built from
+#     `github.sha`, labelled with it, and the release manifest records
+#     commitSha next to each IMAGE_NAME@digest;
+#   * production only ever receives an approved artifact - the `approval-gate`
+#     job runs in the `production` GitHub Environment (configure required
+#     reviewers there), and `deploy` consumes the digests from the manifest
+#     the approvers saw, never a tag that could move underneath them.
+#
+# Required repository/environment configuration (Settings -> Environments ->
+# production):
+#   secrets.AWS_DEPLOY_ROLE_ARN   IAM role assumed via GitHub OIDC
+#   secrets.TF_STATE_BUCKET       S3 bucket of the Terraform backend
+#   secrets.TF_STATE_KEY          state object key (e.g. wlct/production.tfstate)
+#   secrets.TF_STATE_LOCK_TABLE   DynamoDB lock table
+#   vars.AWS_REGION               defaults to us-east-1
+#   vars.PRODUCTION_HEALTH_URL    optional, e.g. https://api.example.com/health
+# No secret value is ever written to this file or to the manifest.
+# -----------------------------------------------------------------------------
+name: Production release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to production after approval (false = build and publish only)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  TERRAFORM_VERSION: 1.8.5
+
+jobs:
+  verify:
+    name: Verify (full CI at this commit)
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build ${{ matrix.component }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        component:
+          - api
+          - admin-web
+          - web
+          - notification-service
+          - trading-engine
+          - market-data
+          - execution-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image reference
+        id: ref
+        run: |
+          repo="${IMAGE_NAME,,}"
+          echo "image=${REGISTRY}/${repo}/${{ matrix.component }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: whitelabel-copytrade
+          file: whitelabel-copytrade/infrastructure/docker/${{ matrix.component }}.Dockerfile
+          target: runtime
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ${{ steps.ref.outputs.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ steps.ref.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record digest
+        working-directory: .
+        run: |
+          mkdir -p digests
+          printf '%s@%s\n' "${{ steps.ref.outputs.image }}" "${{ steps.build.outputs.digest }}" \
+            > "digests/${{ matrix.component }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.component }}
+          path: digests/${{ matrix.component }}
+          retention-days: 90
+
+  release-manifest:
+    name: Release manifest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+
+      - name: Write release-manifest.json
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib, re
+          digests = {}
+          for path in sorted(pathlib.Path("digests").iterdir()):
+              ref = path.read_text().strip()
+              if not re.fullmatch(r"[a-z0-9./_-]+@sha256:[a-f0-9]{64}", ref):
+                  raise SystemExit(f"refusing malformed image reference for {path.name}: {ref!r}")
+              digests[path.name] = ref
+          expected = {"api", "admin-web", "web", "notification-service",
+                      "trading-engine", "market-data", "execution-engine"}
+          missing = expected - digests.keys()
+          if missing:
+              raise SystemExit(f"release is missing images: {sorted(missing)}")
+          manifest = {
+              "schema": "wlct-release-manifest-v1",
+              "commitSha": os.environ["COMMIT_SHA"],
+              "ref": os.environ["REF_NAME"],
+              "runId": os.environ["RUN_ID"],
+              "IMAGE_NAME": os.environ.get("IMAGE_NAME", ""),
+              "images": digests,
+          }
+          pathlib.Path("release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print(json.dumps(manifest, indent=2))
+          EOF
+        working-directory: .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: release-manifest.json
+          retention-days: 365
+
+  approval-gate:
+    name: approval-gate (production)
+    needs: release-manifest
+    if: github.event_name == 'push' || inputs.deploy
+    runs-on: ubuntu-latest
+    # Required reviewers are configured on the `production` environment; this
+    # job does not start until they approve the manifest produced above.
+    environment:
+      name: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-manifest
+
+      - name: Approved artifact is this commit's artifact
+        working-directory: .
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          manifest = json.load(open("release-manifest.json"))
+          if manifest["commitSha"] != os.environ["GITHUB_SHA"]:
+              raise SystemExit("release manifest commitSha does not match the commit being released")
+          print("approved release", manifest["commitSha"])
+          for name, ref in sorted(manifest["images"].items()):
+              print(f"  {name}: {ref}")
+          EOF
+
+  deploy:
+    name: Deploy to production
+    needs: approval-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: production
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: whitelabel-copytrade/infra/production/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-manifest
+          path: ${{ github.workspace }}
+
+      - name: Read image digests from the approved manifest
+        id: images
+        working-directory: .
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json
+          images = json.load(open("release-manifest.json"))["images"]
+          for key, name in [("api", "api"), ("admin_web", "admin-web"), ("web", "web"),
+                            ("notification_service", "notification-service")]:
+              print(f"{key}={images[name]}")
+          EOF
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
+            -backend-config="region=${{ vars.AWS_REGION || 'us-east-1' }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform plan (approved digests only)
+        run: |
+          terraform plan -input=false -out=release.tfplan \
+            -var "aws_region=${{ vars.AWS_REGION || 'us-east-1' }}" \
+            -var "api_image=${{ steps.images.outputs.api }}" \
+            -var "admin_web_image=${{ steps.images.outputs.admin_web }}" \
+            -var "web_image=${{ steps.images.outputs.web }}" \
+            -var "notification_service_image=${{ steps.images.outputs.notification_service }}"
+
+      - name: Terraform apply
+        run: terraform apply -input=false release.tfplan
+
+      - name: Post-deploy health
+        if: vars.PRODUCTION_HEALTH_URL != ''
+        working-directory: .
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 10 "${{ vars.PRODUCTION_HEALTH_URL }}"; then
+              echo; echo "healthy after attempt ${attempt}"; exit 0
+            fi
+            sleep 10
+          done
+          echo "production did not report healthy within 5 minutes" >&2
+          exit 1

@@ -70,7 +70,8 @@ export class VenueExecutionScoreService {
     let slippageSum = 0;
     let slippageCount = 0;
     try {
-      const fills = await (this.prisma as any).omsFill.findMany({ where: { tenantId, venue, timestamp: { gte: from.toISOString(), lte: to.toISOString() } as any } });
+      // OmsFill has no timestamp column (timestampMicros is a string): filter by createdAt.
+      const fills = await (this.prisma as any).omsFill.findMany({ where: { tenantId, venue, createdAt: { gte: from, lte: to } } });
       for (const fill of fills) {
         const intent = intents.find((i) => i.id === fill.orderIntentId);
         if (!intent) continue;
@@ -155,14 +156,10 @@ export class VenueExecutionScoreService {
 
   async listVenueScores(params: { tenantId: string; from?: Date; to?: Date }) {
     const { tenantId, from, to } = params;
-    try {
-      return await (this.prisma as any).omsVenueScore.findMany({
-        where: { tenantId, ...(from || to ? { periodStart: { gte: from?.toISOString(), lte: to?.toISOString() } as any } : {}) },
-        orderBy: { calculatedAt: 'desc' },
-        take: 100,
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).omsVenueScore.findMany({
+      where: { tenantId, ...(from || to ? { periodStart: { gte: from?.toISOString(), lte: to?.toISOString() } as any } : {}) },
+      orderBy: { calculatedAt: 'desc' },
+      take: 100,
+    });
   }
 }

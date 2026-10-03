@@ -32,6 +32,8 @@ export enum ErrorCode {
   TWO_FACTOR_INVALID = 'TWO_FACTOR_INVALID',
   TWO_FACTOR_ALREADY_ENABLED = 'TWO_FACTOR_ALREADY_ENABLED',
   TWO_FACTOR_NOT_ENABLED = 'TWO_FACTOR_NOT_ENABLED',
+  /** The tenant enforces single sign-on for this account; password login is refused. */
+  SSO_REQUIRED = 'SSO_REQUIRED',
 
   // Authorization
   FORBIDDEN = 'FORBIDDEN',
@@ -84,6 +86,7 @@ export const ERROR_CODE_HTTP_STATUS: Readonly<Record<ErrorCode, number>> = Objec
   [ErrorCode.TWO_FACTOR_INVALID]: 401,
   [ErrorCode.TWO_FACTOR_ALREADY_ENABLED]: 409,
   [ErrorCode.TWO_FACTOR_NOT_ENABLED]: 409,
+  [ErrorCode.SSO_REQUIRED]: 403,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
   [ErrorCode.TENANT_MISMATCH]: 403,

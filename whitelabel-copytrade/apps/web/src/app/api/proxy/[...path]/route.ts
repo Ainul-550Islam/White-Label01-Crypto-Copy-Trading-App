@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { serverEnv, publicEnv } from '@/lib/env';
 import { getAccessToken, getCsrfToken } from '@/lib/session';
+import { buildUpstreamPath, isAnonymousRoute, isUnsafeSegment } from '@/lib/proxy-path';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,15 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 async function handle(request: Request, segments: string[]): Promise<NextResponse> {
   const env = serverEnv();
 
+  if (segments.some(isUnsafeSegment)) {
+    return NextResponse.json(
+      { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid path.' } },
+      { status: 400 }
+    );
+  }
+
+  const anonymous = isAnonymousRoute(request.method, segments, publicEnv.apiVersion);
+
   if (MUTATING_METHODS.has(request.method)) {
     const submitted = request.headers.get('x-csrf-token');
     const expected = getCsrfToken();
@@ -30,31 +40,27 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
   }
 
   const token = getAccessToken();
-  if (!token) {
+  if (!token && !anonymous) {
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'No active session.' } },
       { status: 401 }
     );
   }
 
-  if (segments.some((segment) => segment.includes('..') || segment.includes('\\'))) {
-    return NextResponse.json(
-      { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid path.' } },
-      { status: 400 }
-    );
-  }
-
   const incoming = new URL(request.url);
   const base = env.API_BASE_URL.replace(/\/+$/, '');
-  const target = new URL(`${base}/${publicEnv.apiVersion}/${segments.join('/')}`);
+  const target = new URL(`${base}/${buildUpstreamPath(segments, publicEnv.apiVersion)}`);
   target.search = incoming.search;
 
   const headers: Record<string, string> = {
     accept: 'application/json',
-    authorization: `Bearer ${token}`,
     'x-request-id': request.headers.get('x-request-id') ?? randomUUID(),
     'x-correlation-id': request.headers.get('x-correlation-id') ?? randomUUID(),
   };
+
+  if (token && !anonymous) {
+    headers.authorization = `Bearer ${token}`;
+  }
 
   const forwardedHost = request.headers.get('x-forwarded-host') ?? incoming.host;
   if (forwardedHost) {

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPeriodService } from './accounting-period.service';
@@ -61,21 +62,37 @@ export class PeriodCloseService {
       sourceId: periodId,
     });
 
+    // A close record for this period already exists (an earlier attempt failed
+    // validation and the period went back to OPEN): validate again on that record
+    // instead of returning it and leaving the period stuck in CLOSING.
+    let existing: any = null;
     try {
-      const existing = await (this.prisma as any).portfolioAccountingClose.findFirst({ where: { idempotencyKey } });
-      if (existing) return existing;
+      existing = await (this.prisma as any).portfolioAccountingClose.findFirst({ where: { tenantId, idempotencyKey } });
     } catch {}
+    if (existing) {
+      return await this.validateAndClose({ tenantId, periodId, closeId: existing.id, operatorId, correlationId });
+    }
 
+    const policy = await this.policyService.resolvePolicy({ tenantId, scope: 'TENANT' as any, scopeId: period.profileId });
+
+    // PortfolioAccountingClose columns: requestedBy, calculation/policy versions
+    // (required), validationEvidence Json. Initiation details live in the evidence.
     const closeRecord = await (this.prisma as any).portfolioAccountingClose.create({
       data: {
         tenantId,
-        profileId: period.profileId,
         periodId,
-        state: 'CLOSING',
-        initiatedBy: operatorId,
-        initiatedAt: new Date(),
+        requestedBy: operatorId,
+        validationPassed: false,
+        validationEvidence: redactSecrets({
+          state: 'CLOSING',
+          profileId: period.profileId,
+          initiatedBy: operatorId,
+          initiatedAt: new Date().toISOString(),
+          correlationId: correlationId ?? null,
+        }) as any,
+        calculationVersion: policy.calculationVersion,
+        policyVersion: policy.policyVersion,
         idempotencyKey,
-        correlationId: correlationId ?? null,
       },
     });
 
@@ -191,10 +208,15 @@ export class PeriodCloseService {
       await (this.prisma as any).portfolioAccountingClose.update({
         where: { id: closeId },
         data: {
-          state: 'FAILED',
-          failedAt: new Date(),
-          failureReason: validationSteps.filter((s) => !s.passed).map((s) => s.step).join(','),
-          evidence: redactSecrets({ validationSteps, reconciliation }) as any,
+          validationPassed: false,
+          reconciliationStatus: hasCriticalReconciliationFailure ? 'CRITICAL_FAILURE' : 'OK',
+          failureEvidence: redactSecrets({
+            state: 'FAILED',
+            failedAt: new Date().toISOString(),
+            failureReason: validationSteps.filter((s) => !s.passed).map((s) => s.step).join(','),
+            validationSteps,
+            reconciliation,
+          }) as any,
         },
       });
 
@@ -240,6 +262,19 @@ export class PeriodCloseService {
       evidence: twr.evidence,
     });
 
+    // Record the closing figures on the period while it is still CLOSING (it is immutable once CLOSED).
+    await (this.prisma as any).portfolioAccountingPeriod.update({
+      where: { id: periodId },
+      data: {
+        closingNav: navResult.nav ?? null,
+        realizedPnl: pnlResult.evidence?.gross?.realized ?? null,
+        unrealizedPnl: pnlResult.evidence?.gross?.unrealized ?? null,
+        netPnl: pnlResult.netPnl ?? null,
+        returnPercent: twr.returnPercent ?? null,
+        validationEvidence: redactSecrets({ validationSteps }) as any,
+      },
+    });
+
     // Transition to CLOSED
     await this.periodService.transitionPeriod({
       tenantId,
@@ -252,22 +287,45 @@ export class PeriodCloseService {
     const closed = await (this.prisma as any).portfolioAccountingClose.update({
       where: { id: closeId },
       data: {
-        state: 'CLOSED',
-        closedAt: new Date(),
         closedBy: operatorId,
-        nav: navResult.nav,
-        grossAssetValue: navResult.grossAssetValue,
-        grossLiability: navResult.grossLiability,
-        realizedPnl: pnlResult.evidence?.gross?.realized ?? null,
-        unrealizedPnl: pnlResult.evidence?.gross?.unrealized ?? null,
-        netPnl: pnlResult.netPnl,
-        snapshotId: finalSnapshot.id,
-        evidence: redactSecrets({ validationSteps, nav: navResult, pnl: pnlResult, twr: twr.evidence, reconciliation }) as any,
+        validationPassed: true,
+        closingNav: navResult.nav ?? null,
+        reconciliationStatus: 'OK',
+        failureEvidence: Prisma.DbNull,
+        validationEvidence: redactSecrets({
+          state: 'CLOSED',
+          closedAt: new Date().toISOString(),
+          grossAssetValue: navResult.grossAssetValue,
+          grossLiability: navResult.grossLiability,
+          realizedPnl: pnlResult.evidence?.gross?.realized ?? null,
+          unrealizedPnl: pnlResult.evidence?.gross?.unrealized ?? null,
+          netPnl: pnlResult.netPnl,
+          snapshotId: finalSnapshot.id,
+          validationSteps,
+          nav: navResult,
+          pnl: pnlResult,
+          twr: twr.evidence,
+          reconciliation,
+        }) as any,
       },
     });
 
     this.logger.log({ event: 'portfolio.period.closed', periodId, nav: navResult.nav });
 
-    return closed;
+    return toCloseView(closed);
   }
+}
+
+/** API view of a PortfolioAccountingClose row: exposes state/nav/snapshotId kept in validationEvidence. */
+export function toCloseView(row: any): any {
+  if (!row) return row;
+  const evidence = row.validationEvidence && typeof row.validationEvidence === 'object' ? row.validationEvidence : {};
+  return {
+    ...row,
+    state: row.validationPassed ? 'CLOSED' : row.failureEvidence ? 'FAILED' : 'CLOSING',
+    nav: row.closingNav ?? null,
+    snapshotId: evidence.snapshotId ?? null,
+    netPnl: evidence.netPnl ?? null,
+    closedAt: evidence.closedAt ?? null,
+  };
 }

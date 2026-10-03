@@ -43,7 +43,7 @@ import { TracingService } from '../../infrastructure/tracing/tracing.service';
 import { SloSamplesService } from '../observability/slo-samples';
 import { EngineCallError, EngineInternalClient } from './engine-internal.client';
 import { WorkerCoordinationService } from './worker-coordination.service';
-import { parseTradeExecutionPayload, TRADE_EXECUTION_COMMANDS } from './worker.types';
+import { isSubmitOrderPayload, parseTradeExecutionPayload, TRADE_EXECUTION_COMMANDS } from './worker.types';
 
 interface DeferProgress {
   readonly defers: number;
@@ -145,6 +145,29 @@ export class TradeExecutionProcessor extends WorkerHost implements OnApplication
             orderId: payload.orderId,
             outcome: receipt.outcome,
             code: receipt.code,
+            jobId: job.id ?? '',
+          },
+          'TRADE_EXECUTION job completed',
+        );
+        return receipt.detail as Record<string, unknown>;
+      }
+      if (job.name === JOB_NAMES.SUBMIT_ORDER) {
+        if (!isSubmitOrderPayload(payload)) {
+          // Same drift guard as cancel below: the validator guarantees the
+          // shape, so reaching here means validator and types disagree.
+          throw new UnrecoverableError('SUBMIT_ORDER payload lost its order fields');
+        }
+        const receipt = await this.engine.submitOrder(payload, correlationId);
+        this.logger.info(
+          {
+            event: 'worker.trade_execution.done',
+            command: job.name,
+            tenantId: payload.tenantId,
+            accountId: payload.accountId,
+            orderId: payload.orderId,
+            clientOrderId: payload.clientOrderId,
+            outcome: receipt.outcome,
+            engineOutcome: typeof receipt.detail.outcome === 'string' ? receipt.detail.outcome : 'UNKNOWN',
             jobId: job.id ?? '',
           },
           'TRADE_EXECUTION job completed',

@@ -93,32 +93,24 @@ export class OperationalAuditService {
       if (to) where.createdAt.lte = to;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).operationalAuditLog.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).operationalAuditLog.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).operationalAuditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).operationalAuditLog.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async getByCorrelationId(correlationId: string, tenantId?: string | null): Promise<any[]> {
-    try {
-      const where: any = { correlationId };
-      if (tenantId !== undefined) where.tenantId = tenantId;
-      return await (this.prisma as any).operationalAuditLog.findMany({
-        where,
-        orderBy: { createdAt: 'asc' },
-      });
-    } catch {
-      return [];
-    }
+    const where: any = { correlationId };
+    if (tenantId !== undefined) where.tenantId = tenantId;
+    return await (this.prisma as any).operationalAuditLog.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+    });
   }
 }

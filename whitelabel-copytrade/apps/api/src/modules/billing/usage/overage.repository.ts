@@ -3,6 +3,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { OverageRecord, OverageStatus } from './overage.types';
 import { MeterKey, MeterUnit } from './usage-metering.types';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../../common/errors/prisma-not-found';
 
 /**
  * Persists overage records, period references, quantities, policy references, status, idempotency.
@@ -35,7 +36,7 @@ export class OverageRepository {
     metadata?: Record<string, unknown> | null;
   }): Promise<OverageRecord> {
     // Idempotency check
-    const existingByKey = await this.findByIdempotencyKey(data.idempotencyKey);
+    const existingByKey = await this.findByIdempotencyKey(data.idempotencyKey, data.tenantId);
     if (existingByKey) {
       this.logger.log(`Idempotent overage return by idempotencyKey: ${data.idempotencyKey}`);
       return existingByKey;
@@ -108,7 +109,7 @@ export class OverageRepository {
       }
     } catch (error: any) {
       if (error.code === 'P2002') {
-        const existing = await this.findByIdempotencyKey(data.idempotencyKey);
+        const existing = await this.findByIdempotencyKey(data.idempotencyKey, data.tenantId);
         if (existing) return existing;
       }
       if (error.code === 'P2021' || error.message?.includes('does not exist')) {
@@ -119,7 +120,7 @@ export class OverageRepository {
               id: randomUUID(),
               tenantId: data.tenantId,
               action: 'OVERAGE_DETECTED',
-              resource: 'OverageRecord',
+              resourceType: 'OverageRecord',
               resourceId: id,
               metadata: { ...record, fallback: true },
               createdAt: new Date(),
@@ -136,40 +137,28 @@ export class OverageRepository {
   }
 
   async findById(id: string, tenantId?: string): Promise<OverageRecord | null> {
-    try {
-      const result = await (this.prisma as any).overageRecord?.findFirst({
-        where: { id, ...(tenantId ? { tenantId } : {}) },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).overageRecord?.findFirst({
+      where: { id, ...(tenantId ? { tenantId } : {}) },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<OverageRecord | null> {
-    try {
-      const result = await (this.prisma as any).overageRecord?.findFirst({
-        where: { idempotencyKey },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<OverageRecord | null> {
+    const result = await (this.prisma as any).overageRecord?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
   async findByTenantPeriodMeter(tenantId: string, periodId: string, meterKey: MeterKey): Promise<OverageRecord | null> {
-    try {
-      const result = await (this.prisma as any).overageRecord?.findFirst({
-        where: { tenantId, periodId, meterKey },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).overageRecord?.findFirst({
+      where: { tenantId, periodId, meterKey },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
   async listByTenant(
@@ -184,29 +173,25 @@ export class OverageRepository {
       offset?: number;
     },
   ): Promise<OverageRecord[]> {
-    try {
-      const where: any = { tenantId };
-      if (filter?.meterKey) where.meterKey = filter.meterKey;
-      if (filter?.periodId) where.periodId = filter.periodId;
-      if (filter?.status) where.status = filter.status;
-      if (filter?.fromDate || filter?.toDate) {
-        where.periodStart = {};
-        if (filter.fromDate) where.periodStart.gte = filter.fromDate;
-        if (filter.toDate) where.periodStart.lte = filter.toDate;
-      }
-
-      const results = await (this.prisma as any).overageRecord?.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: filter?.limit || 100,
-        skip: filter?.offset || 0,
-      });
-
-      if (!results) return [];
-      return results.map((r: any) => this.mapToDomain(r));
-    } catch {
-      return [];
+    const where: any = { tenantId };
+    if (filter?.meterKey) where.meterKey = filter.meterKey;
+    if (filter?.periodId) where.periodId = filter.periodId;
+    if (filter?.status) where.status = filter.status;
+    if (filter?.fromDate || filter?.toDate) {
+      where.periodStart = {};
+      if (filter.fromDate) where.periodStart.gte = filter.fromDate;
+      if (filter.toDate) where.periodStart.lte = filter.toDate;
     }
+
+    const results = await (this.prisma as any).overageRecord?.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: filter?.limit || 100,
+      skip: filter?.offset || 0,
+    });
+
+    if (!results) return [];
+    return results.map((r: any) => this.mapToDomain(r));
   }
 
   async updateStatus(id: string, status: OverageStatus, metadata?: Record<string, unknown>): Promise<OverageRecord | null> {
@@ -221,8 +206,9 @@ export class OverageRepository {
       });
       if (!updated) return null;
       return this.mapToDomain(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 

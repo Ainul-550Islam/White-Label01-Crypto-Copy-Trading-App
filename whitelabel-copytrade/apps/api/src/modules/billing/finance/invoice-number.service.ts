@@ -106,29 +106,19 @@ export class InvoiceNumberService {
 
   private async getNextSequenceFromDb(scope: string): Promise<number> {
     try {
-      // Use database as fallback for sequence generation with row-level locking
-      const result = await this.prisma.$transaction(async (tx: any) => {
-        // Try to find existing counter
-        const counter = await (tx as any).invoiceCounter?.findUnique({
-          where: { scope },
-        });
-
-        if (counter) {
-          const updated = await (tx as any).invoiceCounter.update({
-            where: { scope },
-            data: { sequence: { increment: 1 } },
-          });
-          return updated.sequence;
-        } else {
-          // Create new counter
-          const created = await (tx as any).invoiceCounter?.create({
-            data: { scope, sequence: 1 },
-          });
-          return created?.sequence || Math.floor(Math.random() * 1000000) + 1;
-        }
+      // Database fallback when Redis is unavailable. One upsert on the unique
+      // scope is a single INSERT ... ON CONFLICT DO UPDATE: atomic, so two
+      // concurrent callers can never draw the same number, and a missing
+      // counter row is created at 1 in the same statement. (The previous
+      // find-then-update/create pair could race, and fell back to a RANDOM
+      // number - a gap/duplicate risk for sequential invoice numbering.)
+      const counter = await this.prisma.invoiceCounter.upsert({
+        where: { scope },
+        create: { scope, sequence: 1 },
+        update: { sequence: { increment: 1 } },
+        select: { sequence: true },
       });
-
-      return result || Math.floor(Math.random() * 1000000) + 1;
+      return counter.sequence;
     } catch {
       // Ultimate fallback: timestamp + random
       return Math.floor(Date.now() / 1000) % 10000000;

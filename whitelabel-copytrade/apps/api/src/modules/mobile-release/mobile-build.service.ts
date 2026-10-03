@@ -276,7 +276,7 @@ export class MobileBuildService {
       input.commitSha ?? '',
     );
 
-    const existing = await this.prisma.mobileBuild.findUnique({ where: { idempotencyKey: key } });
+    const existing = await this.prisma.mobileBuild.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: key } });
     if (existing) return { build: existing as unknown as Record<string, unknown>, replayed: true };
 
     if (todays >= budget) {

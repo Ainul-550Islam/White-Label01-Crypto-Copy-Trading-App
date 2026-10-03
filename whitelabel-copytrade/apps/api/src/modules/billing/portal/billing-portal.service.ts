@@ -179,12 +179,8 @@ export class BillingPortalService {
       return result.items.sort((a, b) => a.sortOrder - b.sortOrder);
     } catch {
       // Fallback to platform catalogue cached
-      try {
-        const catalog = await this.plansService.getPlatformCatalogue();
-        return catalog.sort((a, b) => a.sortOrder - b.sortOrder);
-      } catch {
-        return [];
-      }
+      const catalog = await this.plansService.getPlatformCatalogue();
+      return catalog.sort((a, b) => a.sortOrder - b.sortOrder);
     }
   }
 
@@ -264,61 +260,49 @@ export class BillingPortalService {
   }
 
   async getLatestInvoice(tenantId: string): Promise<PortalInvoiceSummary | null> {
-    try {
-      const invoices = await this.invoiceRepository.list({ tenantId } as any);
-      if (!invoices || invoices.length === 0) return null;
-      const latest = invoices.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-      return this.mapInvoiceToSummary(latest);
-    } catch {
-      return null;
-    }
+    const invoices = await this.invoiceRepository.list({ tenantId } as any);
+    if (!invoices || invoices.length === 0) return null;
+    const latest = invoices.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    return this.mapInvoiceToSummary(latest);
   }
 
   async getLatestPayment(tenantId: string): Promise<PortalPaymentSummary | null> {
-    try {
-      const payments = await this.paymentService.listPaymentsByTenant(tenantId);
-      if (!payments || payments.length === 0) return null;
-      const latest = payments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-      return {
-        id: latest.id,
-        provider: latest.provider,
-        status: latest.status,
-        amount: latest.amount,
-        currency: latest.currency,
-        planId: latest.planId,
-        planCode: (latest as any).planCode || null,
-        paidAt: latest.paidAt ? latest.paidAt.toISOString() : null,
-        failedAt: latest.failedAt ? latest.failedAt.toISOString() : null,
-        createdAt: latest.createdAt.toISOString(),
-        checkoutUrl: (latest as any).checkoutUrl || null,
-        invoiceUrl: (latest as any).invoiceUrl || null,
-        hasInvoice: !!(latest as any).invoiceId,
-      };
-    } catch {
-      return null;
-    }
+    const payments = await this.paymentService.listPaymentsByTenant(tenantId);
+    if (!payments || payments.length === 0) return null;
+    const latest = payments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    return {
+      id: latest.id,
+      provider: latest.provider,
+      status: latest.status,
+      amount: latest.amount,
+      currency: latest.currency,
+      planId: latest.planId,
+      planCode: (latest as any).planCode || null,
+      paidAt: latest.paidAt ? latest.paidAt.toISOString() : null,
+      failedAt: latest.failedAt ? latest.failedAt.toISOString() : null,
+      createdAt: latest.createdAt.toISOString(),
+      checkoutUrl: (latest as any).checkoutUrl || null,
+      invoiceUrl: (latest as any).invoiceUrl || null,
+      hasInvoice: !!(latest as any).invoiceId,
+    };
   }
 
   private async getBillingCustomerSafe(tenantId: string): Promise<PortalBillingCustomer | null> {
-    try {
-      const customer = await this.billingCustomerService.getBillingCustomer(tenantId);
-      if (!customer) return null;
-      return {
-        tenantId: customer.tenantId,
-        billingName: customer.billingName,
-        billingEmail: customer.billingEmail,
-        billingCountry: customer.billingCountry,
-        billingCity: customer.billingCity,
-        billingRegion: customer.billingRegion,
-        preferredCurrency: customer.preferredCurrency,
-        taxId: customer.taxId,
-        vatNumber: customer.vatNumber,
-        isBusinessCustomer: customer.isBusinessCustomer,
-        isTaxExempt: customer.isTaxExempt,
-      };
-    } catch {
-      return null;
-    }
+    const customer = await this.billingCustomerService.getBillingCustomer(tenantId);
+    if (!customer) return null;
+    return {
+      tenantId: customer.tenantId,
+      billingName: customer.billingName,
+      billingEmail: customer.billingEmail,
+      billingCountry: customer.billingCountry,
+      billingCity: customer.billingCity,
+      billingRegion: customer.billingRegion,
+      preferredCurrency: customer.preferredCurrency,
+      taxId: customer.taxId,
+      vatNumber: customer.vatNumber,
+      isBusinessCustomer: customer.isBusinessCustomer,
+      isTaxExempt: customer.isTaxExempt,
+    };
   }
 
   private mapInvoiceToSummary(invoice: any): PortalInvoiceSummary {

@@ -40,33 +40,73 @@ export class BenchmarkService {
     };
   }
 
+  /** Candle intervals in order of preference for a benchmark series. */
+  private static readonly SERIES_INTERVALS: readonly string[] = ['1d', '4h', '1h', '15m', '5m', '1m'];
+
+  /**
+   * One venue/interval series out of mixed candle rows. Interleaving a 1m and
+   * a 1d series (or two venues) would fabricate returns between unrelated
+   * closes, so exactly one series is kept: the most preferred interval, and
+   * within it the venue with the most observations. Input order is kept.
+   */
+  static pickSeries<T extends { venue: string; interval: string }>(rows: readonly T[]): T[] {
+    if (rows.length === 0) {
+      return [];
+    }
+    const groups = new Map<string, T[]>();
+    for (const row of rows) {
+      const key = `${row.venue}|${row.interval}`;
+      const group = groups.get(key);
+      if (group === undefined) {
+        groups.set(key, [row]);
+      } else {
+        group.push(row);
+      }
+    }
+    const rank = (interval: string): number => {
+      const i = BenchmarkService.SERIES_INTERVALS.indexOf(interval);
+      return i === -1 ? BenchmarkService.SERIES_INTERVALS.length : i;
+    };
+    let best: T[] | null = null;
+    for (const group of groups.values()) {
+      if (best === null) {
+        best = group;
+        continue;
+      }
+      const g = rank((group[0] as T).interval);
+      const b = rank((best[0] as T).interval);
+      if (g < b || (g === b && group.length > best.length)) {
+        best = group;
+      }
+    }
+    return best ?? [];
+  }
+
   async getBenchmarkObservations(params: {
     tenantId: string;
     benchmarkId: string;
     from: Date;
     to: Date;
   }): Promise<Array<{ timestamp: Date; value: string; source: string }>> {
-    // Must use verified market/index data — check MarketPrice, IndexPrice, etc.
-    try {
-      // Try to fetch from market data — benchmarkId could be symbol like BTCUSDT or index like SPX
-      const prices = await (this.prisma as any).marketPrice?.findMany?.({
-        where: { symbol: params.benchmarkId, timestamp: { gte: params.from, lte: params.to } },
-        orderBy: { timestamp: 'asc' },
-      });
+    // Must use verified market/index data: MarketDataRecord candles, keyed by
+    // symbol (benchmarkId is a symbol such as BTCUSDT). No such data -> [].
+    const rows = await this.prisma.marketDataRecord.findMany({
+      where: { symbol: params.benchmarkId, closeTime: { gte: params.from, lte: params.to } },
+      orderBy: { closeTime: 'asc' },
+      select: { close: true, closeTime: true, venue: true, interval: true },
+    });
 
-      if (prices && prices.length > 0) {
-        return prices.map((p: any) => ({
-          timestamp: new Date(p.timestamp),
-          value: p.price.toString(),
-          source: p.source ?? 'MARKET_DATA',
-        }));
-      }
-
-      // No benchmark data — explicit, not fabricated
-      return [];
-    } catch {
-      return [];
+    const series = BenchmarkService.pickSeries(rows);
+    if (series.length > 0) {
+      return series.map((p) => ({
+        timestamp: p.closeTime,
+        value: p.close.toString(),
+        source: `MARKET_DATA:${p.venue}:${p.interval}`,
+      }));
     }
+
+    // No benchmark data — explicit, not fabricated
+    return [];
   }
 
   async calculateBenchmarkReturn(params: {

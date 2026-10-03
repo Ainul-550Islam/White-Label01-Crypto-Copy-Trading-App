@@ -69,7 +69,7 @@ function toMobileActor(actor: AuthenticatedActor): MobileActor {
 }
 
 @ApiTags('mobile-release')
-@Controller('v1/mobile')
+@Controller('mobile')
 export class MobileReleaseController {
   constructor(
     private readonly apps: MobileAppService,

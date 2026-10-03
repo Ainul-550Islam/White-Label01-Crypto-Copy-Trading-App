@@ -22,6 +22,8 @@ export class SignalFilterService {
     blockedSymbols?: string[] | null;
     allowedSides?: string[] | null;
     cooldownMs?: number | null;
+    /** The user filtering/publishing the signal; checked for compliance blocks with the version's author. */
+    actorUserId?: string | null;
   }): Promise<{ allowed: boolean; reason: string | null; ruleId: string | null; filteredState: string }> {
     const signal = await (this.prisma as any).researchSignal.findFirst({ where: { id: input.signalId, tenantId: input.tenantId } });
     if (!signal) throw new Error(`Signal ${input.signalId} not found`);
@@ -76,36 +78,41 @@ export class SignalFilterService {
       return { allowed: false, reason: `Strategy version status ${strategyVersion.status} not allowed`, ruleId: 'STRATEGY_STATE', filteredState: 'REJECTED' };
     }
 
-    // Risk constraints - check against existing risk configurations
-    try {
-      // Check if symbol is allowed by risk policy
-      const riskProfile = strategyVersion.riskProfile as any;
-      if (riskProfile?.blockedSymbols && riskProfile.blockedSymbols.includes(signal.symbol)) {
-        await this.rejectSignal(input.tenantId, input.signalId, `Symbol ${signal.symbol} blocked by risk profile`, 'RISK_BLOCKED_SYMBOL');
-        return { allowed: false, reason: `Symbol ${signal.symbol} blocked by risk profile`, ruleId: 'RISK_BLOCKED_SYMBOL', filteredState: 'REJECTED' };
-      }
-    } catch {}
+    // Risk constraints - the version's risk profile may block symbols. Only an
+    // array counts: a string used to match substrings ('BTC-USDT,ETH' blocked
+    // 'ETH') and anything else threw into an empty catch and allowed.
+    const blockedByProfile = (strategyVersion.riskProfile as { blockedSymbols?: unknown } | null)?.blockedSymbols;
+    if (Array.isArray(blockedByProfile) && blockedByProfile.includes(signal.symbol)) {
+      await this.rejectSignal(input.tenantId, input.signalId, `Symbol ${signal.symbol} blocked by risk profile`, 'RISK_BLOCKED_SYMBOL');
+      return { allowed: false, reason: `Symbol ${signal.symbol} blocked by risk profile`, ruleId: 'RISK_BLOCKED_SYMBOL', filteredState: 'REJECTED' };
+    }
 
-    // Compliance check - check if tenant/user is blocked
-    try {
-      const complianceCase = await (this.prisma as any).complianceCase?.findFirst({ where: { tenantId: input.tenantId, decision: 'BLOCK', state: { in: ['OPEN','IN_REVIEW','ESCALATED'] } } });
+    // Compliance: an open BLOCK case on the version's author or on the user
+    // acting now stops the signal. This used to match ANY open BLOCK case in
+    // the tenant (one blocked customer stopped every research signal) and to
+    // ignore lookup errors. A failed lookup now propagates (no publish).
+    const subjects = [strategyVersion.createdBy, input.actorUserId].filter((u): u is string => typeof u === 'string' && u.length > 0);
+    if (subjects.length > 0) {
+      const complianceCase = await this.prisma.complianceCase.findFirst({
+        where: { tenantId: input.tenantId, userId: { in: subjects }, decision: 'BLOCK', state: { in: ['OPEN', 'IN_REVIEW', 'ESCALATED'] } },
+        select: { id: true },
+      });
       if (complianceCase) {
         await this.rejectSignal(input.tenantId, input.signalId, 'Compliance BLOCK prevents signal', 'COMPLIANCE_BLOCK');
         return { allowed: false, reason: 'Compliance BLOCK prevents signal', ruleId: 'COMPLIANCE_BLOCK', filteredState: 'REJECTED' };
       }
-    } catch {}
+    }
 
-    // Exchange capability - check symbol exists and is tradeable
-    try {
-      const tradingSymbol = await this.prisma.tradingSymbol.findFirst({ where: { tenantId: input.tenantId, symbol: signal.symbol } });
-      if (!tradingSymbol) {
-        // Not necessarily reject - could be warning, but for safety we allow with warning? Per spec, filter by exchange capability
-        this.logger.warn(`Symbol ${signal.symbol} not found in trading symbols tenant=${input.tenantId} - allowing but flagged`);
-      } else if (!tradingSymbol.isTradeable) {
-        await this.rejectSignal(input.tenantId, input.signalId, `Symbol ${signal.symbol} not tradeable`, 'EXCHANGE_NOT_TRADEABLE');
-        return { allowed: false, reason: `Symbol ${signal.symbol} not tradeable`, ruleId: 'EXCHANGE_NOT_TRADEABLE', filteredState: 'REJECTED' };
-      }
-    } catch {}
+    // Exchange capability - a known, non-tradeable symbol is rejected; an
+    // unknown symbol is allowed with a warning (research may precede venue
+    // listing). A failed lookup propagates instead of allowing.
+    const tradingSymbol = await this.prisma.tradingSymbol.findFirst({ where: { tenantId: input.tenantId, symbol: signal.symbol } });
+    if (!tradingSymbol) {
+      this.logger.warn(`Symbol ${signal.symbol} not found in trading symbols tenant=${input.tenantId} - allowing but flagged`);
+    } else if (!tradingSymbol.isTradeable) {
+      await this.rejectSignal(input.tenantId, input.signalId, `Symbol ${signal.symbol} not tradeable`, 'EXCHANGE_NOT_TRADEABLE');
+      return { allowed: false, reason: `Symbol ${signal.symbol} not tradeable`, ruleId: 'EXCHANGE_NOT_TRADEABLE', filteredState: 'REJECTED' };
+    }
 
     // Time validity - check expiry
     if (signal.expiresAt && new Date(signal.expiresAt).getTime() < Date.now()) {
@@ -129,7 +136,7 @@ export class SignalFilterService {
 
   private async rejectSignal(tenantId: string, signalId: string, reason: string, ruleId: string): Promise<void> {
     try {
-      await (this.prisma as any).researchSignal.update({ where: { id: signalId }, data: { state: 'REJECTED', updatedAt: new Date() } });
+      await (this.prisma as any).researchSignal.update({ where: { id: signalId, tenantId }, data: { state: 'REJECTED', updatedAt: new Date() } });
 
       await this.researchRepo.createAuditLog({
         tenantId,

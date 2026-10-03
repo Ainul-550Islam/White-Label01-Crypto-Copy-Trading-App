@@ -1,3 +1,4 @@
+import { forEachTenant, listBillableTenantIds } from '../finance/tenant-iteration';
 import { Injectable, Logger } from '@nestjs/common';
 import { UsageEventRepository } from './usage-event.repository';
 import { UsageMeterRepository } from './usage-meter.repository';
@@ -232,8 +233,10 @@ export class UsageReconciliationService {
     };
   }
 
-  async reconcileAllTenants(options?: { fromDate?: Date; toDate?: Date }): Promise<any[]> {
-    // In real implementation, iterate all tenants
-    return [];
+  async reconcileAllTenants(options?: { fromDate?: Date; toDate?: Date; limit?: number }): Promise<any[]> {
+    const tenantIds = await listBillableTenantIds(this.prisma, options?.limit ?? 1000);
+    const results = await forEachTenant(tenantIds, (tenantId) => this.reconcileTenant(tenantId, { fromDate: options?.fromDate, toDate: options?.toDate }));
+    this.logger.log(`Usage reconciliation all tenants=${tenantIds.length} failed=${results.filter((r) => r.error).length}`);
+    return results.map((r) => (r.error ? { tenantId: r.tenantId, error: r.error } : r.result));
   }
 }

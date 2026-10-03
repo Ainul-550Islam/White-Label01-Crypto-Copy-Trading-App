@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { randomUUID } from 'crypto';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 /**
  * Persistence abstraction for paper sessions, paper orders, paper fills, portfolio snapshots, and session lifecycle.
@@ -25,7 +26,7 @@ export class PaperTradingRepository {
     idempotencyKey?: string | null;
   }): Promise<any> {
     if (input.idempotencyKey) {
-      const existing = await (this.prisma as any).researchPaperSession.findFirst({ where: { idempotencyKey: input.idempotencyKey } });
+      const existing = await (this.prisma as any).researchPaperSession.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existing) return existing;
     }
 
@@ -91,8 +92,11 @@ export class PaperTradingRepository {
 
   async updateSessionStatus(id: string, tenantId: string, status: string, extra?: { startedAt?: Date; stoppedAt?: Date; currentEquity?: string; realizedPnl?: string; unrealizedPnl?: string | null; maxDrawdown?: string | null; feesPaid?: string }): Promise<any | null> {
     try {
-      return await (this.prisma as any).researchPaperSession.update({ where: { id }, data: { status, ...extra, updatedAt: new Date() } });
-    } catch { return null; }
+      return await (this.prisma as any).researchPaperSession.update({ where: { id, tenantId }, data: { status, ...extra, updatedAt: new Date() } });
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
+    }
   }
 
   // Paper Orders - Never write paper orders into live order records
@@ -162,11 +166,9 @@ export class PaperTradingRepository {
   }
 
   async updatePaperOrderStatus(orderId: string, tenantId: string, status: string, extra?: { filledQuantity?: string; averageFillPrice?: string | null; fee?: string }): Promise<any | null> {
-    try {
-      const existing = await (this.prisma as any).researchPaperOrder.findFirst({ where: { orderId, tenantId } });
-      if (!existing) return null;
-      return await (this.prisma as any).researchPaperOrder.update({ where: { id: existing.id }, data: { status, ...extra, updatedAt: new Date() } });
-    } catch { return null; }
+    const existing = await (this.prisma as any).researchPaperOrder.findFirst({ where: { orderId, tenantId } });
+    if (!existing) return null;
+    return await (this.prisma as any).researchPaperOrder.update({ where: { id: existing.id, tenantId }, data: { status, ...extra, updatedAt: new Date() } });
   }
 
   // Paper Fills

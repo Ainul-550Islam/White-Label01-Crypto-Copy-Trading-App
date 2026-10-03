@@ -100,6 +100,10 @@ export class OrderIntentService {
     requestId?: string | null;
     userId?: string | null;
     venue?: string | null;
+    /** Phase 3: producer links carried on the intent (e.g. copyExecutionId),
+     * forwarded by routeIntent onto the canonical order and the SUBMIT_ORDER
+     * job. String values only; never used for any decision. */
+    metadata?: Record<string, string> | null;
   }) {
     const {
       tenantId,
@@ -123,6 +127,7 @@ export class OrderIntentService {
       requestId,
       userId,
       venue,
+      metadata: producerMetadata,
     } = params;
 
     // Tenant ownership validation
@@ -198,7 +203,17 @@ export class OrderIntentService {
       throw new ForbiddenException(`Live trading not enabled for account ${accountId}`);
     }
 
-    const clientOrderId = `oms-${randomUUID()}`;
+    // 35 characters of [A-Za-z0-9]: fits Order.clientOrderId (VarChar(36)) and
+    // the execution core's CLIENT_ORDER_ID_PATTERN ([A-Za-z0-9_-]{1,36}). The
+    // previous `oms-${uuid}` form was 40 characters and could not be stored on
+    // the canonical order row nor accepted by the engine.
+    const clientOrderId = `oms${randomUUID().replace(/-/g, '')}`;
+    const safeProducerMetadata: Record<string, string> = {};
+    for (const [key, value] of Object.entries(producerMetadata ?? {})) {
+      if (typeof value === 'string' && value.length <= 128 && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key)) {
+        safeProducerMetadata[key] = value;
+      }
+    }
     const now = new Date();
     const nowIso = now.toISOString();
     const micros = (BigInt(now.getTime()) * 1000n).toString();
@@ -247,7 +262,7 @@ export class OrderIntentService {
           correlationId: correlationId ?? undefined,
           requestId: requestId ?? undefined,
           source,
-          metadata: { transitions: [transition], symbolId: symbolRecord.id },
+          metadata: { ...safeProducerMetadata, transitions: [transition], symbolId: symbolRecord.id },
           filledQuantity: '0',
           cumulativeFee: '0',
           isSimulated: environment === 'PAPER',
@@ -278,7 +293,7 @@ export class OrderIntentService {
           reduceOnly: reduceOnly ?? false,
           isSimulated: environment === 'PAPER',
           wasDryRun: false,
-          metadata: { omsIntent: true, transitions: [transition], source, correlationId, riskDecisionId, environment, signalId } as any,
+          metadata: { ...safeProducerMetadata, omsIntent: true, transitions: [transition], source, correlationId, riskDecisionId, environment, signalId } as any,
         },
       });
       return created;

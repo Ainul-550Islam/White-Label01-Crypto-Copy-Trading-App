@@ -63,7 +63,7 @@ export class RelationshipService {
     });
 
     try {
-      const existing = await (this.prisma as any).accountRelationship.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).accountRelationship.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -156,19 +156,15 @@ export class RelationshipService {
     if (accountId) where.accountId = accountId;
     if (status) where.status = status;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).accountRelationship.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).accountRelationship.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).accountRelationship.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).accountRelationship.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

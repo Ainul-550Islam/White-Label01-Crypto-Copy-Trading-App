@@ -1,4 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnprocessableEntityException,
+  ConflictException,
+} from '@nestjs/common';
 import { CopySubscriptionRepository } from './copy-subscription.repository';
 import { FollowerAllocationService } from './follower-allocation.service';
 import { CopyPolicyService } from './copy-policy.service';
@@ -8,6 +15,8 @@ import { CopySubscriptionState, CopySizingMode } from './copy-trading.types';
 import { PlanLimitFollowersGuard } from '../billing/enforcement/plan-limit-followers.guard';
 import { PlanLimitCopySubscriptionsGuard } from '../billing/enforcement/plan-limit-copy-subscriptions.guard';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { MaintenanceModeService } from '../operations/maintenance-mode.service';
+import { OperationalMaintenanceScope } from '../operations/operations.types';
 import { randomUUID } from 'crypto';
 
 export interface SubscribeInput {
@@ -44,25 +53,53 @@ export class FollowerSubscriptionService {
     private readonly traderStrategyService: TraderStrategyService,
     private readonly followersGuard: PlanLimitFollowersGuard,
     private readonly copySubsGuard: PlanLimitCopySubscriptionsGuard,
+    private readonly maintenance: MaintenanceModeService,
   ) {}
 
+  /**
+   * Starting or resuming copying is a new trading action, so it is refused
+   * (503) while a PLATFORM, tenant or TRADING_CAPABILITY maintenance window is
+   * active - the same rule the customer web uses to disable the copy button
+   * (`blocksTrading` on GET /operations/maintenance/current). Pause and stop
+   * stay available: reducing exposure must always work.
+   */
+  private assertTradingOpen(tenantId: string, operation: string): Promise<void> {
+    return this.maintenance.enforceMaintenanceGate({
+      tenantId,
+      scope: OperationalMaintenanceScope.TRADING_CAPABILITY,
+      operation,
+    });
+  }
+
   async subscribe(input: SubscribeInput): Promise<any> {
+    await this.assertTradingOpen(input.tenantId, 'copy_trading.subscribe');
+
     // Validate trader/strategy
     const trader = await this.traderProfileService.getProfile(input.tenantId, input.traderId);
-    if (!trader) throw new Error(`Trader ${input.traderId} not found`);
+    // Business-rule failures are HTTP exceptions: plain Errors surfaced to the
+    // follower as a generic 500 instead of the actual reason.
+    if (!trader) throw new NotFoundException(`Trader ${input.traderId} not found`);
 
     const strategy = await this.traderStrategyService.getStrategy(input.tenantId, input.strategyId);
-    if (!strategy) throw new Error(`Strategy ${input.strategyId} not found`);
-    if (strategy.traderId !== input.traderId) throw new Error('Strategy does not belong to trader');
-    if (strategy.status !== 'PUBLISHED') throw new Error(`Strategy must be PUBLISHED to subscribe, current=${strategy.status}`);
+    if (!strategy) throw new NotFoundException(`Strategy ${input.strategyId} not found`);
+    if (strategy.traderId !== input.traderId) throw new UnprocessableEntityException('Strategy does not belong to trader');
+    if (strategy.status !== 'PUBLISHED') {
+      throw new UnprocessableEntityException(`Strategy must be PUBLISHED to subscribe, current=${strategy.status}`);
+    }
 
     // Validate follower eligibility - check compliance BLOCK
-    try {
-      const complianceCase = await (this.prisma as any).complianceCase?.findFirst({ where: { tenantId: input.tenantId, userId: input.followerId, decision: 'BLOCK', state: { in: ['OPEN', 'IN_REVIEW', 'ESCALATED'] } } });
-      if (complianceCase) throw new Error('Follower account is blocked by compliance');
-    } catch (e: any) {
-      if (e.message.includes('blocked by compliance')) throw e;
-    }
+    // Fail closed: this used an untyped query inside a catch that swallowed
+    // every error except its own, so any database failure skipped the block.
+    const complianceCase = await this.prisma.complianceCase.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        userId: input.followerId,
+        decision: 'BLOCK',
+        state: { in: ['OPEN', 'IN_REVIEW', 'ESCALATED'] },
+      },
+      select: { id: true },
+    });
+    if (complianceCase) throw new ForbiddenException('Follower account is blocked by compliance');
 
     // Enforce existing plan limits - maxCopySubscriptionsPerFollower
     const actor = { tenantId: input.tenantId, userId: input.actorId } as any;
@@ -99,7 +136,9 @@ export class FollowerSubscriptionService {
       });
 
       if (!allocationValidation.valid) {
-        throw new Error(`Allocation validation failed: ${allocationValidation.reason} available=${allocationValidation.availableBalance}`);
+        throw new UnprocessableEntityException(
+          `Allocation validation failed: ${allocationValidation.reason} available=${allocationValidation.availableBalance}`,
+        );
       }
 
       // Create subscription
@@ -186,9 +225,9 @@ export class FollowerSubscriptionService {
   async pauseSubscription(tenantId: string, subscriptionId: string, actorId: string, followerId?: string | null, requestId?: string): Promise<any | null> {
     const sub = await this.subscriptionRepo.findById(subscriptionId, tenantId);
     if (!sub) return null;
-    if (followerId && sub.followerId !== followerId) throw new Error('Not authorized to pause this subscription');
+    if (followerId && sub.followerId !== followerId) throw new ForbiddenException('Not authorized to pause this subscription');
 
-    if (sub.state !== CopySubscriptionState.ACTIVE) throw new Error(`Only ACTIVE subscription can be paused, current=${sub.state}`);
+    if (sub.state !== CopySubscriptionState.ACTIVE) throw new ConflictException(`Only ACTIVE subscription can be paused, current=${sub.state}`);
 
     const updated = await this.subscriptionRepo.updateState(subscriptionId, tenantId, CopySubscriptionState.PAUSED, { pausedAt: new Date() });
 
@@ -204,9 +243,10 @@ export class FollowerSubscriptionService {
   async resumeSubscription(tenantId: string, subscriptionId: string, actorId: string, followerId?: string | null, requestId?: string): Promise<any | null> {
     const sub = await this.subscriptionRepo.findById(subscriptionId, tenantId);
     if (!sub) return null;
-    if (followerId && sub.followerId !== followerId) throw new Error('Not authorized');
+    if (followerId && sub.followerId !== followerId) throw new ForbiddenException('Not authorized');
 
-    if (sub.state !== CopySubscriptionState.PAUSED) throw new Error(`Only PAUSED subscription can be resumed, current=${sub.state}`);
+    if (sub.state !== CopySubscriptionState.PAUSED) throw new ConflictException(`Only PAUSED subscription can be resumed, current=${sub.state}`);
+    await this.assertTradingOpen(tenantId, 'copy_trading.resume');
 
     const updated = await this.subscriptionRepo.updateState(subscriptionId, tenantId, CopySubscriptionState.ACTIVE, { startedAt: new Date() });
 
@@ -220,10 +260,10 @@ export class FollowerSubscriptionService {
   async stopCopy(tenantId: string, subscriptionId: string, actorId: string, followerId?: string | null, requestId?: string): Promise<any | null> {
     const sub = await this.subscriptionRepo.findById(subscriptionId, tenantId);
     if (!sub) return null;
-    if (followerId && sub.followerId !== followerId) throw new Error('Not authorized');
+    if (followerId && sub.followerId !== followerId) throw new ForbiddenException('Not authorized');
 
     // Pausing/stopping copy must prevent future copy actions without corrupting already-executed orders
-    if (sub.state === CopySubscriptionState.STOPPED || sub.state === CopySubscriptionState.CANCELLED) throw new Error(`Subscription already ${sub.state}`);
+    if (sub.state === CopySubscriptionState.STOPPED || sub.state === CopySubscriptionState.CANCELLED) throw new ConflictException(`Subscription already ${sub.state}`);
 
     const updated = await this.subscriptionRepo.updateState(subscriptionId, tenantId, CopySubscriptionState.STOPPED, { stoppedAt: new Date() });
 
@@ -247,7 +287,7 @@ export class FollowerSubscriptionService {
   async cancelSubscription(tenantId: string, subscriptionId: string, actorId: string, followerId?: string | null, requestId?: string): Promise<any | null> {
     const sub = await this.subscriptionRepo.findById(subscriptionId, tenantId);
     if (!sub) return null;
-    if (followerId && sub.followerId !== followerId) throw new Error('Not authorized');
+    if (followerId && sub.followerId !== followerId) throw new ForbiddenException('Not authorized');
 
     const updated = await this.subscriptionRepo.updateState(subscriptionId, tenantId, CopySubscriptionState.CANCELLED, { cancelledAt: new Date() });
 

@@ -100,8 +100,8 @@ export class LifecycleAuditService {
           data: {
             tenantId,
             action: `CLIENT_LIFECYCLE_${action}`,
-            entityType,
-            entityId: entityId ?? clientProfileId ?? accountId ?? 'UNKNOWN',
+            resourceType: entityType,
+            resourceId: entityId ?? clientProfileId ?? accountId ?? 'UNKNOWN',
             actorId,
             correlationId,
             metadata: {
@@ -141,19 +141,15 @@ export class LifecycleAuditService {
       if (to) where.createdAt.lte = to;
     }
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).clientLifecycleAudit.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).clientLifecycleAudit.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).clientLifecycleAudit.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).clientLifecycleAudit.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

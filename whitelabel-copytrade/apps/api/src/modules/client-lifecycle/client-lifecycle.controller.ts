@@ -8,6 +8,7 @@ import {
   Req,
   BadRequestException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ClientProfileService } from './client-profile.service';
@@ -72,6 +73,8 @@ import {
   OnboardingQueryDto,
 } from './dto/client-query.dto';
 import { redactPiiAndSecrets, ClientProfileStatus, InstitutionalAccountState, FundingRequestState, WithdrawalRequestState } from './client-lifecycle.types';
+import { authTenantId, authUserIdOrNull, isPlatformPrincipal } from '../../common/guards/request-principal';
+import { Permission, hasAnyPermission, hasPermission } from '@wlct/shared-types';
 
 /**
  * Tenant-safe and platform-safe API surface exposing client profiles, onboarding, accounts,
@@ -110,21 +113,103 @@ export class ClientLifecycleController {
   ) {}
 
   private getTenantId(req: any): string {
-    const tenantId = req.user?.tenantId ?? req.headers['x-tenant-id'] ?? req.query?.tenantId;
-    if (!tenantId) throw new BadRequestException('tenantId required');
-    return tenantId;
+    // Token tenant only; headers and query strings can never select it.
+    return authTenantId(req);
   }
 
   private getUserId(req: any): string {
-    return req.user?.id ?? req.user?.sub ?? 'anonymous';
+    // The JWT principal carries `userId` (not `id`/`sub`); reading only the
+    // legacy keys attributed every action to 'anonymous'.
+    return authUserIdOrNull(req) ?? 'anonymous';
   }
 
+  /**
+   * Derived from the verified JWT permissions. The token never carries a
+   * `clientRole`/`role` claim, so reading those always produced CLIENT and a
+   * tenant administrator could never act, while any value a client managed to
+   * place there would have been trusted.
+   */
   private getUserRole(req: any): ClientVisibilityRole {
-    return (req.user?.clientRole as ClientVisibilityRole) ?? (req.user?.role as ClientVisibilityRole) ?? ClientVisibilityRole.CLIENT;
+    if (this.isPlatformUser(req)) return ClientVisibilityRole.PLATFORM_ADMIN;
+    const permissions: string[] = Array.isArray(req?.user?.permissions) ? req.user.permissions : [];
+    if (hasPermission(permissions, Permission.TENANT_UPDATE)) return ClientVisibilityRole.TENANT_OWNER;
+    if (hasAnyPermission(permissions, [Permission.KYC_REVIEW, Permission.COMPLIANCE_READ])) return ClientVisibilityRole.COMPLIANCE_REVIEWER;
+    return ClientVisibilityRole.CLIENT;
+  }
+
+  /** Platform staff, tenant owner and compliance see every client of the tenant. */
+  private isTenantWide(req: any): boolean {
+    const role = this.getUserRole(req);
+    return (
+      role === ClientVisibilityRole.PLATFORM_ADMIN ||
+      role === ClientVisibilityRole.TENANT_OWNER ||
+      role === ClientVisibilityRole.COMPLIANCE_REVIEWER ||
+      role === ClientVisibilityRole.SECURITY_ADMIN
+    );
+  }
+
+  /** Client profiles and institutional accounts that belong to the caller. */
+  private async ownScope(req: any, tenantId: string): Promise<{ userId: string | null; profileIds: Set<string>; accountIds: Set<string> }> {
+    const userId = authUserIdOrNull(req);
+    const profileIds = new Set<string>();
+    const accountIds = new Set<string>();
+    if (!userId) return { userId, profileIds, accountIds };
+    for (const role of [ClientVisibilityRole.CLIENT, ClientVisibilityRole.FOLLOWER]) {
+      const visible = await this.visibilityService.resolveVisibleClientProfiles({ tenantId, userId, role, isPlatformUser: false });
+      for (const entry of visible) profileIds.add(entry.clientProfileId);
+    }
+    try {
+      const ownerships = await (this.prisma as any).accountOwnership.findMany({
+        where: { tenantId, ownerId: userId, status: 'ACTIVE' },
+        select: { accountId: true },
+      });
+      for (const ownership of ownerships) accountIds.add(ownership.accountId);
+      const accounts = await (this.prisma as any).institutionalAccount.findMany({
+        where: { tenantId, OR: [{ ownerId: userId }, ...(profileIds.size > 0 ? [{ clientProfileId: { in: [...profileIds] } }] : [])] },
+        select: { id: true },
+      });
+      for (const account of accounts) accountIds.add(account.id);
+    } catch {
+      // Without ownership data the caller keeps only the profile scope.
+    }
+    return { userId, profileIds, accountIds };
+  }
+
+  private inOwnScope(scope: { profileIds: Set<string>; accountIds: Set<string> }, item: any): boolean {
+    return Boolean(
+      (item?.clientProfileId && scope.profileIds.has(item.clientProfileId)) || (item?.accountId && scope.accountIds.has(item.accountId)),
+    );
+  }
+
+  /** Non-tenant-wide callers only get their own rows, and the total never counts other clients. */
+  private async restrictToOwnScope<T extends { data: any[]; total?: number }>(
+    req: any,
+    tenantId: string,
+    result: T,
+    extra?: (item: any, scope: { userId: string | null; profileIds: Set<string>; accountIds: Set<string> }) => boolean,
+  ): Promise<T> {
+    if (this.isTenantWide(req)) return result;
+    const scope = await this.ownScope(req, tenantId);
+    const data = result.data.filter((item: any) => this.inOwnScope(scope, item) || (extra ? extra(item, scope) : false));
+    return { ...result, data, total: data.length };
+  }
+
+  private async assertClientProfileAccess(req: any, tenantId: string, profileId: string): Promise<void> {
+    await this.enforceTenantIsolationForProfile(tenantId, profileId);
+    if (this.isTenantWide(req)) return;
+    const scope = await this.ownScope(req, tenantId);
+    if (!scope.profileIds.has(profileId)) throw new NotFoundException('Client profile not found');
+  }
+
+  private async assertAccountAccess(req: any, tenantId: string, accountId: string): Promise<void> {
+    await this.enforceTenantIsolationForAccount(tenantId, accountId);
+    if (this.isTenantWide(req)) return;
+    const scope = await this.ownScope(req, tenantId);
+    if (!scope.accountIds.has(accountId)) throw new NotFoundException('Account not found');
   }
 
   private isPlatformUser(req: any): boolean {
-    return req.user?.isPlatformUser ?? (req.user?.role === 'PLATFORM_ADMIN');
+    return isPlatformPrincipal(req);
   }
 
   private isSelfApproval(req: any, targetUserId?: string): boolean {
@@ -165,6 +250,7 @@ export class ClientLifecycleController {
   async createClient(@Req() req: any, @Body() dto: CreateClientProfileDto) {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
+    if (dto.externalIdentityRef !== authUserIdOrNull(req)) await this.enforcePlatformRBAC(req, 'PLATFORM_MANAGE');
 
     const profile = await this.profileService.createProfile({
       tenantId,
@@ -203,6 +289,7 @@ export class ClientLifecycleController {
       const visible = await this.visibilityService.resolveVisibleClientProfiles({ tenantId, userId, role, isPlatformUser: isPlatform });
       const visibleIds = new Set(visible.map((v) => v.clientProfileId));
       result.data = result.data.filter((p: any) => visibleIds.has(p.id));
+      result.total = result.data.length;
     }
 
     return { ...result, data: result.data.map((d: any) => redactPiiAndSecrets(d)) };
@@ -230,7 +317,7 @@ export class ClientLifecycleController {
   @Post('clients/:profileId/onboarding')
   async initiateOnboarding(@Req() req: any, @Param('profileId') profileId: string) {
     const tenantId = this.getTenantId(req);
-    await this.enforceTenantIsolationForProfile(tenantId, profileId);
+    await this.assertClientProfileAccess(req, tenantId, profileId);
 
     const onboarding = await this.onboardingService.initiateOnboarding({
       tenantId,
@@ -249,14 +336,14 @@ export class ClientLifecycleController {
     const tenantId = this.getTenantId(req);
     const onboarding = await this.onboardingService.getOnboarding({ tenantId, onboardingId });
     if (!onboarding) throw new BadRequestException('Onboarding not found');
-    await this.enforceTenantIsolationForProfile(tenantId, onboarding.clientProfileId);
+    await this.assertClientProfileAccess(req, tenantId, onboarding.clientProfileId);
     return redactPiiAndSecrets(onboarding);
   }
 
   @Get('clients/:profileId/onboarding')
   async getOnboardingByClient(@Req() req: any, @Param('profileId') profileId: string) {
     const tenantId = this.getTenantId(req);
-    await this.enforceTenantIsolationForProfile(tenantId, profileId);
+    await this.assertClientProfileAccess(req, tenantId, profileId);
     const onboarding = await this.onboardingService.getOnboardingByClientProfile({ tenantId, clientProfileId: profileId });
     return onboarding ? redactPiiAndSecrets(onboarding) : null;
   }
@@ -312,22 +399,23 @@ export class ClientLifecycleController {
     const tenantId = this.getTenantId(req);
     const where: any = { tenantId };
     if (query.clientProfileId) where.clientProfileId = query.clientProfileId;
+    if (!this.isTenantWide(req)) {
+      const scope = await this.ownScope(req, tenantId);
+      if (query.clientProfileId && !scope.profileIds.has(query.clientProfileId)) throw new NotFoundException('Client profile not found');
+      if (!query.clientProfileId) where.clientProfileId = { in: [...scope.profileIds] };
+    }
     if (query.state) where.state = query.state;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).clientOnboarding.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: ((query.page ?? 1) - 1) * (query.limit ?? 50),
-          take: query.limit ?? 50,
-        }),
-        (this.prisma as any).clientOnboarding.count({ where }),
-      ]);
-      return { data: data.map((d: any) => redactPiiAndSecrets(d)), total, page: query.page ?? 1, limit: query.limit ?? 50 };
-    } catch {
-      return { data: [], total: 0, page: query.page ?? 1, limit: query.limit ?? 50 };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).clientOnboarding.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: ((query.page ?? 1) - 1) * (query.limit ?? 50),
+        take: query.limit ?? 50,
+      }),
+      (this.prisma as any).clientOnboarding.count({ where }),
+    ]);
+    return { data: data.map((d: any) => redactPiiAndSecrets(d)), total, page: query.page ?? 1, limit: query.limit ?? 50 };
   }
 
   // Institutional Accounts
@@ -335,6 +423,7 @@ export class ClientLifecycleController {
   async createAccount(@Req() req: any, @Body() dto: CreateInstitutionalAccountDto) {
     const tenantId = this.getTenantId(req);
     await this.enforceTenantIsolationForProfile(tenantId, dto.clientProfileId);
+    await this.enforcePlatformRBAC(req, 'PLATFORM_MANAGE');
 
     const account = await this.accountAdminService.createAccount({
       tenantId,
@@ -370,7 +459,9 @@ export class ClientLifecycleController {
     if (!isPlatform && role === ClientVisibilityRole.CLIENT) {
       const visibleProfiles = await this.visibilityService.resolveVisibleClientProfiles({ tenantId, userId, role, isPlatformUser: isPlatform });
       const visibleIds = new Set(visibleProfiles.map((v) => v.clientProfileId));
-      result.data = result.data.filter((a: any) => visibleIds.has(a.clientProfileId));
+      const scope = await this.ownScope(req, tenantId);
+      result.data = result.data.filter((a: any) => visibleIds.has(a.clientProfileId) || scope.accountIds.has(a.id));
+      result.total = result.data.length;
     }
 
     return { ...result, data: result.data.map((d: any) => redactPiiAndSecrets(d)) };
@@ -423,7 +514,7 @@ export class ClientLifecycleController {
   @Get('accounts/:accountId/eligibility')
   async getEligibility(@Req() req: any, @Param('accountId') accountId: string) {
     const tenantId = this.getTenantId(req);
-    await this.enforceTenantIsolationForAccount(tenantId, accountId);
+    await this.assertAccountAccess(req, tenantId, accountId);
 
     const eligibility = await this.tradingActivationService.evaluateEligibility({ tenantId, accountId });
     return redactPiiAndSecrets(eligibility);
@@ -482,10 +573,10 @@ export class ClientLifecycleController {
   @Get('restrictions')
   async listRestrictions(@Req() req: any, @Query() query: RestrictionQueryDto) {
     const tenantId = this.getTenantId(req);
-    if (query.accountId) await this.enforceTenantIsolationForAccount(tenantId, query.accountId);
-    if (query.clientProfileId) await this.enforceTenantIsolationForProfile(tenantId, query.clientProfileId);
+    if (query.accountId) await this.assertAccountAccess(req, tenantId, query.accountId);
+    if (query.clientProfileId) await this.assertClientProfileAccess(req, tenantId, query.clientProfileId);
 
-    return await this.restrictionService.listRestrictions({
+    const result = await this.restrictionService.listRestrictions({
       tenantId,
       accountId: query.accountId,
       clientProfileId: query.clientProfileId,
@@ -494,6 +585,7 @@ export class ClientLifecycleController {
       page: query.page,
       limit: query.limit,
     });
+    return await this.restrictToOwnScope(req, tenantId, result);
   }
 
   // Suspension
@@ -687,7 +779,7 @@ export class ClientLifecycleController {
   @Get('accounts/:accountId/ownership')
   async listOwnerships(@Req() req: any, @Param('accountId') accountId: string, @Query() query: any) {
     const tenantId = this.getTenantId(req);
-    await this.enforceTenantIsolationForAccount(tenantId, accountId);
+    await this.assertAccountAccess(req, tenantId, accountId);
 
     return await this.ownershipService.listOwnerships({
       tenantId,
@@ -724,7 +816,7 @@ export class ClientLifecycleController {
   @Get('relationships')
   async listRelationships(@Req() req: any, @Query() query: RelationshipQueryDto) {
     const tenantId = this.getTenantId(req);
-    return await this.relationshipService.listRelationships({
+    const result = await this.relationshipService.listRelationships({
       tenantId,
       sourceId: query.sourceId,
       targetId: query.targetId,
@@ -735,13 +827,15 @@ export class ClientLifecycleController {
       page: query.page,
       limit: query.limit,
     });
+    return await this.restrictToOwnScope(req, tenantId, result, (item, scope) => Boolean(scope.userId && (item?.sourceId === scope.userId || item?.targetId === scope.userId)));
   }
 
   // Funding
   @Post('funding')
   async createFunding(@Req() req: any, @Body() dto: CreateFundingRequestDto) {
     const tenantId = this.getTenantId(req);
-    await this.enforceTenantIsolationForAccount(tenantId, dto.accountId);
+    await this.assertAccountAccess(req, tenantId, dto.accountId);
+    if (dto.clientProfileId) await this.assertClientProfileAccess(req, tenantId, dto.clientProfileId);
 
     const funding = await this.fundingRequestService.createFundingRequest({
       tenantId,
@@ -774,8 +868,8 @@ export class ClientLifecycleController {
     const role = this.getUserRole(req);
     const isPlatform = this.isPlatformUser(req);
 
-    if (query.accountId) await this.enforceTenantIsolationForAccount(tenantId, query.accountId);
-    if (query.clientProfileId) await this.enforceTenantIsolationForProfile(tenantId, query.clientProfileId);
+    if (query.accountId) await this.assertAccountAccess(req, tenantId, query.accountId);
+    if (query.clientProfileId) await this.assertClientProfileAccess(req, tenantId, query.clientProfileId);
 
     const result = await this.fundingRequestService.listFundingRequests({
       tenantId,
@@ -792,10 +886,31 @@ export class ClientLifecycleController {
     if (!isPlatform && role === ClientVisibilityRole.CLIENT) {
       const visibleProfiles = await this.visibilityService.resolveVisibleClientProfiles({ tenantId, userId, role, isPlatformUser: isPlatform });
       const visibleIds = new Set(visibleProfiles.map((v) => v.clientProfileId));
-      result.data = result.data.filter((f: any) => visibleIds.has(f.clientProfileId));
+      const scope = await this.ownScope(req, tenantId);
+      result.data = result.data.filter((f: any) => visibleIds.has(f.clientProfileId) || scope.accountIds.has(f.accountId));
+      result.total = result.data.length;
     }
 
     return { ...result, data: result.data.map((d: any) => redactPiiAndSecrets(d)) };
+  }
+
+  /**
+   * One funding request of the caller's tenant. Platform staff, the tenant
+   * owner and compliance see any request of the tenant; every other caller
+   * sees only a request on their own account or client profile (the same rule
+   * as the list). A request outside that scope is reported exactly like a
+   * missing one, so ids of other clients' requests cannot be probed.
+   */
+  @Get('funding/:fundingRequestId')
+  async getFunding(@Req() req: any, @Param('fundingRequestId') fundingRequestId: string) {
+    const tenantId = this.getTenantId(req);
+    const funding = await this.fundingRequestService.getFundingRequest({ tenantId, fundingRequestId });
+    if (!funding) throw new NotFoundException('Funding request not found');
+    if (!this.isTenantWide(req)) {
+      const scope = await this.ownScope(req, tenantId);
+      if (!this.inOwnScope(scope, funding)) throw new NotFoundException('Funding request not found');
+    }
+    return redactPiiAndSecrets(funding);
   }
 
   @Post('funding/transition')
@@ -834,7 +949,8 @@ export class ClientLifecycleController {
   @Post('withdrawals')
   async createWithdrawal(@Req() req: any, @Body() dto: CreateWithdrawalRequestDto) {
     const tenantId = this.getTenantId(req);
-    await this.enforceTenantIsolationForAccount(tenantId, dto.accountId);
+    await this.assertAccountAccess(req, tenantId, dto.accountId);
+    if (dto.clientProfileId) await this.assertClientProfileAccess(req, tenantId, dto.clientProfileId);
 
     const withdrawal = await this.withdrawalRequestService.createWithdrawalRequest({
       tenantId,
@@ -868,8 +984,8 @@ export class ClientLifecycleController {
     const role = this.getUserRole(req);
     const isPlatform = this.isPlatformUser(req);
 
-    if (query.accountId) await this.enforceTenantIsolationForAccount(tenantId, query.accountId);
-    if (query.clientProfileId) await this.enforceTenantIsolationForProfile(tenantId, query.clientProfileId);
+    if (query.accountId) await this.assertAccountAccess(req, tenantId, query.accountId);
+    if (query.clientProfileId) await this.assertClientProfileAccess(req, tenantId, query.clientProfileId);
 
     const result = await this.withdrawalRequestService.listWithdrawalRequests({
       tenantId,
@@ -884,10 +1000,32 @@ export class ClientLifecycleController {
     if (!isPlatform && role === ClientVisibilityRole.CLIENT) {
       const visibleProfiles = await this.visibilityService.resolveVisibleClientProfiles({ tenantId, userId, role, isPlatformUser: isPlatform });
       const visibleIds = new Set(visibleProfiles.map((v) => v.clientProfileId));
-      result.data = result.data.filter((w: any) => visibleIds.has(w.clientProfileId));
+      const scope = await this.ownScope(req, tenantId);
+      result.data = result.data.filter((w: any) => visibleIds.has(w.clientProfileId) || scope.accountIds.has(w.accountId));
+      result.total = result.data.length;
     }
 
     return { ...result, data: result.data.map((d: any) => redactPiiAndSecrets(d)) };
+  }
+
+  /**
+   * One withdrawal request of the caller's tenant. Same rule as
+   * `GET funding/:fundingRequestId`: platform staff, the tenant owner and
+   * compliance see any request of the tenant; every other caller sees only a
+   * request on their own account or client profile. A request outside that
+   * scope is reported exactly like a missing one, so ids of other clients'
+   * withdrawals cannot be probed. The destination is redacted like the list.
+   */
+  @Get('withdrawals/:withdrawalRequestId')
+  async getWithdrawal(@Req() req: any, @Param('withdrawalRequestId') withdrawalRequestId: string) {
+    const tenantId = this.getTenantId(req);
+    const withdrawal = await this.withdrawalRequestService.getWithdrawalRequest({ tenantId, withdrawalRequestId });
+    if (!withdrawal) throw new NotFoundException('Withdrawal request not found');
+    if (!this.isTenantWide(req)) {
+      const scope = await this.ownScope(req, tenantId);
+      if (!this.inOwnScope(scope, withdrawal)) throw new NotFoundException('Withdrawal request not found');
+    }
+    return redactPiiAndSecrets(withdrawal);
   }
 
   @Post('withdrawals/transition')
@@ -985,6 +1123,8 @@ export class ClientLifecycleController {
   @Post('reviews')
   async createReview(@Req() req: any, @Body() dto: CreateReviewDto) {
     const tenantId = this.getTenantId(req);
+    // Reviews are opened by compliance or the tenant owner, never by the reviewed client.
+    if (!this.isTenantWide(req)) throw new ForbiddenException('Only compliance or the tenant owner can open a review');
     if (dto.clientProfileId) await this.enforceTenantIsolationForProfile(tenantId, dto.clientProfileId);
     if (dto.accountId) await this.enforceTenantIsolationForAccount(tenantId, dto.accountId);
 
@@ -1034,10 +1174,10 @@ export class ClientLifecycleController {
   @Get('reviews')
   async listReviews(@Req() req: any, @Query() query: ReviewQueryDto) {
     const tenantId = this.getTenantId(req);
-    if (query.clientProfileId) await this.enforceTenantIsolationForProfile(tenantId, query.clientProfileId);
-    if (query.accountId) await this.enforceTenantIsolationForAccount(tenantId, query.accountId);
+    if (query.clientProfileId) await this.assertClientProfileAccess(req, tenantId, query.clientProfileId);
+    if (query.accountId) await this.assertAccountAccess(req, tenantId, query.accountId);
 
-    return await this.reviewService.listReviews({
+    const result = await this.reviewService.listReviews({
       tenantId,
       clientProfileId: query.clientProfileId,
       accountId: query.accountId,
@@ -1046,6 +1186,7 @@ export class ClientLifecycleController {
       page: query.page,
       limit: query.limit,
     });
+    return await this.restrictToOwnScope(req, tenantId, result);
   }
 
   // Audits

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
 import { PortfolioExposureService } from './portfolio-exposure.service';
-import { StressTestResult, StressScenario, RiskState, RiskSeverity, StressScenarioType } from './risk-management.types';
+import { StressTestResult, StressScenario, RiskState, RiskSeverity, StressScenarioType, PortfolioExposure, SymbolExposure } from './risk-management.types';
 
 /**
  * Deterministic stress testing against canonical portfolio snapshots.
@@ -13,7 +13,7 @@ import { StressTestResult, StressScenario, RiskState, RiskSeverity, StressScenar
  * - Labeled as control signal, not prediction.
  */
 
-function isValidDecimal(v: any): boolean {
+function isValidDecimal(v: any): v is string {
   return typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v);
 }
 const SCALE = 1_000_000_000_000n;
@@ -104,7 +104,9 @@ const DEFAULT_SCENARIOS: StressScenario[] = [
     type: 'LIQUIDITY_REDUCTION',
     name: 'Liquidity Reduction -50%',
     description: 'Available liquidity reduced by 50%, market impact doubles',
-    parameters: { liquidityReductionPercent: '50', marketImpactMultiplier: '2' },
+    // baseMarketImpactBps is the assumed normal-market cost of liquidating the
+    // book; the scenario multiplies it. Stated here, not buried in the math.
+    parameters: { liquidityReductionPercent: '50', marketImpactMultiplier: '2', baseMarketImpactBps: '25' },
     shockedAssets: [],
   },
   {
@@ -157,6 +159,10 @@ export class StressTestService {
 
     // Gross exposure for scaling
     const grossNotional = exposure.grossExposure;
+    // Equity of the evaluated scope (balances + unrealised PnL), the base
+    // every margin-impact percentage is expressed against. Null when there
+    // are no balances to measure - margin impact is then unknown, not zero.
+    const equity = await this.computeEquity(tenantId, accountId);
 
     for (const scenario of effectiveScenarios) {
       // Validate scenario params — structured only, no executable
@@ -166,132 +172,42 @@ export class StressTestService {
         continue;
       }
 
-      let estimatedPnlImpact: string | null = null;
-      let estimatedExposureImpact: string | null = null;
-      let estimatedMarginImpact: string | null = null;
       let riskLevel = RiskState.NORMAL;
       let isBreach = false;
       const threshold = policy.thresholds.stressLossThreshold ?? null;
 
       // Deterministic shock calculations based on scenario type, using canonical exposure
-      if (!isValidDecimal(grossNotional) || parseScaled(grossNotional) === 0n) {
-        estimatedPnlImpact = '0';
-        estimatedExposureImpact = '0';
-        estimatedMarginImpact = '0';
-      } else {
-        const grossScaled = parseScaled(grossNotional);
-        switch (scenario.type) {
-          case 'MARKET_SHOCK': {
-            const shockPct = scenario.parameters.shockPercent ?? '0';
-            if (isValidDecimal(shockPct)) {
-              // PnL impact = gross * shock%
-              const impact = (grossScaled * parseScaled(shockPct)) / 100n / SCALE * SCALE; // Actually gross * shock% /100
-              // Simplified: gross * shock% /100
-              const impactScaled = (grossScaled * parseScaled(shockPct)) / 100n;
-              estimatedPnlImpact = formatScaled(impactScaled);
-              estimatedExposureImpact = formatScaled((grossScaled * parseScaled(shockPct)) / 100n + grossScaled);
-              // Margin impact: if loss, margin utilization increases
-              estimatedMarginImpact = formatScaled((parseScaled(shockPct) * -1n * SCALE) / 1n); // placeholder
-            }
-            break;
-          }
-          case 'GAP_MOVE': {
-            const gapPct = scenario.parameters.gapPercent ?? '0';
-            if (isValidDecimal(gapPct)) {
-              const impactScaled = (grossScaled * parseScaled(gapPct)) / 100n;
-              estimatedPnlImpact = formatScaled(impactScaled);
-              estimatedExposureImpact = formatScaled(grossScaled + impactScaled);
-              estimatedMarginImpact = formatScaled((parseScaled(gapPct) * -1n));
-            }
-            break;
-          }
-          case 'VOL_EXPANSION': {
-            const marginInc = scenario.parameters.marginIncreasePercent ?? '0';
-            if (isValidDecimal(marginInc)) {
-              estimatedMarginImpact = marginInc;
-              estimatedPnlImpact = '0'; // vol expansion doesn't directly cause PnL, but margin
-              estimatedExposureImpact = grossNotional;
-            }
-            break;
-          }
-          case 'SPREAD_WIDENING':
-          case 'SLIPPAGE_EXPANSION': {
-            const slippageBps = scenario.parameters.slippageBpsIncrease ?? scenario.parameters.spreadMultiplier ?? '0';
-            // Convert bps to percent: 100 bps = 1%
-            if (isValidDecimal(slippageBps)) {
-              const slippagePct = formatScaled(parseScaled(slippageBps) / 100n);
-              const impactScaled = (grossScaled * parseScaled(slippagePct)) / 100n;
-              estimatedPnlImpact = formatScaled(-impactScaled); // loss
-              estimatedExposureImpact = grossNotional;
-              estimatedMarginImpact = '0';
-            }
-            break;
-          }
-          case 'EXCHANGE_OUTAGE': {
-            // For outage, exposure remains but cannot be closed — risk elevated
-            estimatedPnlImpact = '0';
-            estimatedExposureImpact = grossNotional;
-            estimatedMarginImpact = '0';
-            riskLevel = RiskState.HIGH;
-            break;
-          }
-          case 'LIQUIDITY_REDUCTION': {
-            const reductionPct = scenario.parameters.liquidityReductionPercent ?? '0';
-            if (isValidDecimal(reductionPct)) {
-              // Assume 50% reduction causes 1% additional slippage on gross
-              const extraSlippage = '1'; // 1%
-              const impactScaled = (grossScaled * parseScaled(extraSlippage)) / 100n;
-              estimatedPnlImpact = formatScaled(-impactScaled);
-              estimatedExposureImpact = grossNotional;
-              estimatedMarginImpact = '0';
-            }
-            break;
-          }
-          case 'CORRELATED_SHOCK': {
-            const shockPct = scenario.parameters.shockPercent ?? '0';
-            if (isValidDecimal(shockPct)) {
-              const impactScaled = (grossScaled * parseScaled(shockPct)) / 100n;
-              estimatedPnlImpact = formatScaled(impactScaled);
-              estimatedExposureImpact = formatScaled(grossScaled + impactScaled);
-              estimatedMarginImpact = formatScaled((parseScaled(shockPct) * -1n));
-            }
-            break;
-          }
-          default: {
-            estimatedPnlImpact = '0';
-            estimatedExposureImpact = grossNotional;
-            estimatedMarginImpact = '0';
-          }
-        }
-      }
+      const impact = computeScenarioImpact(scenario, exposure, equity);
+      const estimatedPnlImpact = impact.pnl;
+      const estimatedExposureImpact = impact.exposure;
+      const estimatedMarginImpact = impact.margin;
+      if (impact.elevate) riskLevel = RiskState.HIGH;
 
-      // Determine breach against stress loss threshold
-      if (estimatedPnlImpact && threshold && isValidDecimal(estimatedPnlImpact) && isValidDecimal(threshold)) {
-        const pnlAbs = parseScaled(estimatedPnlImpact) < 0n ? -parseScaled(estimatedPnlImpact) : parseScaled(estimatedPnlImpact);
-        const threshScaled = parseScaled(threshold);
-        if (pnlAbs > threshScaled) {
+      // Determine breach against stress loss threshold. Only a LOSS can
+      // breach; a stressed gain larger than the threshold is not a risk.
+      const pnlScaled = estimatedPnlImpact !== null && isValidDecimal(estimatedPnlImpact) ? parseScaled(estimatedPnlImpact) : null;
+      if (pnlScaled !== null && pnlScaled < 0n && threshold && isValidDecimal(threshold)) {
+        if (-pnlScaled > parseScaled(threshold)) {
           isBreach = true;
-          riskLevel = RiskState.HIGH;
+          riskLevel = raiseRisk(riskLevel, RiskState.HIGH);
         }
       }
 
-      // If scenario is exchange outage, elevate risk regardless
-      if (scenario.type === 'EXCHANGE_OUTAGE') {
-        riskLevel = RiskState.HIGH;
+      // An exchange outage elevates risk whenever exposure is trapped on the
+      // venue (impact.elevate, applied above); a venue holding nothing is not a risk.
+
+      // Loss size relative to gross exposure raises (never lowers) the level.
+      if (pnlScaled !== null && pnlScaled < 0n && isValidDecimal(grossNotional) && parseScaled(grossNotional) > 0n) {
+        const lossPct = (-pnlScaled * 100n * SCALE) / parseScaled(grossNotional);
+        if (lossPct > 20n * SCALE) riskLevel = raiseRisk(riskLevel, RiskState.CRITICAL);
+        else if (lossPct > 10n * SCALE) riskLevel = raiseRisk(riskLevel, RiskState.HIGH);
+        else if (lossPct > 5n * SCALE) riskLevel = raiseRisk(riskLevel, RiskState.ELEVATED);
       }
 
-      // If PnL impact is large negative, elevate
-      if (estimatedPnlImpact && isValidDecimal(estimatedPnlImpact)) {
-        const pnlScaled = parseScaled(estimatedPnlImpact);
-        if (pnlScaled < 0n) {
-          const lossAbs = -pnlScaled;
-          if (grossNotional && isValidDecimal(grossNotional) && parseScaled(grossNotional) > 0n) {
-            const lossPct = (lossAbs * 100n * SCALE) / parseScaled(grossNotional);
-            if (lossPct > 20n * SCALE) riskLevel = RiskState.CRITICAL;
-            else if (lossPct > 10n * SCALE) riskLevel = RiskState.HIGH;
-            else if (lossPct > 5n * SCALE) riskLevel = RiskState.ELEVATED;
-          }
-        }
+      // A loss scenario whose PnL could not be estimated (missing parameter or
+      // price data) is UNKNOWN, never reported as NORMAL.
+      if (estimatedPnlImpact === null && scenario.type !== 'EXCHANGE_OUTAGE' && riskLevel === RiskState.NORMAL) {
+        riskLevel = RiskState.UNKNOWN;
       }
 
       results.push({
@@ -314,5 +230,151 @@ export class StressTestService {
     }
 
     return results;
+  }
+
+  /** Wallet balances plus unrealised PnL for the scope, or null when no balance rows exist. */
+  private async computeEquity(tenantId: string, accountId?: string): Promise<bigint | null> {
+    const balances = await this.prisma.accountBalanceSnapshot.findMany({ where: { tenantId, ...(accountId ? { accountId } : {}) } });
+    if (balances.length === 0) return null;
+    const positions = await this.prisma.position.findMany({ where: { tenantId, ...(accountId ? { accountId } : {}) } });
+    let total = 0n;
+    for (const b of balances) {
+      const v = b.total?.toString();
+      if (isValidDecimal(v)) total += parseScaled(v);
+    }
+    for (const p of positions) {
+      const v = p.unrealisedPnl?.toString();
+      if (v && isValidDecimal(v)) total += parseScaled(v);
+    }
+    return total;
+  }
+}
+
+const RISK_RANK: Record<string, number> = {
+  [RiskState.NORMAL]: 0,
+  [RiskState.WATCH]: 1,
+  [RiskState.UNKNOWN]: 1,
+  [RiskState.STALE]: 1,
+  [RiskState.ELEVATED]: 2,
+  [RiskState.HIGH]: 3,
+  [RiskState.CRITICAL]: 4,
+  [RiskState.BLOCKED]: 5,
+};
+
+function raiseRisk(current: RiskState, candidate: RiskState): RiskState {
+  return (RISK_RANK[candidate] ?? 0) > (RISK_RANK[current] ?? 0) ? candidate : current;
+}
+
+export interface ScenarioImpact {
+  pnl: string | null;
+  exposure: string | null;
+  margin: string | null;
+  /** Scenario-specific reason to raise the risk level regardless of PnL. */
+  elevate: boolean;
+}
+
+/** Share of equity a loss would consume, in percent; null when equity is unknown or not positive. */
+function lossAsPercentOfEquity(pnlScaled: bigint, equity: bigint | null): string | null {
+  if (equity === null || equity <= 0n) return null;
+  if (pnlScaled >= 0n) return '0';
+  return formatScaled((-pnlScaled * 100n * SCALE) / equity);
+}
+
+function symbolInScope(sym: SymbolExposure, shocked: string[]): boolean {
+  if (!shocked || shocked.length === 0) return true;
+  const wanted = shocked.map((s) => s.toUpperCase());
+  const symbol = sym.symbol.toUpperCase();
+  const compact = symbol.replace(/[-/]/g, '');
+  return wanted.some((w) => w === symbol || w.replace(/[-/]/g, '') === compact || (sym.baseAsset !== null && w === sym.baseAsset.toUpperCase()));
+}
+
+/**
+ * Pure, deterministic scenario model over a canonical exposure snapshot.
+ *
+ * - Directional scenarios (MARKET_SHOCK, GAP_MOVE, CORRELATED_SHOCK) move the
+ *   price of every in-scope symbol by the shock and revalue the SIGNED net
+ *   position: longs lose on a down move, shorts gain. Linear instruments are
+ *   assumed (spot / linear perpetuals); `shockedAssets` limits the shock to
+ *   the listed symbols or base assets, empty means all.
+ * - Cost scenarios (SPREAD_WIDENING, SLIPPAGE_EXPANSION, LIQUIDITY_REDUCTION)
+ *   price the cost of liquidating the whole gross book under the stated
+ *   parameters. A missing parameter makes the estimate null (unknown).
+ * - VOL_EXPANSION raises margin, not PnL. The added margin needs the book's
+ *   current initial-margin rate (`initialMarginRatePercent`); the platform
+ *   holds no per-position leverage, so without it the impact is null.
+ * - EXCHANGE_OUTAGE traps the named venue's gross exposure: PnL is not
+ *   estimated, the exposure impact is the trapped notional.
+ *
+ * Margin impact for loss scenarios = share of equity the loss consumes.
+ */
+export function computeScenarioImpact(scenario: StressScenario, exposure: PortfolioExposure, equity: bigint | null): ScenarioImpact {
+  const params = scenario.parameters ?? {};
+  const grossNotional = exposure.grossExposure;
+  if (!isValidDecimal(grossNotional) || parseScaled(grossNotional) === 0n) {
+    return { pnl: '0', exposure: '0', margin: equity === null ? null : '0', elevate: false };
+  }
+  const grossScaled = parseScaled(grossNotional);
+
+  switch (scenario.type) {
+    case 'MARKET_SHOCK':
+    case 'GAP_MOVE':
+    case 'CORRELATED_SHOCK': {
+      const shockPct = scenario.type === 'GAP_MOVE' ? params.gapPercent : params.shockPercent;
+      if (!isValidDecimal(shockPct)) return { pnl: null, exposure: null, margin: null, elevate: false };
+      const shock = parseScaled(shockPct);
+      let pnl = 0n;
+      let shockedGross = 0n;
+      let affectedGross = 0n;
+      for (const sym of exposure.symbolExposures ?? []) {
+        if (!symbolInScope(sym, scenario.shockedAssets)) continue;
+        if (!isValidDecimal(sym.netNotional) || !isValidDecimal(sym.grossNotional)) continue;
+        const net = parseScaled(sym.netNotional);
+        const gross = parseScaled(sym.grossNotional);
+        pnl += (net * shock) / (100n * SCALE);
+        affectedGross += gross;
+        shockedGross += gross + (gross * shock) / (100n * SCALE);
+      }
+      if (exposure.symbolExposures === undefined || exposure.symbolExposures.length === 0) {
+        // No per-symbol breakdown: revalue the net book as one position.
+        if (!isValidDecimal(exposure.netExposure)) return { pnl: null, exposure: null, margin: null, elevate: false };
+        pnl = (parseScaled(exposure.netExposure) * shock) / (100n * SCALE);
+        affectedGross = grossScaled;
+        shockedGross = grossScaled + (grossScaled * shock) / (100n * SCALE);
+      }
+      const exposureAfter = grossScaled - affectedGross + shockedGross;
+      return { pnl: formatScaled(pnl), exposure: formatScaled(exposureAfter), margin: lossAsPercentOfEquity(pnl, equity), elevate: false };
+    }
+    case 'SPREAD_WIDENING':
+    case 'SLIPPAGE_EXPANSION': {
+      const bps = params.slippageBpsIncrease;
+      if (!isValidDecimal(bps)) return { pnl: null, exposure: grossNotional, margin: null, elevate: false };
+      const cost = (grossScaled * parseScaled(bps)) / (10_000n * SCALE);
+      return { pnl: formatScaled(-cost), exposure: grossNotional, margin: lossAsPercentOfEquity(-cost, equity), elevate: false };
+    }
+    case 'LIQUIDITY_REDUCTION': {
+      const baseBps = params.baseMarketImpactBps;
+      const multiplier = params.marketImpactMultiplier;
+      if (!isValidDecimal(baseBps) || !isValidDecimal(multiplier)) return { pnl: null, exposure: grossNotional, margin: null, elevate: false };
+      const cost = (((grossScaled * parseScaled(baseBps)) / (10_000n * SCALE)) * parseScaled(multiplier)) / SCALE;
+      return { pnl: formatScaled(-cost), exposure: grossNotional, margin: lossAsPercentOfEquity(-cost, equity), elevate: false };
+    }
+    case 'VOL_EXPANSION': {
+      const increase = params.marginIncreasePercent;
+      const imRate = params.initialMarginRatePercent;
+      if (!isValidDecimal(increase) || !isValidDecimal(imRate) || equity === null || equity <= 0n) {
+        return { pnl: '0', exposure: grossNotional, margin: null, elevate: false };
+      }
+      const currentMargin = (grossScaled * parseScaled(imRate)) / (100n * SCALE);
+      const extraMargin = (currentMargin * parseScaled(increase)) / (100n * SCALE);
+      return { pnl: '0', exposure: grossNotional, margin: formatScaled((extraMargin * 100n * SCALE) / equity), elevate: false };
+    }
+    case 'EXCHANGE_OUTAGE': {
+      const venue = String(params.venue ?? '').toUpperCase();
+      const venueRow = (exposure.venueExposures ?? []).find((v) => v.venue.toUpperCase() === venue);
+      const trapped = venueRow && isValidDecimal(venueRow.grossNotional) ? venueRow.grossNotional : venue ? '0' : grossNotional;
+      return { pnl: null, exposure: trapped, margin: null, elevate: parseScaled(trapped) > 0n };
+    }
+    default:
+      return { pnl: null, exposure: grossNotional, margin: null, elevate: false };
   }
 }

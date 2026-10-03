@@ -35,6 +35,11 @@
     "lint": "npm run lint --workspace=@wlct/api",
     "test": "npm run test --workspace=@wlct/api",
     "test:e2e": "npm run test:e2e --workspace=@wlct/api",
+    "test:billing-lib": "jest -c tests/jest.config.js",
+    "check:api-di": "node scripts/check-api-di.mjs",
+    "check:prisma-literals": "node apps/api/scripts/check-prisma-literals.js apps/api/src",
+    "check:route-authorization": "node apps/api/scripts/check-route-authorization.js",
+    "check:web-api-contract": "node scripts/check-web-api-contract.js",
     "typecheck": "npm run typecheck --workspace=@wlct/api && npm run typecheck --workspace=@wlct/admin-web && npm run typecheck --workspace=@wlct/web && npm run typecheck --workspace=@wlct/notification-service",
     "keys:generate": "node scripts/generate-keys.mjs",
     "docker:up": "docker compose up -d --build",
@@ -44,9 +49,13 @@
     "verify": "bash scripts/verify-part1.sh"
   },
   "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@types/jest": "^29.5.13",
     "@types/node": "^20.14.10",
+    "jest": "^29.7.0",
     "prisma": "^5.22.0",
     "rimraf": "^5.0.7",
+    "ts-jest": "^29.2.5",
     "typescript": "^5.5.4"
   },
   "dependencies": {

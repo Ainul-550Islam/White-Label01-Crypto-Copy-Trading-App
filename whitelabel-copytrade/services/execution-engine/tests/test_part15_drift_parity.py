@@ -143,15 +143,22 @@ class TestProbeTableSetMatchesTheArtifacts:
         manifest = coverage_manifest()
         assert len(covered_tables(ENABLE)) == len(manifest["covered"])
         assert {entry["table"] for entry in manifest["covered"]} == set(covered_tables(ENABLE))
-        # The number the docs quote, in a test that reads the artifacts: 153
-        # after the Part 28 regeneration (stamp 20260923090000) re-derived
-        # the set against the schema as it stands today, including the two
-        # mobile-release platform tables.
+        # The number the docs quote, in a test that reads the artifacts: 182
+        # after the regeneration that followed the domain-persistence table
+        # migration (20260923085000): the previous 161 (the Part 28 set of 153
+        # at stamp 20260923090000 plus the eight developer_* tenant tables from
+        # 20260923080000) plus the 21 tenant-owned billing, governance and
+        # partner tables. The six new platform-scoped tables (nullable
+        # tenant_id) joined the exclusion list, which is now 30.
+        # 186 after Part 11 production SSO (20260923089000): the four
+        # tenant-owned tables sso_auth_transactions, sso_identities,
+        # sso_assertion_replays and sso_audit_events; exclusions unchanged.
         # It is pinned rather than derived because the whole point of the
         # pairing tests is that enable.sql, disable.sql, rls_coverage.json and
         # the prose agree - a number computed from one of them cannot show the
         # other three disagree.
-        assert len(covered_tables(ENABLE)) == 153
+        assert len(covered_tables(ENABLE)) == 186
+        assert len(coverage_manifest()["excluded"]) == 30
 
     def test_every_covered_table_has_a_policy_in_the_migration(self) -> None:
         policies = migrated_tables(MIGRATION_SQL)

@@ -196,7 +196,7 @@ export class ArrCalculationService {
       return subs || [];
     } catch (e: any) {
       this.logger.warn(`Failed to fetch active subscriptions for ARR: ${e.message}`);
-      return [];
+      throw e;
     }
   }
 

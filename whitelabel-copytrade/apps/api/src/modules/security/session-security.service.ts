@@ -131,15 +131,11 @@ export class SessionSecurityService {
   }
 
   async isSessionRevoked(sessionId: string): Promise<boolean> {
-    try {
-      const revoked = await this.cache.get(`session:${sessionId}:revoked`);
-      if (revoked) return true;
+    const revoked = await this.cache.get(`session:${sessionId}:revoked`);
+    if (revoked) return true;
 
-      const session = await (this.prisma as any).userSession?.findUnique({ where: { id: sessionId }, select: { revokedAt: true } });
-      return !!session?.revokedAt;
-    } catch {
-      return false;
-    }
+    const session = await (this.prisma as any).userSession?.findUnique({ where: { id: sessionId }, select: { revokedAt: true } });
+    return !!session?.revokedAt;
   }
 
   async revokeSession(params: { sessionId: string; userId: string; tenantId: string; reason: string; actorId?: string; ipHash?: string; requestId?: string }): Promise<void> {
@@ -249,7 +245,7 @@ export class SessionSecurityService {
       return sessions.length;
     } catch (e: any) {
       this.logger.warn(`revokeAllSessions failed: ${e.message}`);
-      return 0;
+      throw e;
     }
   }
 
@@ -277,29 +273,25 @@ export class SessionSecurityService {
   }
 
   async listUserSessions(userId: string, tenantId: string, currentSessionId?: string): Promise<any[]> {
-    try {
-      const sessions = await (this.prisma as any).userSession?.findMany({
-        where: { userId, tenantId, revokedAt: null, expiresAt: { gt: new Date() } },
-        orderBy: { lastSeenAt: 'desc' },
-      }) || [];
+    const sessions = await (this.prisma as any).userSession?.findMany({
+      where: { userId, tenantId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { lastSeenAt: 'desc' },
+    }) || [];
 
-      return sessions.map((s: any) => ({
-        id: s.id,
-        deviceId: s.deviceId,
-        deviceName: s.deviceName,
-        platform: s.platform,
-        ipHash: s.ipHash,
-        geoLabel: s.geoLabel,
-        isCurrent: s.id === currentSessionId,
-        trusted: s.trusted,
-        state: s.revokedAt ? SessionState.REVOKED : s.expiresAt && new Date(s.expiresAt) < new Date() ? SessionState.EXPIRED : SessionState.ACTIVE,
-        createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : null,
-        lastSeenAt: s.lastSeenAt ? new Date(s.lastSeenAt).toISOString() : null,
-        expiresAt: s.expiresAt ? new Date(s.expiresAt).toISOString() : null,
-      }));
-    } catch {
-      return [];
-    }
+    return sessions.map((s: any) => ({
+      id: s.id,
+      deviceId: s.deviceId,
+      deviceName: s.deviceName,
+      platform: s.platform,
+      ipHash: s.ipHash,
+      geoLabel: s.geoLabel,
+      isCurrent: s.id === currentSessionId,
+      trusted: s.trusted,
+      state: s.revokedAt ? SessionState.REVOKED : s.expiresAt && new Date(s.expiresAt) < new Date() ? SessionState.EXPIRED : SessionState.ACTIVE,
+      createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : null,
+      lastSeenAt: s.lastSeenAt ? new Date(s.lastSeenAt).toISOString() : null,
+      expiresAt: s.expiresAt ? new Date(s.expiresAt).toISOString() : null,
+    }));
   }
 
   private async enforceConcurrentLimit(userId: string, tenantId: string, maxSessions: number): Promise<void> {

@@ -178,15 +178,25 @@ export class TenantProvisioningService {
 
         // Create RBAC defaults - clone system roles for tenant
         try {
-          const systemRoles = await tx.role.findMany({ where: { tenantId: null, isSystem: true } });
+          const systemRoles = await tx.role.findMany({
+            where: { tenantId: null, isSystem: true },
+            include: { permissions: { select: { permissionId: true } } },
+          });
           for (const sysRole of systemRoles) {
+            // key/scope/priority are required; permissions are RolePermission rows.
             await tx.role.create({
               data: {
                 tenantId: tenant.id,
+                key: sysRole.key,
                 name: sysRole.name,
                 description: sysRole.description,
+                scope: sysRole.scope,
+                priority: sysRole.priority,
+                isDefault: sysRole.isDefault,
                 isSystem: false,
-                permissions: sysRole.permissions,
+                permissions: {
+                  create: (sysRole.permissions ?? []).map((p: { permissionId: string }) => ({ permissionId: p.permissionId })),
+                },
               },
             });
           }

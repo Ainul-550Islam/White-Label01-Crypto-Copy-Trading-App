@@ -138,6 +138,81 @@ describe('Exchange Adapters Contract', () => {
     expect(result.error?.code).toBe(ProviderErrorCode.CAPABILITY_NOT_SUPPORTED);
   });
 
+  describe('Binance isAvailable is policy-driven, not hardcoded', () => {
+    const originalEnv = process.env['NODE_ENV'];
+    afterEach(() => {
+      process.env['NODE_ENV'] = originalEnv;
+      jest.restoreAllMocks();
+    });
+
+    test('available when the default policy is enabled for the running environment', () => {
+      process.env['NODE_ENV'] = 'development';
+      const adapter = new BinanceProductionAdapter(policyService, requestService, observationService);
+      const policy = policyService.getPolicy(ProviderDomain.EXCHANGE, ProviderName.BINANCE);
+      expect(policy).not.toBeNull();
+      const expected = !!policy && policy.enabled && policy.allowedEnvironments.includes('development') && policyService.isProviderAllowed(ProviderName.BINANCE, 'development');
+      expect(adapter.isAvailable()).toBe(expected);
+    });
+
+    test('unavailable when the policy is disabled', () => {
+      process.env['NODE_ENV'] = 'development';
+      const adapter = new BinanceProductionAdapter(policyService, requestService, observationService);
+      const policy = policyService.getPolicy(ProviderDomain.EXCHANGE, ProviderName.BINANCE)!;
+      jest.spyOn(policyService, 'getPolicy').mockReturnValue({ ...policy, enabled: false });
+      expect(adapter.isAvailable()).toBe(false);
+    });
+
+    test('unavailable when no policy exists', () => {
+      const adapter = new BinanceProductionAdapter(policyService, requestService, observationService);
+      jest.spyOn(policyService, 'getPolicy').mockReturnValue(null);
+      expect(adapter.isAvailable()).toBe(false);
+    });
+
+    test('unavailable when the running environment is not in allowedEnvironments', () => {
+      process.env['NODE_ENV'] = 'some-unlisted-env';
+      const adapter = new BinanceProductionAdapter(policyService, requestService, observationService);
+      const policy = policyService.getPolicy(ProviderDomain.EXCHANGE, ProviderName.BINANCE)!;
+      jest.spyOn(policyService, 'getPolicy').mockReturnValue({ ...policy, enabled: true, allowedEnvironments: ['production'] });
+      expect(adapter.isAvailable()).toBe(false);
+    });
+
+    test('unavailable when the environment policy blocks the provider', () => {
+      process.env['NODE_ENV'] = 'development';
+      const adapter = new BinanceProductionAdapter(policyService, requestService, observationService);
+      const policy = policyService.getPolicy(ProviderDomain.EXCHANGE, ProviderName.BINANCE)!;
+      jest.spyOn(policyService, 'getPolicy').mockReturnValue({ ...policy, enabled: true, allowedEnvironments: ['development'] });
+      jest.spyOn(policyService, 'isProviderAllowed').mockReturnValue(false);
+      expect(adapter.isAvailable()).toBe(false);
+    });
+  });
+
+  test('Kraken signature signs path bytes || sha256 digest (matches the venue provider)', () => {
+    const adapter = new KrakenProductionAdapter(policyService, requestService, observationService);
+    const secret = Buffer.from('kraken-test-secret-0123456789abcdef').toString('base64');
+    const params = { nonce: '1700000000000000', pair: 'XBTUSD' };
+    const viaAdapter = (adapter as any).signRequest('/0/private/Balance', params, secret);
+    const crypto = require('crypto');
+    const digest = crypto.createHash('sha256').update(params.nonce + 'nonce=1700000000000000&pair=XBTUSD').digest();
+    const expected = crypto.createHmac('sha512', Buffer.from(secret, 'base64')).update(Buffer.concat([Buffer.from('/0/private/Balance'), digest])).digest('base64');
+    expect(viaAdapter).toBe(expected);
+  });
+
+  test('Bybit live order body uses v5 orderType casing and a retCode rejection is a failure', async () => {
+    const adapter = new BybitProductionAdapter(policyService, requestService, observationService);
+    const bodies: string[] = [];
+    jest.spyOn(requestService, 'request').mockImplementation(async (req: any) => {
+      bodies.push(req.body);
+      return { data: { retCode: 10001, retMsg: 'params error' }, latencyMs: 1 } as any;
+    });
+    const result = await adapter.createOrder(
+      { apiKey: 'k', apiSecret: 's', isSandbox: true, correlationId: 'c', tenantId: 't', accountId: 'a' } as any,
+      { symbol: 'BTC-USDT', side: 'BUY', type: 'market', quantity: '0.001', clientOrderId: 'cid-1', isSimulated: false },
+    );
+    expect(JSON.parse(bodies[0]).orderType).toBe('Market');
+    expect(result.success).toBe(false);
+    jest.restoreAllMocks();
+  });
+
   test('all provider adapters compile and satisfy interfaces', () => {
     const adapters = [
       new BinanceProductionAdapter(policyService, requestService, observationService),

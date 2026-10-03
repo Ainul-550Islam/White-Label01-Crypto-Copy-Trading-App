@@ -30,19 +30,18 @@ export class ExchangeAccountBindingService {
     const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
     if (!account) throw new BadRequestException('Institutional account not found or tenant mismatch');
 
-    // Verify exchange account exists and belongs to same tenant — tenant isolation
-    let exchangeAccount: any = null;
-    try {
-      exchangeAccount = await (this.prisma as any).exchangeAccount?.findFirst?.({ where: { id: exchangeAccountId, tenantId } });
-      if (!exchangeAccount) {
-        // Try alternative model name
-        exchangeAccount = await (this.prisma as any).exchangeAccountBinding?.findFirst?.({ where: { id: exchangeAccountId, tenantId } });
-      }
-    } catch {}
-
-    // If exchange account model not found, still enforce uniqueness via institutionalAccount field
-    // But we must check tenant isolation
-    if (exchangeAccount && exchangeAccount.tenantId && exchangeAccount.tenantId !== tenantId) {
+    // Verify exchange account exists and belongs to same tenant — tenant isolation.
+    // Exchange accounts are TradingAccount rows (ExchangesModule). The lookup is
+    // tenant-scoped, so an unknown id and another tenant's id are both "not
+    // found" - and a binding to an account that does not exist here is refused
+    // rather than stored as a dangling reference.
+    const exchangeAccount: any = await this.prisma.tradingAccount.findFirst({
+      where: { id: exchangeAccountId, tenantId, deletedAt: null },
+    });
+    if (!exchangeAccount) {
+      throw new BadRequestException('Exchange account not found or tenant mismatch');
+    }
+    if (exchangeAccount.tenantId && exchangeAccount.tenantId !== tenantId) {
       throw new ForbiddenException('Cross-tenant exchange account binding rejected');
     }
 
@@ -61,8 +60,11 @@ export class ExchangeAccountBindingService {
     // Verify credential-state requirements — exchange account must have valid credential state
     // Must never store raw exchange credentials — only reference
     if (exchangeAccount) {
-      if (exchangeAccount.credentialState && ['EXPIRED', 'REVOKED', 'INVALID'].includes(exchangeAccount.credentialState)) {
-        throw new BadRequestException(`Exchange account credential state ${exchangeAccount.credentialState} invalid`);
+      // TradingAccountStatus carries the credential verdict: invalid keys,
+      // a disabled account and a withdrawal-enabled key (refused on
+      // principle) are all unusable for trading.
+      if (['CREDENTIALS_INVALID', 'DISABLED', 'WITHDRAWAL_ENABLED_REJECTED'].includes(exchangeAccount.status)) {
+        throw new BadRequestException(`Exchange account status ${exchangeAccount.status} invalid`);
       }
       // Ensure no raw credentials stored
       if (exchangeAccount.apiKey || exchangeAccount.secret || exchangeAccount.privateKey) {
@@ -80,7 +82,7 @@ export class ExchangeAccountBindingService {
 
     // Idempotency for binding
     try {
-      const existing = await (this.prisma as any).accountRelationship.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).accountRelationship.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -172,12 +174,8 @@ export class ExchangeAccountBindingService {
   }
 
   async getBinding(params: { tenantId: string; accountId: string }): Promise<any | null> {
-    try {
-      const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
-      if (!account?.exchangeAccountId) return null;
-      return { exchangeAccountId: account.exchangeAccountId, accountId: account.id };
-    } catch {
-      return null;
-    }
+    const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
+    if (!account?.exchangeAccountId) return null;
+    return { exchangeAccountId: account.exchangeAccountId, accountId: account.id };
   }
 }

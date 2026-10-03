@@ -57,7 +57,7 @@ export class PositionAccountingService {
     });
 
     try {
-      const existing = await (this.prisma as any).portfolioPositionLot.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).portfolioPositionLot.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -109,7 +109,7 @@ export class PositionAccountingService {
     const openLots = await (this.prisma as any).portfolioPositionLot.findMany({
       where: { tenantId, profileId, symbol, isClosed: false, isReversed: false },
       orderBy: { openedAt: 'asc' },
-    }).catch(() => []);
+    });
 
     let remainingToClose = quantity;
     let totalRealizedPnl = '0';
@@ -147,46 +147,42 @@ export class PositionAccountingService {
     profileId: string;
     at?: Date;
   }): Promise<Array<{ symbol: string; asset: string; quantity: string; classification: string; costBasis: string | null }>> {
-    try {
-      const where: any = { tenantId: params.tenantId, profileId: params.profileId, isClosed: false, isReversed: false };
-      if (params.at) where.openedAt = { lte: params.at };
+    const where: any = { tenantId: params.tenantId, profileId: params.profileId, isClosed: false, isReversed: false };
+    if (params.at) where.openedAt = { lte: params.at };
 
-      const lots = await (this.prisma as any).portfolioPositionLot.findMany({
-        where,
-        orderBy: { openedAt: 'asc' },
-      });
+    const lots = await (this.prisma as any).portfolioPositionLot.findMany({
+      where,
+      orderBy: { openedAt: 'asc' },
+    });
 
-      // Aggregate by symbol — deterministic
-      const holdingsMap = new Map<string, { asset: string; quantity: string; classification: string; costBasis: string | null }>();
-      for (const lot of lots) {
-        const existing = holdingsMap.get(lot.symbol);
-        if (!existing) {
-          holdingsMap.set(lot.symbol, {
-            asset: lot.asset,
-            quantity: lot.remainingQuantity,
-            classification: lot.classification,
-            costBasis: lot.totalCostBasis,
-          });
-        } else {
-          existing.quantity = add(existing.quantity, lot.remainingQuantity);
-          if (existing.costBasis && lot.totalCostBasis) {
-            existing.costBasis = add(existing.costBasis, lot.totalCostBasis);
-          } else if (lot.totalCostBasis) {
-            existing.costBasis = lot.totalCostBasis;
-          }
+    // Aggregate by symbol — deterministic
+    const holdingsMap = new Map<string, { asset: string; quantity: string; classification: string; costBasis: string | null }>();
+    for (const lot of lots) {
+      const existing = holdingsMap.get(lot.symbol);
+      if (!existing) {
+        holdingsMap.set(lot.symbol, {
+          asset: lot.asset,
+          quantity: lot.remainingQuantity,
+          classification: lot.classification,
+          costBasis: lot.totalCostBasis,
+        });
+      } else {
+        existing.quantity = add(existing.quantity, lot.remainingQuantity);
+        if (existing.costBasis && lot.totalCostBasis) {
+          existing.costBasis = add(existing.costBasis, lot.totalCostBasis);
+        } else if (lot.totalCostBasis) {
+          existing.costBasis = lot.totalCostBasis;
         }
       }
-
-      return Array.from(holdingsMap.entries()).map(([symbol, data]) => ({
-        symbol,
-        asset: data.asset,
-        quantity: data.quantity,
-        classification: data.classification,
-        costBasis: data.costBasis,
-      }));
-    } catch {
-      return [];
     }
+
+    return Array.from(holdingsMap.entries()).map(([symbol, data]) => ({
+      symbol,
+      asset: data.asset,
+      quantity: data.quantity,
+      classification: data.classification,
+      costBasis: data.costBasis,
+    }));
   }
 
   async listLots(params: {
@@ -202,20 +198,16 @@ export class PositionAccountingService {
     if (symbol) where.symbol = symbol;
     if (isClosed !== undefined) where.isClosed = isClosed;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).portfolioPositionLot.findMany({
-          where,
-          orderBy: { openedAt: 'asc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).portfolioPositionLot.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).portfolioPositionLot.findMany({
+        where,
+        orderBy: { openedAt: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).portfolioPositionLot.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   private mulSafe(a: string, b: string): string {

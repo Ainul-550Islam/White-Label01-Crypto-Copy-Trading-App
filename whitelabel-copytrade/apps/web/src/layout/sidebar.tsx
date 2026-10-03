@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useTenant } from '@/tenant/tenant-context';
 import { useAuth } from '@/auth/auth.store';
 import { featureCatalog } from '@/config/feature-config';
+import { permissionsAllowAny } from '@/auth/permissions';
 
 const navGroups = [
   {
@@ -43,6 +44,7 @@ export function Sidebar(): JSX.Element {
 
   const entitlements = tenant?.entitlements ?? {};
   const roles = session?.user.roles ?? [];
+  const permissions = session?.user.permissions ?? [];
 
   return (
     <nav className="flex h-full flex-col gap-6 p-4">
@@ -59,6 +61,9 @@ export function Sidebar(): JSX.Element {
               const feature = featureCatalog.find((f) => f.key === item.key);
               if (feature?.requiresEntitlement && !entitlements[feature.requiresEntitlement]) {
                 return null; // UX-only hiding, backend remains authoritative
+              }
+              if (feature?.requiresPermission && !permissionsAllowAny(permissions, feature.requiresPermission)) {
+                return null; // the backend would answer 403 for every call on this screen
               }
               if (feature?.requiresRole && feature.requiresRole.length > 0) {
                 const hasRole = feature.requiresRole.some((r) => roles.includes(r));

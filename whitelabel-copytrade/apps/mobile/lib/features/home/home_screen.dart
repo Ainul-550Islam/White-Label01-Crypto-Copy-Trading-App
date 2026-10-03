@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/di/feature_providers.dart';
 import '../../core/di/providers.dart';
 import '../../core/router/route_paths.dart';
 import '../../l10n/app_localizations.dart';
@@ -10,8 +11,9 @@ import '../auth/presentation/auth_state.dart';
 
 /// Authenticated landing screen.
 ///
-/// Part 1 deliberately shows account state rather than trading data: there is
-/// no trading data yet, and inventing some would be worse than showing none.
+/// Shows account state plus entry tiles for every feature the API would
+/// answer for this user. Tiles are a usability filter, never access control:
+/// each endpoint re-checks permissions on every request.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -25,6 +27,7 @@ class HomeScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(l10n.homeTitle),
         actions: <Widget>[
+          _NotificationBell(onTap: () => context.push(RoutePaths.notifications)),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.push(RoutePaths.settings),
@@ -121,6 +124,12 @@ class HomeScreen extends ConsumerWidget {
                     ),
                   ),
                 if (user.can('risk:read')) const SizedBox(height: 16),
+                if (user.can('exchange_account:read'))
+                  _FeatureTile(icon: Icons.link, title: l10n.exchangeAccountsTitle, subtitle: l10n.exchangeAccountsSubtitle, path: RoutePaths.exchangeAccounts),
+                _FeatureTile(icon: Icons.groups_outlined, title: l10n.copyTradingTitle, subtitle: l10n.copyTradingSubtitle, path: RoutePaths.copyTrading),
+                if (user.can('portfolio:read'))
+                  _FeatureTile(icon: Icons.pie_chart_outline, title: l10n.portfolioTitle, subtitle: l10n.portfolioSubtitle, path: RoutePaths.portfolio),
+                _FeatureTile(icon: Icons.account_balance_wallet_outlined, title: l10n.fundingTitle, subtitle: l10n.fundingSubtitle, path: RoutePaths.funding),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(18),
@@ -135,6 +144,53 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _FeatureTile extends StatelessWidget {
+  const _FeatureTile({required this.icon, required this.title, required this.subtitle, required this.path});
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        child: ListTile(
+          leading: Icon(icon),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.push(path),
+        ),
+      ),
+    );
+  }
+}
+
+/// Unread badge. A failed count renders as a plain bell - never a made-up 0.
+class _NotificationBell extends ConsumerWidget {
+  const _NotificationBell({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final int? unread = ref.watch(unreadNotificationCountProvider).valueOrNull;
+    return IconButton(
+      tooltip: l10n.notificationsTitle,
+      onPressed: onTap,
+      icon: Badge(
+        isLabelVisible: unread != null && unread > 0,
+        label: Text(unread == null ? '' : (unread > 99 ? '99+' : '$unread')),
+        child: const Icon(Icons.notifications_outlined),
+      ),
     );
   }
 }

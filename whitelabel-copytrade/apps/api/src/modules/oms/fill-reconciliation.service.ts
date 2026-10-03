@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ReconciliationCategory, isValidDecimal, parseScaled, formatScaled } from './oms.types';
+import { ReconciliationCategory, isValidDecimal, parseScaled, formatScaled, reconciliationErrorCode } from './oms.types';
 
 /**
  * Fill Reconciliation Service — reconciles provider fills against internal fills
@@ -18,15 +18,27 @@ export class FillReconciliationService {
 
     const canonicalFills = await this.prisma.fill.findMany({ where: { orderId }, orderBy: { receivedTimestampMicros: 'asc' } });
 
+    // A failed OMS read is NOT an empty OMS: treating it as [] would report every canonical fill as
+    // missing (and a cumulative drift) - findings that describe the read error, not the fills. So
+    // the OMS-vs-canonical comparisons are skipped, the failure is logged with its error code and
+    // the result says so (omsFillsRead FAILED, readFailures 1). Canonical-only checks still run.
     let omsFills: any[] = [];
+    let omsFillsRead: 'OK' | 'FAILED' = 'OK';
+    let omsFillsReadError: string | null = null;
     try {
       omsFills = await (this.prisma as any).omsFill.findMany({
         where: { tenantId, ...(intentId ? { orderIntentId: intentId } : { internalOrderId: orderId }), state: { not: 'DUPLICATE' } },
         orderBy: { timestampMicros: 'asc' },
       });
-    } catch {
+    } catch (e) {
       omsFills = [];
+      omsFillsRead = 'FAILED';
+      omsFillsReadError = reconciliationErrorCode(e);
+      this.logger.error(
+        `Fill reconciliation order ${orderId} tenant ${tenantId}: OMS fill read failed (error ${omsFillsReadError}); OMS comparisons skipped, not reported as missing fills`,
+      );
     }
+    const compareWithOms = omsFillsRead === 'OK';
 
     const findings: Array<{ category: string; severity: string; summary: string; expected: any; actual: any }> = [];
 
@@ -39,6 +51,7 @@ export class FillReconciliationService {
 
     // Missing fill: in canonical but not in OMS
     for (const [fillId, cf] of canonicalById) {
+      if (!compareWithOms) break;
       if (!omsById.has(fillId)) {
         findings.push({
           category: ReconciliationCategory.MISSING_FILL,
@@ -128,7 +141,7 @@ export class FillReconciliationService {
       if (isValidDecimal(qtyStr)) omsCumulative += parseScaled(qtyStr);
     }
 
-    if (canonicalCumulative !== omsCumulative) {
+    if (compareWithOms && canonicalCumulative !== omsCumulative) {
       findings.push({
         category: ReconciliationCategory.QUANTITY_DRIFT,
         severity: 'HIGH',
@@ -153,7 +166,10 @@ export class FillReconciliationService {
       seen.add(f.venueTradeId);
     }
 
-    // Persist
+    // Persist. A finding that cannot be stored is never dropped silently: it stays in the returned
+    // result, is counted in persistFailures and is logged at error level (error code only).
+    let persistedFindings = 0;
+    let persistFailures = 0;
     for (const f of findings) {
       try {
         await (this.prisma as any).omsReconciliation.create({
@@ -170,11 +186,33 @@ export class FillReconciliationService {
             resolved: false,
           },
         });
-      } catch {}
+        persistedFindings++;
+      } catch (e) {
+        persistFailures++;
+        this.logger.error(
+          `Fill reconciliation finding NOT persisted order ${orderId} tenant ${tenantId} category ${f.category} severity ${f.severity} error ${reconciliationErrorCode(e)}`,
+        );
+      }
     }
 
-    this.logger.log(`Fill reconciliation order ${orderId} tenant ${tenantId} findings ${findings.length} canonical ${canonicalFills.length} oms ${omsFills.length}`);
-    return { orderId, intentId: intentId ?? null, canonicalCount: canonicalFills.length, omsCount: omsFills.length, findings, totalFindings: findings.length };
+    if (persistFailures > 0) {
+      this.logger.warn(`Fill reconciliation order ${orderId} tenant ${tenantId} findings ${findings.length} persisted ${persistedFindings} persistFailures ${persistFailures}`);
+    } else {
+      this.logger.log(`Fill reconciliation order ${orderId} tenant ${tenantId} findings ${findings.length} canonical ${canonicalFills.length} oms ${omsFills.length} omsRead ${omsFillsRead}`);
+    }
+    return {
+      orderId,
+      intentId: intentId ?? null,
+      canonicalCount: canonicalFills.length,
+      omsCount: omsFills.length,
+      omsFillsRead,
+      omsFillsReadError,
+      readFailures: omsFillsRead === 'FAILED' ? 1 : 0,
+      findings,
+      totalFindings: findings.length,
+      persistedFindings,
+      persistFailures,
+    };
   }
 
   async reconcileTenantFills(params: { tenantId: string; accountId?: string; limit?: number }) {
@@ -186,17 +224,26 @@ export class FillReconciliationService {
     });
 
     const results = [];
+    let intentLookupFailures = 0;
+    let readFailures = 0;
     for (const order of orders) {
-      // Find intent id
+      // Find intent id. Without it the fills are matched by internal order id instead - still a
+      // valid comparison, but the lookup failure is counted and logged, never swallowed.
       let intentId: string | undefined;
       try {
         const intent = await (this.prisma as any).omsOrderIntent.findFirst({ where: { tenantId, clientOrderId: order.clientOrderId } });
         intentId = intent?.id;
-      } catch {}
+      } catch (e) {
+        intentLookupFailures++;
+        this.logger.warn(
+          `Fill reconciliation order ${order.id} tenant ${tenantId}: OMS intent lookup failed (error ${reconciliationErrorCode(e)}); matching fills by internal order id`,
+        );
+      }
       const res = await this.reconcileFillsForOrder({ tenantId, orderId: order.id, intentId });
-      if (res.totalFindings > 0) results.push(res);
+      readFailures += res.readFailures;
+      if (res.totalFindings > 0 || res.readFailures > 0) results.push(res);
     }
 
-    return { totalChecked: orders.length, withFindings: results.length, results };
+    return { totalChecked: orders.length, withFindings: results.filter((r) => r.totalFindings > 0).length, intentLookupFailures, readFailures, results };
   }
 }

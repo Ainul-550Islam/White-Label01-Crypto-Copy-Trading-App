@@ -3,6 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeAccountState, ExchangeConnectionState, ExchangeHealthState, ExchangeCapability } from './exchange.types';
 import { randomUUID } from 'crypto';
 import type { Prisma } from '@prisma/client';
+import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 export interface CreateExchangeAccountInput {
   tenantId: string;
@@ -204,7 +205,7 @@ export class ExchangeAccountRepository {
       deletedAt: null,
       ...(filters?.userId ? { userId: filters.userId } : {}),
       ...(filters?.venue ? { exchange: { venue: filters.venue as any } } : {}),
-      ...(filters?.status ? { status: filters.status as any } : {}),
+      ...(filters?.status ? { status: ExchangeAccountRepository.toDbStatus(filters.status) as any } : {}),
       ...(filters?.environment
         ? filters.environment === ExchangeEnvironment.LIVE
           ? { isSandbox: false }
@@ -231,12 +232,36 @@ export class ExchangeAccountRepository {
     return this.listByTenant(tenantId, { ...filters, userId });
   }
 
+  /**
+   * The domain state and the database enum are different vocabularies: the
+   * table stores PENDING_VALIDATION / ACTIVE / DISABLED / CREDENTIALS_INVALID
+   * / WITHDRAWAL_ENABLED_REJECTED. Writing a domain value straight through
+   * (for example ERROR after a failed connectivity check) is rejected by
+   * Prisma, which turned every failed connect into a 500. This is the inverse
+   * of the read mapping in toRecord.
+   */
+  static toDbStatus(state: ExchangeAccountState | string): 'PENDING_VALIDATION' | 'ACTIVE' | 'DISABLED' | 'CREDENTIALS_INVALID' {
+    switch (state) {
+      case ExchangeAccountState.ACTIVE:
+        return 'ACTIVE';
+      case ExchangeAccountState.PENDING:
+        return 'PENDING_VALIDATION';
+      case ExchangeAccountState.DISABLED:
+      case ExchangeAccountState.REVOKED:
+        return 'DISABLED';
+      case ExchangeAccountState.ERROR:
+        return 'CREDENTIALS_INVALID';
+      default:
+        throw new Error(`Unknown exchange account state: ${String(state)}`);
+    }
+  }
+
   async updateStatus(id: string, tenantId: string, status: ExchangeAccountState, errorCode?: string | null, errorMessage?: string | null): Promise<ExchangeAccountRecord | null> {
     try {
       const updated = await this.prisma.tradingAccount.update({
         where: { id },
         data: {
-          status: status as any,
+          status: ExchangeAccountRepository.toDbStatus(status) as any,
           lastFailureCode: errorCode || null,
           lastFailureAt: errorCode ? new Date() : undefined,
           updatedAt: new Date(),
@@ -249,8 +274,9 @@ export class ExchangeAccountRepository {
         return null;
       }
       return this.mapToRecord(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
@@ -273,8 +299,9 @@ export class ExchangeAccountRepository {
       });
       if ((updated as any).tenantId !== tenantId) return null;
       return this.mapToRecord(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
@@ -288,8 +315,9 @@ export class ExchangeAccountRepository {
       if ((updated as any).tenantId !== tenantId) return null;
       this.logger.log(`Account enabled id=${id} tenant=${tenantId}`);
       return this.mapToRecord(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
@@ -303,9 +331,47 @@ export class ExchangeAccountRepository {
       if ((updated as any).tenantId !== tenantId) return null;
       this.logger.log(`Account disabled id=${id} tenant=${tenantId} reason=${reason || 'manual'}`);
       return this.mapToRecord(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
+  }
+
+  /**
+   * The (tenant_id, api_key_blind_index) unique index is not partial, so a
+   * row that stops owning its key - revoked, or discarded after a failed
+   * connect - must give the blind index up, otherwise that key can never be
+   * connected again in this tenant. The placeholder is unique per row and can
+   * never equal a real blind index (those are hex digests with no prefix).
+   */
+  static releasedBlindIndex(id: string): string {
+    return `released:${id.replace(/-/g, '')}`;
+  }
+
+  /**
+   * A connect that failed part-way (venue unreachable, key refused, duplicate
+   * key) must not leave a live row behind holding the key: the credential
+   * material is wiped, the blind index released and the row soft-deleted, while
+   * the failure code stays on the row for the audit trail.
+   */
+  async discardFailedConnection(id: string, tenantId: string, failureCode: string): Promise<boolean> {
+    const result = await this.prisma.tradingAccount.updateMany({
+      where: { id, tenantId },
+      data: {
+        status: 'CREDENTIALS_INVALID' as any,
+        lastFailureCode: failureCode.substring(0, 64),
+        lastFailureAt: new Date(),
+        apiKeyCiphertext: null,
+        apiSecretCiphertext: null,
+        passphraseCiphertext: null,
+        encryptedDataKey: null,
+        credentialRef: null,
+        apiKeyBlindIndex: ExchangeAccountRepository.releasedBlindIndex(id),
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    return result.count === 1;
   }
 
   async revokeAccount(id: string, tenantId: string): Promise<ExchangeAccountRecord | null> {
@@ -314,6 +380,7 @@ export class ExchangeAccountRepository {
         where: { id },
         data: {
           status: 'DISABLED' as any,
+          apiKeyBlindIndex: ExchangeAccountRepository.releasedBlindIndex(id),
           apiKeyCiphertext: null,
           apiSecretCiphertext: null,
           passphraseCiphertext: null,
@@ -327,8 +394,9 @@ export class ExchangeAccountRepository {
       if ((updated as any).tenantId !== tenantId) return null;
       this.logger.log(`Account revoked id=${id} tenant=${tenantId}`);
       return this.mapToRecord(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 
@@ -343,8 +411,9 @@ export class ExchangeAccountRepository {
       if ((updated as any).tenantId !== tenantId) return null;
       this.logger.log(`Live trading ${enabled ? 'enabled' : 'disabled'} id=${id} tenant=${tenantId}`);
       return this.mapToRecord(updated);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isRecordNotFound(error)) return null;
+      throw error;
     }
   }
 

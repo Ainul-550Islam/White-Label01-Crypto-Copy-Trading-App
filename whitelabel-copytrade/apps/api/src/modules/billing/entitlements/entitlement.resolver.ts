@@ -32,7 +32,9 @@ export class EntitlementResolver {
     context: { userId: string; tenantId: string }
   ): Promise<Entitlement | null> {
     try {
-      return await this.service.getEntitlement(id);
+      const entitlement = await this.service.getEntitlement(id);
+      // Another tenant's entitlement is reported exactly like a missing one.
+      return entitlement.tenantId === context.tenantId ? entitlement : null;
     } catch (error) {
       return null;
     }

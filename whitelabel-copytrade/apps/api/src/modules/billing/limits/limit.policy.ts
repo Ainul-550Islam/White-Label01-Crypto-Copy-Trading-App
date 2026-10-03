@@ -63,8 +63,11 @@ export class LimitPolicy {
 
     const remaining = limit.value - currentUsage;
 
-    // Check hard limits
-    if (limit.type === LimitType.HARD && this.config.enforceHardLimits) {
+    // HARD, RATE (n per period) and BURST limits are caps; only SOFT limits
+    // merely track usage. Treating RATE as soft let e.g.
+    // api_requests_per_minute through at any volume.
+    const isCap = limit.type === LimitType.HARD || limit.type === LimitType.RATE || limit.type === LimitType.BURST;
+    if (isCap && this.config.enforceHardLimits) {
       const allowed = remaining >= requestedAmount;
 
       // Check burst allowance
@@ -194,7 +197,11 @@ export class LimitPolicy {
       return false; // Unlimited
     }
 
-    const threshold = thresholdPercentage || this.config.thresholdPercentage;
+    const threshold = thresholdPercentage ?? this.config.thresholdPercentage;
+    if (limit.value === 0) {
+      // A zero allowance is fully used by any usage at all.
+      return currentUsage > 0 || threshold <= 0;
+    }
     const usagePercentage = (currentUsage / limit.value) * 100;
     return usagePercentage >= threshold;
   }
@@ -255,7 +262,7 @@ export class LimitPolicy {
         percentage: this.getUsagePercentage(limit, usage),
       }))
       .filter(({ percentage }) => {
-        const threshold = thresholdPercentage || this.config.thresholdPercentage;
+        const threshold = thresholdPercentage ?? this.config.thresholdPercentage;
         return percentage >= threshold;
       });
   }

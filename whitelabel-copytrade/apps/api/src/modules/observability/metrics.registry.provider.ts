@@ -1,4 +1,5 @@
 import { MetricsRegistry } from '../../infrastructure/metrics/metrics.registry';
+import { SSO_FAILURE_STAGES, SSO_LOGIN_RESULTS } from '../security/sso-flow.types';
 
 
 
@@ -141,6 +142,25 @@ export function createMetricsRegistry(): MetricsRegistry {
       + '`result`, bounded.',
     ['result'],
     { bounds: { result: new Set(['primary', 'replica', 'stale_fallback']) } },
+  );
+  // Part 11 - single sign-on. Both families reuse the closed label universe
+  // (`result`, `stage`) with enumerated values only: no tenant, provider
+  // name, issuer, subject, email, state or any credential ever becomes a
+  // label value.
+  registry.registerCounter(
+    'wlct_sso_logins_total',
+    'SSO login attempts by outcome (started | succeeded | denied). '
+      + '`succeeded` counts both sessions and 2FA challenges issued after a verified IdP response.',
+    ['result'],
+    { bounds: { result: new Set<string>(SSO_LOGIN_RESULTS) } },
+  );
+  registry.registerCounter(
+    'wlct_sso_failures_total',
+    'Refused SSO logins by the stage that refused them (state | nonce | pkce | token_validation | '
+      + 'saml_verification | replay | identity_mapping | session_issuance | provider_outage | config). '
+      + 'Reason codes live in the durable sso_audit_events table, not here.',
+    ['stage'],
+    { bounds: { stage: new Set<string>(SSO_FAILURE_STAGES) } },
   );
 
   return registry;

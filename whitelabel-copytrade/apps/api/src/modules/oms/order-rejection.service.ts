@@ -92,22 +92,18 @@ export class OrderRejectionService {
 
   async getRejections(params: { tenantId: string; accountId?: string; symbol?: string; category?: string; from?: Date; to?: Date; page?: number; limit?: number }) {
     const { tenantId, accountId, symbol, category, from, to, page = 1, limit = 20 } = params;
-    try {
-      return await (this.prisma as any).omsRejection.findMany({
-        where: {
-          tenantId,
-          ...(accountId ? { accountId } : {}),
-          ...(symbol ? { symbol } : {}),
-          ...(category ? { category } : {}),
-          ...(from || to ? { timestamp: { gte: from?.toISOString(), lte: to?.toISOString() } as any } : {}),
-        },
-        orderBy: { timestamp: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      });
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).omsRejection.findMany({
+      where: {
+        tenantId,
+        ...(accountId ? { accountId } : {}),
+        ...(symbol ? { symbol } : {}),
+        ...(category ? { category } : {}),
+        ...(from || to ? { timestamp: { gte: from?.toISOString(), lte: to?.toISOString() } as any } : {}),
+      },
+      orderBy: { timestamp: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
   }
 
   async getRejectionStats(tenantId: string, from?: Date, to?: Date) {

@@ -239,7 +239,7 @@ export class MrrCalculationService {
       return subs || [];
     } catch (e: any) {
       this.logger.warn(`Failed to fetch active subscriptions: ${e.message}`);
-      return [];
+      throw e;
     }
   }
 

@@ -287,14 +287,10 @@ export class OperationsPolicyService {
   }
 
   async getTenantSecurityPolicy(tenantId: string) {
-    try {
-      const policy = await (this.prisma as any).securityPolicy.findFirst({
-        where: { tenantId, isActive: true },
-        orderBy: { createdAt: 'desc' },
-      });
-      return policy;
-    } catch {
-      return null;
-    }
+    const policy = await (this.prisma as any).securityPolicy.findFirst({
+      where: { tenantId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return policy;
   }
 }

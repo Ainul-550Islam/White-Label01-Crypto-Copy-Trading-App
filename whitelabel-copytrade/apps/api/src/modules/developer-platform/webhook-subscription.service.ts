@@ -46,7 +46,7 @@ export class WebhookSubscriptionService {
     private readonly prisma: PrismaService,
     private readonly audit: DeveloperAuditService,
     private readonly policyService: DeveloperPolicyService,
-    private readonly policyData: DeveloperPolicyDataPort,
+    @Inject(DEVELOPER_POLICY_DATA_PORT) private readonly policyData: DeveloperPolicyDataPort,
     private readonly signing: WebhookSigningService,
     @Inject(DEVELOPER_SECRET_HMAC_KEY) private readonly hmacKey: string,
     @Inject(DEVELOPER_SECRET_CIPHER) private readonly cipher: DeveloperSecretCipher,

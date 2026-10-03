@@ -28,7 +28,7 @@ export class ComplianceCaseRepository {
     metadata?: Record<string, any>;
   }): Promise<any> {
     // Idempotency check
-    const existing = await this.findByIdempotencyKey(input.idempotencyKey);
+    const existing = await this.findByIdempotencyKey(input.idempotencyKey, input.tenantId);
     if (existing) {
       this.logger.log(`Idempotent case return key=${input.idempotencyKey}`);
       return existing;
@@ -82,7 +82,7 @@ export class ComplianceCaseRepository {
     } catch (e: any) {
       if (e.code === 'P2002' || e.message?.includes('Unique constraint')) {
         // Idempotency race
-        const existingByKey = await this.findByIdempotencyKey(input.idempotencyKey);
+        const existingByKey = await this.findByIdempotencyKey(input.idempotencyKey, input.tenantId);
         if (existingByKey) return existingByKey;
       }
       this.logger.warn(`Failed to create compliance case in DB, fallback: ${e.message}`);
@@ -101,17 +101,13 @@ export class ComplianceCaseRepository {
       return result || null;
     } catch (e: any) {
       this.logger.warn(`Find case failed: ${e.message}`);
-      return null;
+      throw e;
     }
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<any | null> {
-    try {
-      const result = await (this.prisma as any).complianceCase?.findFirst({ where: { idempotencyKey } });
-      return result || null;
-    } catch {
-      return null;
-    }
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<any | null> {
+    const result = await (this.prisma as any).complianceCase?.findFirst({ where: { idempotencyKey, tenantId } });
+    return result || null;
   }
 
   async listTenantCases(tenantId: string, filters?: { state?: ComplianceCaseState; caseType?: ComplianceCaseType; riskLevel?: RiskLevel; assignedTo?: string; fromDate?: Date; toDate?: Date; page?: number; limit?: number }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
@@ -139,7 +135,7 @@ export class ComplianceCaseRepository {
       return { data, total, page, limit };
     } catch (e: any) {
       this.logger.warn(`List tenant cases failed: ${e.message}`);
-      return { data: [], total: 0, page, limit };
+      throw e;
     }
   }
 
@@ -148,19 +144,15 @@ export class ComplianceCaseRepository {
     const limit = filters?.limit || 20;
     const offset = (page - 1) * limit;
 
-    try {
-      const where: any = { assignedTo: reviewerId };
-      if (filters?.state) where.state = filters.state;
+    const where: any = { assignedTo: reviewerId };
+    if (filters?.state) where.state = filters.state;
 
-      const [data, total] = await Promise.all([
-        (this.prisma as any).complianceCase?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
-        (this.prisma as any).complianceCase?.count({ where }) || 0,
-      ]);
+    const [data, total] = await Promise.all([
+      (this.prisma as any).complianceCase?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
+      (this.prisma as any).complianceCase?.count({ where }) || 0,
+    ]);
 
-      return { data, total };
-    } catch {
-      return { data: [], total: 0 };
-    }
+    return { data, total };
   }
 
   async assignReviewer(caseId: string, tenantId: string, reviewerId: string, assignedBy: string, idempotencyKey?: string): Promise<any | null> {
@@ -306,11 +298,7 @@ export class ComplianceCaseRepository {
   }
 
   async findByUserId(userId: string, tenantId: string): Promise<any[]> {
-    try {
-      return await (this.prisma as any).complianceCase?.findMany({ where: { userId, tenantId }, orderBy: { createdAt: 'desc' } }) || [];
-    } catch {
-      return [];
-    }
+    return await (this.prisma as any).complianceCase?.findMany({ where: { userId, tenantId }, orderBy: { createdAt: 'desc' } }) || [];
   }
 
   private isValidTransition(from: ComplianceCaseState, to: ComplianceCaseState): boolean {

@@ -47,7 +47,7 @@ export class AmlScreeningService {
 
     // Idempotency
     try {
-      const existing = await (this.prisma as any).complianceScreeningRequest?.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).complianceScreeningRequest?.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log(`Idempotent AML person screening return key=${idempotencyKey}`);
         return {
@@ -227,7 +227,7 @@ export class AmlScreeningService {
     const idempotencyKey = params.idempotencyKey || `aml_tx_${params.tenantId}_${params.transactionId}_${Date.now()}`;
 
     try {
-      const existing = await (this.prisma as any).complianceScreeningRequest?.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).complianceScreeningRequest?.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) {
         return {
           provider: existing.provider,

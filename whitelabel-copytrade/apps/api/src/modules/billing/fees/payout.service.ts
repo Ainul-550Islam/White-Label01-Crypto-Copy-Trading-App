@@ -7,6 +7,7 @@ import { PayoutStatus, PayoutProvider, BeneficiaryType, PayoutDestination } from
 import { SettlementState } from './fee.types';
 import { parseToMinorUnits, formatFromMinorUnits } from '../finance/money.types';
 import { BillingEventService } from '../notifications/billing-event.service';
+import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 
 /**
  * Main payout orchestration: finalized settlement -> payout eligibility -> beneficiary validation
@@ -25,6 +26,10 @@ export class PayoutService {
     @Optional()
     @Inject(forwardRef(() => BillingEventService))
     private readonly billingEventService?: BillingEventService,
+    // Phase 3: beneficiary ownership checks read the canonical trader/user
+    // tables. Optional for harness construction; without it a TRADER payout
+    // is refused (fail closed) rather than paid to an unverified party.
+    @Optional() private readonly prisma?: PrismaService,
   ) {}
 
   async createPayout(params: {
@@ -43,7 +48,7 @@ export class PayoutService {
     const idempotencyKey = params.idempotencyKey || `payout_${params.settlementId}_${params.beneficiaryId}_${params.tenantId}`;
 
     // Idempotency check
-    const existingByKey = await this.payoutRepository.findByIdempotencyKey(idempotencyKey);
+    const existingByKey = await this.payoutRepository.findByIdempotencyKey(idempotencyKey, params.tenantId);
     if (existingByKey) {
       this.logger.log(`Idempotent payout return by idempotencyKey: ${idempotencyKey}`);
       return existingByKey;
@@ -83,11 +88,13 @@ export class PayoutService {
 
     // Beneficiary ownership validation - tenant-scoped
     if (params.beneficiaryType === BeneficiaryType.TRADER) {
-      // In real implementation, verify trader belongs to tenant
-      // For now, we check tenantId matches
       if (!params.beneficiaryId) {
         throw new Error('Beneficiary ID required for trader payout');
       }
+      await this.assertTraderBelongsToTenant(params.tenantId, params.beneficiaryId);
+    }
+    if (params.beneficiaryType === BeneficiaryType.TENANT && params.beneficiaryId && params.beneficiaryId !== params.tenantId) {
+      throw new Error('Tenant payout beneficiary must be the tenant itself');
     }
 
     // Validate provider availability
@@ -362,6 +369,32 @@ export class PayoutService {
     filter?: { status?: PayoutStatus; provider?: PayoutProvider; beneficiaryId?: string; currency?: string; fromDate?: Date; toDate?: Date; limit?: number; offset?: number },
   ): Promise<any[]> {
     return this.payoutRepository.listByTenant(tenantId, filter);
+  }
+
+  /**
+   * A TRADER beneficiary is a TraderProfile (by id or by its user id) of THIS
+   * tenant, in good standing. Cross-tenant ids, unknown ids and suspended /
+   * rejected traders are refused with the same message (no tenant probing).
+   */
+  private async assertTraderBelongsToTenant(tenantId: string, beneficiaryId: string): Promise<void> {
+    if (!this.prisma) {
+      throw new Error('Trader beneficiary verification unavailable');
+    }
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(beneficiaryId)) {
+      throw new Error('Beneficiary is not a trader of this tenant');
+    }
+    const trader = await this.prisma.traderProfile.findFirst({
+      where: { tenantId, OR: [{ id: beneficiaryId }, { userId: beneficiaryId }] },
+      select: { id: true, verificationState: true },
+    });
+    if (!trader) {
+      throw new Error('Beneficiary is not a trader of this tenant');
+    }
+    const state = String(trader.verificationState);
+    if (state === 'SUSPENDED' || state === 'REJECTED') {
+      throw new Error(`Trader beneficiary is not eligible for payouts (${state})`);
+    }
   }
 
   private sanitizeDestination(destination: PayoutDestination): PayoutDestination {

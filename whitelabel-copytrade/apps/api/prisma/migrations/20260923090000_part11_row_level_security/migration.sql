@@ -71,6 +71,22 @@ CREATE POLICY tenant_isolation ON "backtest_trades"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- BillingCustomer
+CREATE POLICY tenant_isolation ON "billing_customers"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- BillingLedgerEntry
+CREATE POLICY tenant_isolation ON "billing_ledger_entries"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- BillingNotificationAuditLog
 CREATE POLICY tenant_isolation ON "billing_notification_audit_logs"
     AS PERMISSIVE
@@ -159,6 +175,38 @@ CREATE POLICY tenant_isolation ON "compliance_evidences"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- ComplianceReportCertification
+CREATE POLICY tenant_isolation ON "compliance_report_certifications"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- ComplianceReportDelivery
+CREATE POLICY tenant_isolation ON "compliance_report_deliveries"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- ComplianceReportValidation
+CREATE POLICY tenant_isolation ON "compliance_report_validations"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- ComplianceReport
+CREATE POLICY tenant_isolation ON "compliance_reports"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- ComplianceReview
 CREATE POLICY tenant_isolation ON "compliance_reviews"
     AS PERMISSIVE
@@ -169,6 +217,14 @@ CREATE POLICY tenant_isolation ON "compliance_reviews"
 
 -- ComplianceScreeningRequest
 CREATE POLICY tenant_isolation ON "compliance_screening_requests"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- ConsentRecord
+CREATE POLICY tenant_isolation ON "consent_records"
     AS PERMISSIVE
     FOR ALL
     TO PUBLIC
@@ -295,6 +351,70 @@ CREATE POLICY tenant_isolation ON "custody_withdrawals"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- DeveloperAccessToken
+CREATE POLICY tenant_isolation ON "developer_access_tokens"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- DeveloperApplication
+CREATE POLICY tenant_isolation ON "developer_applications"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- DeveloperAudit
+CREATE POLICY tenant_isolation ON "developer_audit"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- DeveloperCredential
+CREATE POLICY tenant_isolation ON "developer_credentials"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- DeveloperEventSubscription
+CREATE POLICY tenant_isolation ON "developer_event_subscriptions"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- DeveloperOAuthGrant
+CREATE POLICY tenant_isolation ON "developer_oauth_grants"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- DeveloperWebhookDelivery
+CREATE POLICY tenant_isolation ON "developer_webhook_deliveries"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- DeveloperWebhookSubscription
+CREATE POLICY tenant_isolation ON "developer_webhook_subscriptions"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- DeviceTrust
 CREATE POLICY tenant_isolation ON "device_trusts"
     AS PERMISSIVE
@@ -359,6 +479,14 @@ CREATE POLICY tenant_isolation ON "enterprise_api_keys"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- EvidencePackage
+CREATE POLICY tenant_isolation ON "evidence_packages"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- ExchangeStreamSession
 CREATE POLICY tenant_isolation ON "exchange_stream_sessions"
     AS PERMISSIVE
@@ -383,8 +511,32 @@ CREATE POLICY tenant_isolation ON "fee_accruals"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- FeeAuditLog
+CREATE POLICY tenant_isolation ON "fee_audit_logs"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- FeeSettlementItem
+CREATE POLICY tenant_isolation ON "fee_settlement_items"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- FeeSettlement
 CREATE POLICY tenant_isolation ON "fee_settlements"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- FinanceAuditLog
+CREATE POLICY tenant_isolation ON "finance_audit_logs"
     AS PERMISSIVE
     FOR ALL
     TO PUBLIC
@@ -409,6 +561,46 @@ CREATE POLICY tenant_isolation ON "funding_reconciliations"
 
 -- FundingRequest
 CREATE POLICY tenant_isolation ON "funding_requests"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- GovernanceAction
+CREATE POLICY tenant_isolation ON "governance_actions"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- GovernanceAudit
+CREATE POLICY tenant_isolation ON "governance_audits"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- GovernanceDataClassification
+CREATE POLICY tenant_isolation ON "governance_data_classifications"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- GovernanceDataInventory
+CREATE POLICY tenant_isolation ON "governance_data_inventory"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- GovernanceReconciliation
+CREATE POLICY tenant_isolation ON "governance_reconciliations"
     AS PERMISSIVE
     FOR ALL
     TO PUBLIC
@@ -791,6 +983,22 @@ CREATE POLICY tenant_isolation ON "positions"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- PrivacyExport
+CREATE POLICY tenant_isolation ON "privacy_exports"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- PrivacyRequest
+CREATE POLICY tenant_isolation ON "privacy_requests"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- ReconciliationDiscrepancy
 CREATE POLICY tenant_isolation ON "reconciliation_discrepancies"
     AS PERMISSIVE
@@ -919,6 +1127,14 @@ CREATE POLICY tenant_isolation ON "research_strategy_versions"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- RetentionCandidate
+CREATE POLICY tenant_isolation ON "retention_candidates"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- RiskConfigurationVersion
 CREATE POLICY tenant_isolation ON "risk_configuration_versions"
     AS PERMISSIVE
@@ -991,6 +1207,14 @@ CREATE POLICY tenant_isolation ON "risk_snapshot_metadata"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- SaasAuditLog
+CREATE POLICY tenant_isolation ON "saas_audit_logs"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- SecurityAuditLog
 CREATE POLICY tenant_isolation ON "security_audit_logs"
     AS PERMISSIVE
@@ -1007,8 +1231,40 @@ CREATE POLICY tenant_isolation ON "security_threat_signals"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- SsoAssertionReplay
+CREATE POLICY tenant_isolation ON "sso_assertion_replays"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- SsoAuditEvent
+CREATE POLICY tenant_isolation ON "sso_audit_events"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- SsoAuthTransaction
+CREATE POLICY tenant_isolation ON "sso_auth_transactions"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- SsoConfiguration
 CREATE POLICY tenant_isolation ON "sso_configurations"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
+-- SsoIdentity
+CREATE POLICY tenant_isolation ON "sso_identities"
     AS PERMISSIVE
     FOR ALL
     TO PUBLIC
@@ -1167,6 +1423,14 @@ CREATE POLICY tenant_isolation ON "usage_alert_events"
     USING (tenant_id = wlct_current_tenant_id())
     WITH CHECK (tenant_id = wlct_current_tenant_id());
 
+-- UsageBucket
+CREATE POLICY tenant_isolation ON "usage_buckets"
+    AS PERMISSIVE
+    FOR ALL
+    TO PUBLIC
+    USING (tenant_id = wlct_current_tenant_id())
+    WITH CHECK (tenant_id = wlct_current_tenant_id());
+
 -- UsageEvent
 CREATE POLICY tenant_isolation ON "usage_events"
     AS PERMISSIVE
@@ -1252,6 +1516,7 @@ CREATE POLICY tenant_isolation ON "withdrawal_requests"
 --   compliance_policy_records          (CompliancePolicyRecord)
 --   institutional_risk_policies        (InstitutionalRiskPolicy)
 --   kill_switches                      (KillSwitch)
+--   legal_holds                        (LegalHold)
 --   mobile_reconciliation_findings     (MobileReconciliationFinding)
 --   mobile_release_audits              (MobileReleaseAudit)
 --   operational_actions                (OperationalAction)
@@ -1266,11 +1531,16 @@ CREATE POLICY tenant_isolation ON "withdrawal_requests"
 --   operational_service_degradations   (OperationalServiceDegradation)
 --   ops_alerts                         (OpsAlert)
 --   ops_incidents                      (OpsIncident)
+--   partner_attributions               (PartnerAttribution)
+--   partner_audits                     (PartnerAudit)
+--   partner_commissions                (PartnerCommission)
+--   partner_tenant_relationships       (PartnerTenantRelationship)
 --   plans                              (Plan)
 --   roles                              (Role)
 --   security_events                    (SecurityEvent)
 --   security_policies                  (SecurityPolicy)
 --   subscription_plans                 (SubscriptionPlan)
+--   webhook_events                     (WebhookEvent)
 -- Their tenant-bearing rows remain filtered by the tenant-scoped factory;
 -- a strict policy here would hide the NULL-tenant platform rows that are
 -- nobody's cross-tenant secret. The exclusion is a decision, listed in

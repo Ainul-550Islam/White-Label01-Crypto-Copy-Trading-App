@@ -19,6 +19,7 @@ import { PositionReconciliationService } from './position-reconciliation.service
 import { PostTradeService } from './post-trade.service';
 import { TradeOperationsService } from './trade-operations.service';
 import { OmsAuditService } from './oms-audit.service';
+import { OrderSubmissionResultService } from './order-submission-result.service';
 
 // Existing modules integration
 import { ExecutionModule } from '../execution/execution.module';
@@ -77,6 +78,7 @@ import { BillingModule } from '../billing/billing.module';
     PostTradeService,
     TradeOperationsService,
     OmsAuditService,
+    OrderSubmissionResultService,
   ],
   exports: [
     OrderIntentService,
@@ -98,6 +100,7 @@ import { BillingModule } from '../billing/billing.module';
     PostTradeService,
     TradeOperationsService,
     OmsAuditService,
+    OrderSubmissionResultService,
   ],
 })
 export class OmsModule {}

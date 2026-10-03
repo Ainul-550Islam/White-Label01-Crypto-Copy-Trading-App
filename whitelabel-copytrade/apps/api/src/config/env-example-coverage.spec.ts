@@ -126,6 +126,35 @@ describe('environment schema and .env.example', () => {
     expect(undeclared).toEqual([]);
   });
 
+  it('names every variable the compose files interpolate in the env template they read', () => {
+    // Round 7: docker-compose.yml interpolated four EXECUTION_* names that no
+    // example file at the repo root mentioned, so an operator could only find
+    // them by reading YAML. `${NAME}`, `${NAME:-default}` and `${NAME:?msg}`
+    // all count: a defaulted knob is still a knob. Each compose file is held to
+    // the template its README tells operators to copy.
+    const pairs: Array<{ compose: string; template: string }> = [
+      { compose: 'docker-compose.yml', template: EXAMPLE_SOURCE },
+      { compose: 'docker-compose.override.yml', template: EXAMPLE_SOURCE },
+      { compose: 'docker-compose.observability.yml', template: EXAMPLE_SOURCE },
+      { compose: 'infrastructure/staging/docker-compose.staging.yml', template: 'infrastructure/.env.staging.example' },
+    ];
+    let interpolated = 0;
+    const undocumented: string[] = [];
+    for (const { compose, template } of pairs) {
+      const text = read(compose);
+      const documented = read(template);
+      const names = new Set([...text.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => String(match[1])));
+      interpolated += names.size;
+      for (const name of names) {
+        if (!new RegExp(`\\b${name}\\b`).test(documented)) {
+          undocumented.push(`${compose}: ${name}`);
+        }
+      }
+    }
+    expect(interpolated).toBeGreaterThanOrEqual(50);
+    expect(undocumented).toEqual([]);
+  });
+
   it('is wired to the boot path it claims to police', () => {
     // If `validate: validateEnvironment` were dropped from the module, every assertion
     // above would still pass while the schema stopped mattering: a parity test on a seam

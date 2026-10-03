@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   listTenants,
   getTenantDetail,
@@ -26,11 +26,16 @@ export default function SaasTenantManagementPage() {
   const [provisionLoading, setProvisionLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const fetchTenants = async () => {
+  // The list loads on mount and on search submit, not on every keystroke:
+  // fetchTenants reads the current search term from a ref.
+  const searchRef = useRef(search);
+  searchRef.current = search;
+
+  const fetchTenants = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [tenantsRes, plansRes] = await Promise.all([listTenants({ search: search || undefined, limit: 50 }), getPlanCatalog().catch(() => ({ items: [] }))]);
+      const [tenantsRes, plansRes] = await Promise.all([listTenants({ search: searchRef.current || undefined, limit: 50 }), getPlanCatalog().catch(() => ({ items: [] }))]);
       setTenants(tenantsRes.items || []);
       setTotal(tenantsRes.total || 0);
       setPlans(plansRes.items || plansRes.plans || []);
@@ -39,11 +44,11 @@ export default function SaasTenantManagementPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchTenants();
-  }, []);
+    void fetchTenants();
+  }, [fetchTenants]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,7 +149,10 @@ export default function SaasTenantManagementPage() {
         <div className="bg-white border rounded-lg p-6 space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-semibold">Tenant Detail: {selectedTenant.name} ({selectedTenant.slug})</h2>
-            <button onClick={() => setSelectedTenant(null)} className="text-sm text-gray-500">Close</button>
+            <div className="flex gap-3 items-center">
+              <a href={`/saas-admin/tenants/${encodeURIComponent(selectedTenant.id)}`} className="text-sm text-blue-600 hover:underline">Manage plan, branding, domains &amp; entitlements</a>
+              <button onClick={() => setSelectedTenant(null)} className="text-sm text-gray-500">Close</button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">

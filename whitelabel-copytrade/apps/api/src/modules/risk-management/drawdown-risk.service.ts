@@ -3,6 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
 import { RiskManagementSnapshotRepository } from './risk-snapshot.repository';
 import { DrawdownResult, RiskState, RiskSeverity, RiskPolicyScope } from './risk-management.types';
+import { resolveDayStartEquity, scopeAccountIdsOf } from './day-start-equity';
 
 /**
  * Drawdown tracking against immutable high-water mark (HWM).
@@ -182,9 +183,22 @@ export class DrawdownRiskService {
       }
     }
 
-    // Intraday drawdown: compare against today's start equity (from daily snapshot)
-    // Simplified: use same as rolling for now, but track separately
-    const intradayDrawdownPercent = drawdownPercent; // placeholder, proper intraday requires daily starting equity
+    // Intraday drawdown: peak-to-current within the current UTC trading day.
+    // The intraday peak is its own persisted high-water mark (key suffix
+    // :YYYYMMDD, so it starts fresh each day and survives restarts), seeded
+    // with the day-start equity and ratcheted up by every higher reading.
+    // Without a day-start reference the intraday figure is unknown (null),
+    // never silently replaced by the rolling one.
+    const intradayDrawdownPercent = await this.evaluateIntradayDrawdown({
+      tenantId,
+      scope,
+      scopeId,
+      accountId,
+      rows: [...balances, ...positions],
+      currentEquity,
+      sourceTimestamp,
+      policyVersion: policy.effectiveVersion,
+    });
 
     const result: DrawdownResult = {
       tenantId,
@@ -209,5 +223,41 @@ export class DrawdownRiskService {
     };
 
     return [result];
+  }
+
+  private async evaluateIntradayDrawdown(params: {
+    tenantId: string;
+    scope: RiskPolicyScope;
+    scopeId: string;
+    accountId?: string;
+    rows: Array<{ accountId: string | null | undefined }>;
+    currentEquity: bigint;
+    sourceTimestamp: string;
+    policyVersion: string;
+  }): Promise<string | null> {
+    const { tenantId, scope, scopeId, accountId, rows, currentEquity, sourceTimestamp, policyVersion } = params;
+    const tradingDay = new Date().toISOString().slice(0, 10);
+    const intradayScopeId = `${scopeId}:${tradingDay.replace(/-/g, '')}`;
+    const dayStart = await resolveDayStartEquity(this.prisma, tenantId, tradingDay, scopeAccountIdsOf(accountId, rows));
+    if (dayStart === null || !isValidDecimal(dayStart)) return null;
+
+    const persisted = await this.snapshotRepo.getHighWaterMark({ tenantId, scope, scopeId: intradayScopeId });
+    let peak = parseScaled(dayStart);
+    const stored = persisted?.highWaterMark && isValidDecimal(persisted.highWaterMark) ? parseScaled(persisted.highWaterMark) : null;
+    if (stored !== null && stored > peak) peak = stored;
+    if (currentEquity > peak) peak = currentEquity;
+    if (stored === null || stored !== peak) {
+      await this.snapshotRepo.persistHighWaterMark({
+        tenantId,
+        scope,
+        scopeId: intradayScopeId,
+        highWaterMark: formatScaled(peak),
+        timestamp: sourceTimestamp,
+        policyVersion,
+      });
+    }
+    if (peak <= 0n) return null;
+    if (currentEquity >= peak) return '0';
+    return formatScaled(((peak - currentEquity) * 100n * SCALE) / peak);
   }
 }

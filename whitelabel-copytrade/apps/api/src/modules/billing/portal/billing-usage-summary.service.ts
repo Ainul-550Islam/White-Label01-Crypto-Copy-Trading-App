@@ -107,57 +107,33 @@ export class BillingUsageSummaryService {
   }
 
   private async countUsers(tenantId: string): Promise<number> {
-    try {
-      return await this.prisma.user.count({ where: { tenantId, deletedAt: null } });
-    } catch {
-      return 0;
-    }
+    return await this.prisma.user.count({ where: { tenantId, deletedAt: null } });
   }
 
   private async countTraders(tenantId: string): Promise<number> {
-    try {
-      const result = await (this.prisma as any).trader?.count({ where: { tenantId, deletedAt: null } });
-      return result ?? 0;
-    } catch {
-      try {
-        const result = await (this.prisma as any).user.count({ where: { tenantId, role: 'TRADER', deletedAt: null } });
-        return result ?? 0;
-      } catch {
-        return 0;
-      }
-    }
+    // A trader is a TraderProfile (the entity the maxTraders limit governs).
+    return await this.prisma.traderProfile.count({ where: { tenantId, deletedAt: null } });
   }
 
   private async countFollowers(tenantId: string): Promise<number> {
-    try {
-      const result = await (this.prisma as any).follower?.count({ where: { tenantId, deletedAt: null } });
-      return result ?? 0;
-    } catch {
-      try {
-        const result = await (this.prisma as any).copySubscription?.count({ where: { tenantId } });
-        return result ?? 0;
-      } catch {
-        return 0;
-      }
-    }
+    // A follower is a distinct user holding a live (ACTIVE or PAUSED) copy
+    // subscription; one user following three traders is one follower.
+    const rows = await this.prisma.copySubscription.findMany({
+      where: { tenantId, state: { in: ['ACTIVE', 'PAUSED'] } },
+      distinct: ['followerId'],
+      select: { followerId: true },
+    });
+    return rows.length;
   }
 
   private async countExchangeAccounts(tenantId: string): Promise<number> {
-    try {
-      const result = await (this.prisma as any).exchangeAccount?.count({ where: { tenantId, deletedAt: null } });
-      return result ?? 0;
-    } catch {
-      return 0;
-    }
+    // Exchange accounts are TradingAccount rows (ExchangeAccountRepository).
+    return await this.prisma.tradingAccount.count({ where: { tenantId, deletedAt: null } });
   }
 
   private async countCopySubscriptions(tenantId: string): Promise<number> {
-    try {
-      const result = await (this.prisma as any).copySubscription?.count({ where: { tenantId } });
-      return result ?? 0;
-    } catch {
-      return 0;
-    }
+    const result = await (this.prisma as any).copySubscription?.count({ where: { tenantId } });
+    return result ?? 0;
   }
 
   private featureLabel(key: string): string {

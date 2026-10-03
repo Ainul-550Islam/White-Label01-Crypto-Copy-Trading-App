@@ -75,6 +75,7 @@ export function collectEnvNames(root) {
     'services/trading-engine/.env.example',
     'services/market-data/.env.example',
     'apps/admin-web/.env.example',
+    'apps/web/.env.example',
   ];
   const names = new Set();
   for (const rel of files) {
@@ -1218,7 +1219,7 @@ function usage() {
       '  node scripts/dr-manifest.mjs --due [--now ISO] [--ledger PATH]',
       '  node scripts/dr-manifest.mjs --record --component ID --outcome ok|failed [--note TEXT] [--at ISO] [--ledger PATH]',
       '  node scripts/dr-manifest.mjs --check-rls [--now ISO] [--ledger PATH]',
-      '  node scripts/dr-manifest.mjs --record-rls --grade pass|fail|unverified [--probed N] [--role NAME] [--note TEXT] [--at ISO] [--ledger PATH]',
+      '  node scripts/dr-manifest.mjs --record-rls --grade pass|fail|unverified [--probed N] [--role NAME] [--note TEXT] [--at ISO] [--now ISO] [--ledger PATH]',
       '  node scripts/dr-manifest.mjs --emit-schedule [--root PATH] [--out PATH] [--manifest PATH]',
       '  node scripts/dr-manifest.mjs --check-schedule [--out PATH] [--manifest PATH]',
       '  node scripts/dr-manifest.mjs --verify-rls [--now ISO] [--ledger PATH] [--manifest PATH] [--json]',
@@ -1519,6 +1520,14 @@ function main(argv) {
       console.error(`--record-rls: --at is not an ISO-8601 timestamp: ${JSON.stringify(overrides.at)}`);
       return 1;
     }
+    // The freshness verdict printed after recording is aged against --now when given, exactly as
+    // --check-rls does - otherwise a record of a past audit is graded against the wall clock, and
+    // the same command answers differently depending on the day it is run.
+    const reportNowMs = overrides.now === undefined ? Date.now() : Date.parse(overrides.now);
+    if (Number.isNaN(reportNowMs)) {
+      console.error(`--record-rls: --now is not an ISO-8601 timestamp: ${JSON.stringify(overrides.now)}`);
+      return 1;
+    }
     const entry = { at: new Date(atMs).toISOString(), grade };
     if (overrides.probed !== undefined) {
       const probed = Number(overrides.probed);
@@ -1554,7 +1563,7 @@ function main(argv) {
     }
     appendFileSync(evidencePath, `${line}\n`, 'utf8');
     console.log(`recorded: ${line}`);
-    const row = rlsEvidenceReport(evidence, [...parsed.entries, { ...entry, atMs }], Date.now());
+    const row = rlsEvidenceReport(evidence, [...parsed.entries, { ...entry, atMs }], reportNowMs);
     console.log(row.line);
     return row.state === 'ok' || row.state === 'waived' ? 0 : 1;
   }

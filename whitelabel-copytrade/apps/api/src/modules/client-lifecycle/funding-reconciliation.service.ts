@@ -52,7 +52,10 @@ export class FundingReconciliationService {
     if (request.externalReference) {
       try {
         // Check if external record exists in payment ledger or similar
-        const externalRecord = await (this.prisma as any).payment?.findFirst?.({ where: { tenantId, externalReference: request.externalReference } });
+        // Payment has no externalReference column: the reference is the provider payment id or order id.
+        const externalRecord = await (this.prisma as any).payment?.findFirst?.({
+          where: { tenantId, OR: [{ providerPaymentId: request.externalReference }, { orderId: request.externalReference }] },
+        });
         if (!externalRecord) {
           // Could be missing external record — check if state is CONFIRMED but no external proof
           if (request.state === 'CONFIRMED' && !request.confirmedAmount) {
@@ -140,7 +143,7 @@ export class FundingReconciliationService {
     });
 
     try {
-      const existing = await (this.prisma as any).fundingReconciliation.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).fundingReconciliation.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -188,19 +191,15 @@ export class FundingReconciliationService {
     if (isCritical !== undefined) where.isCritical = isCritical;
     if (isResolved !== undefined) where.isResolved = isResolved;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).fundingReconciliation.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).fundingReconciliation.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).fundingReconciliation.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).fundingReconciliation.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

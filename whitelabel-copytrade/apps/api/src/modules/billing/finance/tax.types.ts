@@ -103,6 +103,8 @@ export interface TaxCalculationResult {
   reverseCharge: boolean;
   taxCalculationSource: string;
   calculatedAt: Date;
+  /** Evidence for the customer's VAT number when B2B reverse charge was considered. */
+  vatCheck?: import('./vies-vat.client').VatCheckResult;
 }
 
 export interface TaxValidationResult {

@@ -131,7 +131,7 @@ export class UsageAggregationService {
       return this.buildBucketsFromEvents(tenantId, events, filter.window, `agg_${Date.now()}`, periodStart, periodEnd);
     } catch (e) {
       this.logger.warn(`Failed to get aggregated usage: ${(e as Error).message}`);
-      return [];
+      throw e;
     }
   }
 

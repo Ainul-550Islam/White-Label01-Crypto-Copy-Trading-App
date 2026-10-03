@@ -78,7 +78,15 @@ export class ExecutionQualityService {
     let fills: any[] = [];
     try {
       fills = await (this.prisma as any).omsFill.findMany({
-        where: { tenantId, ...(accountId ? { accountId } : {}), ...(symbol ? { symbol } : {}), ...(venue ? { venue } : {}), timestamp: { gte: from.toISOString(), lte: to.toISOString() } as any },
+        // OmsFill has no accountId (it is on the order intent) and no timestamp column
+        // (timestampMicros is a string): filter the account through the intent and time by createdAt.
+        where: {
+          tenantId,
+          ...(accountId ? { orderIntent: { accountId } } : {}),
+          ...(symbol ? { symbol } : {}),
+          ...(venue ? { venue } : {}),
+          createdAt: { gte: from, lte: to },
+        },
       });
     } catch {
       // fallback to canonical fills
@@ -147,7 +155,8 @@ export class ExecutionQualityService {
     const latencies: number[] = [];
     try {
       const acks = await (this.prisma as any).omsExecutionAck.findMany({
-        where: { tenantId, ...(accountId ? { accountId } : {}), ...(venue ? { venue } : {}), createdAt: { gte: from, lte: to } },
+        // Acks have no accountId column: the account is on the order intent.
+        where: { tenantId, ...(accountId ? { orderIntent: { accountId } } : {}), ...(venue ? { venue } : {}), createdAt: { gte: from, lte: to } },
       });
       for (const ack of acks) {
         if (ack.latencyMicros && isValidDecimal(ack.latencyMicros)) {

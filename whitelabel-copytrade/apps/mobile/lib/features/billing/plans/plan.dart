@@ -1,6 +1,7 @@
 /// Plan Model
 /// 
 /// Represents a billing plan in the mobile application.
+library;
 
 enum PlanTier {
   free,

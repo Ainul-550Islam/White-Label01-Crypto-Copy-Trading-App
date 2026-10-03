@@ -43,8 +43,16 @@ class NoOpBlockchainProvider implements BlockchainProvider {
   }
 }
 
-// Example provider-neutral stub that would delegate to actual provider implementation
-// Do not hardcode a single blockchain provider as authoritative production implementation
+/**
+ * Phase 3: the internal-ledger evidence provider. It answers from the
+ * platform's own custody records (transactions it already holds evidence
+ * for) and declares ONLY that. It cannot read chain balances, mint deposit
+ * addresses, submit transactions or estimate fees, so its capabilities say so
+ * and every caller that needs those fails closed. Previously this class
+ * declared every capability true while implementing none of them.
+ */
+export const INTERNAL_LEDGER_PROVIDER_ID = 'internal-ledger';
+
 class ConfiguredBlockchainProvider implements BlockchainProvider {
   readonly providerId: string;
   readonly providerName: string;
@@ -62,14 +70,15 @@ class ConfiguredBlockchainProvider implements BlockchainProvider {
 
   async getCapabilities(): Promise<BlockchainProviderCapabilities> {
     return {
-      canGetBalance: true,
-      canObserveAddress: true,
-      canSubmitTransaction: true,
+      canGetBalance: false,
+      canObserveAddress: false,
+      canSubmitTransaction: false,
       canGetTransaction: true,
-      canGetReceipt: true,
-      canGetBlock: true,
-      canEstimateFee: true,
-      canObserveConfirmations: true,
+      canGetReceipt: false,
+      canGetBlock: false,
+      canEstimateFee: false,
+      canObserveConfirmations: false,
+      canGenerateAddress: false,
       supportedNetworks: this.config.supportedNetworks,
       supportedAssets: this.config.supportedAssets,
     };
@@ -152,11 +161,13 @@ class ConfiguredBlockchainProvider implements BlockchainProvider {
         assetSymbol: params.assetId.split('-')[0] ?? params.assetId,
         networkId: params.networkId,
         walletId: 'unknown',
-        available,
+        // Internal deposit records are not chain truth: the balance stays
+        // UNKNOWN (never a fabricated 0) and is labelled as ledger-derived.
+        available: '0',
         observationTimestamp: new Date().toISOString(),
         provider: this.providerId,
-        sourceReference: `deposit-derived:${params.address}`,
-        dataCompleteness: 'PROVIDER_DERIVED',
+        sourceReference: `ledger-deposits-only:${params.address}`,
+        dataCompleteness: 'UNKNOWN_LEDGER_ONLY_NOT_CHAIN_TRUTH',
       };
     } catch {
       throw new BadRequestException('Provider balance lookup failed — missing provider credentials/configuration must never be reported as healthy');
@@ -167,34 +178,30 @@ class ConfiguredBlockchainProvider implements BlockchainProvider {
     if (!params.transactionHash || !params.networkId) throw new BadRequestException('transactionHash and networkId must be explicit');
 
     // Must obtain transaction from provider evidence, never invent transaction hashes
-    try {
-      const tx = await (this.prisma as any).custodyTransaction.findFirst({
-        where: { transactionHash: params.transactionHash, networkId: params.networkId },
-      });
+    const tx = await (this.prisma as any).custodyTransaction.findFirst({
+      where: { transactionHash: params.transactionHash, networkId: params.networkId },
+    });
 
-      if (!tx) return null;
+    if (!tx) return null;
 
-      return {
-        transactionHash: tx.transactionHash,
-        blockHash: tx.blockHash ?? null,
-        blockNumber: tx.blockNumber ?? null,
-        fromAddress: (tx.evidence as any)?.fromAddress ?? null,
-        toAddress: (tx.evidence as any)?.toAddress ?? null,
-        amount: tx.amount,
-        assetId: tx.assetId,
-        networkId: tx.networkId,
-        confirmationCount: tx.confirmationCount ?? 0,
-        requiredConfirmationCount: tx.requiredConfirmationCount ?? 6,
-        status: tx.status as any,
-        fee: tx.actualFee ?? tx.estimatedFee ?? null,
-        feeAsset: tx.feeAsset ?? null,
-        observedAt: tx.observedAt?.toISOString() ?? new Date().toISOString(),
-        providerReference: tx.providerReference ?? null,
-        rawProviderData: tx.evidence,
-      };
-    } catch {
-      return null;
-    }
+    return {
+      transactionHash: tx.transactionHash,
+      blockHash: tx.blockHash ?? null,
+      blockNumber: tx.blockNumber ?? null,
+      fromAddress: (tx.evidence as any)?.fromAddress ?? null,
+      toAddress: (tx.evidence as any)?.toAddress ?? null,
+      amount: tx.amount,
+      assetId: tx.assetId,
+      networkId: tx.networkId,
+      confirmationCount: tx.confirmationCount ?? 0,
+      requiredConfirmationCount: tx.requiredConfirmationCount ?? 6,
+      status: tx.status as any,
+      fee: tx.actualFee ?? tx.estimatedFee ?? null,
+      feeAsset: tx.feeAsset ?? null,
+      observedAt: tx.observedAt?.toISOString() ?? new Date().toISOString(),
+      providerReference: tx.providerReference ?? null,
+      rawProviderData: tx.evidence,
+    };
   }
 
   async estimateFee(params: { assetId: string; networkId: string; fromAddress: string; toAddress: string; amount: string }): Promise<FeeObservation> {
@@ -211,12 +218,11 @@ class ConfiguredBlockchainProvider implements BlockchainProvider {
   async isHealthy(): Promise<{ healthy: boolean; reason?: string }> {
     // Missing provider credentials/configuration must never be reported as healthy
     // Check if provider config exists
-    try {
-      // In real implementation, check provider API health
-      return { healthy: true };
-    } catch {
-      return { healthy: false, reason: 'Provider health check failed' };
-    }
+    // An internal ledger is not a blockchain provider: never report healthy.
+    return {
+      healthy: false,
+      reason: 'No external blockchain provider configured (internal ledger evidence only) - balances, deposit addresses, submission and fee estimation are unavailable',
+    };
   }
 }
 
@@ -254,13 +260,21 @@ export class BlockchainProviderFactory {
     // Resolve configured provider — provider-neutral, fail closed when no valid provider
     // Do not hardcode single blockchain provider as authoritative
     try {
-      // Check if there is a configured provider in env or database
-      // For now, return configured provider that delegates to existing custody transactions as evidence
-      // In production, this would read from config and instantiate actual provider (e.g., BitGo, Fireblocks, Alchemy, Infura)
+      // CUSTODY_BLOCKCHAIN_PROVIDER selects the evidence provider. Only the
+      // internal-ledger provider ships in this build: it reads recorded custody
+      // transactions, never reports healthy and cannot issue addresses. A real
+      // chain/custodian adapter (BitGo, Fireblocks, node RPC) must be added
+      // here before deposits or sweeps can run.
 
+      const configured = (process.env.CUSTODY_BLOCKCHAIN_PROVIDER ?? '').trim().toLowerCase();
+      if (configured && configured !== INTERNAL_LEDGER_PROVIDER_ID) {
+        // A named external provider was requested but no adapter for it ships
+        // in this codebase: refuse rather than silently substituting.
+        throw new Error(`CUSTODY_BLOCKCHAIN_PROVIDER=${configured} has no adapter in this build`);
+      }
       const providerConfig = {
-        providerId: 'configured-provider',
-        providerName: 'Configured Blockchain Provider',
+        providerId: INTERNAL_LEDGER_PROVIDER_ID,
+        providerName: 'Internal ledger evidence (no external blockchain provider)',
         supportedNetworks: [networkId],
         supportedAssets: [assetId],
       };
@@ -276,23 +290,27 @@ export class BlockchainProviderFactory {
   async getProviderById(providerId: string): Promise<BlockchainProvider> {
     if (!providerId) throw new BadRequestException('providerId must be explicit');
 
-    // In real implementation, would lookup provider config by ID
-    // For now, return NoOp if not found — but must not report as healthy
+    // 'noop' is the explicit placeholder id reported by listAvailableProviders
+    // when nothing resolves; it always reports unhealthy.
     if (providerId === 'noop' || !providerId) {
       return new NoOpBlockchainProvider();
     }
 
-    // Return configured provider
-    return new ConfiguredBlockchainProvider(this.prisma, this.assetRegistry, this.networkRegistry, {
-      providerId,
-      providerName: `Provider ${providerId}`,
-      supportedNetworks: [],
-      supportedAssets: [],
-    });
+    if (providerId === INTERNAL_LEDGER_PROVIDER_ID) {
+      return new ConfiguredBlockchainProvider(this.prisma, this.assetRegistry, this.networkRegistry, {
+        providerId,
+        providerName: 'Internal ledger evidence (no external blockchain provider)',
+        supportedNetworks: [],
+        supportedAssets: [],
+      });
+    }
+    // Unknown provider ids are an error, never a fabricated provider.
+    throw new BadRequestException(`Unknown blockchain provider ${providerId} - fail closed`);
   }
 
   async listAvailableProviders(): Promise<Array<{ providerId: string; providerName: string; healthy: boolean }>> {
-    // Would list configured providers and their health
+    // Lists the provider resolved from configuration. When resolution fails the
+    // result is an explicit unhealthy 'noop' entry, never an empty "all good".
     try {
       const provider = await this.getProviderForNetwork({ networkId: 'ethereum', assetId: 'ETH-ethereum' });
       const health = await provider.isHealthy?.();

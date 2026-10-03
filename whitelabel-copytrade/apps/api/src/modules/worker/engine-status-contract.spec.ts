@@ -226,6 +226,84 @@ describe('engine status contract - the three sub-documents', () => {
   });
 });
 
+describe('engine status contract - the Part 21-23 posture blocks (round 8)', () => {
+  // Values copied from a real `GET /internal/v1/status` answered by the
+  // execution-engine container in the round-8 Docker run (simulated mode, in-memory
+  // locks, no venue attestor). Before the fix the worker refused exactly this reply
+  // at `distributedLockWiring.fencingEnabled`, so its start-up gate never passed.
+  const distributedLockWiring = {
+    distributed: false,
+    manager: 'InMemoryLockManager',
+    mode: 'memory',
+    ttlMs: 15000,
+    acquisitionTimeoutMs: 5000,
+    renewalRatio: 0.3333333333333333,
+    instanceId: 'execution-engine-1',
+    fencingRequired: true,
+    fenced: false,
+  };
+  const credentialRegistry = {
+    providerSource: 'none',
+    credentialSource: 'none',
+    capabilities: {
+      resolvesPerAccount: true,
+      multiExchange: false,
+      cacheInvalidation: true,
+      redactedLogging: true,
+    },
+    builtAtMicros: 1790927057108725,
+    selection: 'composition-root-singleton',
+  };
+  const venueAttestation = {
+    enabled: true,
+    testnet: true,
+    cacheTtlMs: 300000,
+    includeAccountFlags: false,
+    attestorSource: 'binance:testnet',
+    venueBacked: true,
+  };
+
+  it('parses the blocks a real simulated engine publishes', () => {
+    const status = parseEngineStatus({
+      ...requiredOnly(),
+      distributedLockWiring,
+      venueAttestation: null,
+      credentialRegistry,
+    });
+    expect(status.distributedLockWiring).toEqual(distributedLockWiring);
+    expect(status.venueAttestation).toBeNull();
+    expect(status.credentialRegistry).toEqual(credentialRegistry);
+    expect(status.unmappedKeys).toEqual([]);
+  });
+
+  it('parses a wired venue attestation block', () => {
+    const status = parseEngineStatus({ ...requiredOnly(), venueAttestation });
+    expect(status.venueAttestation).toEqual(venueAttestation);
+  });
+
+  it('keeps renewalRatio a fraction instead of demanding an integer', () => {
+    const status = parseEngineStatus({ ...requiredOnly(), distributedLockWiring });
+    expect(status.distributedLockWiring?.renewalRatio).toBeCloseTo(1 / 3);
+    expect(() =>
+      parseEngineStatus({
+        ...requiredOnly(),
+        distributedLockWiring: { ...distributedLockWiring, renewalRatio: 'a third' },
+      }),
+    ).toThrow(/distributedLockWiring.renewalRatio/);
+  });
+
+  it('still refuses a posture block missing one of its published keys', () => {
+    const { fenced: _fenced, ...withoutFenced } = distributedLockWiring;
+    expect(() =>
+      parseEngineStatus({ ...requiredOnly(), distributedLockWiring: withoutFenced }),
+    ).toThrow(/distributedLockWiring.fenced/);
+    const { capabilities: _capabilities, ...withoutCapabilities } = credentialRegistry;
+    expect(() =>
+      parseEngineStatus({ ...requiredOnly(), credentialRegistry: withoutCapabilities }),
+    ).toThrow(/credentialRegistry.capabilities/);
+  });
+});
+
 describe('engine status contract - what the engine starts saying later', () => {
   it('tolerates an unknown key and reports it instead of dropping it', () => {
     const status = parseEngineStatus({ ...requiredOnly(), zetaNewFact: 1, alphaNewFact: 2 });

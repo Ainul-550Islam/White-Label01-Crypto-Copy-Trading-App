@@ -87,22 +87,14 @@ export class AssetRegistryService {
   }
 
   async getAsset(params: { assetId: string }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).custodyAsset.findFirst({ where: { assetId: params.assetId } });
-    } catch {
-      return null;
-    }
+    return await (this.prisma as any).custodyAsset.findFirst({ where: { assetId: params.assetId } });
   }
 
   async getAssetBySymbolAndNetwork(params: { symbol: string; networkId: string }): Promise<any | null> {
-    try {
-      // Never allow BTC/USDT/ETH/USDC to be treated as globally unique without network context
-      return await (this.prisma as any).custodyAsset.findFirst({
-        where: { symbol: params.symbol, networkId: params.networkId, isActive: true },
-      });
-    } catch {
-      return null;
-    }
+    // Never allow BTC/USDT/ETH/USDC to be treated as globally unique without network context
+    return await (this.prisma as any).custodyAsset.findFirst({
+      where: { symbol: params.symbol, networkId: params.networkId, isActive: true },
+    });
   }
 
   async listAssets(params: { networkId?: string; isActive?: boolean; symbol?: string; page?: number; limit?: number }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
@@ -112,24 +104,16 @@ export class AssetRegistryService {
     if (isActive !== undefined) where.isActive = isActive;
     if (symbol) where.symbol = symbol;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyAsset.findMany({ where, orderBy: { symbol: 'asc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyAsset.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyAsset.findMany({ where, orderBy: { symbol: 'asc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyAsset.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async isAssetSupported(params: { assetId: string; networkId: string }): Promise<boolean> {
-    try {
-      const asset = await (this.prisma as any).custodyAsset.findFirst({ where: { assetId: params.assetId, networkId: params.networkId, isActive: true } });
-      return !!asset;
-    } catch {
-      return false;
-    }
+    const asset = await (this.prisma as any).custodyAsset.findFirst({ where: { assetId: params.assetId, networkId: params.networkId, isActive: true } });
+    return !!asset;
   }
 
   async getDecimals(params: { assetId: string }): Promise<number> {

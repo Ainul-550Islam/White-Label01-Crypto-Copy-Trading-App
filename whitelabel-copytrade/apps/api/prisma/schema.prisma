@@ -214,6 +214,10 @@ model Tenant {
   securityAuditLogs       SecurityAuditLog[]
   securityThreatSignals   SecurityThreatSignal[]
   ssoLoginAttempts        SsoLoginAttempt[]
+  ssoAuthTransactions     SsoAuthTransaction[]
+  ssoIdentities           SsoIdentity[]
+  ssoAssertionReplays     SsoAssertionReplay[]
+  ssoAuditEvents          SsoAuditEvent[]
   traderProfiles          TraderProfile[]
   traderStrategies        TraderStrategy[]
   copySubscriptions       CopySubscription[]
@@ -507,6 +511,9 @@ model User {
   tradingAccounts TradingAccount[]
   copySubscriptionsAsFollower CopySubscription[] @relation("FollowerSubscriptions")
 
+  /// Verified IdP subjects linked to this account (SSO login key).
+  ssoIdentities SsoIdentity[]
+
   @@unique([tenantId, email])
   @@unique([tenantId, emailIndex])
   @@index([tenantId, status])
@@ -653,6 +660,21 @@ model UserSession {
   revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
   revokeReason String?   @map("revoke_reason") @db.VarChar(120)
 
+  /// How the latest login on this device session was made: PASSWORD, SSO_OIDC or SSO_SAML.
+  /// Rewritten on every login (sessions are reused per device). Drives RP-initiated logout.
+  authMethod         String  @default("PASSWORD") @map("auth_method") @db.VarChar(16)
+  /// The SSO configuration that issued the session (SSO_* only).
+  ssoConfigurationId String? @map("sso_configuration_id") @db.Uuid
+  /// SAML sessions (round 8): the IdP NameID / NameIDFormat / SessionIndex of the login, sealed
+  /// with AAD bound to tenant + configuration (the NameID is personal data). Needed to build the
+  /// signed LogoutRequest. Rewritten (or cleared) on every login, like authMethod.
+  ssoLogoutContext    Json?   @map("sso_logout_context")
+  /// SAML sessions: keyed hash (HMAC-SHA512) of configuration + NameID, so an IdP-initiated
+  /// LogoutRequest finds the sessions of its subject without storing the NameID in clear.
+  ssoSubjectHash      String? @map("sso_subject_hash") @db.VarChar(128)
+  /// SAML sessions: keyed hash of configuration + IdP SessionIndex (null when the IdP sent none).
+  ssoSessionIndexHash String? @map("sso_session_index_hash") @db.VarChar(128)
+
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokens RefreshToken[]
 
@@ -660,6 +682,7 @@ model UserSession {
   @@index([tenantId, userId])
   @@index([expiresAt])
   @@index([deviceId])
+  @@index([ssoConfigurationId, ssoSubjectHash])
   @@map("user_sessions")
 }
 
@@ -4448,7 +4471,7 @@ model BillingNotificationJob {
   maxAttempts    Int @default(3) @map("max_attempts")
   nextAttemptAt  DateTime? @map("next_attempt_at") @db.Timestamptz(6)
   providerReference String? @map("provider_reference") @db.VarChar(255)
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   safePayload Json @default("{}") @map("safe_payload")
   renderedSubject String? @map("rendered_subject") @db.VarChar(500)
@@ -4467,6 +4490,7 @@ model BillingNotificationJob {
   @@index([tenantId, userId])
   @@index([idempotencyKey])
   @@map("billing_notification_jobs")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model BillingNotificationPreference {
@@ -4571,7 +4595,7 @@ model Invoice {
   subscriptionId String? @map("subscription_id") @db.Uuid
   planId        String? @map("plan_id") @db.Uuid
   provider      String? @db.VarChar(32)
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(255)
   customer      Json @default("{}")
   lines         Json @default("[]")
   taxSummary    Json @default("[]") @map("tax_summary")
@@ -4587,6 +4611,7 @@ model Invoice {
   @@index([tenantId, status, createdAt])
   @@index([tenantId, paymentId])
   @@map("invoices")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model Payment {
@@ -4607,7 +4632,7 @@ model Payment {
   refundedAmount      String @default("0") @map("refunded_amount") @db.VarChar(32)
   failureReason       String? @map("failure_reason") @db.VarChar(1000)
   failureCode         String? @map("failure_code") @db.VarChar(64)
-  idempotencyKey      String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey      String @map("idempotency_key") @db.VarChar(255)
   metadata            Json @default("{}")
   paidAt              DateTime? @map("paid_at") @db.Timestamptz(6)
   failedAt            DateTime? @map("failed_at") @db.Timestamptz(6)
@@ -4619,6 +4644,7 @@ model Payment {
   @@index([tenantId, status, createdAt])
   @@index([tenantId, provider])
   @@map("payments")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model Refund {
@@ -4635,7 +4661,7 @@ model Refund {
   provider         String @db.VarChar(32)
   providerRefundId String? @map("provider_refund_id") @db.VarChar(255)
   providerStatus   String? @map("provider_status") @db.VarChar(64)
-  idempotencyKey   String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey   String @map("idempotency_key") @db.VarChar(255)
   failureReason    String? @map("failure_reason") @db.VarChar(1000)
   failureCode      String? @map("failure_code") @db.VarChar(64)
   requestedBy      String? @map("requested_by") @db.Uuid
@@ -4650,6 +4676,7 @@ model Refund {
   @@index([tenantId, paymentId])
   @@index([tenantId, status])
   @@map("refunds")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model DunningCase {
@@ -4697,7 +4724,7 @@ model FeeAccrual {
   settlementState  String @default("DRAFT") @map("settlement_state") @db.VarChar(32)
   settlementId     String? @map("settlement_id") @db.Uuid
   settlementTimestamp DateTime? @map("settlement_timestamp") @db.Timestamptz(6)
-  idempotencyKey   String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey   String @map("idempotency_key") @db.VarChar(255)
   metadata         Json @default("{}")
   safeMetadata     Json @default("{}") @map("safe_metadata")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -4707,6 +4734,7 @@ model FeeAccrual {
   @@index([tenantId, settlementState])
   @@index([settlementId])
   @@map("fee_accruals")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model FeeSettlement {
@@ -4719,7 +4747,7 @@ model FeeSettlement {
   numberOfAccruals      Int @map("number_of_accruals")
   feeType               String @map("fee_type") @db.VarChar(32)
   status                String @default("DRAFT") @db.VarChar(32)
-  idempotencyKey        String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey        String @map("idempotency_key") @db.VarChar(255)
   accrualIds            String[] @map("accrual_ids")
   approvedAt            DateTime? @map("approved_at") @db.Timestamptz(6)
   finalizedAt           DateTime? @map("finalized_at") @db.Timestamptz(6)
@@ -4730,6 +4758,7 @@ model FeeSettlement {
 
   @@index([tenantId, status])
   @@map("fee_settlements")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model Payout {
@@ -4746,7 +4775,7 @@ model Payout {
   providerReference String? @map("provider_reference") @db.VarChar(255)
   status            String @default("CREATED") @db.VarChar(32)
   failureReason     String? @map("failure_reason") @db.VarChar(1000)
-  idempotencyKey    String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey    String @map("idempotency_key") @db.VarChar(255)
   metadata          Json @default("{}")
   safeMetadata      Json @default("{}") @map("safe_metadata")
   processedAt       DateTime? @map("processed_at") @db.Timestamptz(6)
@@ -4759,6 +4788,7 @@ model Payout {
   @@index([tenantId, status])
   @@index([settlementId])
   @@map("payouts")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model UsageMeter {
@@ -4790,7 +4820,7 @@ model UsageEvent {
   sourceType     String @map("source_type") @db.VarChar(64)
   quantity       Int @default(1)
   periodId       String @map("period_id") @db.VarChar(255)
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
   status         String @default("RECEIVED") @db.VarChar(32)
   metadata       Json @default("{}")
   safeMetadata   Json @default("{}") @map("safe_metadata")
@@ -4799,6 +4829,7 @@ model UsageEvent {
   @@index([tenantId, meterKey, periodId])
   @@index([tenantId, sourceId])
   @@map("usage_events")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model UsageAlertConfig {
@@ -4837,12 +4868,13 @@ model UsageAlertEvent {
   acknowledgedAt   DateTime? @map("acknowledged_at") @db.Timestamptz(6)
   resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(6)
   deliveryState    String @default("PENDING") @map("delivery_state") @db.VarChar(32)
-  idempotencyKey   String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey   String @map("idempotency_key") @db.VarChar(255)
   safeMetadata     Json? @map("safe_metadata")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([tenantId, meterKey, triggeredAt])
   @@map("usage_alert_events")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model OverageRecord {
@@ -4863,7 +4895,7 @@ model OverageRecord {
   estimatedAmount      String? @map("estimated_amount") @db.VarChar(32)
   currency             String? @db.VarChar(3)
   status               String @default("DETECTED") @db.VarChar(32)
-  idempotencyKey       String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey       String @map("idempotency_key") @db.VarChar(255)
   calculationTimestamp DateTime @default(now()) @map("calculation_timestamp") @db.Timestamptz(6)
   metadata             Json @default("{}")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -4872,6 +4904,7 @@ model OverageRecord {
   @@index([tenantId, meterKey, periodId])
   @@index([tenantId, status])
   @@map("overage_records")
+  @@unique([tenantId, idempotencyKey])
 }
 
 // =============================================================================
@@ -4961,7 +4994,7 @@ model ComplianceScreeningRequest {
   amlState       ComplianceAmlState? @map("aml_state")
   decision       ComplianceDecision?
   riskLevel      ComplianceRiskLevel? @map("risk_level")
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
   safeMetadata   Json @default("{}") @map("safe_metadata")
   failureReason  String? @map("failure_reason") @db.VarChar(1000)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -4972,6 +5005,7 @@ model ComplianceScreeningRequest {
   @@index([tenantId, status])
   @@index([idempotencyKey])
   @@map("compliance_screening_requests")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ComplianceCase {
@@ -4988,7 +5022,7 @@ model ComplianceCase {
   escalatedAt    DateTime? @map("escalated_at") @db.Timestamptz(6)
   resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
   closedAt       DateTime? @map("closed_at") @db.Timestamptz(6)
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
   safeSummary    String @map("safe_summary") @db.VarChar(1000)
   jurisdiction   String? @db.VarChar(16)
   policyVersion  String? @map("policy_version") @db.VarChar(32)
@@ -5007,6 +5041,7 @@ model ComplianceCase {
   @@index([assignedTo, state])
   @@index([caseType, state])
   @@map("compliance_cases")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ComplianceReview {
@@ -5077,7 +5112,7 @@ model RiskScoreRecord {
   ruleIds        String[] @default([]) @map("rule_ids")
   policyVersion  String @map("policy_version") @db.VarChar(32)
   contributingFactors Json @default("[]") @map("contributing_factors")
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
   calculatedAt   DateTime @default(now()) @map("calculated_at") @db.Timestamptz(6)
   expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -5085,6 +5120,7 @@ model RiskScoreRecord {
   @@index([tenantId, userId, calculatedAt])
   @@index([tenantId, riskLevel])
   @@map("risk_score_records")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model TransactionMonitoringSignal {
@@ -5097,7 +5133,7 @@ model TransactionMonitoringSignal {
   riskLevel      ComplianceRiskLevel @map("risk_level")
   decision       ComplianceDecision @default(PENDING)
   safeSummary    String @map("safe_summary") @db.VarChar(1000)
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
   caseId         String? @map("case_id") @db.Uuid
   resolved       Boolean @default(false)
   resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
@@ -5107,6 +5143,7 @@ model TransactionMonitoringSignal {
   @@index([tenantId, riskLevel, resolved])
   @@index([idempotencyKey])
   @@map("transaction_monitoring_signals")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CompliancePolicyRecord {
@@ -5242,7 +5279,49 @@ model SsoConfiguration {
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// OIDC: envelope-encrypted client secret ({ciphertext, iv, authTag, wrappedKey, keyId}),
+  /// bound to the tenant and provider by AAD. Write-only: never returned by any API.
+  clientSecretCiphertext  Json?    @map("client_secret_ciphertext")
+  /// OIDC token-endpoint client authentication: client_secret_basic | client_secret_post |
+  /// none (public client; PKCE is then mandatory).
+  tokenEndpointAuthMethod String   @default("client_secret_basic") @map("token_endpoint_auth_method") @db.VarChar(32)
+  /// The exact redirect URI registered at the IdP. The only redirect URI ever sent to the IdP or
+  /// used at code redemption; never taken from a request.
+  redirectUri             String?  @map("redirect_uri") @db.VarChar(2048)
+  pkceRequired            Boolean  @default(true) @map("pkce_required")
+  /// Clock skew tolerated on token / assertion time claims (seconds, capped in code at 300).
+  clockSkewSec            Int      @default(60) @map("clock_skew_sec")
+  /// OIDC: when set, max_age is sent and auth_time must be within it.
+  maxAuthAgeSec           Int?     @map("max_auth_age_sec")
+  /// OIDC: accepted ID-token signature algorithms (asymmetric only; empty = RS/PS/ES 256-512).
+  allowedAlgorithms       String[] @default([]) @map("allowed_algorithms")
+  /// SAML: additionally require a signature over the whole Response (the assertion signature is
+  /// always required).
+  wantResponseSigned      Boolean  @default(false) @map("want_response_signed")
+  /// SAML (round 7, opt-in): require the IdP to encrypt the assertion to spEncryptionCertificate.
+  /// A plaintext assertion is then refused; the decrypted assertion must still be signed.
+  wantAssertionsEncrypted Boolean  @default(false) @map("want_assertions_encrypted")
+  /// SAML: the service provider's RSA decryption key (PEM), envelope-encrypted with AAD bound to
+  /// the tenant ({ciphertext, iv, authTag, wrappedKey, keyId}). Write-only: never returned.
+  spDecryptionKeyCiphertext Json?  @map("sp_decryption_key_ciphertext")
+  /// SAML: the certificate of that key, given to the IdP as the SP encryption certificate. Public.
+  spEncryptionCertificate String?  @map("sp_encryption_certificate") @db.Text
+  /// SAML Single Logout (round 8): the IdP's SingleLogoutService endpoint (HTTP-Redirect binding).
+  /// Signed LogoutRequests (SP-initiated) and LogoutResponses (to IdP-initiated logout) go here.
+  sloUrl                  String?  @map("slo_url") @db.VarChar(2048)
+  /// SAML Single Logout: OUR SingleLogoutService URL (…/v1/auth/sso/saml/slo on the tenant host),
+  /// registered at the IdP. The Destination of every logout message the IdP sends must equal it.
+  logoutCallbackUrl       String?  @map("logout_callback_url") @db.VarChar(2048)
+  /// SAML Single Logout: the SP's RSA signing key (PEM), envelope-encrypted with AAD bound to the
+  /// tenant ({ciphertext, iv, authTag, wrappedKey, keyId}). Write-only: never returned.
+  spSigningKeyCiphertext  Json?    @map("sp_signing_key_ciphertext")
+  /// SAML Single Logout: the certificate of that key, given to the IdP to verify our logout
+  /// messages. Public.
+  spSigningCertificate    String?  @map("sp_signing_certificate") @db.Text
+
+  tenant           Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  authTransactions SsoAuthTransaction[]
+  identities       SsoIdentity[]
 
   @@unique([tenantId, providerType])
   @@index([tenantId, state])
@@ -5268,7 +5347,7 @@ model EnterpriseApiKey {
   createdById    String?             @map("created_by_id") @db.Uuid
   createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  idempotencyKey String?             @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String?             @map("idempotency_key") @db.VarChar(255)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -5277,6 +5356,7 @@ model EnterpriseApiKey {
   @@index([tenantId, state])
   @@index([fingerprint])
   @@map("enterprise_api_keys")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model SecurityPolicy {
@@ -5397,6 +5477,126 @@ model SsoLoginAttempt {
   @@index([tenantId, providerType, createdAt])
   @@index([state])
   @@map("sso_login_attempts")
+}
+
+/// One server-side SSO login transaction (OIDC authorization-code flow or SAML AuthnRequest).
+/// Holds hashes only for state, nonce, binding secret and SAML hand-off code; the PKCE verifier,
+/// which must be sent verbatim at code redemption, is envelope-encrypted. Consumed exactly once.
+model SsoAuthTransaction {
+  id                     String          @id @default(uuid()) @db.Uuid
+  tenantId               String          @map("tenant_id") @db.Uuid
+  configurationId        String          @map("configuration_id") @db.Uuid
+  providerType           SsoProviderType @map("provider_type")
+  /// SHA-256 of the state / RelayState sent to the IdP.
+  stateHash              String          @unique @map("state_hash") @db.VarChar(64)
+  /// OIDC: SHA-256 of the nonce; compared with the ID token's nonce claim.
+  nonceHash              String?         @map("nonce_hash") @db.VarChar(64)
+  /// OIDC: envelope-encrypted PKCE code_verifier.
+  pkceVerifierCiphertext Json?           @map("pkce_verifier_ciphertext")
+  /// Keyed hash of the binding secret held only by the client that started the login.
+  bindingHash            String          @map("binding_hash") @db.VarChar(128)
+  deviceId               String          @map("device_id") @db.VarChar(128)
+  /// Redirect URI copied from configuration at start; code redemption reuses exactly this value.
+  redirectUri            String          @map("redirect_uri") @db.VarChar(2048)
+  /// App-relative path to return to after login (validated; never an absolute URL).
+  returnTo               String?         @map("return_to") @db.VarChar(512)
+  /// SAML: the AuthnRequest ID; the Response must carry it as InResponseTo.
+  samlRequestId          String?         @unique @map("saml_request_id") @db.VarChar(128)
+  /// PENDING -> (SAML only) VERIFIED -> CONSUMED, or REJECTED. A SAML Single Logout round trip
+  /// is a LOGOUT_PENDING -> CONSUMED transaction (samlRequestId = the LogoutRequest ID); login
+  /// completion only ever accepts PENDING / VERIFIED, so a logout row can never become a login.
+  status                 String          @default("PENDING") @db.VarChar(16)
+  /// SAML: user verified at the ACS, waiting for the starting client to complete.
+  verifiedUserId         String?         @map("verified_user_id") @db.Uuid
+  /// SAML: SHA-256 of the one-time hand-off code returned to the client after the ACS.
+  handoffHash            String?         @unique @map("handoff_hash") @db.VarChar(64)
+  /// SAML (round 8): what Single Logout needs from the verified assertion, carried from the ACS to
+  /// session issuance: {context: sealed {nameID, nameIDFormat, nameQualifier, spNameQualifier,
+  /// sessionIndex} (AAD bound to tenant + configuration), subjectHash, sessionIndexHash}.
+  samlLogoutContext      Json?           @map("saml_logout_context")
+  correlationId          String          @map("correlation_id") @db.Uuid
+  ipHash                 String?         @map("ip_hash") @db.VarChar(64)
+  failureReason          String?         @map("failure_reason") @db.VarChar(64)
+  expiresAt              DateTime        @map("expires_at") @db.Timestamptz(6)
+  verifiedAt             DateTime?       @map("verified_at") @db.Timestamptz(6)
+  consumedAt             DateTime?       @map("consumed_at") @db.Timestamptz(6)
+  createdAt              DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  configuration SsoConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ipHash, status, expiresAt])
+  @@index([expiresAt])
+  @@map("sso_auth_transactions")
+}
+
+/// Link between a cryptographically verified IdP subject (issuer + sub / NameID) and a user.
+/// The subject, not the email address, is the login key.
+model SsoIdentity {
+  id               String          @id @default(uuid()) @db.Uuid
+  tenantId         String          @map("tenant_id") @db.Uuid
+  userId           String          @map("user_id") @db.Uuid
+  configurationId  String          @map("configuration_id") @db.Uuid
+  providerType     SsoProviderType @map("provider_type")
+  issuer           String          @db.VarChar(512)
+  subject          String          @db.VarChar(512)
+  /// Blind index of the email the IdP asserted when the link was created (no plaintext).
+  emailIndexAtLink String?         @map("email_index_at_link") @db.VarChar(64)
+  /// JIT (account created by SSO) or VERIFIED_EMAIL (existing account, IdP-verified email,
+  /// allowed domain).
+  linkedVia        String          @map("linked_via") @db.VarChar(32)
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastLoginAt      DateTime?       @map("last_login_at") @db.Timestamptz(6)
+
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  configuration SsoConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, providerType, issuer, subject])
+  @@unique([tenantId, configurationId, userId])
+  @@index([tenantId, userId])
+  @@map("sso_identities")
+}
+
+/// SAML assertion IDs already accepted, kept until the assertion would have expired anyway.
+model SsoAssertionReplay {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  issuer      String   @db.VarChar(512)
+  assertionId String   @map("assertion_id") @db.VarChar(256)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, issuer, assertionId])
+  @@index([expiresAt])
+  @@map("sso_assertion_replays")
+}
+
+/// Durable SSO audit trail. Never contains codes, tokens, assertions, nonces, PKCE verifiers,
+/// session credentials or secrets.
+model SsoAuditEvent {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  providerType    SsoProviderType? @map("provider_type")
+  configurationId String?          @map("configuration_id") @db.Uuid
+  transactionId   String?          @map("transaction_id") @db.Uuid
+  userId          String?          @map("user_id") @db.Uuid
+  correlationId   String           @map("correlation_id") @db.Uuid
+  eventCode       String           @map("event_code") @db.VarChar(64)
+  outcome         String           @db.VarChar(16)
+  reasonCode      String?          @map("reason_code") @db.VarChar(64)
+  ipHash          String?          @map("ip_hash") @db.VarChar(64)
+  safeMetadata    Json             @default("{}") @map("safe_metadata")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, eventCode, createdAt])
+  @@index([correlationId])
+  @@map("sso_audit_events")
 }
 
 // ==================== Part 14 Copy-Trading Core ====================
@@ -5553,7 +5753,7 @@ model TraderStrategy {
   followerCount Int @default(0) @map("follower_count")
   totalCopies   Int @default(0) @map("total_copies")
 
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -5569,6 +5769,7 @@ model TraderStrategy {
   @@index([tenantId, traderId, status])
   @@index([tenantId, status])
   @@map("trader_strategies")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CopySubscription {
@@ -5601,7 +5802,7 @@ model CopySubscription {
   totalCopies       Int @default(0) @map("total_copies")
   failedCopies      Int @default(0) @map("failed_copies")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -5620,6 +5821,7 @@ model CopySubscription {
   @@index([tenantId, strategyId, state])
   @@index([followerAccountId])
   @@map("copy_subscriptions")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CopyExecution {
@@ -5663,7 +5865,7 @@ model CopyExecution {
   riskDecision CopyRiskDecision? @map("risk_decision")
   riskRuleId   String? @map("risk_rule_id") @db.VarChar(64)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -5679,6 +5881,7 @@ model CopyExecution {
   @@index([leaderEventId])
   @@index([followerOrderId])
   @@map("copy_executions")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CopyTradingAuditLog {
@@ -5860,7 +6063,7 @@ model ResearchDataset {
   validationResult Json? @map("validation_result")
   qualityScore     Float? @map("quality_score")
 
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(255)
 
   createdBy String? @map("created_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -5875,6 +6078,7 @@ model ResearchDataset {
   @@index([tenantId, venue, symbol, timeframe])
   @@index([tenantId, status])
   @@map("research_datasets")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ResearchStrategyVersion {
@@ -5907,7 +6111,7 @@ model ResearchStrategyVersion {
 
   changeNote String? @map("change_note") @db.VarChar(1000)
 
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(255)
 
   createdBy String? @map("created_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -5928,6 +6132,7 @@ model ResearchStrategyVersion {
   @@index([tenantId, strategyId, status])
   @@index([tenantId, status])
   @@map("research_strategy_versions")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ResearchBacktestRun {
@@ -5972,7 +6177,7 @@ model ResearchBacktestRun {
   startedAt DateTime? @map("started_at") @db.Timestamptz(6)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
 
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(255)
 
   createdBy String? @map("created_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -5989,6 +6194,7 @@ model ResearchBacktestRun {
   @@index([tenantId, strategyVersionId, status])
   @@index([tenantId, status, createdAt])
   @@map("research_backtest_runs")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ResearchBacktestTrade {
@@ -6080,7 +6286,7 @@ model ResearchPaperSession {
   stoppedAt DateTime? @map("stopped_at") @db.Timestamptz(6)
   expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
 
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(255)
 
   createdBy String? @map("created_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -6097,6 +6303,7 @@ model ResearchPaperSession {
   @@index([tenantId, strategyVersionId, status])
   @@index([tenantId, status])
   @@map("research_paper_sessions")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ResearchPaperOrder {
@@ -6219,7 +6426,7 @@ model ResearchSignal {
   sourceEvent Json? @map("source_event")
   metadata Json @default("{}")
 
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -6231,6 +6438,7 @@ model ResearchSignal {
   @@index([tenantId, strategyVersionId, state])
   @@index([tenantId, symbol, state])
   @@map("research_signals")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ResearchPromotionRequest {
@@ -6257,7 +6465,7 @@ model ResearchPromotionRequest {
 
   reason String? @db.VarChar(1000)
 
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -6268,6 +6476,7 @@ model ResearchPromotionRequest {
   @@index([tenantId, strategyVersionId, state])
   @@index([tenantId, state])
   @@map("research_promotion_requests")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ResearchAuditLog {
@@ -7999,7 +8208,7 @@ model PortfolioAccountingEvent {
   sourceTimestamp DateTime @map("source_timestamp") @db.Timestamptz(6)
 
   // Deterministic idempotency
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
   fingerprint String @map("fingerprint") @db.VarChar(128)
 
   // Financial amounts Decimal-safe string
@@ -8053,6 +8262,7 @@ model PortfolioAccountingEvent {
   @@index([profileId, createdAt])
   @@index([sourceType, sourceId])
   @@map("portfolio_accounting_events")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioCashLedgerEntry {
@@ -8080,7 +8290,7 @@ model PortfolioCashLedgerEntry {
   sourceType String? @map("source_type") @db.VarChar(64)
   sourceId String? @map("source_id") @db.VarChar(255)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   calculationVersion String @map("calculation_version") @db.VarChar(64)
   policyVersion String @map("policy_version") @db.VarChar(64)
@@ -8098,6 +8308,7 @@ model PortfolioCashLedgerEntry {
   @@index([tenantId, cashFlowType, occurredAt])
   @@index([profileId, asset, occurredAt])
   @@map("portfolio_cash_ledger_entries")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioPositionLot {
@@ -8138,7 +8349,7 @@ model PortfolioPositionLot {
   openedAt DateTime @map("opened_at") @db.Timestamptz(6)
   closedAt DateTime? @map("closed_at") @db.Timestamptz(6)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   metadata Json @default("{}")
   evidence Json @default("{}")
@@ -8154,6 +8365,7 @@ model PortfolioPositionLot {
   @@index([tenantId, profileId, isClosed])
   @@index([profileId, symbol, isClosed])
   @@map("portfolio_position_lots")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioValuation {
@@ -8192,7 +8404,7 @@ model PortfolioValuation {
   evidence Json @default("{}")
   sourceReferences Json @default("[]") @map("source_references")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -8203,6 +8415,7 @@ model PortfolioValuation {
   @@index([tenantId, symbol, valuationTimestamp])
   @@index([profileId, valuationState, valuationTimestamp])
   @@map("portfolio_valuations")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioSnapshot {
@@ -8239,7 +8452,7 @@ model PortfolioSnapshot {
 
   dataCompleteness String @default("COMPLETE") @map("data_completeness") @db.VarChar(32)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -8250,6 +8463,7 @@ model PortfolioSnapshot {
   @@index([tenantId, snapshotId])
   @@index([profileId, timestamp])
   @@map("portfolio_snapshots")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioAccountingPeriod {
@@ -8284,7 +8498,7 @@ model PortfolioAccountingPeriod {
   closeMetadata Json? @map("close_metadata")
   validationEvidence Json? @map("validation_evidence")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -8302,6 +8516,7 @@ model PortfolioAccountingPeriod {
   @@index([tenantId, profileId, state, periodStart])
   @@index([tenantId, state, periodStart])
   @@map("portfolio_accounting_periods")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioAccountingClose {
@@ -8325,7 +8540,7 @@ model PortfolioAccountingClose {
   calculationVersion String @map("calculation_version") @db.VarChar(64)
   policyVersion String @map("policy_version") @db.VarChar(64)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -8334,6 +8549,7 @@ model PortfolioAccountingClose {
 
   @@index([tenantId, periodId, createdAt])
   @@map("portfolio_accounting_closes")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioPerformanceRecord {
@@ -8368,7 +8584,7 @@ model PortfolioPerformanceRecord {
   sourceReferences Json @default("[]") @map("source_references")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -8379,6 +8595,7 @@ model PortfolioPerformanceRecord {
   @@index([tenantId, profileId, methodology, periodStart])
   @@index([tenantId, periodId])
   @@map("portfolio_performance_records")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioAttributionRecord {
@@ -8409,7 +8626,7 @@ model PortfolioAttributionRecord {
   sourceReferences Json @default("[]") @map("source_references")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   periodStart DateTime @map("period_start") @db.Timestamptz(6)
   periodEnd DateTime @map("period_end") @db.Timestamptz(6)
@@ -8423,6 +8640,7 @@ model PortfolioAttributionRecord {
   @@index([tenantId, profileId, dimension, periodStart])
   @@index([tenantId, periodId, dimension])
   @@map("portfolio_attribution_records")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioStatement {
@@ -8469,7 +8687,7 @@ model PortfolioStatement {
   sourceReferences Json @default("[]") @map("source_references")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   finalizedAt DateTime? @map("finalized_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -8483,6 +8701,7 @@ model PortfolioStatement {
   @@index([tenantId, statementId])
   @@index([profileId, state, periodStart])
   @@map("portfolio_statements")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioAccountingReconciliation {
@@ -8517,7 +8736,7 @@ model PortfolioAccountingReconciliation {
   policyVersion String? @map("policy_version") @db.VarChar(64)
 
   correlationId String? @map("correlation_id") @db.VarChar(64)
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -8528,6 +8747,7 @@ model PortfolioAccountingReconciliation {
   @@index([tenantId, state, isCritical, createdAt])
   @@index([tenantId, periodId])
   @@map("portfolio_accounting_reconciliations")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model PortfolioAccountingAdjustment {
@@ -8555,7 +8775,7 @@ model PortfolioAccountingAdjustment {
   policyVersion String @map("policy_version") @db.VarChar(64)
 
   correlationId String? @map("correlation_id") @db.VarChar(64)
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -8566,6 +8786,7 @@ model PortfolioAccountingAdjustment {
   @@index([tenantId, profileId, adjustmentType, createdAt])
   @@index([tenantId, originalEventId])
   @@map("portfolio_accounting_adjustments")
+  @@unique([tenantId, idempotencyKey])
 }
 
 
@@ -8760,7 +8981,7 @@ model ClientProfile {
   metadata Json @default("{}")
   piiHash String? @map("pii_hash") @db.VarChar(255)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -8782,6 +9003,7 @@ model ClientProfile {
   @@index([tenantId, email])
   @@index([tenantId, externalIdentityRef])
   @@map("client_profiles")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ClientOnboarding {
@@ -8813,7 +9035,7 @@ model ClientOnboarding {
   metadata Json @default("{}")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   startedAt DateTime? @map("started_at") @db.Timestamptz(6)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
@@ -8828,6 +9050,7 @@ model ClientOnboarding {
   @@index([tenantId, clientProfileId, state])
   @@index([tenantId, state])
   @@map("client_onboardings")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ClientOnboardingStep {
@@ -8852,7 +9075,7 @@ model ClientOnboardingStep {
   sourceId String? @map("source_id") @db.VarChar(255)
   sourceTimestamp DateTime? @map("source_timestamp") @db.Timestamptz(6)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -8863,6 +9086,7 @@ model ClientOnboardingStep {
   @@index([tenantId, onboardingId, stepType])
   @@index([tenantId, onboardingId, status])
   @@map("client_onboarding_steps")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model InstitutionalAccount {
@@ -8896,7 +9120,7 @@ model InstitutionalAccount {
 
   metadata Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   activatedAt DateTime? @map("activated_at") @db.Timestamptz(6)
   suspendedAt DateTime? @map("suspended_at") @db.Timestamptz(6)
@@ -8922,6 +9146,7 @@ model InstitutionalAccount {
   @@index([tenantId, exchangeAccountId])
   @@index([tenantId, portfolioId])
   @@map("institutional_accounts")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model AccountOwnership {
@@ -8944,7 +9169,7 @@ model AccountOwnership {
   createdBy String? @map("created_by") @db.Uuid
   source String? @db.VarChar(64)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -8957,6 +9182,7 @@ model AccountOwnership {
   @@index([tenantId, ownerId, status])
   @@index([tenantId, clientProfileId])
   @@map("account_ownerships")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model AccountRelationship {
@@ -8982,7 +9208,7 @@ model AccountRelationship {
 
   metadata Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -8996,6 +9222,7 @@ model AccountRelationship {
   @@index([tenantId, clientProfileId])
   @@index([tenantId, accountId])
   @@map("account_relationships")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model AccountRestriction {
@@ -9022,7 +9249,7 @@ model AccountRestriction {
 
   metadata Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -9035,6 +9262,7 @@ model AccountRestriction {
   @@index([tenantId, clientProfileId, status])
   @@index([tenantId, status, effectiveAt])
   @@map("account_restrictions")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ClientReview {
@@ -9063,7 +9291,7 @@ model ClientReview {
 
   metadata Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -9077,6 +9305,7 @@ model ClientReview {
   @@index([tenantId, accountId, reviewType])
   @@index([tenantId, nextReviewDate])
   @@map("client_reviews")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model FundingRequest {
@@ -9112,7 +9341,7 @@ model FundingRequest {
   metadata Json @default("{}")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
   approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
@@ -9134,6 +9363,7 @@ model FundingRequest {
   @@index([tenantId, externalReference])
   @@index([tenantId, state, requestedAt])
   @@map("funding_requests")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model WithdrawalRequest {
@@ -9176,7 +9406,7 @@ model WithdrawalRequest {
   metadata Json @default("{}")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
   approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
@@ -9198,6 +9428,7 @@ model WithdrawalRequest {
   @@index([tenantId, externalReference])
   @@index([tenantId, state, requestedAt])
   @@map("withdrawal_requests")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model FundingApproval {
@@ -9216,7 +9447,7 @@ model FundingApproval {
   evidence Json @default("{}")
   metadata Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   decidedAt DateTime? @map("decided_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -9229,6 +9460,7 @@ model FundingApproval {
   @@index([tenantId, fundingRequestId, decision])
   @@index([tenantId, withdrawalRequestId, decision])
   @@map("funding_approvals")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model FundingReconciliation {
@@ -9257,7 +9489,7 @@ model FundingReconciliation {
 
   calculationVersion String @default("client-lifecycle-v1.0.0") @map("calculation_version") @db.VarChar(64)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -9270,6 +9502,7 @@ model FundingReconciliation {
   @@index([tenantId, withdrawalRequestId, reconciliationType])
   @@index([tenantId, externalReference])
   @@map("funding_reconciliations")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model ClientLifecycleAudit {
@@ -9567,7 +9800,7 @@ model CustodyWallet {
 
   metadata Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   activatedAt DateTime? @map("activated_at") @db.Timestamptz(6)
   suspendedAt DateTime? @map("suspended_at") @db.Timestamptz(6)
@@ -9596,6 +9829,7 @@ model CustodyWallet {
   @@index([tenantId, accountId])
   @@index([tenantId, provider, providerReference])
   @@map("custody_wallets")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodyWalletAddress {
@@ -9625,7 +9859,7 @@ model CustodyWalletAddress {
 
   metadata Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -9646,6 +9880,7 @@ model CustodyWalletAddress {
   @@index([tenantId, clientProfileId])
   @@index([tenantId, accountId])
   @@map("custody_wallet_addresses")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodyDeposit {
@@ -9687,7 +9922,7 @@ model CustodyDeposit {
   metadata Json @default("{}")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -9706,6 +9941,7 @@ model CustodyDeposit {
   @@index([tenantId, transactionHash])
   @@index([tenantId, toAddress])
   @@map("custody_deposits")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodyWithdrawal {
@@ -9747,7 +9983,7 @@ model CustodyWithdrawal {
   metadata Json @default("{}")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
   approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
@@ -9769,6 +10005,7 @@ model CustodyWithdrawal {
   @@index([tenantId, assetId, networkId, state])
   @@index([tenantId, transactionHash])
   @@map("custody_withdrawals")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodyTransaction {
@@ -9820,7 +10057,7 @@ model CustodyTransaction {
   metadata Json @default("{}")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -9842,6 +10079,7 @@ model CustodyTransaction {
   @@index([tenantId, depositId])
   @@index([tenantId, withdrawalId])
   @@map("custody_transactions")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodyTransactionConfirmation {
@@ -9897,7 +10135,7 @@ model CustodyInternalTransfer {
   metadata Json @default("{}")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
   approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
@@ -9914,6 +10152,7 @@ model CustodyInternalTransfer {
   @@index([tenantId, destinationWalletId, state])
   @@index([tenantId, assetId, state])
   @@map("custody_internal_transfers")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodyReserve {
@@ -9939,7 +10178,7 @@ model CustodyReserve {
 
   metadata Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -9952,6 +10191,7 @@ model CustodyReserve {
   @@index([tenantId, assetId, networkId, reserveType])
   @@index([tenantId, walletId, reserveType])
   @@map("custody_reserves")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodySweep {
@@ -9982,7 +10222,7 @@ model CustodySweep {
   metadata Json @default("{}")
   evidence Json @default("{}")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
   approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
@@ -10000,6 +10240,7 @@ model CustodySweep {
   @@index([tenantId, destinationWalletId, state])
   @@index([tenantId, assetId, networkId, state])
   @@map("custody_sweeps")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodyReconciliation {
@@ -10031,7 +10272,7 @@ model CustodyReconciliation {
 
   calculationVersion String @default("custody-v1.0.0") @map("calculation_version") @db.VarChar(64)
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -10042,6 +10283,7 @@ model CustodyReconciliation {
   @@index([tenantId, walletId])
   @@index([tenantId, isCritical, isResolved])
   @@map("custody_reconciliations")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model CustodyAudit {
@@ -10317,7 +10559,7 @@ model MobileApplication {
   androidVersionCode Int?    @map("android_version_code")
   iosBuildNumber     Int?    @map("ios_build_number")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(128)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(128)
   createdById    String? @map("created_by_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -10331,6 +10573,7 @@ model MobileApplication {
   @@unique([tenantId, slug])
   @@index([tenantId, state])
   @@map("mobile_applications")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model MobileBuild {
@@ -10356,7 +10599,7 @@ model MobileBuild {
   failureCode   String? @map("failure_code") @db.VarChar(64)
   failureDetail String? @map("failure_detail") @db.VarChar(500)
 
-  idempotencyKey String  @unique @map("idempotency_key") @db.VarChar(128)
+  idempotencyKey String  @map("idempotency_key") @db.VarChar(128)
   requestedById  String? @map("requested_by_id") @db.Uuid
 
   startedAt  DateTime? @map("started_at") @db.Timestamptz(6)
@@ -10371,6 +10614,7 @@ model MobileBuild {
   @@index([tenantId, state])
   @@index([applicationId, createdAt])
   @@map("mobile_builds")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model MobileArtifact {
@@ -10453,7 +10697,7 @@ model MobileRelease {
   rejectedAt   DateTime? @map("rejected_at") @db.Timestamptz(6)
   rejectReason String?   @map("reject_reason") @db.VarChar(500)
 
-  idempotencyKey String  @unique @map("idempotency_key") @db.VarChar(128)
+  idempotencyKey String  @map("idempotency_key") @db.VarChar(128)
   createdById    String? @map("created_by_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -10468,6 +10712,7 @@ model MobileRelease {
   @@index([tenantId, state])
   @@index([applicationId, createdAt])
   @@map("mobile_releases")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model MobileReleaseApproval {
@@ -10507,7 +10752,7 @@ model MobileReleaseRollout {
   // Stage history: {stage, targetPercentage, startAt, evidence, observedState}
   evidence Json @default("[]")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(128)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(128)
 
   startedAt   DateTime? @map("started_at") @db.Timestamptz(6)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
@@ -10520,6 +10765,7 @@ model MobileReleaseRollout {
   @@index([releaseId])
   @@index([tenantId, state])
   @@map("mobile_release_rollouts")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model MobileStoreSubmission {
@@ -10576,7 +10822,7 @@ model MobileCrashEvent {
   occurrenceCount       Int @default(1) @map("occurrence_count")
   affectedInstallations Int? @map("affected_installations")
 
-  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(128)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(128)
 
   firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
   lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
@@ -10587,6 +10833,7 @@ model MobileCrashEvent {
   @@index([releaseId])
   @@index([applicationId, platform, lastSeenAt])
   @@map("mobile_crash_events")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model MobileReleaseAudit {
@@ -10661,7 +10908,7 @@ model DeveloperApplication {
   scopes        String[]
   homePageUrl   String?  @map("home_page_url") @db.VarChar(255)
   naturalKey    String   @map("natural_key") @db.VarChar(64)
-  idempotencyKey String  @unique @map("idempotency_key") @db.VarChar(48)
+  idempotencyKey String  @map("idempotency_key") @db.VarChar(48)
   createdByActorId String @map("created_by_actor_id") @db.VarChar(64)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -10675,6 +10922,7 @@ model DeveloperApplication {
   @@index([tenantId, state])
   @@index([tenantId, createdAt])
   @@map("developer_applications")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model DeveloperCredential {
@@ -10713,7 +10961,7 @@ model DeveloperOAuthGrant {
   codeChallengeMethod String? @map("code_challenge_method") @db.VarChar(16)
   nonce            String?   @db.VarChar(128)
   stateParameter   String    @map("state_parameter") @db.VarChar(128)
-  idempotencyKey   String    @unique @map("idempotency_key") @db.VarChar(48)
+  idempotencyKey   String    @map("idempotency_key") @db.VarChar(48)
   /// Authorization codes are stored ONLY as HMAC digests, single-use.
   codeHash         String?   @map("code_hash") @db.VarChar(128)
   codeExpiresAt    DateTime? @map("code_expires_at") @db.Timestamptz(6)
@@ -10727,6 +10975,7 @@ model DeveloperOAuthGrant {
   @@index([tenantId, applicationId, state])
   @@index([applicationId, codeHash])
   @@map("developer_oauth_grants")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model DeveloperAccessToken {
@@ -10761,7 +11010,7 @@ model DeveloperWebhookSubscription {
   /// Verification digest AND crypto-infra encrypted secret for signing.
   secretHash     String    @map("secret_hash") @db.VarChar(128)
   secretEncrypted String   @map("secret_encrypted")
-  idempotencyKey String    @unique @map("idempotency_key") @db.VarChar(48)
+  idempotencyKey String    @map("idempotency_key") @db.VarChar(48)
   revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
   createdByActorId String  @map("created_by_actor_id") @db.VarChar(64)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -10774,6 +11023,7 @@ model DeveloperWebhookSubscription {
   @@index([tenantId, state])
   @@index([applicationId, revokedAt])
   @@map("developer_webhook_subscriptions")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model DeveloperWebhookDelivery {
@@ -10793,7 +11043,7 @@ model DeveloperWebhookDelivery {
   correlationId   String    @map("correlation_id") @db.VarChar(64)
   environment     String    @db.VarChar(16)
   replayOfDeliveryId String? @map("replay_of_delivery_id") @db.Uuid
-  idempotencyKey  String    @unique @map("idempotency_key") @db.VarChar(64)
+  idempotencyKey  String    @map("idempotency_key") @db.VarChar(64)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -10803,6 +11053,7 @@ model DeveloperWebhookDelivery {
   @@index([tenantId, state])
   @@index([subscriptionId, createdAt])
   @@map("developer_webhook_deliveries")
+  @@unique([tenantId, idempotencyKey])
 }
 
 model DeveloperEventSubscription {
@@ -10838,4 +11089,898 @@ model DeveloperAudit {
   @@index([tenantId, applicationId])
   @@index([tenantId, action])
   @@map("developer_audit")
+}
+
+// =============================================================================
+// DOMAIN PERSISTENCE TABLES (audit 2026-09-29)
+// =============================================================================
+// Every model below was already addressed by service code as
+// `(prisma as any).<delegate>` while no such model existed, so each call
+// resolved to `undefined`: writes were silently skipped (the services'
+// in-memory maps held the only copy, lost on restart and invisible to other
+// replicas), reads returned nothing, and counts fed `?? 0` into plan limits.
+// Field names and shapes are taken from the exact objects those services
+// pass to create/update/where/orderBy, and from the record interfaces the
+// services map rows back into, so no service call needed to change shape.
+//
+// Conventions follow the surrounding billing models: money and rates are
+// decimal strings (VarChar), states are strings validated by the service
+// enums, ids are app-generated strings (several services use prefixed ids
+// such as `part_<ts>_<rand>`, so ids are VarChar rather than Uuid).
+//
+// Tenancy: a non-nullable `tenantId` puts the table under the Part 11
+// tenant_isolation policy (scripts/gen_part11_rls.py). Partner tables and
+// legal holds are PLATFORM-scoped on purpose - a partner spans many tenants
+// and the platform pays its commission; a legal hold may be platform-wide
+// (`tenantId: null`) - so their tenantId is nullable and they are listed as
+// excluded, like audit_logs and plans. Webhook events arrive before any
+// tenant is known, so theirs is nullable too.
+
+// --- billing -----------------------------------------------------------------
+
+/// One billing identity per tenant (BillingCustomerService). The tenant-metadata
+/// fallback in that service remains for databases without this table.
+model BillingCustomer {
+  id                  String   @id @default(uuid()) @db.VarChar(64)
+  tenantId            String   @unique @map("tenant_id") @db.Uuid
+  billingName         String   @map("billing_name") @db.VarChar(255)
+  legalName           String?  @map("legal_name") @db.VarChar(255)
+  businessName        String?  @map("business_name") @db.VarChar(255)
+  billingEmail        String   @map("billing_email") @db.VarChar(320)
+  billingAddressLine1 String?  @map("billing_address_line1") @db.VarChar(255)
+  billingAddressLine2 String?  @map("billing_address_line2") @db.VarChar(255)
+  billingCity         String?  @map("billing_city") @db.VarChar(128)
+  billingRegion       String?  @map("billing_region") @db.VarChar(128)
+  billingPostalCode   String?  @map("billing_postal_code") @db.VarChar(32)
+  billingCountry      String   @map("billing_country") @db.VarChar(64)
+  taxId               String?  @map("tax_id") @db.VarChar(64)
+  vatNumber           String?  @map("vat_number") @db.VarChar(64)
+  preferredCurrency   String   @default("USD") @map("preferred_currency") @db.VarChar(10)
+  providerCustomerId  String?  @map("provider_customer_id") @db.VarChar(255)
+  provider            String?  @db.VarChar(32)
+  isBusinessCustomer  Boolean  @default(false) @map("is_business_customer")
+  isTaxExempt         Boolean  @default(false) @map("is_tax_exempt")
+  exemptionReason     String?  @map("exemption_reason") @db.Text
+  metadata            Json?
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([providerCustomerId])
+  @@map("billing_customers")
+}
+
+/// Append-only billing ledger (BillingLedgerRepository). Journal entries carry
+/// per-entry keys (`<key>_<i>_<category>`), so the unique idempotency key is
+/// the database-level guarantee against double posting.
+model BillingLedgerEntry {
+  id              String   @id @default(uuid()) @db.VarChar(64)
+  tenantId        String   @map("tenant_id") @db.Uuid
+  accountCategory String   @map("account_category") @db.VarChar(64)
+  entryType       String   @map("entry_type") @db.VarChar(32)
+  amount          String   @db.VarChar(64)
+  currency        String   @db.VarChar(10)
+  sourceType      String   @map("source_type") @db.VarChar(64)
+  sourceId        String   @map("source_id") @db.VarChar(255)
+  invoiceId       String?  @map("invoice_id") @db.VarChar(64)
+  paymentId       String?  @map("payment_id") @db.VarChar(255)
+  refundId        String?  @map("refund_id") @db.VarChar(255)
+  taxId           String?  @map("tax_id") @db.VarChar(255)
+  feeReference    String?  @map("fee_reference") @db.VarChar(255)
+  idempotencyKey  String   @map("idempotency_key") @db.VarChar(512)
+  effectiveAt     DateTime @map("effective_at") @db.Timestamptz(6)
+  description     String   @db.Text
+  metadata        Json?
+  status          String   @default("POSTED") @db.VarChar(32)
+  createdBy       String?  @map("created_by") @db.VarChar(64)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, effectiveAt])
+  @@index([tenantId, sourceType, sourceId])
+  @@index([currency, effectiveAt])
+  @@index([invoiceId])
+  @@map("billing_ledger_entries")
+  @@unique([tenantId, idempotencyKey])
+}
+
+/// Database fallback for invoice sequences when Redis is unavailable
+/// (InvoiceNumberService). `scope` is a tenant id or `global`.
+model InvoiceCounter {
+  scope     String   @id @db.VarChar(128)
+  sequence  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("invoice_counters")
+}
+
+/// Durable webhook replay ledger (WebhookReplayGuard). Several rows may exist
+/// per provider event (a rejected delivery and a later valid one), so there is
+/// no unique constraint; the guard looks for a PROCESSED row first.
+model WebhookEvent {
+  id                  String    @id @default(uuid()) @db.VarChar(64)
+  provider            String    @db.VarChar(32)
+  providerEventId     String    @map("provider_event_id") @db.VarChar(255)
+  eventType           String    @map("event_type") @db.VarChar(128)
+  eventCategory       String    @map("event_category") @db.VarChar(64)
+  providerPaymentId   String?   @map("provider_payment_id") @db.VarChar(255)
+  providerCheckoutId  String?   @map("provider_checkout_id") @db.VarChar(255)
+  eventHash           String    @map("event_hash") @db.VarChar(128)
+  payload             Json?
+  signature           String?   @db.VarChar(64)
+  processingStatus    String    @map("processing_status") @db.VarChar(32)
+  processingAttempts  Int       @default(0) @map("processing_attempts")
+  paymentId           String?   @map("payment_id") @db.VarChar(255)
+  /// Nullable: a webhook is received before any tenant is resolved.
+  tenantId            String?   @map("tenant_id") @db.VarChar(64)
+  receivedAt          DateTime  @map("received_at") @db.Timestamptz(6)
+  firstSeenAt         DateTime  @map("first_seen_at") @db.Timestamptz(6)
+  processedAt         DateTime? @map("processed_at") @db.Timestamptz(6)
+  lastProcessingError String?   @map("last_processing_error") @db.VarChar(1000)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([provider, providerEventId, createdAt])
+  @@index([processingStatus, createdAt])
+  @@index([tenantId])
+  @@map("webhook_events")
+}
+
+/// Per-period usage totals (UsageMeterRepository). `subjectId` is '' for a
+/// tenant-level meter: a NULL would never match itself under the unique
+/// index, so every event would open a new bucket instead of incrementing.
+model UsageBucket {
+  id            String    @id @default(uuid()) @db.VarChar(64)
+  tenantId      String    @map("tenant_id") @db.Uuid
+  meterKey      String    @map("meter_key") @db.VarChar(64)
+  scope         String    @db.VarChar(32)
+  subjectId     String    @default("") @map("subject_id") @db.VarChar(255)
+  window        String    @db.VarChar(32)
+  periodId      String    @map("period_id") @db.VarChar(255)
+  periodStart   DateTime  @map("period_start") @db.Timestamptz(6)
+  periodEnd     DateTime  @map("period_end") @db.Timestamptz(6)
+  totalQuantity Float     @default(0) @map("total_quantity")
+  eventCount    Int       @default(0) @map("event_count")
+  unit          String    @db.VarChar(32)
+  lastEventAt   DateTime? @map("last_event_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, meterKey, scope, subjectId, periodId])
+  @@index([tenantId, periodStart])
+  @@map("usage_buckets")
+}
+
+model FeeAuditLog {
+  id            String   @id @default(uuid()) @db.VarChar(64)
+  tenantId      String   @map("tenant_id") @db.Uuid
+  operation     String   @db.VarChar(64)
+  referenceId   String   @map("reference_id") @db.VarChar(255)
+  referenceType String   @map("reference_type") @db.VarChar(64)
+  status        String   @db.VarChar(32)
+  amount        String?  @db.VarChar(64)
+  currency      String?  @db.VarChar(10)
+  metadata      Json?
+  actorId       String?  @map("actor_id") @db.VarChar(64)
+  timestamp     DateTime @default(now()) @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, operation, createdAt])
+  @@index([tenantId, referenceId])
+  @@map("fee_audit_logs")
+}
+
+model FinanceAuditLog {
+  id            String   @id @default(uuid()) @db.VarChar(64)
+  tenantId      String   @map("tenant_id") @db.Uuid
+  operation     String   @db.VarChar(64)
+  referenceId   String   @map("reference_id") @db.VarChar(255)
+  referenceType String   @map("reference_type") @db.VarChar(64)
+  status        String   @db.VarChar(32)
+  amount        String?  @db.VarChar(64)
+  currency      String?  @db.VarChar(10)
+  metadata      Json?
+  actorId       String?  @map("actor_id") @db.VarChar(64)
+  actorType     String?  @map("actor_type") @db.VarChar(32)
+  timestamp     DateTime @default(now()) @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, operation, createdAt])
+  @@index([tenantId, referenceId])
+  @@map("finance_audit_logs")
+}
+
+model FeeSettlementItem {
+  id           String   @id @default(uuid()) @db.VarChar(64)
+  settlementId String   @map("settlement_id") @db.VarChar(64)
+  accrualId    String   @map("accrual_id") @db.VarChar(64)
+  tenantId     String   @map("tenant_id") @db.Uuid
+  feeType      String   @map("fee_type") @db.VarChar(32)
+  feeAmount    String   @default("0") @map("fee_amount") @db.VarChar(64)
+  currency     String   @db.VarChar(10)
+  status       String   @db.VarChar(32)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([settlementId, createdAt])
+  @@index([tenantId, accrualId])
+  @@map("fee_settlement_items")
+}
+
+model SaasAuditLog {
+  id            String   @id @default(uuid()) @db.VarChar(64)
+  tenantId      String   @map("tenant_id") @db.Uuid
+  operation     String   @db.VarChar(64)
+  actorId       String   @map("actor_id") @db.VarChar(64)
+  actorType     String   @default("USER") @map("actor_type") @db.VarChar(32)
+  referenceId   String   @map("reference_id") @db.VarChar(255)
+  referenceType String   @map("reference_type") @db.VarChar(64)
+  previousState Json?    @map("previous_state")
+  newState      Json?    @map("new_state")
+  result        String   @default("SUCCESS") @db.VarChar(32)
+  reason        String?  @db.Text
+  metadata      Json?
+  timestamp     DateTime @default(now()) @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, operation, createdAt])
+  @@map("saas_audit_logs")
+}
+
+// --- governance (per tenant, except platform-wide legal holds) ---------------
+
+model ComplianceReport {
+  id                  String   @id @db.VarChar(64)
+  tenantId            String   @map("tenant_id") @db.Uuid
+  reportType          String   @map("report_type") @db.VarChar(64)
+  reportVersion       String   @map("report_version") @db.VarChar(32)
+  schemaVersion       String   @map("schema_version") @db.VarChar(32)
+  jurisdiction        String   @db.VarChar(16)
+  periodStart         DateTime @map("period_start") @db.Timestamptz(6)
+  periodEnd           DateTime @map("period_end") @db.Timestamptz(6)
+  generatedAt         DateTime @map("generated_at") @db.Timestamptz(6)
+  dataAsOf            DateTime @map("data_as_of") @db.Timestamptz(6)
+  sourceReferences    String[] @default([]) @map("source_references")
+  methodology         String   @db.Text
+  calculationVersion  String   @map("calculation_version") @db.VarChar(32)
+  policyVersion       String   @map("policy_version") @db.VarChar(32)
+  validationStatus    String   @map("validation_status") @db.VarChar(32)
+  certificationStatus String   @map("certification_status") @db.VarChar(32)
+  deliveryStatus      String   @map("delivery_status") @db.VarChar(32)
+  state               String   @db.VarChar(32)
+  recordCount         Int      @default(0) @map("record_count")
+  fileLocation        String?  @map("file_location") @db.Text
+  fileHash            String?  @map("file_hash") @db.VarChar(128)
+  fingerprint         String   @db.VarChar(128)
+  correlationId       String   @map("correlation_id") @db.VarChar(255)
+  createdBy           String   @map("created_by") @db.VarChar(64)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, generatedAt])
+  @@index([tenantId, reportType, state])
+  @@map("compliance_reports")
+}
+
+model ComplianceReportCertification {
+  id                 String   @id @db.VarChar(64)
+  tenantId           String   @map("tenant_id") @db.Uuid
+  reportId           String   @map("report_id") @db.VarChar(64)
+  state              String   @db.VarChar(32)
+  reviewerId         String?  @map("reviewer_id") @db.VarChar(64)
+  reviewerRole       String?  @map("reviewer_role") @db.VarChar(64)
+  fingerprint        String   @db.VarChar(128)
+  validationEvidence String   @map("validation_evidence") @db.Text
+  comments           String?  @db.Text
+  correlationId      String   @map("correlation_id") @db.VarChar(255)
+  policyVersion      String   @map("policy_version") @db.VarChar(32)
+  createdAt          DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, reportId, createdAt])
+  @@map("compliance_report_certifications")
+}
+
+model ComplianceReportDelivery {
+  id               String    @id @db.VarChar(64)
+  tenantId         String    @map("tenant_id") @db.Uuid
+  reportId         String    @map("report_id") @db.VarChar(64)
+  channel          String    @db.VarChar(64)
+  state            String    @db.VarChar(32)
+  attemptCount     Int       @default(0) @map("attempt_count")
+  lastAttemptAt    DateTime? @map("last_attempt_at") @db.Timestamptz(6)
+  deliveredAt      DateTime? @map("delivered_at") @db.Timestamptz(6)
+  deliveryEvidence String?   @map("delivery_evidence") @db.Text
+  failureReason    String?   @map("failure_reason") @db.Text
+  correlationId    String    @map("correlation_id") @db.VarChar(255)
+  createdAt        DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, reportId, createdAt])
+  @@map("compliance_report_deliveries")
+}
+
+model ComplianceReportValidation {
+  id                      String   @id @db.VarChar(64)
+  tenantId                String   @map("tenant_id") @db.Uuid
+  reportId                String   @map("report_id") @db.VarChar(64)
+  isValid                 Boolean  @map("is_valid")
+  validationStatus        String   @map("validation_status") @db.VarChar(32)
+  errors                  Json     @default("[]")
+  warnings                Json     @default("[]")
+  sourceCompleteness      Boolean  @map("source_completeness")
+  reconciliationResolved  Boolean  @map("reconciliation_resolved")
+  periodCompleteness      Boolean  @map("period_completeness")
+  fingerprintValid        Boolean  @map("fingerprint_valid")
+  sourceReferencesChecked String[] @default([]) @map("source_references_checked")
+  validatedAt             DateTime @map("validated_at") @db.Timestamptz(6)
+  validator               String   @db.VarChar(64)
+  correlationId           String   @map("correlation_id") @db.VarChar(255)
+  policyVersion           String   @map("policy_version") @db.VarChar(32)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, reportId, validatedAt])
+  @@map("compliance_report_validations")
+}
+
+model ConsentRecord {
+  id                String    @id @db.VarChar(64)
+  tenantId          String    @map("tenant_id") @db.Uuid
+  subjectUserId     String    @map("subject_user_id") @db.VarChar(64)
+  purpose           String    @db.VarChar(128)
+  version           String    @db.VarChar(32)
+  policyReference   String    @map("policy_reference") @db.VarChar(255)
+  source            String    @db.VarChar(64)
+  capturedAt        DateTime  @map("captured_at") @db.Timestamptz(6)
+  withdrawnAt       DateTime? @map("withdrawn_at") @db.Timestamptz(6)
+  status            String    @db.VarChar(32)
+  evidenceReference String?   @map("evidence_reference") @db.Text
+  correlationId     String    @map("correlation_id") @db.VarChar(255)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, subjectUserId, capturedAt])
+  @@index([tenantId, status])
+  @@map("consent_records")
+}
+
+model EvidencePackage {
+  id               String    @id @db.VarChar(64)
+  tenantId         String    @map("tenant_id") @db.Uuid
+  caseReference    String    @map("case_reference") @db.VarChar(255)
+  evidenceType     String    @map("evidence_type") @db.VarChar(64)
+  state            String    @db.VarChar(32)
+  sourceRecords    String[]  @default([]) @map("source_records")
+  sourceReferences String[]  @default([]) @map("source_references")
+  recordCount      Int       @default(0) @map("record_count")
+  generatedAt      DateTime  @map("generated_at") @db.Timestamptz(6)
+  finalizedAt      DateTime? @map("finalized_at") @db.Timestamptz(6)
+  fileLocation     String?   @map("file_location") @db.Text
+  fileHash         String?   @map("file_hash") @db.VarChar(128)
+  fingerprint      String    @db.VarChar(128)
+  redactionPolicy  String    @map("redaction_policy") @db.VarChar(128)
+  generator        String    @db.VarChar(128)
+  auditReference   String?   @map("audit_reference") @db.VarChar(255)
+  policyVersion    String    @map("policy_version") @db.VarChar(32)
+  correlationId    String    @map("correlation_id") @db.VarChar(255)
+  isImmutable      Boolean   @default(false) @map("is_immutable")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, generatedAt])
+  @@index([tenantId, caseReference])
+  @@map("evidence_packages")
+}
+
+model GovernanceAction {
+  id            String   @id @db.VarChar(64)
+  tenantId      String   @map("tenant_id") @db.Uuid
+  actionType    String   @map("action_type") @db.VarChar(64)
+  entityId      String?  @map("entity_id") @db.VarChar(255)
+  requestedBy   String   @map("requested_by") @db.VarChar(64)
+  approvedBy    String?  @map("approved_by") @db.VarChar(64)
+  state         String   @db.VarChar(32)
+  reason        String?  @db.Text
+  correlationId String   @map("correlation_id") @db.VarChar(255)
+  safeParams    Json     @default("{}") @map("safe_params")
+  createdAt     DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, actionType, state])
+  @@map("governance_actions")
+}
+
+model GovernanceAudit {
+  id                   String   @id @db.VarChar(64)
+  tenantId             String   @map("tenant_id") @db.Uuid
+  actionType           String   @map("action_type") @db.VarChar(64)
+  subjectUserId        String?  @map("subject_user_id") @db.VarChar(64)
+  requestId            String?  @map("request_id") @db.VarChar(64)
+  reportId             String?  @map("report_id") @db.VarChar(64)
+  evidencePackageId    String?  @map("evidence_package_id") @db.VarChar(64)
+  legalHoldId          String?  @map("legal_hold_id") @db.VarChar(64)
+  retentionCandidateId String?  @map("retention_candidate_id") @db.VarChar(64)
+  consentId            String?  @map("consent_id") @db.VarChar(64)
+  state                String   @db.VarChar(32)
+  result               String   @db.Text
+  reason               String?  @db.Text
+  correlationId        String   @map("correlation_id") @db.VarChar(255)
+  createdBy            String   @map("created_by") @db.VarChar(64)
+  createdAt            DateTime @map("created_at") @db.Timestamptz(6)
+  safeEvidence         Json     @default("{}") @map("safe_evidence")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, actionType])
+  @@index([correlationId])
+  @@map("governance_audits")
+}
+
+model GovernanceDataClassification {
+  id               String   @id @db.VarChar(64)
+  tenantId         String   @map("tenant_id") @db.Uuid
+  sourceSystem     String   @map("source_system") @db.VarChar(64)
+  sourceTable      String   @map("source_table") @db.VarChar(128)
+  sourceField      String   @map("source_field") @db.VarChar(128)
+  dataClass        String   @map("data_class") @db.VarChar(64)
+  jurisdiction     String   @db.VarChar(16)
+  sensitivityScore Float    @map("sensitivity_score")
+  piiFlag          Boolean  @map("pii_flag")
+  regulatedFlag    Boolean  @map("regulated_flag")
+  classifiedAt     DateTime @map("classified_at") @db.Timestamptz(6)
+  classifiedBy     String   @map("classified_by") @db.VarChar(64)
+  policyVersion    String   @map("policy_version") @db.VarChar(32)
+  correlationId    String   @map("correlation_id") @db.VarChar(255)
+
+  @@index([tenantId, classifiedAt])
+  @@map("governance_data_classifications")
+}
+
+model GovernanceDataInventory {
+  id                String   @id @db.VarChar(64)
+  tenantId          String   @map("tenant_id") @db.Uuid
+  subjectUserId     String?  @map("subject_user_id") @db.VarChar(64)
+  sourceSystem      String   @map("source_system") @db.VarChar(64)
+  sourceTable       String   @map("source_table") @db.VarChar(128)
+  sourceId          String   @map("source_id") @db.VarChar(255)
+  dataClasses       String[] @default([]) @map("data_classes")
+  jurisdiction      String   @db.VarChar(16)
+  retentionStartAt  DateTime @map("retention_start_at") @db.Timestamptz(6)
+  locationReference String   @map("location_reference") @db.Text
+  recordHash        String   @map("record_hash") @db.VarChar(128)
+  correlationId     String   @map("correlation_id") @db.VarChar(255)
+  lastSeenAt        DateTime @map("last_seen_at") @db.Timestamptz(6)
+  policyVersion     String   @map("policy_version") @db.VarChar(32)
+
+  @@unique([tenantId, sourceSystem, sourceId])
+  @@index([tenantId, subjectUserId])
+  @@index([tenantId, lastSeenAt])
+  @@map("governance_data_inventory")
+}
+
+/// Open reconciliation mismatches. Detection upserts one row per
+/// (tenant, entity, type); resolving deletes it (GovernanceReconciliationService).
+model GovernanceReconciliation {
+  id               String   @id @default(uuid()) @db.VarChar(64)
+  tenantId         String   @map("tenant_id") @db.Uuid
+  type             String   @db.VarChar(64)
+  entityId         String   @map("entity_id") @db.VarChar(255)
+  severity         String   @db.VarChar(16)
+  description      String   @db.Text
+  detectedAt       DateTime @map("detected_at") @db.Timestamptz(6)
+  correlationId    String   @map("correlation_id") @db.VarChar(255)
+  sourceReferences String[] @default([]) @map("source_references")
+
+  @@unique([tenantId, entityId, type])
+  @@index([tenantId, detectedAt])
+  @@map("governance_reconciliations")
+}
+
+/// Legal holds. Platform-wide holds carry `tenantId: null` and apply to every
+/// tenant (LegalHoldService queries `OR [{ tenantId }, { tenantId: null }]`).
+model LegalHold {
+  id                    String    @id @db.VarChar(64)
+  tenantId              String?   @map("tenant_id") @db.Uuid
+  caseReference         String    @map("case_reference") @db.VarChar(255)
+  reason                String    @db.Text
+  state                 String    @db.VarChar(32)
+  affectedDataClasses   String[]  @default([]) @map("affected_data_classes")
+  affectedJurisdictions String[]  @default([]) @map("affected_jurisdictions")
+  affectedSubjects      String[]  @default([]) @map("affected_subjects")
+  createdBy             String    @map("created_by") @db.VarChar(64)
+  activatedBy           String?   @map("activated_by") @db.VarChar(64)
+  releasedBy            String?   @map("released_by") @db.VarChar(64)
+  createdAt             DateTime  @map("created_at") @db.Timestamptz(6)
+  activatedAt           DateTime? @map("activated_at") @db.Timestamptz(6)
+  releasedAt            DateTime? @map("released_at") @db.Timestamptz(6)
+  expiresAt             DateTime? @map("expires_at") @db.Timestamptz(6)
+  correlationId         String    @map("correlation_id") @db.VarChar(255)
+  policyVersion         String    @map("policy_version") @db.VarChar(32)
+
+  @@index([tenantId, state])
+  @@index([state, createdAt])
+  @@map("legal_holds")
+}
+
+model PrivacyExport {
+  id               String   @id @db.VarChar(64)
+  tenantId         String   @map("tenant_id") @db.Uuid
+  requestId        String   @map("request_id") @db.VarChar(64)
+  subjectUserId    String   @map("subject_user_id") @db.VarChar(64)
+  exportVersion    String   @map("export_version") @db.VarChar(32)
+  dataAsOf         DateTime @map("data_as_of") @db.Timestamptz(6)
+  generatedAt      DateTime @map("generated_at") @db.Timestamptz(6)
+  dataCategories   String[] @default([]) @map("data_categories")
+  sourceReferences String[] @default([]) @map("source_references")
+  recordCount      Int      @default(0) @map("record_count")
+  fileLocation     String?  @map("file_location") @db.Text
+  fileHash         String?  @map("file_hash") @db.VarChar(128)
+  methodology      String   @db.Text
+  policyVersion    String   @map("policy_version") @db.VarChar(32)
+  correlationId    String   @map("correlation_id") @db.VarChar(255)
+  isDeterministic  Boolean  @default(true) @map("is_deterministic")
+
+  @@index([tenantId, requestId, generatedAt])
+  @@map("privacy_exports")
+}
+
+model PrivacyRequest {
+  id               String    @id @db.VarChar(64)
+  tenantId         String    @map("tenant_id") @db.Uuid
+  subjectUserId    String    @map("subject_user_id") @db.VarChar(64)
+  subjectType      String    @map("subject_type") @db.VarChar(16)
+  requestType      String    @map("request_type") @db.VarChar(32)
+  state            String    @db.VarChar(32)
+  jurisdiction     String    @db.VarChar(16)
+  reason           String?   @db.Text
+  idempotencyKey   String    @map("idempotency_key") @db.VarChar(255)
+  correlationId    String    @map("correlation_id") @db.VarChar(255)
+  requestedAt      DateTime  @map("requested_at") @db.Timestamptz(6)
+  verifiedAt       DateTime? @map("verified_at") @db.Timestamptz(6)
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz(6)
+  blockedReason    String?   @map("blocked_reason") @db.Text
+  retentionBlock   Boolean   @default(false) @map("retention_block")
+  legalHoldBlock   Boolean   @default(false) @map("legal_hold_block")
+  sourceReferences String[]  @default([]) @map("source_references")
+  createdBy        String    @map("created_by") @db.VarChar(64)
+  updatedAt        DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, requestedAt])
+  @@index([tenantId, state])
+  @@map("privacy_requests")
+  @@unique([tenantId, idempotencyKey])
+}
+
+model RetentionCandidate {
+  id                 String   @id @db.VarChar(64)
+  tenantId           String   @map("tenant_id") @db.Uuid
+  dataClass          String   @map("data_class") @db.VarChar(64)
+  sourceSystem       String   @map("source_system") @db.VarChar(64)
+  sourceId           String   @map("source_id") @db.VarChar(255)
+  jurisdiction       String   @db.VarChar(16)
+  retentionStartAt   DateTime @map("retention_start_at") @db.Timestamptz(6)
+  retentionEndAt     DateTime @map("retention_end_at") @db.Timestamptz(6)
+  state              String   @db.VarChar(32)
+  eligibleAction     String   @map("eligible_action") @db.VarChar(16)
+  blockedByLegalHold Boolean  @default(false) @map("blocked_by_legal_hold")
+  legalHoldIds       String[] @default([]) @map("legal_hold_ids")
+  policyVersion      String   @map("policy_version") @db.VarChar(32)
+  correlationId      String   @map("correlation_id") @db.VarChar(255)
+  createdAt          DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, sourceSystem, sourceId])
+  @@index([tenantId, state])
+  @@map("retention_candidates")
+}
+
+// --- partners (platform-scoped: a partner spans tenants) ---------------------
+
+model PartnerProfile {
+  id               String    @id @db.VarChar(64)
+  code             String    @unique @db.VarChar(64)
+  name             String    @db.VarChar(255)
+  legalName        String?   @map("legal_name") @db.VarChar(255)
+  type             String    @db.VarChar(32)
+  state            String    @db.VarChar(32)
+  ownerUserId      String    @map("owner_user_id") @db.VarChar(64)
+  contactEmail     String    @map("contact_email") @db.VarChar(320)
+  contactName      String?   @map("contact_name") @db.VarChar(255)
+  website          String?   @db.VarChar(512)
+  countryCode      String?   @map("country_code") @db.VarChar(8)
+  taxId            String?   @map("tax_id") @db.VarChar(64)
+  billingEmail     String?   @map("billing_email") @db.VarChar(320)
+  currency         String    @db.VarChar(10)
+  idempotencyKey   String    @unique @map("idempotency_key") @db.VarChar(255)
+  policyVersion    String    @map("policy_version") @db.VarChar(32)
+  agreementVersion String?   @map("agreement_version") @db.VarChar(32)
+  metadata         Json?
+  createdAt        DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @map("updated_at") @db.Timestamptz(6)
+  activatedAt      DateTime? @map("activated_at") @db.Timestamptz(6)
+  suspendedAt      DateTime? @map("suspended_at") @db.Timestamptz(6)
+  terminatedAt     DateTime? @map("terminated_at") @db.Timestamptz(6)
+
+  @@index([state, type])
+  @@index([ownerUserId])
+  @@map("partner_profiles")
+}
+
+model PartnerAgreement {
+  id                String    @id @db.VarChar(64)
+  partnerId         String    @map("partner_id") @db.VarChar(64)
+  version           Int
+  state             String    @db.VarChar(32)
+  commissionPolicy  Json      @map("commission_policy")
+  pricingRules      Json      @default("[]") @map("pricing_rules")
+  payoutTerms       Json      @map("payout_terms")
+  attributionRules  Json      @default("[]") @map("attribution_rules")
+  effectiveFrom     DateTime  @map("effective_from") @db.Timestamptz(6)
+  effectiveTo       DateTime? @map("effective_to") @db.Timestamptz(6)
+  jurisdiction      String?   @db.VarChar(16)
+  responsibilities  String[]  @default([])
+  terminationClause String?   @map("termination_clause") @db.Text
+  createdBy         String    @map("created_by") @db.VarChar(64)
+  approvedBy        String?   @map("approved_by") @db.VarChar(64)
+  activatedAt       DateTime? @map("activated_at") @db.Timestamptz(6)
+  supersededAt      DateTime? @map("superseded_at") @db.Timestamptz(6)
+  terminatedAt      DateTime? @map("terminated_at") @db.Timestamptz(6)
+  previousVersionId String?   @map("previous_version_id") @db.VarChar(64)
+  isImmutable       Boolean   @default(false) @map("is_immutable")
+  createdAt         DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([partnerId, version])
+  @@index([partnerId, state])
+  @@map("partner_agreements")
+}
+
+model PartnerTenantRelationship {
+  id               String    @id @db.VarChar(64)
+  partnerId        String    @map("partner_id") @db.VarChar(64)
+  /// Platform-scoped row about a tenant: nullable so the partner console can
+  /// read across tenants under row-level security (see section header).
+  tenantId         String?   @map("tenant_id") @db.Uuid
+  relationshipType String    @map("relationship_type") @db.VarChar(32)
+  state            String    @db.VarChar(32)
+  attributionId    String?   @map("attribution_id") @db.VarChar(64)
+  campaignId       String?   @map("campaign_id") @db.VarChar(64)
+  referralCode     String?   @map("referral_code") @db.VarChar(64)
+  assignedAt       DateTime  @map("assigned_at") @db.Timestamptz(6)
+  assignedBy       String    @map("assigned_by") @db.VarChar(64)
+  activatedAt      DateTime? @map("activated_at") @db.Timestamptz(6)
+  terminatedAt     DateTime? @map("terminated_at") @db.Timestamptz(6)
+  isPrimary        Boolean   @default(false) @map("is_primary")
+  metadata         Json?
+  idempotencyKey   String    @unique @map("idempotency_key") @db.VarChar(255)
+  createdAt        DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@index([partnerId, createdAt])
+  @@index([tenantId, isPrimary, state])
+  @@map("partner_tenant_relationships")
+}
+
+model PartnerReferral {
+  id                String    @id @db.VarChar(64)
+  partnerId         String    @map("partner_id") @db.VarChar(64)
+  campaignId        String?   @map("campaign_id") @db.VarChar(64)
+  code              String    @unique @db.VarChar(64)
+  token             String    @unique @db.VarChar(255)
+  state             String    @db.VarChar(32)
+  createdBy         String    @map("created_by") @db.VarChar(64)
+  expiresAt         DateTime? @map("expires_at") @db.Timestamptz(6)
+  convertedAt       DateTime? @map("converted_at") @db.Timestamptz(6)
+  convertedTenantId String?   @map("converted_tenant_id") @db.Uuid
+  maxUses           Int?      @map("max_uses")
+  currentUses       Int       @default(0) @map("current_uses")
+  idempotencyKey    String    @unique @map("idempotency_key") @db.VarChar(255)
+  createdAt         DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@index([partnerId])
+  @@map("partner_referrals")
+}
+
+model PartnerAttribution {
+  id                     String   @id @db.VarChar(64)
+  partnerId              String   @map("partner_id") @db.VarChar(64)
+  tenantId               String?  @map("tenant_id") @db.Uuid
+  campaignId             String?  @map("campaign_id") @db.VarChar(64)
+  referralCode           String?  @map("referral_code") @db.VarChar(64)
+  referralToken          String?  @map("referral_token") @db.VarChar(255)
+  attributionSource      String   @map("attribution_source") @db.VarChar(32)
+  attributionWindowHours Int      @map("attribution_window_hours")
+  capturedAt             DateTime @map("captured_at") @db.Timestamptz(6)
+  effectiveAt            DateTime @map("effective_at") @db.Timestamptz(6)
+  expiresAt              DateTime @map("expires_at") @db.Timestamptz(6)
+  agreementVersion       String   @map("agreement_version") @db.VarChar(32)
+  policyVersion          String   @map("policy_version") @db.VarChar(32)
+  state                  String   @db.VarChar(32)
+  isPrimary              Boolean  @default(false) @map("is_primary")
+  idempotencyKey         String   @unique @map("idempotency_key") @db.VarChar(255)
+  createdAt              DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, isPrimary, state])
+  @@index([partnerId])
+  @@map("partner_attributions")
+}
+
+model PartnerCampaign {
+  id                     String    @id @db.VarChar(64)
+  partnerId              String    @map("partner_id") @db.VarChar(64)
+  name                   String    @db.VarChar(255)
+  code                   String    @db.VarChar(64)
+  state                  String    @db.VarChar(32)
+  discountType           String?   @map("discount_type") @db.VarChar(32)
+  discountValue          String?   @map("discount_value") @db.VarChar(64)
+  discountCurrency       String?   @map("discount_currency") @db.VarChar(10)
+  maxUses                Int?      @map("max_uses")
+  currentUses            Int       @default(0) @map("current_uses")
+  allowedPlans           Json?     @map("allowed_plans")
+  attributionWindowHours Int       @map("attribution_window_hours")
+  startsAt               DateTime  @map("starts_at") @db.Timestamptz(6)
+  endsAt                 DateTime? @map("ends_at") @db.Timestamptz(6)
+  createdBy              String    @map("created_by") @db.VarChar(64)
+  idempotencyKey         String    @unique @map("idempotency_key") @db.VarChar(255)
+  createdAt              DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  /// Codes are unique per partner (PartnerDiscountService.createCampaign).
+  @@unique([partnerId, code])
+  @@index([partnerId, createdAt])
+  @@map("partner_campaigns")
+}
+
+/// Commission ledger. Reversals are new rows pointing at `reversalOfId`;
+/// the unique idempotency key blocks a double accrual for one source event.
+model PartnerCommission {
+  id                   String    @id @db.VarChar(64)
+  partnerId            String    @map("partner_id") @db.VarChar(64)
+  tenantId             String?   @map("tenant_id") @db.Uuid
+  sourcePaymentId      String?   @map("source_payment_id") @db.VarChar(255)
+  sourceInvoiceId      String?   @map("source_invoice_id") @db.VarChar(255)
+  sourceSubscriptionId String?   @map("source_subscription_id") @db.VarChar(255)
+  sourceFeeId          String?   @map("source_fee_id") @db.VarChar(255)
+  sourceEventId        String    @map("source_event_id") @db.VarChar(255)
+  sourceEventType      String    @map("source_event_type") @db.VarChar(32)
+  grossRevenue         String    @map("gross_revenue") @db.VarChar(64)
+  discountAmount       String    @map("discount_amount") @db.VarChar(64)
+  netEligibleRevenue   String    @map("net_eligible_revenue") @db.VarChar(64)
+  commissionRate       String    @map("commission_rate") @db.VarChar(64)
+  commissionBasis      String    @map("commission_basis") @db.VarChar(32)
+  commissionModel      String    @map("commission_model") @db.VarChar(32)
+  commissionAmount     String    @map("commission_amount") @db.VarChar(64)
+  currency             String    @db.VarChar(10)
+  sourceCurrency       String    @map("source_currency") @db.VarChar(10)
+  commissionCurrency   String    @map("commission_currency") @db.VarChar(10)
+  fxRequired           Boolean   @default(false) @map("fx_required")
+  fxRate               String?   @map("fx_rate") @db.VarChar(64)
+  fxTimestamp          DateTime? @map("fx_timestamp") @db.Timestamptz(6)
+  fxSource             String?   @map("fx_source") @db.VarChar(64)
+  agreementVersion     String    @map("agreement_version") @db.VarChar(32)
+  policyVersion        String    @map("policy_version") @db.VarChar(32)
+  calculationVersion   String    @map("calculation_version") @db.VarChar(32)
+  state                String    @db.VarChar(32)
+  settlementId         String?   @map("settlement_id") @db.VarChar(64)
+  payoutId             String?   @map("payout_id") @db.VarChar(64)
+  reversalOfId         String?   @map("reversal_of_id") @db.VarChar(64)
+  accruedAt            DateTime  @map("accrued_at") @db.Timestamptz(6)
+  idempotencyKey       String    @unique @map("idempotency_key") @db.VarChar(255)
+  correlationId        String    @map("correlation_id") @db.VarChar(255)
+  createdAt            DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@index([partnerId, accruedAt])
+  @@index([partnerId, sourceEventId])
+  @@index([settlementId])
+  @@index([tenantId])
+  @@map("partner_commissions")
+}
+
+model PartnerSettlement {
+  id                      String    @id @db.VarChar(64)
+  partnerId               String    @map("partner_id") @db.VarChar(64)
+  periodStart             DateTime  @map("period_start") @db.Timestamptz(6)
+  periodEnd               DateTime  @map("period_end") @db.Timestamptz(6)
+  currency                String    @db.VarChar(10)
+  state                   String    @db.VarChar(32)
+  totalGrossRevenue       String    @map("total_gross_revenue") @db.VarChar(64)
+  totalDiscount           String    @map("total_discount") @db.VarChar(64)
+  totalNetEligibleRevenue String    @map("total_net_eligible_revenue") @db.VarChar(64)
+  totalCommissionAccrued  String    @map("total_commission_accrued") @db.VarChar(64)
+  totalCommissionReversed String    @map("total_commission_reversed") @db.VarChar(64)
+  totalCommissionPayable  String    @map("total_commission_payable") @db.VarChar(64)
+  commissionCount         Int       @default(0) @map("commission_count")
+  reversalCount           Int       @default(0) @map("reversal_count")
+  refundCount             Int       @default(0) @map("refund_count")
+  chargebackCount         Int       @default(0) @map("chargeback_count")
+  fingerprint             String    @db.VarChar(128)
+  calculationVersion      String    @map("calculation_version") @db.VarChar(32)
+  policyVersion           String    @map("policy_version") @db.VarChar(32)
+  agreementVersion        String    @map("agreement_version") @db.VarChar(32)
+  reconciledAt            DateTime? @map("reconciled_at") @db.Timestamptz(6)
+  lockedAt                DateTime? @map("locked_at") @db.Timestamptz(6)
+  completedAt             DateTime? @map("completed_at") @db.Timestamptz(6)
+  payoutId                String?   @map("payout_id") @db.VarChar(64)
+  createdBy               String    @map("created_by") @db.VarChar(64)
+  idempotencyKey          String    @unique @map("idempotency_key") @db.VarChar(255)
+  correlationId           String    @map("correlation_id") @db.VarChar(255)
+  createdAt               DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@index([partnerId, createdAt])
+  @@index([partnerId, fingerprint])
+  @@map("partner_settlements")
+}
+
+model PartnerPayout {
+  id                String    @id @db.VarChar(64)
+  partnerId         String    @map("partner_id") @db.VarChar(64)
+  settlementId      String    @map("settlement_id") @db.VarChar(64)
+  amount            String    @db.VarChar(64)
+  currency          String    @db.VarChar(10)
+  state             String    @db.VarChar(32)
+  method            String    @db.VarChar(64)
+  providerPayoutId  String?   @map("provider_payout_id") @db.VarChar(255)
+  providerReference String?   @map("provider_reference") @db.VarChar(255)
+  failureReason     String?   @map("failure_reason") @db.Text
+  requestedAt       DateTime  @map("requested_at") @db.Timestamptz(6)
+  requestedBy       String    @map("requested_by") @db.VarChar(64)
+  approvedAt        DateTime? @map("approved_at") @db.Timestamptz(6)
+  approvedBy        String?   @map("approved_by") @db.VarChar(64)
+  submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(6)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+  failedAt          DateTime? @map("failed_at") @db.Timestamptz(6)
+  reversedAt        DateTime? @map("reversed_at") @db.Timestamptz(6)
+  idempotencyKey    String    @unique @map("idempotency_key") @db.VarChar(255)
+  correlationId     String    @map("correlation_id") @db.VarChar(255)
+  createdAt         DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@index([partnerId, createdAt])
+  @@index([settlementId])
+  @@map("partner_payouts")
+}
+
+model PartnerUser {
+  id             String    @id @db.VarChar(64)
+  partnerId      String    @map("partner_id") @db.VarChar(64)
+  userId         String    @map("user_id") @db.VarChar(64)
+  role           String    @db.VarChar(32)
+  state          String    @db.VarChar(32)
+  invitedBy      String    @map("invited_by") @db.VarChar(64)
+  invitedAt      DateTime  @map("invited_at") @db.Timestamptz(6)
+  activatedAt    DateTime? @map("activated_at") @db.Timestamptz(6)
+  suspendedAt    DateTime? @map("suspended_at") @db.Timestamptz(6)
+  idempotencyKey String    @unique @map("idempotency_key") @db.VarChar(255)
+  createdAt      DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  /// Not unique: a DEACTIVATED member may be invited again as a new row.
+  @@index([partnerId, userId])
+  @@index([userId, state])
+  @@map("partner_users")
+}
+
+model PartnerAudit {
+  id               String   @id @db.VarChar(64)
+  partnerId        String   @map("partner_id") @db.VarChar(64)
+  tenantId         String?  @map("tenant_id") @db.Uuid
+  actorId          String   @map("actor_id") @db.VarChar(64)
+  actorRole        String?  @map("actor_role") @db.VarChar(64)
+  action           String   @db.VarChar(64)
+  source           String   @db.VarChar(64)
+  correlationId    String   @map("correlation_id") @db.VarChar(255)
+  agreementVersion String?  @map("agreement_version") @db.VarChar(32)
+  policyVersion    String?  @map("policy_version") @db.VarChar(32)
+  timestamp        DateTime @db.Timestamptz(6)
+  safeEvidence     Json     @default("{}") @map("safe_evidence")
+  createdAt        DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@index([partnerId, timestamp])
+  @@index([correlationId])
+  @@map("partner_audits")
 }

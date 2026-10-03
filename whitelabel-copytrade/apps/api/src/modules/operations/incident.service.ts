@@ -65,7 +65,7 @@ export class IncidentService {
     // Check idempotency key first
     try {
       const existingByIdempotency = await (this.prisma as any).operationalIncident.findFirst({
-        where: { idempotencyKey },
+        where: { tenantId: params.tenantId ?? null, idempotencyKey },
       });
       if (existingByIdempotency) {
         return existingByIdempotency;
@@ -170,20 +170,16 @@ export class IncidentService {
     if (affectedComponent) where.affectedComponent = affectedComponent;
     if (correlationId) where.correlationId = correlationId;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).operationalIncident.findMany({
-          where,
-          orderBy: { lastSeenAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        (this.prisma as any).operationalIncident.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).operationalIncident.findMany({
+        where,
+        orderBy: { lastSeenAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      (this.prisma as any).operationalIncident.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 
   async transitionIncident(params: {

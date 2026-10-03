@@ -102,6 +102,7 @@ PLATFORM_SCOPED_TABLES: Final[frozenset[str]] = frozenset(
         "compliance_policy_records",
         "institutional_risk_policies",
         "kill_switches",
+        "legal_holds",
         "mobile_reconciliation_findings",
         "mobile_release_audits",
         "operational_actions",
@@ -116,11 +117,16 @@ PLATFORM_SCOPED_TABLES: Final[frozenset[str]] = frozenset(
         "operational_service_degradations",
         "ops_alerts",
         "ops_incidents",
+        "partner_attributions",
+        "partner_audits",
+        "partner_commissions",
+        "partner_tenant_relationships",
         "plans",
         "roles",
         "security_events",
         "security_policies",
         "subscription_plans",
+        "webhook_events",
     }
 )
 

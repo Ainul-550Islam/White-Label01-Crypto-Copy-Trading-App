@@ -52,7 +52,7 @@ export class OnboardingWorkflowService {
       });
 
       try {
-        const existing = await (this.prisma as any).clientOnboardingStep.findFirst({ where: { idempotencyKey } });
+        const existing = await (this.prisma as any).clientOnboardingStep.findFirst({ where: { tenantId, idempotencyKey } });
         if (existing) {
           steps.push(existing);
           continue;

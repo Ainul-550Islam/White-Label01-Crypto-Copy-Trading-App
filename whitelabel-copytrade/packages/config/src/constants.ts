@@ -92,6 +92,11 @@ export const JOB_NAMES = {
   RECONCILE_TRADING_ACCOUNT: 'reconcile-trading-account',
   RESYNC_PRIVATE_STREAM: 'resync-private-stream',
   CANCEL_ORDER: 'cancel-order',
+  // Phase 3: an OMS-approved order (manual, strategy or copy-trading) handed
+  // to the worker, which forwards it to the execution engine's
+  // /internal/v1/orders/submit. The engine runs its full pipeline against a
+  // simulated adapter only; nothing in the API signs or transmits it.
+  SUBMIT_ORDER: 'submit-order',
 
   // Strategy layer (Part 6). Produced by the API, consumed by the strategy
   // worker. None of them can place a live order: the strategy worker holds no

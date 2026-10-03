@@ -1,23 +1,25 @@
 /**
  * Plans Module - Admin Web Public API
  *
- * This module exports all public interfaces, types, and functions
- * for the billing plans feature in the admin interface.
+ * Types, API calls and formatters for the plan catalogue. Every call maps to
+ * a route of /v1/billing/plans (see plan-api.ts).
  */
 
-// Enums (runtime values - must be value re-exports under isolatedModules)
-export { PlanTier, PlanStatus, BillingInterval } from './plan-types';
+// Runtime values (value re-exports under isolatedModules)
+export { PlanStatus, BILLING_INTERVALS, PLAN_AUDIENCES, PLAN_CURRENCIES, planStatus } from './plan-types';
 
 // Types
 export type {
-  PlanPrice,
-  PlanFeature,
-  PlanLimit,
   Plan,
-  PlanSummary,
+  PlanLimits,
+  BillingInterval,
+  PlanAudience,
+  PlanCurrency,
   PlanFilter,
+  PlanPage,
   CreatePlanRequest,
   UpdatePlanRequest,
+  ArchivePlanResult,
 } from './plan-types';
 
 // API
@@ -26,26 +28,21 @@ export {
   getPlan,
   createPlan,
   updatePlan,
-  deletePlan,
   activatePlan,
   deactivatePlan,
   archivePlan,
-  duplicatePlan,
-  getPlanStats,
-  getPlanHistory,
 } from './plan-api';
 
 // Formatters
 export {
+  LIMIT_LABELS,
   formatPrice,
-  formatTier,
-  formatStatus,
   formatInterval,
-  formatFeature,
-  formatLimit,
-  formatAnnualSavings,
-  getTierColor,
+  formatAudience,
+  formatStatus,
   getStatusColor,
+  formatBps,
+  formatLimit,
   formatPlanSummary,
   formatPlanComparison,
 } from './plan-formatters';

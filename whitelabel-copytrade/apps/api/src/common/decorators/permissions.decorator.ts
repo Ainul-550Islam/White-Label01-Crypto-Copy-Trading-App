@@ -20,3 +20,10 @@ export const RequireAnyPermission = (...permissions: Permission[]): CustomDecora
 
 /** Restricts a route to platform staff (super admins), regardless of tenant. */
 export const PlatformOnly = (): CustomDecorator<string> => SetMetadata(PLATFORM_ONLY_KEY, true);
+
+/**
+ * Explicitly open a route to any authenticated user of the tenant, overriding
+ * a class-level permission default. Use only for self-service or banner-style
+ * reads whose handler scopes the data to the caller.
+ */
+export const AllowAnyAuthenticated = (): CustomDecorator<string> => SetMetadata(PERMISSIONS_KEY, []);

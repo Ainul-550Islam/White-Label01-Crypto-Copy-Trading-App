@@ -63,7 +63,7 @@ export class InternalTransferService {
     });
 
     try {
-      const existing = await (this.prisma as any).custodyInternalTransfer.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).custodyInternalTransfer.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) return existing;
     } catch {}
 
@@ -208,14 +208,10 @@ export class InternalTransferService {
     if (assetId) where.assetId = assetId;
     if (state) where.state = state;
 
-    try {
-      const [data, total] = await Promise.all([
-        (this.prisma as any).custodyInternalTransfer.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-        (this.prisma as any).custodyInternalTransfer.count({ where }),
-      ]);
-      return { data, total, page, limit };
-    } catch {
-      return { data: [], total: 0, page, limit };
-    }
+    const [data, total] = await Promise.all([
+      (this.prisma as any).custodyInternalTransfer.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      (this.prisma as any).custodyInternalTransfer.count({ where }),
+    ]);
+    return { data, total, page, limit };
   }
 }

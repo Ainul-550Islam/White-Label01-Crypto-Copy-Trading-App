@@ -6,6 +6,12 @@ import { ComplianceCaseRepository } from './compliance-case.repository';
 import { RiskLevel, ComplianceDecision, ComplianceCaseType } from './compliance.types';
 import { randomUUID } from 'crypto';
 
+/** Summary text plus compact JSON of non-empty safe metadata (the signal model has no metadata column). */
+export function withSafeMetadata(summary: string, safeMetadata: unknown): string {
+  if (!safeMetadata || typeof safeMetadata !== 'object' || Object.keys(safeMetadata as object).length === 0) return summary;
+  return `${summary} | meta=${JSON.stringify(safeMetadata)}`;
+}
+
 /**
  * Transaction monitoring based on canonical sources: Payment/Refund/Payout/Fee/Trading
  * Emits monitoring signals for review/block per configured policy. No second financial ledger.
@@ -44,7 +50,7 @@ export class TransactionMonitoringService {
 
     // Idempotency
     try {
-      const existing = await (this.prisma as any).transactionMonitoringSignal?.findFirst({ where: { idempotencyKey } });
+      const existing = await (this.prisma as any).transactionMonitoringSignal?.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log(`Idempotent tx monitoring return key=${idempotencyKey}`);
         return {
@@ -119,16 +125,16 @@ export class TransactionMonitoringService {
             ruleId: triggeredRule || 'NO_RULE',
             riskLevel,
             decision,
-            safeSummary: safeSummary.substring(0, 1000),
+            // No safeMetadata column: non-empty metadata is appended to the summary.
+            safeSummary: withSafeMetadata(safeSummary, params.safeMetadata).substring(0, 1000),
             idempotencyKey,
-            safeMetadata: params.safeMetadata || {},
             createdAt: new Date(),
           },
         });
         if (signal) signalId = signal.id;
       } catch (e: any) {
         if (e.code === 'P2002') {
-          const existing = await (this.prisma as any).transactionMonitoringSignal?.findFirst({ where: { idempotencyKey } });
+          const existing = await (this.prisma as any).transactionMonitoringSignal?.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
           if (existing) {
             signalId = existing.id;
           }
@@ -251,35 +257,35 @@ export class TransactionMonitoringService {
     const limit = filters?.limit || 20;
     const offset = (page - 1) * limit;
 
-    try {
-      const where: any = { tenantId };
-      if (filters?.userId) where.userId = filters.userId;
-      if (filters?.ruleId) where.ruleId = filters.ruleId;
-      if (filters?.riskLevel) where.riskLevel = filters.riskLevel;
-      if (filters?.decision) where.decision = filters.decision;
-      if (filters?.fromDate || filters?.toDate) {
-        where.createdAt = {};
-        if (filters.fromDate) where.createdAt.gte = filters.fromDate;
-        if (filters.toDate) where.createdAt.lte = filters.toDate;
-      }
-
-      const [data, total] = await Promise.all([
-        (this.prisma as any).transactionMonitoringSignal?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
-        (this.prisma as any).transactionMonitoringSignal?.count({ where }) || 0,
-      ]);
-
-      return { data, total };
-    } catch {
-      return { data: [], total: 0 };
+    const where: any = { tenantId };
+    if (filters?.userId) where.userId = filters.userId;
+    if (filters?.ruleId) where.ruleId = filters.ruleId;
+    if (filters?.riskLevel) where.riskLevel = filters.riskLevel;
+    if (filters?.decision) where.decision = filters.decision;
+    if (filters?.fromDate || filters?.toDate) {
+      where.createdAt = {};
+      if (filters.fromDate) where.createdAt.gte = filters.fromDate;
+      if (filters.toDate) where.createdAt.lte = filters.toDate;
     }
+
+    const [data, total] = await Promise.all([
+      (this.prisma as any).transactionMonitoringSignal?.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }) || [],
+      (this.prisma as any).transactionMonitoringSignal?.count({ where }) || 0,
+    ]);
+
+    return { data, total };
   }
 
   async resolveSignal(signalId: string, tenantId: string, reviewerId: string, resolution: string): Promise<any | null> {
     try {
-      const updated = await (this.prisma as any).transactionMonitoringSignal?.update({
-        where: { id: signalId },
-        data: { resolved: true, resolvedAt: new Date(), resolvedBy: reviewerId },
+      // Tenant-scoped update (an id-only update could resolve another tenant's signal).
+      // No resolvedBy column: the reviewer is recorded in the audit entry below.
+      const result = await (this.prisma as any).transactionMonitoringSignal?.updateMany({
+        where: { id: signalId, tenantId },
+        data: { resolved: true, resolvedAt: new Date() },
       });
+      if (!result || result.count === 0) return null;
+      const updated = await (this.prisma as any).transactionMonitoringSignal?.findFirst({ where: { id: signalId, tenantId } });
 
       await this.auditService.record({
         tenantId,
@@ -296,22 +302,16 @@ export class TransactionMonitoringService {
   }
 
   private async getUser(userId: string): Promise<any | null> {
-    try {
-      return await (this.prisma as any).user?.findUnique({ where: { id: userId }, select: { countryCode: true } });
-    } catch {
-      return null;
-    }
+    // The user's country lives on UserProfile (User has no countryCode column).
+    const user = await (this.prisma as any).user?.findUnique({ where: { id: userId }, select: { profile: { select: { countryCode: true } } } });
+    return user ? { countryCode: user.profile?.countryCode ?? null } : null;
   }
 
   private async getRecentSignals(tenantId: string, userId: string, windowMs: number): Promise<any[]> {
-    try {
-      const since = new Date(Date.now() - windowMs);
-      return await (this.prisma as any).transactionMonitoringSignal?.findMany({
-        where: { tenantId, userId, createdAt: { gte: since } },
-        orderBy: { createdAt: 'desc' },
-      }) || [];
-    } catch {
-      return [];
-    }
+    const since = new Date(Date.now() - windowMs);
+    return await (this.prisma as any).transactionMonitoringSignal?.findMany({
+      where: { tenantId, userId, createdAt: { gte: since } },
+      orderBy: { createdAt: 'desc' },
+    }) || [];
   }
 }

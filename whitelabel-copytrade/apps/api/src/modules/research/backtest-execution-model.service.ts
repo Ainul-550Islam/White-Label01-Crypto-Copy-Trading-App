@@ -162,15 +162,13 @@ export class BacktestExecutionModelService {
   }
 
   async getSymbolMetadata(tenantId: string, symbol: string): Promise<{ tickSize: string; quantityStep: string; minQuantity: string; minNotional: string } | null> {
-    try {
-      const sym = await this.prisma.tradingSymbol.findFirst({ where: { tenantId, symbol } });
-      if (!sym) return null;
-      return {
-        tickSize: sym.priceTick.toString(),
-        quantityStep: sym.quantityStep.toString(),
-        minQuantity: sym.minQuantity.toString(),
-        minNotional: sym.minNotional.toString(),
-      };
-    } catch { return null; }
+    const sym = await this.prisma.tradingSymbol.findFirst({ where: { tenantId, symbol } });
+    if (!sym) return null;
+    return {
+      tickSize: sym.priceTick.toString(),
+      quantityStep: sym.quantityStep.toString(),
+      minQuantity: sym.minQuantity.toString(),
+      minNotional: sym.minNotional.toString(),
+    };
   }
 }

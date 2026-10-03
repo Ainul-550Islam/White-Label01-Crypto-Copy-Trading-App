@@ -158,8 +158,10 @@ export class PlanRepository {
     // deleteMany + create inside the same update, which Prisma runs as one
     // transaction).
     const { features, limits, price, ...scalars } = data;
+    // Scoped by tenant (Prisma 5 extended unique where): a tenant can neither
+    // edit another tenant's plan nor the platform catalogue (tenantId null).
     const plan = await this.prisma.plan.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         ...scalars,
         ...(price !== undefined
@@ -208,9 +210,14 @@ export class PlanRepository {
   }
 
   async delete(id: string, tenantId: string): Promise<void> {
-    await this.prisma.plan.delete({
-      where: { id },
+    // Scoped by tenant: deleting by id alone would let a caller remove another
+    // tenant's (or the platform catalogue's) plan.
+    const result = await this.prisma.plan.deleteMany({
+      where: { id, tenantId },
     });
+    if (result.count === 0) {
+      throw new Error(`Plan not found: ${id}`);
+    }
   }
 
   async count(tenantId: string): Promise<number> {

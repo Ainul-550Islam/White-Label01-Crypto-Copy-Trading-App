@@ -36,7 +36,7 @@ export class UsageMeterRepository {
           tenantId: params.tenantId,
           meterKey: params.meterKey,
           scope: params.scope,
-          subjectId: params.subjectId || null,
+          subjectId: params.subjectId || '',
           periodId: params.periodId,
         },
       });
@@ -93,7 +93,7 @@ export class UsageMeterRepository {
             tenantId: params.tenantId,
             meterKey: params.meterKey,
             scope: params.scope,
-            subjectId: params.subjectId || null,
+            subjectId: params.subjectId || '',
             periodId: params.periodId,
           },
         });
@@ -137,7 +137,7 @@ export class UsageMeterRepository {
             tenantId: params.tenantId,
             meterKey: params.meterKey,
             scope: params.scope,
-            subjectId: params.subjectId || null,
+            subjectId: params.subjectId || '',
             periodId: params.periodId,
           },
         });
@@ -146,6 +146,7 @@ export class UsageMeterRepository {
 
       const existingByIdempotency = await (this.prisma as any).usageEvent?.findFirst({
         where: {
+          tenantId: params.tenantId,
           idempotencyKey: params.idempotencyKey,
         },
       });
@@ -156,7 +157,7 @@ export class UsageMeterRepository {
             tenantId: params.tenantId,
             meterKey: params.meterKey,
             scope: params.scope,
-            subjectId: params.subjectId || null,
+            subjectId: params.subjectId || '',
             periodId: params.periodId,
           },
         });
@@ -172,7 +173,9 @@ export class UsageMeterRepository {
     try {
       const now = new Date();
 
-      // Use upsert for bucket
+      // Use upsert for bucket. subjectId is '' (never NULL) for a tenant-level
+      // meter in every read and write: a NULL never equals itself under the
+      // unique index, so each event would open a new bucket instead of adding.
       const bucket = await (this.prisma as any).usageBucket?.upsert({
         where: {
           tenantId_meterKey_scope_subjectId_periodId: {
@@ -194,7 +197,7 @@ export class UsageMeterRepository {
           tenantId: params.tenantId,
           meterKey: params.meterKey,
           scope: params.scope,
-          subjectId: params.subjectId || null,
+          subjectId: params.subjectId || '',
           window: params.window,
           periodId: params.periodId,
           periodStart: params.periodStart,
@@ -222,7 +225,7 @@ export class UsageMeterRepository {
               tenantId: params.tenantId,
               meterKey: params.meterKey,
               scope: params.scope,
-              subjectId: params.subjectId || null,
+              subjectId: params.subjectId || '',
               periodId: params.periodId,
             },
           });
@@ -273,40 +276,36 @@ export class UsageMeterRepository {
     fromDate?: Date,
     toDate?: Date,
   ): Promise<{ meterKey: MeterKey; totalQuantity: number; eventCount: number }[]> {
-    try {
-      const where: any = { tenantId };
-      if (meterKey) where.meterKey = meterKey;
-      if (scope) where.scope = scope;
-      if (fromDate || toDate) {
-        where.periodStart = {};
-        if (fromDate) where.periodStart.gte = fromDate;
-        if (toDate) where.periodStart.lte = toDate;
-      }
-
-      const results = await (this.prisma as any).usageBucket?.findMany({
-        where,
-        orderBy: { periodStart: 'desc' },
-      });
-
-      if (!results) return [];
-
-      const grouped = new Map<MeterKey, { totalQuantity: number; eventCount: number }>();
-      for (const r of results) {
-        const key = r.meterKey as MeterKey;
-        const existing = grouped.get(key) || { totalQuantity: 0, eventCount: 0 };
-        existing.totalQuantity += r.totalQuantity || 0;
-        existing.eventCount += r.eventCount || 0;
-        grouped.set(key, existing);
-      }
-
-      return Array.from(grouped.entries()).map(([k, v]) => ({
-        meterKey: k,
-        totalQuantity: v.totalQuantity,
-        eventCount: v.eventCount,
-      }));
-    } catch {
-      return [];
+    const where: any = { tenantId };
+    if (meterKey) where.meterKey = meterKey;
+    if (scope) where.scope = scope;
+    if (fromDate || toDate) {
+      where.periodStart = {};
+      if (fromDate) where.periodStart.gte = fromDate;
+      if (toDate) where.periodStart.lte = toDate;
     }
+
+    const results = await (this.prisma as any).usageBucket?.findMany({
+      where,
+      orderBy: { periodStart: 'desc' },
+    });
+
+    if (!results) return [];
+
+    const grouped = new Map<MeterKey, { totalQuantity: number; eventCount: number }>();
+    for (const r of results) {
+      const key = r.meterKey as MeterKey;
+      const existing = grouped.get(key) || { totalQuantity: 0, eventCount: 0 };
+      existing.totalQuantity += r.totalQuantity || 0;
+      existing.eventCount += r.eventCount || 0;
+      grouped.set(key, existing);
+    }
+
+    return Array.from(grouped.entries()).map(([k, v]) => ({
+      meterKey: k,
+      totalQuantity: v.totalQuantity,
+      eventCount: v.eventCount,
+    }));
   }
 
   async getPeriodTotals(
@@ -314,21 +313,17 @@ export class UsageMeterRepository {
     periodId: string,
     meterKey?: MeterKey,
   ): Promise<UsageBucket[]> {
-    try {
-      const results = await (this.prisma as any).usageBucket?.findMany({
-        where: {
-          tenantId,
-          periodId,
-          ...(meterKey ? { meterKey } : {}),
-        },
-        orderBy: { meterKey: 'asc' },
-      });
+    const results = await (this.prisma as any).usageBucket?.findMany({
+      where: {
+        tenantId,
+        periodId,
+        ...(meterKey ? { meterKey } : {}),
+      },
+      orderBy: { meterKey: 'asc' },
+    });
 
-      if (!results) return [];
-      return results.map((r: any) => this.mapBucketToDomain(r));
-    } catch {
-      return [];
-    }
+    if (!results) return [];
+    return results.map((r: any) => this.mapBucketToDomain(r));
   }
 
   async getResourceTotals(
@@ -337,44 +332,32 @@ export class UsageMeterRepository {
     subjectId: string,
     meterKey?: MeterKey,
   ): Promise<UsageBucket[]> {
-    try {
-      const results = await (this.prisma as any).usageBucket?.findMany({
-        where: {
-          tenantId,
-          scope,
-          subjectId,
-          ...(meterKey ? { meterKey } : {}),
-        },
-        orderBy: { periodStart: 'desc' },
-      });
+    const results = await (this.prisma as any).usageBucket?.findMany({
+      where: {
+        tenantId,
+        scope,
+        subjectId,
+        ...(meterKey ? { meterKey } : {}),
+      },
+      orderBy: { periodStart: 'desc' },
+    });
 
-      if (!results) return [];
-      return results.map((r: any) => this.mapBucketToDomain(r));
-    } catch {
-      return [];
-    }
+    if (!results) return [];
+    return results.map((r: any) => this.mapBucketToDomain(r));
   }
 
   async findBySourceEvent(tenantId: string, sourceEventId: string): Promise<any | null> {
-    try {
-      const result = await (this.prisma as any).usageEvent?.findFirst({
-        where: { tenantId, sourceId: sourceEventId },
-      });
-      return result || null;
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).usageEvent?.findFirst({
+      where: { tenantId, sourceId: sourceEventId },
+    });
+    return result || null;
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<any | null> {
-    try {
-      const result = await (this.prisma as any).usageEvent?.findFirst({
-        where: { idempotencyKey },
-      });
-      return result || null;
-    } catch {
-      return null;
-    }
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<any | null> {
+    const result = await (this.prisma as any).usageEvent?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
+    return result || null;
   }
 
   private mapBucketToDomain(raw: any): UsageBucket {

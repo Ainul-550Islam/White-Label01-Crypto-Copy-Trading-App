@@ -1,9 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CryptoService } from '../../infrastructure/crypto/crypto.service';
 import { AppConfigService } from '../../config/app-config.service';
 import { ExchangeVenue, ExchangeEnvironment, maskApiKey, sanitizeExchangeMetadata } from './exchange.types';
+import { ErrorCode } from '@wlct/shared-types';
+import { AppException } from '../../common/errors/app.exception';
 import { ExchangeProviderError, ExchangeProviderErrorCode } from './exchange-provider.interface';
+import { EXCHANGE_SECRET_STORE, SecretStore, SecretStoreError, createSecretStoreFromEnv } from './secret-store';
 
 export interface CreateCredentialInput {
   tenantId: string;
@@ -57,7 +60,12 @@ export class ExchangeCredentialService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly config: AppConfigService,
+    // Phase 3: optional override (tests, or a DI-managed store). When absent
+    // the store is built from the environment on first use.
+    @Optional() @Inject(EXCHANGE_SECRET_STORE) private readonly secretStoreOverride?: SecretStore | null,
   ) {}
+
+  private cachedSecretStore: SecretStore | null | undefined;
 
   private getAad(tenantId: string, accountId: string): string {
     return `trading_account:${tenantId}:${accountId}`;
@@ -76,21 +84,60 @@ export class ExchangeCredentialService {
     }
   }
 
-  private ensureVaultConfigured(): void {
-    // Check if secret manager is configured - in this deployment, we check env var
-    // If not configured, we must return explicit error per spec
-    const vaultConfigured = process.env.VAULT_ADDR || process.env.AWS_SECRETS_MANAGER_ENABLED || process.env.SECRET_MANAGER_ENABLED;
-    if (!vaultConfigured) {
-      // For ENVELOPE_DB we allow, for SECRET_MANAGER we require vault
-      // This check is called only for SECRET_MANAGER path
+  /**
+   * The configured secret manager, or an explicit PROVIDER_UNAVAILABLE error.
+   * The message keeps the literal "SECRET_MANAGER" because
+   * ExchangeConnectivityService keys its degraded (never fake-success) path
+   * on it.
+   */
+  private resolveSecretStore(venue: ExchangeVenue, environment: ExchangeEnvironment): SecretStore {
+    if (this.cachedSecretStore === undefined) {
+      if (this.secretStoreOverride !== undefined && this.secretStoreOverride !== null) {
+        this.cachedSecretStore = this.secretStoreOverride;
+      } else {
+        try {
+          this.cachedSecretStore = createSecretStoreFromEnv(process.env);
+        } catch (error) {
+          throw new ExchangeProviderError(
+            ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE,
+            `SECRET_MANAGER misconfigured: ${(error as Error).message}`,
+            venue,
+            environment,
+            false,
+          );
+        }
+      }
+    }
+    if (!this.cachedSecretStore) {
       throw new ExchangeProviderError(
         ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE,
-        'Secure credential provider (vault/secret manager) is not configured. Set VAULT_ADDR or SECRET_MANAGER_ENABLED to use SECRET_MANAGER source. Use ENVELOPE_DB for envelope-encrypted storage.',
-        ExchangeVenue.BINANCE,
-        ExchangeEnvironment.LIVE,
+        'Secure credential provider (vault/secret manager) is not configured. Set VAULT_ADDR + VAULT_TOKEN (SECRET_MANAGER_PROVIDER=vault) or AWS_SECRETS_MANAGER_ENABLED=true + AWS credentials (SECRET_MANAGER_PROVIDER=aws) to use the SECRET_MANAGER source. Use ENVELOPE_DB for envelope-encrypted storage.',
+        venue,
+        environment,
         false,
       );
     }
+    return this.cachedSecretStore;
+  }
+
+  /** Map a store failure onto the provider error vocabulary without ever
+   * including secret material (SecretStoreError messages never carry it). */
+  private secretStoreFailure(error: unknown, venue: ExchangeVenue, environment: ExchangeEnvironment, what: string): ExchangeProviderError {
+    if (error instanceof ExchangeProviderError) return error;
+    if (error instanceof SecretStoreError) {
+      const code =
+        error.code === 'NOT_FOUND' || error.code === 'DENIED' || error.code === 'MALFORMED'
+          ? ExchangeProviderErrorCode.AUTH_FAILED
+          : ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE;
+      return new ExchangeProviderError(code, `SECRET_MANAGER ${what} failed: ${error.message}`, venue, environment, error.retryable);
+    }
+    return new ExchangeProviderError(
+      ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE,
+      `SECRET_MANAGER ${what} failed: ${(error as Error)?.name ?? 'Error'}`,
+      venue,
+      environment,
+      true,
+    );
   }
 
   async createCredentialReference(input: CreateCredentialInput): Promise<CredentialReference> {
@@ -138,17 +185,49 @@ export class ExchangeCredentialService {
     let encryptionKeyId: string | null = null;
 
     if (input.credentialSource === 'SECRET_MANAGER') {
-      this.ensureVaultConfigured();
+      const store = this.resolveSecretStore(input.venue, input.environment);
 
-      if (!credentialRef) {
-        // Generate a deterministic ref path if not provided
-        credentialRef = `secret/data/exchanges/${input.tenantId}/${input.accountId}/${input.venue.toLowerCase()}/${input.environment.toLowerCase()}`;
+      // The reference is always the store's deterministic path for THIS
+      // tenant/account (Vault's default matches the execution engine's
+      // EXECUTION_VAULT_PATH_TEMPLATE). It is never taken from the request: a
+      // caller-chosen path would let one customer overwrite - and, on revoke,
+      // destroy - the secret of an account in another tenant.
+      let expectedRef: string;
+      try {
+        expectedRef = store.referenceFor({
+          tenantId: input.tenantId,
+          accountId: input.accountId,
+          venue: input.venue,
+          environment: input.environment,
+        });
+      } catch (error) {
+        throw this.secretStoreFailure(error, input.venue, input.environment, 'reference');
       }
+      if (credentialRef && credentialRef !== expectedRef) {
+        throw new AppException({
+          code: ErrorCode.BAD_REQUEST,
+          message: 'credentialRef cannot be chosen by the client; omit it and the platform assigns the secret path.',
+        });
+      }
+      credentialRef = expectedRef;
 
-      // For SECRET_MANAGER, we do NOT store ciphertext in DB - only reference
-      // Secret material would be pushed to vault via vault client here
-      // We simulate vault write without logging secret: in real deployment, call vault API
-      this.logger.log(`Credential reference created via SECRET_MANAGER tenant=${input.tenantId} account=${input.accountId} venue=${input.venue} env=${input.environment} ref=${credentialRef}`);
+      // The secret material goes to the secret manager and nowhere else: the
+      // database keeps only the reference, last four and blind index. If the
+      // write fails, nothing is persisted - a reference to a secret that was
+      // never stored would be a credential that fails at first use.
+      try {
+        await store.write(credentialRef, {
+          apiKey: input.apiKey,
+          apiSecret: input.apiSecret,
+          ...(input.passphrase ? { passphrase: input.passphrase } : {}),
+          environment: input.environment,
+          venue: input.venue,
+        });
+      } catch (error) {
+        this.logger.error(`SECRET_MANAGER write failed tenant=${input.tenantId} account=${input.accountId} venue=${input.venue} env=${input.environment} store=${store.kind} error=${(error as Error)?.name}`);
+        throw this.secretStoreFailure(error, input.venue, input.environment, 'write');
+      }
+      this.logger.log(`Credential stored via SECRET_MANAGER (${store.kind}) tenant=${input.tenantId} account=${input.accountId} venue=${input.venue} env=${input.environment} ref=${credentialRef}`);
       // Ciphertext columns remain null for SECRET_MANAGER per schema comment
     } else if (input.credentialSource === 'ENVELOPE_DB') {
       // Envelope encryption - secret never in plaintext in DB
@@ -178,6 +257,12 @@ export class ExchangeCredentialService {
       }
     } else if (input.credentialSource === 'ENVIRONMENT') {
       // Development only - does not scale past one tenant and cannot be rotated per customer
+      if (process.env.NODE_ENV === 'production') {
+        throw new AppException({
+          code: ErrorCode.BAD_REQUEST,
+          message: 'The ENVIRONMENT credential source is not available in production.',
+        });
+      }
       this.logger.warn(`Using ENVIRONMENT credential source - development only tenant=${input.tenantId} account=${input.accountId}`);
       credentialRef = `env:${input.venue}_${input.environment}_CREDENTIALS`;
       // No DB ciphertext for ENVIRONMENT
@@ -211,6 +296,14 @@ export class ExchangeCredentialService {
         },
       });
     } catch (e: any) {
+      // The blind index is unique per tenant: the same API key is already
+      // connected here. That is the caller's input, not a venue failure.
+      if (e?.code === 'P2002') {
+        throw new AppException({
+          code: ErrorCode.CONFLICT,
+          message: 'This API key is already connected in this organisation.',
+        });
+      }
       this.logger.error(`Failed to persist credential reference tenant=${input.tenantId} account=${input.accountId} error=${e.message}`);
       throw new ExchangeProviderError(
         ExchangeProviderErrorCode.SERVER_ERROR,
@@ -273,6 +366,21 @@ export class ExchangeCredentialService {
   }
 
   async revokeCredential(tenantId: string, accountId: string, venue: ExchangeVenue, environment: ExchangeEnvironment): Promise<void> {
+    // SECRET_MANAGER: destroy the stored secret too (best effort, logged). The
+    // account is disabled and its reference cleared either way, so a failed
+    // destroy leaves an orphaned secret, never a usable credential.
+    try {
+      const current = await this.prisma.tradingAccount.findFirst({
+        where: { id: accountId, tenantId },
+        select: { credentialSource: true, credentialRef: true },
+      });
+      if (current?.credentialSource === 'SECRET_MANAGER' && current.credentialRef) {
+        const store = this.resolveSecretStore(venue, environment);
+        await store.destroy(current.credentialRef);
+      }
+    } catch (e: any) {
+      this.logger.warn(`SECRET_MANAGER destroy skipped tenant=${tenantId} account=${accountId} error=${e?.name ?? 'Error'}: ${e?.message ?? ''}`);
+    }
     try {
       await this.prisma.tradingAccount.update({
         where: { id: accountId },
@@ -313,8 +421,16 @@ export class ExchangeCredentialService {
       if (!account.credentialRef) {
         return { valid: false, source: account.credentialSource, ref: null, lastFour: account.apiKeyLastFour };
       }
-      // In real deployment, check vault for existence without fetching secret
-      return { valid: true, source: account.credentialSource, ref: account.credentialRef, lastFour: account.apiKeyLastFour };
+      // Existence check against the secret manager (metadata only - the secret
+      // itself is not fetched). Unconfigured or unreachable store = not valid.
+      try {
+        const store = this.resolveSecretStore(ExchangeVenue.BINANCE, ExchangeEnvironment.LIVE);
+        const exists = await store.exists(account.credentialRef);
+        return { valid: exists, source: account.credentialSource, ref: account.credentialRef, lastFour: account.apiKeyLastFour };
+      } catch (e: any) {
+        this.logger.warn(`SECRET_MANAGER existence check failed tenant=${tenantId} account=${accountId} error=${e?.name ?? 'Error'}`);
+        return { valid: false, source: account.credentialSource, ref: account.credentialRef, lastFour: account.apiKeyLastFour };
+      }
     }
 
     if (account.credentialSource === 'ENVELOPE_DB') {
@@ -345,16 +461,34 @@ export class ExchangeCredentialService {
     }
 
     if (account.credentialSource === 'SECRET_MANAGER') {
-      this.ensureVaultConfigured();
-      // In real deployment, fetch from vault using credentialRef
-      // For this implementation, we throw explicit error if vault fetch not implemented, to avoid fake success
-      throw new ExchangeProviderError(
-        ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE,
-        `SECRET_MANAGER credential fetch not implemented for ref ${account.credentialRef} - configure vault fetcher`,
-        venue,
-        environment,
-        false,
-      );
+      if (!account.credentialRef) {
+        throw new ExchangeProviderError(ExchangeProviderErrorCode.AUTH_FAILED, 'SECRET_MANAGER credential has no reference', venue, environment, false);
+      }
+      const store = this.resolveSecretStore(venue, environment);
+      let secret;
+      try {
+        secret = await store.read(account.credentialRef);
+      } catch (error) {
+        this.logger.error(`SECRET_MANAGER read failed tenant=${tenantId} account=${accountId} store=${store.kind} error=${(error as Error)?.name}`);
+        throw this.secretStoreFailure(error, venue, environment, 'read');
+      }
+      // Environment binding: a secret written for TESTNET must never
+      // authenticate a LIVE call (and vice versa). Secrets written before the
+      // binding existed report UNKNOWN and are refused for LIVE.
+      if (secret.environment !== environment && !(secret.environment === 'UNKNOWN' && environment !== ExchangeEnvironment.LIVE)) {
+        throw new ExchangeProviderError(
+          ExchangeProviderErrorCode.ENVIRONMENT_MISMATCH,
+          `SECRET_MANAGER secret is bound to ${secret.environment}, requested ${environment}`,
+          venue,
+          environment,
+          false,
+        );
+      }
+      return {
+        apiKey: secret.apiKey,
+        apiSecret: secret.apiSecret,
+        ...(secret.passphrase ? { passphrase: secret.passphrase } : {}),
+      };
     }
 
     if (account.credentialSource === 'ENVELOPE_DB') {

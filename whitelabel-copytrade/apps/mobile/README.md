@@ -1,9 +1,10 @@
-# Mobile client (Part 1 foundation)
+# Mobile client
 
-Flutter client for the white-label copy-trading platform. Part 1 ships the
-foundation only: configuration, networking, secure token storage, authentication
-state, routing, theming, localisation and error handling. Trading screens are
-intentionally absent.
+Flutter client for the white-label copy-trading platform: configuration,
+networking, secure token storage, authentication state, routing, theming,
+localisation and error handling, plus the follower-facing features below.
+Verified with Flutter 3.47.5 (the version pinned in CI): `flutter analyze`
+reports no errors or warnings and `flutter test` passes.
 
 ## What is here
 
@@ -19,6 +20,24 @@ intentionally absent.
 | Theming from tenant branding | `lib/core/theme/` |
 | Localisation (en, bn) | `lib/l10n/` |
 | Authentication feature | `lib/features/auth/` |
+| Strategies (read-only) and risk | `lib/features/strategies/`, `lib/features/risk/` |
+| Exchange accounts: list, connect, health check, disable | `lib/features/exchange_accounts/` |
+| Copy trading: rankings, subscribe, pause/resume/stop, activity | `lib/features/copy_trading/` |
+| Funding: wallets, deposit address, transactions | `lib/features/funding/` |
+| Portfolio: API-reported facts per profile | `lib/features/portfolio/` |
+| Notifications: inbox, read state, preferences | `lib/features/notifications/` |
+| Feature repositories and providers | `lib/core/di/feature_providers.dart` |
+| Shared loading / error / empty states | `lib/core/widgets/async_body.dart` |
+
+### Deliberately not on mobile
+
+* Enabling LIVE trading on an exchange account, key rotation, revocation and
+  IP allow-lists: web console only (they need step-up review).
+* Withdrawals: web console only (policy checks and approval workflow).
+* Any client-side recomputation of portfolio or performance numbers: the
+  screens show what the API reports and mark missing panels as partial data.
+* Exchange API secrets are sent once over TLS at connect time, never stored
+  on the device, never logged, and the form fields are cleared afterwards.
 
 ## Security notes
 

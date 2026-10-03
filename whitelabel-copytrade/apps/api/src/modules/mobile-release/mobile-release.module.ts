@@ -23,7 +23,17 @@ import {
 import { MobileReleaseService } from './mobile-release.service';
 import { MobileReleaseApprovalService } from './mobile-release-approval.service';
 import { MobileRolloutService } from './mobile-rollout.service';
-import { MobileStoreService } from './mobile-store.service';
+import {
+  AppleAppStoreAdapter,
+  EnterpriseDistributionAdapter,
+  EnvStoreCredentialResolver,
+  GooglePlayStoreAdapter,
+  MOBILE_ENTERPRISE_DISTRIBUTION_ADAPTER,
+  MOBILE_INTERNAL_DISTRIBUTION_ADAPTER,
+  MOBILE_STORE_CREDENTIAL_RESOLVER,
+  MobileStoreService,
+  type MobileStoreCredentialResolver,
+} from './mobile-store.service';
 import { MobileStoreHealthService } from './mobile-store-health.service';
 import { MobileCrashService } from './mobile-crash.service';
 import { MobileReleaseMonitorService } from './mobile-release-monitor.service';
@@ -56,6 +66,34 @@ const buildRunnerProvider: Provider = {
 const signingAdapterProvider: Provider = {
   provide: MOBILE_SIGNING_ADAPTER,
   useClass: UnavailableSigningAdapter,
+};
+
+/**
+ * Store credential resolver: references name process-env variables (a vault
+ * sidecar populates them in production). Deployments with a direct secret
+ * manager integration replace this token; nothing else changes.
+ */
+const storeCredentialResolverProvider: Provider = {
+  provide: MOBILE_STORE_CREDENTIAL_RESOLVER,
+  useClass: EnvStoreCredentialResolver,
+};
+
+/**
+ * Enterprise and internal distribution are the same adapter class bound to
+ * two different providers, so each gets its own token and its own instance.
+ */
+const enterpriseDistributionProvider: Provider = {
+  provide: MOBILE_ENTERPRISE_DISTRIBUTION_ADAPTER,
+  useFactory: (credentials: MobileStoreCredentialResolver) =>
+    new EnterpriseDistributionAdapter(credentials, 'ENTERPRISE_DISTRIBUTION'),
+  inject: [MOBILE_STORE_CREDENTIAL_RESOLVER],
+};
+
+const internalDistributionProvider: Provider = {
+  provide: MOBILE_INTERNAL_DISTRIBUTION_ADAPTER,
+  useFactory: (credentials: MobileStoreCredentialResolver) =>
+    new EnterpriseDistributionAdapter(credentials, 'INTERNAL_DISTRIBUTION'),
+  inject: [MOBILE_STORE_CREDENTIAL_RESOLVER],
 };
 
 /**
@@ -111,6 +149,11 @@ const operationsPortProvider: Provider = {
     signingAdapterProvider,
     notificationPortProvider,
     operationsPortProvider,
+    storeCredentialResolverProvider,
+    enterpriseDistributionProvider,
+    internalDistributionProvider,
+    GooglePlayStoreAdapter,
+    AppleAppStoreAdapter,
     MobileReleasePolicyService,
     MobileIdentityService,
     MobileBrandingService,

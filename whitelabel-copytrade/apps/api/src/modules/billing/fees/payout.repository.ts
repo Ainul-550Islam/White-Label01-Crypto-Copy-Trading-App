@@ -32,7 +32,7 @@ export class PayoutRepository {
     safeMetadata?: Record<string, unknown> | null;
   }): Promise<Payout> {
     // Idempotency check
-    const existingByKey = await this.findByIdempotencyKey(data.idempotencyKey);
+    const existingByKey = await this.findByIdempotencyKey(data.idempotencyKey, data.tenantId);
     if (existingByKey) {
       this.logger.log(`Idempotent payout return by idempotencyKey: ${data.idempotencyKey}`);
       return existingByKey;
@@ -94,14 +94,14 @@ export class PayoutRepository {
           status: payout.status,
           failureReason: payout.failureReason,
           idempotencyKey: payout.idempotencyKey,
-          requestedAt: new Date(payout.requestedAt),
           processedAt: null,
           succeededAt: null,
           failedAt: null,
           cancelledAt: null,
-          metadata: payout.metadata,
-          safeMetadata: payout.safeMetadata,
-          createdAt: new Date(payout.createdAt),
+          metadata: (payout.metadata ?? {}) as any,
+          safeMetadata: (payout.safeMetadata ?? {}) as any,
+          // Payout has no requestedAt column: the request time is the row's createdAt.
+          createdAt: new Date(payout.requestedAt ?? payout.createdAt),
           updatedAt: new Date(payout.updatedAt),
         },
       });
@@ -112,7 +112,7 @@ export class PayoutRepository {
     } catch (error: any) {
       if (error.code === 'P2002') {
         this.logger.warn(`Duplicate payout idempotency: ${data.idempotencyKey}`);
-        const existing = await this.findByIdempotencyKey(data.idempotencyKey);
+        const existing = await this.findByIdempotencyKey(data.idempotencyKey, data.tenantId);
         if (existing) return existing;
       }
       if (error.code === 'P2021' || error.message?.includes('does not exist')) {
@@ -123,7 +123,7 @@ export class PayoutRepository {
               id: randomUUID(),
               tenantId: data.tenantId,
               action: 'PAYOUT_CREATED',
-              resource: 'Payout',
+              resourceType: 'Payout',
               resourceId: id,
               metadata: { ...payout, fallback: true },
               createdAt: new Date(),
@@ -140,52 +140,36 @@ export class PayoutRepository {
   }
 
   async findById(id: string, tenantId?: string): Promise<Payout | null> {
-    try {
-      const result = await (this.prisma as any).payout?.findFirst({
-        where: { id, ...(tenantId ? { tenantId } : {}) },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).payout?.findFirst({
+      where: { id, ...(tenantId ? { tenantId } : {}) },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
-  async findByIdempotencyKey(idempotencyKey: string): Promise<Payout | null> {
-    try {
-      const result = await (this.prisma as any).payout?.findFirst({
-        where: { idempotencyKey },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+  async findByIdempotencyKey(idempotencyKey: string, tenantId: string): Promise<Payout | null> {
+    const result = await (this.prisma as any).payout?.findFirst({
+      where: { idempotencyKey, tenantId },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
   async findBySettlement(settlementId: string): Promise<Payout[]> {
-    try {
-      const results = await (this.prisma as any).payout?.findMany({
-        where: { settlementId },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!results) return [];
-      return results.map((r: any) => this.mapToDomain(r));
-    } catch {
-      return [];
-    }
+    const results = await (this.prisma as any).payout?.findMany({
+      where: { settlementId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!results) return [];
+    return results.map((r: any) => this.mapToDomain(r));
   }
 
   async findByProviderReference(providerPayoutId: string): Promise<Payout | null> {
-    try {
-      const result = await (this.prisma as any).payout?.findFirst({
-        where: { providerPayoutId },
-      });
-      if (!result) return null;
-      return this.mapToDomain(result);
-    } catch {
-      return null;
-    }
+    const result = await (this.prisma as any).payout?.findFirst({
+      where: { providerPayoutId },
+    });
+    if (!result) return null;
+    return this.mapToDomain(result);
   }
 
   async listByTenant(
@@ -201,30 +185,26 @@ export class PayoutRepository {
       offset?: number;
     },
   ): Promise<Payout[]> {
-    try {
-      const where: any = { tenantId };
-      if (filter?.status) where.status = filter.status;
-      if (filter?.provider) where.provider = filter.provider;
-      if (filter?.beneficiaryId) where.beneficiaryId = filter.beneficiaryId;
-      if (filter?.currency) where.currency = filter.currency;
-      if (filter?.fromDate || filter?.toDate) {
-        where.createdAt = {};
-        if (filter.fromDate) where.createdAt.gte = filter.fromDate;
-        if (filter.toDate) where.createdAt.lte = filter.toDate;
-      }
-
-      const results = await (this.prisma as any).payout?.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: filter?.limit || 100,
-        skip: filter?.offset || 0,
-      });
-
-      if (!results) return [];
-      return results.map((r: any) => this.mapToDomain(r));
-    } catch {
-      return [];
+    const where: any = { tenantId };
+    if (filter?.status) where.status = filter.status;
+    if (filter?.provider) where.provider = filter.provider;
+    if (filter?.beneficiaryId) where.beneficiaryId = filter.beneficiaryId;
+    if (filter?.currency) where.currency = filter.currency;
+    if (filter?.fromDate || filter?.toDate) {
+      where.createdAt = {};
+      if (filter.fromDate) where.createdAt.gte = filter.fromDate;
+      if (filter.toDate) where.createdAt.lte = filter.toDate;
     }
+
+    const results = await (this.prisma as any).payout?.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: filter?.limit || 100,
+      skip: filter?.offset || 0,
+    });
+
+    if (!results) return [];
+    return results.map((r: any) => this.mapToDomain(r));
   }
 
   async updateStatus(
@@ -299,7 +279,7 @@ export class PayoutRepository {
       status: raw.status as PayoutStatus,
       failureReason: raw.failureReason || null,
       idempotencyKey: raw.idempotencyKey,
-      requestedAt: raw.requestedAt ? new Date(raw.requestedAt).toISOString() : new Date().toISOString(),
+      requestedAt: raw.createdAt ? new Date(raw.createdAt).toISOString() : new Date().toISOString(),
       processedAt: raw.processedAt ? new Date(raw.processedAt).toISOString() : null,
       succeededAt: raw.succeededAt ? new Date(raw.succeededAt).toISOString() : null,
       failedAt: raw.failedAt ? new Date(raw.failedAt).toISOString() : null,

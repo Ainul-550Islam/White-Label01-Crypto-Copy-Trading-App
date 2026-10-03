@@ -57,11 +57,17 @@ export class EnvironmentPolicyService {
         'DATABASE_URL',
         'DIRECT_DATABASE_URL',
         'REDIS_URL',
+        // The API connects with REDIS_HOST/REDIS_PORT (+ REDIS_TLS); REDIS_URL
+        // is what the Python services read. Both must be set.
+        'REDIS_HOST',
         'REDIS_PASSWORD',
         'JWT_ACCESS_SECRET',
         'JWT_REFRESH_SECRET',
-        'ENCRYPTION_KEY',
+        // Names the API env schema actually reads (packages/config/src/env.schema.ts).
+        'ENCRYPTION_MASTER_KEY_BASE64',
+        'BLIND_INDEX_KEY_BASE64',
         'SESSION_COOKIE_SECRET',
+        'DEVELOPER_SECRET_HMAC_KEY',
       ],
       forbiddenVariables: [
         'ALLOW_DESTRUCTIVE_MIGRATION_IN_PROD',
@@ -104,11 +110,17 @@ export class EnvironmentPolicyService {
         'DATABASE_URL',
         'DIRECT_DATABASE_URL',
         'REDIS_URL',
+        // The API connects with REDIS_HOST/REDIS_PORT (+ REDIS_TLS); REDIS_URL
+        // is what the Python services read. Both must be set.
+        'REDIS_HOST',
         'REDIS_PASSWORD',
         'JWT_ACCESS_SECRET',
         'JWT_REFRESH_SECRET',
-        'ENCRYPTION_KEY',
+        // Names the API env schema actually reads (packages/config/src/env.schema.ts).
+        'ENCRYPTION_MASTER_KEY_BASE64',
+        'BLIND_INDEX_KEY_BASE64',
         'SESSION_COOKIE_SECRET',
+        'DEVELOPER_SECRET_HMAC_KEY',
         'POSTGRES_PASSWORD',
         'POSTGRES_APP_PASSWORD',
         'EXECUTION_INTERNAL_TOKEN',

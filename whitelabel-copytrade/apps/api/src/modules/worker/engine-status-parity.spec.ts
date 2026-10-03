@@ -27,10 +27,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  CREDENTIAL_REGISTRY_VIEW_FIELDS,
+  DISTRIBUTED_LOCK_WIRING_VIEW_FIELDS,
   ENGINE_STATUS_FIELDS,
   INCIDENT_SINK_VIEW_FIELDS,
   LIVE_ENABLEMENT_VIEW_FIELDS,
   PLACEMENT_VIEW_FIELDS,
+  VENUE_ATTESTATION_VIEW_FIELDS,
   type EngineStatusField,
   type EngineStatusKind,
 } from './engine-status-contract';
@@ -167,6 +170,61 @@ const declaredFields = (source: string, className: string): DeclaredField[] => {
 
 const source = readFileSync(SCHEMAS_PATH, 'utf-8');
 
+const ENGINE_APP_DIR = join(SCHEMAS_PATH, '..');
+
+/**
+ * Round 8: the keys one `describe()` publishes, read from its Python source.
+ *
+ * `distributedLockWiring`, `venueAttestation` and `credentialRegistry` are typed
+ * `dict[str, object] | None` on StatusResponse, so schemas.py says nothing about
+ * their inner keys and `declaredFields` cannot pin them. Their only definition is
+ * the `return { ... }` literal of the wiring class's `describe()`. The TS mirror had
+ * invented its own keys for all three, every one required, and the first real
+ * engine reply in a Docker run was refused by the worker's start-up gate - which
+ * no test saw, because nothing compared these three tables with anything.
+ *
+ * Scoped to one class because distributed_locks.py has TWO `describe()` methods
+ * (the config's and the wiring's) with different key sets; only the wiring's is
+ * what composition.py puts on /status.
+ */
+const describeKeys = (fileName: string, className: string): string[] => {
+  const file = readFileSync(join(ENGINE_APP_DIR, fileName), 'utf-8');
+  // `[(:]` right after the name, so DistributedLockConfig does not match
+  // DistributedLockConfigError, which sits above it in the same file.
+  const classMatch = new RegExp(`\\nclass ${className}[(:]`).exec(file);
+  const classStart = classMatch === null ? -1 : classMatch.index;
+  if (classStart < 0) {
+    throw new Error(`${fileName} no longer declares class ${className}`);
+  }
+  const afterClass = file.slice(classStart + 1);
+  const classEnd = afterClass.slice(1).search(/\n(?:class|def|async def) \w/);
+  const classBody = classEnd < 0 ? afterClass : afterClass.slice(0, classEnd + 1);
+  const describeAt = classBody.indexOf('def describe(self)');
+  if (describeAt < 0) {
+    throw new Error(`${fileName}::${className} no longer has describe(self)`);
+  }
+  const lines = classBody.slice(describeAt).split('\n');
+  const returnIndex = lines.findIndex((line) => /^\s*return \{\s*$/.test(line));
+  if (returnIndex < 0) {
+    throw new Error(
+      `${fileName}::${className}.describe() no longer returns a dict literal - ` +
+        'teach describeKeys about its new shape rather than loosening the mirror',
+    );
+  }
+  const returnIndent = /^(\s*)/.exec(lines[returnIndex])![1].length;
+  const keys: string[] = [];
+  for (const line of lines.slice(returnIndex + 1)) {
+    const indent = /^(\s*)/.exec(line)![1].length;
+    if (line.trim() === '}' && indent === returnIndent) break;
+    const match = /^\s*"(\w+)":/.exec(line);
+    if (match !== null && indent === returnIndent + 4) keys.push(match[1]);
+  }
+  if (keys.length === 0) {
+    throw new Error(`no keys parsed out of ${fileName}::${className}.describe()`);
+  }
+  return keys.sort();
+};
+
 const compare = (
   mirror: readonly EngineStatusField[],
   declared: readonly DeclaredField[],
@@ -213,6 +271,52 @@ describe('engine status contract - parity with the Python schema that defines it
       'LiveEnablementView',
     );
     compare(INCIDENT_SINK_VIEW_FIELDS, declaredFields(source, 'IncidentSinkView'), 'IncidentSinkView');
+  });
+
+  it('mirrors the three posture blocks exactly as their describe() publishes them', () => {
+    const cases: ReadonlyArray<{
+      readonly label: string;
+      readonly mirror: readonly EngineStatusField[];
+      readonly file: string;
+      readonly className: string;
+    }> = [
+      {
+        label: 'distributedLockWiring',
+        mirror: DISTRIBUTED_LOCK_WIRING_VIEW_FIELDS,
+        file: 'distributed_locks.py',
+        className: 'DistributedLockWiring',
+      },
+      {
+        label: 'venueAttestation',
+        mirror: VENUE_ATTESTATION_VIEW_FIELDS,
+        file: 'venue_attestation.py',
+        className: 'VenueAttestationWiring',
+      },
+      {
+        label: 'credentialRegistry',
+        mirror: CREDENTIAL_REGISTRY_VIEW_FIELDS,
+        file: 'credential_registry.py',
+        className: 'CredentialRegistryWiring',
+      },
+    ];
+    for (const entry of cases) {
+      const published = describeKeys(entry.file, entry.className);
+      const mirrored = entry.mirror.map((field) => field.key).sort();
+      expect({ label: entry.label, keys: mirrored }).toEqual({ label: entry.label, keys: published });
+      // Every describe() body emits every key unconditionally, so a key the mirror
+      // marks optional would carry a default the engine never needs - and a default
+      // invented in TypeScript is the drift this file exists to stop.
+      expect(entry.mirror.filter((field) => !field.required).map((field) => field.key)).toEqual([]);
+    }
+  });
+
+  it('keeps the two describe() methods of distributed_locks.py apart', () => {
+    // DistributedLockConfig.describe() has lockTtlMs / lockAcquisitionTimeoutMs; the
+    // wiring's has ttlMs / acquisitionTimeoutMs and is the one on /status. A parser
+    // that read the first describe() in the file would pin the wrong document.
+    expect(describeKeys('distributed_locks.py', 'DistributedLockConfig')).toContain('lockTtlMs');
+    expect(describeKeys('distributed_locks.py', 'DistributedLockWiring')).toContain('ttlMs');
+    expect(describeKeys('distributed_locks.py', 'DistributedLockWiring')).not.toContain('lockTtlMs');
   });
 
   it('names the eleven keys the mirror used to drop, so the drop cannot return', () => {

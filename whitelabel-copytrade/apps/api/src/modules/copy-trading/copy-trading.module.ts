@@ -14,11 +14,15 @@ import { TraderRankingService } from './trader-ranking.service';
 import { CopyReconciliationService } from './copy-reconciliation.service';
 import { CopySubscriptionRepository } from './copy-subscription.repository';
 import { CopyExecutionRepository } from './copy-execution.repository';
+import { LeaderEventSourceService } from './leader-event-source.service';
+import { LeaderEventIngestionService } from './leader-event-ingestion.service';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { ExchangesModule } from '../exchanges/exchanges.module';
 import { BillingModule } from '../billing/billing.module';
 import { ComplianceModule } from '../compliance/compliance.module';
 import { SecurityModule } from '../security/security.module';
+import { OmsModule } from '../oms/oms.module';
+import { OperationsModule } from '../operations/operations.module';
 
 /**
  * Wiring with forwardRef only when needed, integrating Billing/Enforcement/Compliance/Security/Exchanges/Execution/Fees/Usage/Notifications/distributed locks.
@@ -30,6 +34,13 @@ import { SecurityModule } from '../security/security.module';
     forwardRef(() => BillingModule),
     forwardRef(() => ComplianceModule),
     forwardRef(() => SecurityModule),
+    // Phase 3: CopyExecutionService dispatches through the OMS
+    // (OrderIntentService + OrderRoutingService). OmsModule imports this
+    // module too, hence forwardRef on both sides.
+    forwardRef(() => OmsModule),
+    // FollowerSubscriptionService enforces trading maintenance windows through
+    // MaintenanceModeService. OperationsModule imports this module too.
+    forwardRef(() => OperationsModule),
   ],
   controllers: [CopyTradingController],
   providers: [
@@ -47,6 +58,8 @@ import { SecurityModule } from '../security/security.module';
     CopyReconciliationService,
     CopySubscriptionRepository,
     CopyExecutionRepository,
+    LeaderEventSourceService,
+    LeaderEventIngestionService,
   ],
   exports: [
     TraderProfileService,
@@ -63,6 +76,8 @@ import { SecurityModule } from '../security/security.module';
     CopyReconciliationService,
     CopySubscriptionRepository,
     CopyExecutionRepository,
+    LeaderEventSourceService,
+    LeaderEventIngestionService,
   ],
 })
 export class CopyTradingModule {}

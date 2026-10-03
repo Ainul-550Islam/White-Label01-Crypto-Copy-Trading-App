@@ -13,7 +13,7 @@ import {
   MOBILE_ERROR_CODES,
   ROLLBACK_ELIGIBLE_RELEASE_STATES,
 } from './mobile-release.types';
-import type { MobileReleaseAuditService } from './mobile-release-audit.service';
+import { MobileReleaseAuditService } from './mobile-release-audit.service';
 
 /**
  * Controlled rollback.

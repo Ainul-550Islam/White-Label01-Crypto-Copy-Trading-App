@@ -31,74 +31,54 @@ export class InvestorVisibilityService {
 
     // Platform admin can view all profiles in tenant (with audit)
     if (isPlatformUser && role === InvestorVisibilityRole.PLATFORM_ADMIN) {
-      try {
-        const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({ where: { tenantId } });
-        return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
-      } catch {
-        return [];
-      }
+      const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({ where: { tenantId } });
+      return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
     }
 
     // Compliance reviewer can view all profiles in tenant for compliance purposes
     if (role === InvestorVisibilityRole.COMPLIANCE_REVIEWER) {
-      try {
-        const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({ where: { tenantId } });
-        return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
-      } catch {
-        return [];
-      }
+      const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({ where: { tenantId } });
+      return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
     }
 
     // Tenant owner can view all profiles in tenant
     if (role === InvestorVisibilityRole.TENANT_OWNER) {
-      try {
-        const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({ where: { tenantId } });
-        return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
-      } catch {
-        return [];
-      }
+      const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({ where: { tenantId } });
+      return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
     }
 
     // Trader can view own trader-scoped profiles and strategy profiles they own
     if (role === InvestorVisibilityRole.TRADER) {
-      try {
-        const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({
-          where: { tenantId, scopeId: userId, scope: { in: ['TRADER', 'STRATEGY'] } },
-        });
-        return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
-      } catch {
-        return [];
-      }
+      const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({
+        where: { tenantId, scopeId: userId, scope: { in: ['TRADER', 'STRATEGY'] } },
+      });
+      return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
     }
 
     // Follower can view own follower-scoped profiles
     if (role === InvestorVisibilityRole.FOLLOWER) {
-      try {
-        const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({
-          where: { tenantId, scopeId: userId, scope: 'FOLLOWER' },
-        });
-        return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
-      } catch {
-        return [];
-      }
+      const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({
+        where: { tenantId, scopeId: userId, scope: 'FOLLOWER' },
+      });
+      return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
     }
 
     // Managed account operator can view managed account profiles they operate
     if (role === InvestorVisibilityRole.MANAGED_ACCOUNT_OPERATOR) {
-      try {
-        // Check ManagedAccount model if exists
-        const managedAccounts = await (this.prisma as any).managedAccount?.findMany?.({ where: { tenantId, operatorId: userId } });
-        if (managedAccounts) {
-          const profileIds = managedAccounts.map((ma: any) => ma.id);
-          const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({
-            where: { tenantId, scope: 'MANAGED_ACCOUNT', scopeId: { in: profileIds } },
-          });
-          return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
-        }
-        return [];
-      } catch {
+      // The accounts an operator runs are ACTIVE OPERATOR_TO_ACCOUNT
+      // relationships (client-lifecycle): source = operator, target = account.
+      const relationships = await this.prisma.accountRelationship.findMany({
+        where: { tenantId, sourceId: userId, relationshipType: 'OPERATOR_TO_ACCOUNT', status: 'ACTIVE', endedAt: null },
+        select: { targetId: true },
+      });
+      const accountIds = relationships.map((r) => r.targetId);
+      if (accountIds.length === 0) {
         return [];
       }
+      const profiles = await (this.prisma as any).portfolioAccountingProfile.findMany({
+        where: { tenantId, scope: 'MANAGED_ACCOUNT', scopeId: { in: accountIds } },
+      });
+      return profiles.map((p: any) => ({ profileId: p.id, scope: p.scope, scopeId: p.scopeId }));
     }
 
     return [];
@@ -127,22 +107,18 @@ export class InvestorVisibilityService {
     role: InvestorVisibilityRole;
     isPlatformUser?: boolean;
   }): Promise<boolean> {
-    try {
-      const statement = await (this.prisma as any).portfolioStatement.findFirst({
-        where: { tenantId: params.tenantId, statementId: params.statementId },
-      });
-      if (!statement) return false;
+    const statement = await (this.prisma as any).portfolioStatement.findFirst({
+      where: { tenantId: params.tenantId, statementId: params.statementId },
+    });
+    if (!statement) return false;
 
-      return await this.canViewProfile({
-        tenantId: params.tenantId,
-        userId: params.userId,
-        profileId: statement.profileId,
-        role: params.role,
-        isPlatformUser: params.isPlatformUser,
-      });
-    } catch {
-      return false;
-    }
+    return await this.canViewProfile({
+      tenantId: params.tenantId,
+      userId: params.userId,
+      profileId: statement.profileId,
+      role: params.role,
+      isPlatformUser: params.isPlatformUser,
+    });
   }
 
   async enforceVisibility(params: {

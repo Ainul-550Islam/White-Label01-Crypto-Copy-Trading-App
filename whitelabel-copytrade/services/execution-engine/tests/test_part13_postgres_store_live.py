@@ -102,6 +102,25 @@ def _statements() -> list[str]:
     return [s.strip() for s in body.split(";") if s.strip()]
 
 
+async def _require_rls_subject(connection: asyncpg.Connection) -> None:
+    """RLS assertions are only meaningful for a role RLS applies to.
+
+    A superuser or a BYPASSRLS role skips every policy, FORCE included, so
+    the "a policyless query sees nothing" assertions would fail for a reason
+    that has nothing to do with the store. Say so instead of failing on a
+    row count: the CI DSN must be a NOSUPERUSER NOBYPASSRLS role that owns
+    the disposable database.
+    """
+    exempt = await connection.fetchval(
+        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user"
+    )
+    if exempt:
+        pytest.fail(
+            "EXECUTION_TEST_POSTGRES_DSN connects as a superuser/BYPASSRLS role, which RLS "
+            "never applies to; use a NOSUPERUSER NOBYPASSRLS role that owns the test database"
+        )
+
+
 _MIGRATION_APPLIED = False
 
 
@@ -112,7 +131,12 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
     process by executing the real migration file."""
     global _MIGRATION_APPLIED
     dsn = os.environ["EXECUTION_TEST_POSTGRES_DSN"]
-    async with asyncpg.connect(dsn=dsn, timeout=10.0) as connection:
+    # asyncpg.connect() returns a coroutine resolving to a Connection; a
+    # Connection is NOT an async context manager (only pools and
+    # transactions are), so `async with asyncpg.connect(...)` raised
+    # TypeError before any test body ran. Open, yield, always close.
+    connection = await asyncpg.connect(dsn=dsn, timeout=10.0)
+    try:
         if not _MIGRATION_APPLIED:
             await connection.execute(
                 'CREATE TABLE IF NOT EXISTS "tenants" ("id" UUID PRIMARY KEY)'
@@ -138,6 +162,8 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
         for statement in _TRUNCATES:
             await connection.execute(statement)
         yield connection
+    finally:
+        await connection.close()
 
 
 class _SingleConnectionPool:
@@ -316,6 +342,7 @@ class TestRlsInteraction:
     async def test_store_queries_satisfy_enforced_rls(
         self, store: PostgresOrderStore, conn: asyncpg.Connection
     ) -> None:
+        await _require_rls_subject(conn)
         order = order_for(TENANT_A, "ord_live_rls", "wlc-rls")
         other = order_for(TENANT_B, "ord_live_rls_b", "wlc-rls-b")
         await store.save_order(order)
@@ -337,7 +364,7 @@ class TestRlsInteraction:
             # explicit id.
             await conn.execute("SELECT set_config('app.tenant_id', $1, false)", TENANT_A)
             leaked = await conn.fetchval(
-                "SELECT count(*) FROM engine_orders WHERE order_id = $2", "ord_live_rls_b"
+                "SELECT count(*) FROM engine_orders WHERE order_id = $1", "ord_live_rls_b"
             )
             assert leaked == 0
         finally:

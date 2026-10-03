@@ -11805,8 +11805,8 @@ those two.
 
 | Control | Where |
 | --- | --- |
-| Query-level tenant predicate | `apps/api/src/infrastructure/database/tenant-scoped-prisma.factory.ts` |
-| Tenant resolution and override | `apps/api/src/common/guards/tenant.guard.ts` |
+| Query-level tenant predicate | `apps/api/src/infrastructure/prisma/tenant-scoped-prisma.factory.ts` |
+| Tenant resolution and override | `apps/api/src/modules/tenants/guards/tenant.guard.ts` |
 | Non-null `tenantId` + scoped uniqueness | `apps/api/prisma/schema.prisma` |
 
 * A client-supplied tenant identifier is **never** an authorisation input. For

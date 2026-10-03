@@ -1,6 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
+/** "ONBOARDING_STARTED" -> "Onboarding started". */
+export function lifecycleNotificationTitle(type: string): string {
+  const words = type.toLowerCase().split('_').filter(Boolean).join(' ');
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Account update';
+}
+
+/** Short body text: the reason when present, otherwise a generic account-update line. */
+export function lifecycleNotificationBody(type: string, payload: any): string {
+  const reason = payload && typeof payload.reason === 'string' && payload.reason.trim() ? payload.reason.trim() : null;
+  const base = `${lifecycleNotificationTitle(type)} on your account.`;
+  const text = reason ? `${base} Reason: ${reason}` : base;
+  return text.length > 1000 ? `${text.slice(0, 997)}...` : text;
+}
+
 /**
  * Emits onboarding, approval, restriction, suspension, funding, withdrawal, review, and closure events
  * through existing Billing/Notification infrastructure without implementing a second notification provider.
@@ -24,13 +38,16 @@ export class LifecycleNotificationService {
 
     // Reuse existing NotificationsModule — check if notification model exists
     try {
-      if ((this.prisma as any).notification?.create) {
+      // Notification rows need a recipient user (userId is a required FK) plus title/body.
+      if (recipientId && (this.prisma as any).notification?.create) {
         await (this.prisma as any).notification.create({
           data: {
             tenantId,
+            userId: recipientId,
             type: `CLIENT_LIFECYCLE_${type}`,
-            recipientId: recipientId ?? undefined,
-            payload: {
+            title: lifecycleNotificationTitle(type),
+            body: lifecycleNotificationBody(type, payload),
+            data: {
               clientProfileId,
               accountId,
               ...payload,
