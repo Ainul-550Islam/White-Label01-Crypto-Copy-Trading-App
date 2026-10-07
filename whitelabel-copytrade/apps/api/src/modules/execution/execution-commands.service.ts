@@ -1,3 +1,4 @@
+// # Routes live execution commands with HMAC/service token authentication and timeout handling
 import { Injectable } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { JOB_NAMES, QUEUE_NAMES } from '@wlct/config';

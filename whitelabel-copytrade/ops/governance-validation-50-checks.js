@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// # Integrates compliance/custody/kill-switch parity checks
 /**
  * Governance Validation 50 Checks
  * PART 25 Regulatory Reporting, Privacy, Data Governance, Retention, Legal Hold

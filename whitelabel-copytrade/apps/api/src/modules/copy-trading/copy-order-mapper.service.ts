@@ -1,3 +1,4 @@
+// # Maps leader events into follower order intents with slippage bounds and delay metadata
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ExchangeSymbolService } from '../exchanges/exchange-symbol.service';
@@ -27,6 +28,9 @@ export interface FollowerIntent {
   quantity: string;
   price: string | null;
   stopPrice: string | null;
+  takeProfitPrice?: string | null;
+  stopLossPrice?: string | null;
+  trailingStopBps?: number | null;
   notional: string | null;
   slippageUpper: string | null;
   slippageLower: string | null;
@@ -177,10 +181,14 @@ export class CopyOrderMapperService {
 
     switch (input.allocationMode) {
       case CopySizingMode.FIXED:
-        followerQty = input.copyPolicy.fixedQuantity || input.allocationAmount;
+        if (input.copyPolicy.fixedNotional && input.leaderEvent.price && isDecimalString(input.copyPolicy.fixedNotional)) {
+          followerQty = this.divideDecimals(input.copyPolicy.fixedNotional, input.leaderEvent.price);
+        } else {
+          followerQty = input.copyPolicy.fixedQuantity || input.allocationAmount;
+        }
         break;
 
-      case CopySizingMode.PERCENTAGE_BALANCE:
+      case CopySizingMode.PERCENTAGE_BALANCE: {
         // allocationAmount is percentage, followerBalance is available
         if (!input.followerBalance) {
           this.logger.warn(`Missing follower balance for percentage mode tenant=${input.tenantId}`);
@@ -190,9 +198,10 @@ export class CopyOrderMapperService {
         if (isNaN(percent)) return null;
         followerQty = this.multiplyDecimals(input.leaderEvent.quantity, (percent / 100).toString());
         break;
+      }
 
       case CopySizingMode.PROPORTIONAL:
-      default:
+      default: {
         // proportional = leaderQty * (followerAllocation / leaderTotalBalance) OR proportionalRatio
         if (input.copyPolicy.proportionalRatio) {
           followerQty = this.multiplyDecimals(leaderQty, input.copyPolicy.proportionalRatio);
@@ -209,6 +218,7 @@ export class CopyOrderMapperService {
           }
         }
         break;
+      }
     }
 
     // Max notional enforcement
@@ -276,11 +286,29 @@ export class CopyOrderMapperService {
       const slippageRatio = input.copyPolicy.slippageToleranceBps / 10000; // bps to ratio
       const slippageAmount = this.multiplyDecimals(followerPrice, slippageRatio.toString());
       if (input.leaderEvent.side === 'BUY') {
-        slippageUpper = this.addDecimals(followerPrice, slippageAmount);
+        slippageUpper = this.normalizePriceToTick(this.addDecimals(followerPrice, slippageAmount), tickSize);
         slippageLower = followerPrice;
       } else {
         slippageUpper = followerPrice;
-        slippageLower = this.subtractDecimals(followerPrice, slippageAmount);
+        slippageLower = this.normalizePriceToTick(this.subtractDecimals(followerPrice, slippageAmount), tickSize);
+      }
+    }
+
+    // TP/SL & trailing stop targets
+    let takeProfitPrice: string | null = null;
+    let stopLossPrice: string | null = null;
+    if (followerPrice) {
+      if (input.copyPolicy.takeProfitBps && input.copyPolicy.takeProfitBps > 0) {
+        const tpRatio = input.copyPolicy.takeProfitBps / 10000;
+        const tpDelta = this.multiplyDecimals(followerPrice, tpRatio.toString());
+        const rawTp = input.leaderEvent.side === 'BUY' ? this.addDecimals(followerPrice, tpDelta) : this.subtractDecimals(followerPrice, tpDelta);
+        takeProfitPrice = this.normalizePriceToTick(rawTp, tickSize);
+      }
+      if (input.copyPolicy.stopLossBps && input.copyPolicy.stopLossBps > 0) {
+        const slRatio = input.copyPolicy.stopLossBps / 10000;
+        const slDelta = this.multiplyDecimals(followerPrice, slRatio.toString());
+        const rawSl = input.leaderEvent.side === 'BUY' ? this.subtractDecimals(followerPrice, slDelta) : this.addDecimals(followerPrice, slDelta);
+        stopLossPrice = this.normalizePriceToTick(rawSl, tickSize);
       }
     }
 
@@ -294,11 +322,14 @@ export class CopyOrderMapperService {
       quantity: followerQty,
       price: followerPrice,
       stopPrice,
+      takeProfitPrice,
+      stopLossPrice,
+      trailingStopBps: input.copyPolicy.trailingStopBps ?? null,
       notional,
       slippageUpper,
       slippageLower,
       isReduceOnly: input.copyPolicy.reduceOnly || false,
-      executionDelayMs: input.copyPolicy.executionDelayMs || 0,
+      executionDelayMs: Math.max(0, Math.min(60000, input.copyPolicy.executionDelayMs || 0)),
       sizingMode: input.allocationMode,
       source: 'COPY_TRADING',
     };

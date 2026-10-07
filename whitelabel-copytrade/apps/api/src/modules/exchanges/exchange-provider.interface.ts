@@ -1,3 +1,4 @@
+// # Adds getCapabilities() contract
 /**
  * Provider-neutral exchange contract for authentication test, metadata, balances, positions, orders, market data, capabilities, account sync, and optional trading operations.
  * Each method must clearly distinguish: read-only, simulated/testnet, live. Never allow generic interface to bypass existing live gate.

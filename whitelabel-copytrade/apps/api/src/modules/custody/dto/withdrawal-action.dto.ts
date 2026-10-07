@@ -1,3 +1,4 @@
+// # Validates withdrawal request and admin review payloads
 import { IsString, IsOptional, IsNumber, IsObject, IsEnum } from 'class-validator';
 
 export class SubmitWithdrawalDto {

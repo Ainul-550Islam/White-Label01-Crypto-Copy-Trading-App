@@ -2,6 +2,7 @@ export const routes = {
   public: {
     landing: '/',
     login: '/login',
+    register: '/register',
     pricing: '/pricing',
     terms: '/terms',
     privacy: '/privacy',

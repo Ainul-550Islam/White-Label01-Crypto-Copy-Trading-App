@@ -1,3 +1,4 @@
+// # Defines canonical copy-trading policy, risk, subscription, execution, and reconciliation domain types
 /**
  * Canonical copy-trading domain types: trader profile, strategy, follower subscription, allocation, copy policy, risk settings, copier state, execution intent, and performance references.
  * Do not store raw secrets.
@@ -168,7 +169,12 @@ export interface CopyPolicy {
   blockedSymbols: string[] | null;
   allowedSides: string[] | null; // BUY, SELL
   leveragePolicy: string | null;
+  maxLeverage?: string | null;
+  marginMode?: 'SPOT' | 'ISOLATED' | 'CROSS' | null;
   reduceOnly: boolean | null;
+  takeProfitBps?: number | null;
+  stopLossBps?: number | null;
+  trailingStopBps?: number | null;
   stopCopyConditions: Record<string, any> | null;
 }
 
@@ -180,8 +186,21 @@ export interface FollowerRiskPolicy {
   maxPositionSize: string | null;
   maxSymbolExposure: string | null;
   maxCopyCount: number | null;
+  maxLeverage?: string | null;
+  minMarginRatio?: string | null;
+  allowedMarginModes?: string[] | null;
   emergencyStopCopy: boolean;
   dailyPauseEnabled: boolean;
+}
+
+export interface CopyStopExecutionPlan {
+  takeProfitPrice: string | null;
+  stopLossPrice: string | null;
+  trailingStopBps: number | null;
+  trailingStopDistance: string | null;
+  trailingActivationPrice: string | null;
+  stopCopyTriggered: boolean;
+  stopCopyReason: string | null;
 }
 
 export interface CopyExecutionIntent {
@@ -284,8 +303,6 @@ export function sanitizeCopyMetadata(metadata: Record<string, any>): Record<stri
     const lower = key.toLowerCase();
     if (FORBIDDEN_COPY_FIELDS.some((f) => lower.includes(f.toLowerCase()))) {
       if (['profit', 'roi', 'balance'].includes(lower)) {
-        // These are forbidden as client-provided authoritative values, but may be present as derived references - we allow if explicitly marked as derived?
-        // For safety, we skip them unless they are in safePerformanceReferences
         continue;
       }
       if (['secret', 'apikey', 'apisecret', 'passphrase', 'privatekey', 'withdrawal'].some((s) => lower.includes(s))) {

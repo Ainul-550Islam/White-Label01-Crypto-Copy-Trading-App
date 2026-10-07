@@ -1,0 +1,39 @@
+# NEW — Runs preflight checks, release manifest generation, and container build gates
+name: Release — Preflight, Manifest & Handover Gate
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  release-readiness:
+    name: Production Preflight & Release Manifest Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run 50-Gap Parity Scanner
+        run: node ops/gap-parity-scanner.js
+
+      - name: Generate and verify deterministic RELEASE_MANIFEST.json
+        run: npx ts-node scripts/generate-release-manifest.ts
+
+      - name: Verify Final Release Handover Report
+        run: python3 scripts/gen_part22_handover.py

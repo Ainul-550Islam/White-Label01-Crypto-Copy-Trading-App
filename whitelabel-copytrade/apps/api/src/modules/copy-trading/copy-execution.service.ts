@@ -1,3 +1,7 @@
+// # Applies resolved copy policy and follower risk decisions before dispatching orders to OMS
+// # Enforces slippage boundaries and execution delay during follower order dispatch
+// # Applies TP/SL and trailing stop parameters to follower order intents and stop-copy conditions
+// # Emits notification events on copy execution outcomes and stop-copy triggers
 import { Injectable, Logger, Inject, Optional, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CopySubscriptionRepository } from './copy-subscription.repository';
@@ -8,7 +12,7 @@ import { FollowerAllocationService } from './follower-allocation.service';
 import { FollowerRiskService } from './follower-risk.service';
 import { ExchangeRoutingService } from '../exchanges/exchange-routing.service';
 import { ExchangeHealthService } from '../exchanges/exchange-health.service';
-import { CopyExecutionStatus, CopySizingMode, CopyRiskDecision } from './copy-trading.types';
+import { CopyExecutionStatus, CopyRiskDecision } from './copy-trading.types';
 import { randomUUID } from 'crypto';
 import { OrderIntentService } from '../oms/order-intent.service';
 import { OrderRoutingService } from '../oms/order-routing.service';
@@ -63,10 +67,6 @@ const symbolToken = (value: unknown): string => switchToken(value).replace(/[^A-
  * halt one trading account and are applied per follower by
  * {@link accountKillSwitchBlocker}. A non-GLOBAL row without a target, or a scope
  * this code does not know, cannot be matched safely and halts the event.
- *
- * Previously ANY engaged row in the tenant blocked every event, so a SYMBOL
- * switch on one coin or an ACCOUNT switch on one follower stopped all copy
- * trading in the tenant.
  */
 export function eventKillSwitchBlocker(
   switches: EngagedKillSwitch[],
@@ -113,9 +113,24 @@ export function accountKillSwitchBlocker(switches: EngagedKillSwitch[], accountI
   return null;
 }
 
+export interface CopyTradingOutcomeNotifier {
+  notifyExecutionOutcome(payload: {
+    tenantId: string;
+    followerId: string;
+    traderId: string;
+    strategyId: string;
+    subscriptionId: string;
+    executionId: string;
+    status: CopyExecutionStatus;
+    symbol: string;
+    side: string;
+    quantity: string | null;
+    reason?: string | null;
+  }): Promise<void>;
+}
+
 /**
  * Consumes validated leader trading events and fans them out into follower execution intents via existing execution/risk/compliance/security/exchange routing with fail-closed gates.
- * Flow: leader order/fill event → resolve active follower subscriptions → resolve effective copy policy → map order → follower allocation from canonical balance → follower risk evaluation → compliance/security checks → exchange routing with existing risk engine and live-mode gate → submit intent. Must not create order merely because trader account connected. Must never bypass operator confirmation / credential-source / venue attestation / signed transport / IP allowlist / distributed locks / durable store / live-mode gate.
  */
 @Injectable()
 export class CopyExecutionService {
@@ -131,26 +146,15 @@ export class CopyExecutionService {
     private readonly riskService: FollowerRiskService,
     private readonly exchangeRouting: ExchangeRoutingService,
     private readonly exchangeHealth: ExchangeHealthService,
-    // Trading maintenance windows stop new copied orders (same rule as the
-    // subscribe/resume gate and the customer web's `blocksTrading`).
     private readonly maintenance: MaintenanceModeService,
-    // Phase 3: the OMS is how a copy execution becomes an order. forwardRef
-    // because OmsModule already imports CopyTradingModule; @Optional so a
-    // harness without the OMS still constructs this service - and then every
-    // execution fails closed as OMS_NOT_WIRED instead of pretending to route.
     @Optional() @Inject(forwardRef(() => OrderIntentService)) private readonly orderIntents?: OrderIntentService,
     @Optional() @Inject(forwardRef(() => OrderRoutingService)) private readonly orderRouting?: OrderRoutingService,
+    @Optional() @Inject('COPY_TRADING_OUTCOME_NOTIFIER') private readonly outcomeNotifier?: CopyTradingOutcomeNotifier,
   ) {}
 
   async processLeaderEvent(input: { tenantId: string; leaderEvent: LeaderEvent; traderId: string; strategyId: string; actorId?: string }): Promise<{ processed: number; skipped: number; blocked: number; executions: any[] }> {
     this.logger.log(`Processing leader event tenant=${input.tenantId} event=${input.leaderEvent.eventId} trader=${input.traderId} strategy=${input.strategyId} symbol=${input.leaderEvent.symbol}`);
 
-    // The compliance subject is the trader's USER. `traderId` is a
-    // TraderProfile id (TraderStrategy.traderId -> TraderProfile.id) while
-    // ComplianceCase.userId is a User id, so the trader's user is resolved
-    // first. Checking the profile id directly never matched, which let a
-    // compliance-blocked trader keep being copied. An unknown, suspended or
-    // rejected trader, or a lookup that cannot be made, blocks the copy.
     let traderUserId: string;
     try {
       const profile = await (this.prisma as any).traderProfile?.findFirst({
@@ -179,18 +183,11 @@ export class CopyExecutionService {
         return { processed: 0, skipped: 0, blocked: 1, executions: [] };
       }
     } catch (e: any) {
-      // Fail closed: this used to continue unless the error text contained
-      // 'BLOCK', so a failing compliance lookup let a blocked trader be copied.
       this.logger.warn(`Leader event blocked: compliance lookup failed trader=${input.traderId}: ${e?.message}`);
       return { processed: 0, skipped: 0, blocked: 1, executions: [] };
     }
 
-    // An outage of the leader's venue stops the whole event. Only that venue
-    // counts, and only UNAVAILABLE: this used to block on ANY account in the
-    // tenant being UNAVAILABLE or AUTH_FAILED, so one follower's expired API
-    // key halted copy trading for every follower. A single follower's broken
-    // credentials are refused for that follower alone by the OMS routing
-    // gates (the execution is recorded REJECTED/FAILED).
+    // Leader venue health check
     try {
       const venue = String(input.leaderEvent.venue ?? '').toUpperCase();
       const healthList = await this.exchangeHealth.listHealthByTenant(input.tenantId);
@@ -204,10 +201,7 @@ export class CopyExecutionService {
       return { processed: 0, skipped: 0, blocked: 1, executions: [] };
     }
 
-    // Kill switches, matched to THIS event (see eventKillSwitchBlocker): a
-    // GLOBAL, leader-venue, strategy or symbol switch stops the event; ACCOUNT
-    // and RISK switches stop only the follower account they name (below, per
-    // subscription). Fails closed: a failed lookup blocks the event.
+    // Kill switches matched to this event
     let engagedSwitches: EngagedKillSwitch[];
     try {
       engagedSwitches = (await this.prisma.killSwitch.findMany({
@@ -231,8 +225,7 @@ export class CopyExecutionService {
       return { processed: 0, skipped: 0, blocked: 1, executions: [] };
     }
 
-    // Trading maintenance (platform-wide, this tenant, or trading): no new
-    // copied orders. Fails closed like the gates above.
+    // Trading maintenance
     try {
       if (await this.maintenance.isInMaintenance({ scope: OperationalMaintenanceScope.TRADING_CAPABILITY, tenantId: input.tenantId })) {
         this.logger.warn(`Leader event blocked by trading maintenance tenant=${input.tenantId}`);
@@ -284,6 +277,27 @@ export class CopyExecutionService {
     return { processed, skipped, blocked, executions };
   }
 
+  private async emitNotificationIfWired(payload: {
+    tenantId: string;
+    followerId: string;
+    traderId: string;
+    strategyId: string;
+    subscriptionId: string;
+    executionId: string;
+    status: CopyExecutionStatus;
+    symbol: string;
+    side: string;
+    quantity: string | null;
+    reason?: string | null;
+  }): Promise<void> {
+    if (!this.outcomeNotifier) return;
+    try {
+      await this.outcomeNotifier.notifyExecutionOutcome(payload);
+    } catch (e: any) {
+      this.logger.warn(`Copy notification hook failed execution=${payload.executionId}: ${e?.message}`);
+    }
+  }
+
   private async processForSubscription(input: {
     tenantId: string;
     leaderEvent: LeaderEvent;
@@ -301,17 +315,14 @@ export class CopyExecutionService {
       return existing;
     }
 
-    // Phase 3: never copy a leader event that happened before this
-    // subscription started (no history replay into a new follower).
+    // Never copy a leader event that happened before this subscription started
     const eventAt = Date.parse(String(leaderEvent.timestamp ?? ''));
     if (subscription.startedAt && Number.isFinite(eventAt) && eventAt < new Date(subscription.startedAt).getTime()) {
       this.logger.log(`Leader event predates subscription tenant=${tenantId} event=${leaderEvent.eventId} sub=${subscription.id}`);
       return null;
     }
 
-    // An ACCOUNT / RISK kill switch on this follower's trading account halts
-    // this follower only; the rest of the tenant keeps copying. Recorded as a
-    // BLOCKED execution so the follower's history shows why nothing was copied.
+    // ACCOUNT / RISK kill switch on follower account
     const accountBlocker = accountKillSwitchBlocker(input.engagedSwitches ?? [], subscription.followerAccountId);
     if (accountBlocker) {
       this.logger.warn(
@@ -368,7 +379,6 @@ export class CopyExecutionService {
     });
 
     if (!followerIntent) {
-      // Create SKIPPED execution for audit
       const skipped = await this.executionRepo.create({
         tenantId,
         leaderEventId: leaderEvent.eventId,
@@ -393,7 +403,109 @@ export class CopyExecutionService {
       return { ...skipped, status: CopyExecutionStatus.SKIPPED };
     }
 
-    // Follower allocation from canonical balance - already done via mapper, but validate again
+    // Slippage and delay enforcement (GAP-15)
+    if (typeof (this.policyService as any).evaluateSlippageAndDelay === 'function') {
+      const slippageEval = (this.policyService as any).evaluateSlippageAndDelay({
+        policy: effectivePolicy,
+        leaderPrice: leaderEvent.price || null,
+        executionPrice: followerIntent.price || leaderEvent.price || null,
+        side: followerIntent.side,
+        leaderTimestamp: leaderEvent.timestamp,
+      });
+      if (!slippageEval.allowed) {
+        const blockedBySlippage = await this.executionRepo.create({
+          tenantId,
+          leaderEventId: leaderEvent.eventId,
+          leaderOrderId: leaderEvent.orderId || null,
+          leaderFillId: leaderEvent.fillId || null,
+          subscriptionId: subscription.id,
+          followerId: subscription.followerId,
+          traderId: input.traderId,
+          followerAccountId: subscription.followerAccountId,
+          sizingMode: subscription.allocationMode,
+          leaderQuantity: leaderEvent.quantity,
+          leaderPrice: leaderEvent.price || null,
+          followerQuantity: followerIntent.quantity,
+          followerPrice: followerIntent.price || null,
+          slippageTolerance: effectivePolicy.slippageToleranceBps?.toString() || null,
+          maxNotional: effectivePolicy.maxOrderNotional || null,
+          executionIntent: { ...followerIntent, slippageEval } as any,
+          idempotencyKey: copyIdempotencyKey(tenantId, leaderEvent.eventId, subscription.id),
+        });
+        await this.executionRepo.updateStatus(blockedBySlippage.id, tenantId, CopyExecutionStatus.BLOCKED, {
+          riskDecision: CopyRiskDecision.BLOCK,
+          riskRuleId: slippageEval.ruleId || 'SLIPPAGE_TOLERANCE_EXCEEDED',
+          failureReason: slippageEval.reason || 'Slippage tolerance exceeded',
+        });
+        return { ...blockedBySlippage, status: CopyExecutionStatus.BLOCKED };
+      }
+      followerIntent.executionDelayMs = slippageEval.effectiveDelayMs;
+      (followerIntent as any).scheduledReleaseAt = slippageEval.scheduledReleaseAt;
+    }
+
+    // TP/SL & Trailing stop evaluation (GAP-17)
+    if (typeof (this.policyService as any).resolveStopPolicy === 'function') {
+      const stopPlan = (this.policyService as any).resolveStopPolicy({
+        policy: effectivePolicy,
+        entryPrice: followerIntent.price || leaderEvent.price || null,
+        side: followerIntent.side,
+      });
+      (followerIntent as any).stopPolicy = stopPlan;
+      if (stopPlan.takeProfitPrice && !followerIntent.takeProfitPrice) {
+        followerIntent.takeProfitPrice = stopPlan.takeProfitPrice;
+      }
+      if (stopPlan.stopLossPrice && !followerIntent.stopLossPrice) {
+        followerIntent.stopLossPrice = stopPlan.stopLossPrice;
+      }
+      if (stopPlan.trailingStopBps !== null && stopPlan.trailingStopBps !== undefined && !followerIntent.trailingStopBps) {
+        followerIntent.trailingStopBps = stopPlan.trailingStopBps;
+      }
+      if (stopPlan.stopCopyTriggered) {
+        const stoppedByCondition = await this.executionRepo.create({
+          tenantId,
+          leaderEventId: leaderEvent.eventId,
+          leaderOrderId: leaderEvent.orderId || null,
+          leaderFillId: leaderEvent.fillId || null,
+          subscriptionId: subscription.id,
+          followerId: subscription.followerId,
+          traderId: input.traderId,
+          followerAccountId: subscription.followerAccountId,
+          sizingMode: subscription.allocationMode,
+          leaderQuantity: leaderEvent.quantity,
+          leaderPrice: leaderEvent.price || null,
+          followerQuantity: followerIntent.quantity,
+          followerPrice: followerIntent.price || null,
+          slippageTolerance: effectivePolicy.slippageToleranceBps?.toString() || null,
+          maxNotional: effectivePolicy.maxOrderNotional || null,
+          executionIntent: { ...followerIntent, stopPlan } as any,
+          idempotencyKey: copyIdempotencyKey(tenantId, leaderEvent.eventId, subscription.id),
+        });
+        await this.executionRepo.updateStatus(stoppedByCondition.id, tenantId, CopyExecutionStatus.BLOCKED, {
+          riskDecision: CopyRiskDecision.STOP_COPY,
+          riskRuleId: 'STOP_COPY_CONDITION',
+          failureReason: stopPlan.stopCopyReason || 'Stop-copy condition triggered',
+        });
+        try {
+          await this.subscriptionRepo.updateState(subscription.id, tenantId, 'STOPPED' as any, { stoppedAt: new Date() });
+        } catch {}
+        await this.emitNotificationIfWired({
+          tenantId,
+          followerId: subscription.followerId,
+          traderId: input.traderId,
+          strategyId: input.strategyId,
+          subscriptionId: subscription.id,
+          executionId: stoppedByCondition.id,
+          status: CopyExecutionStatus.BLOCKED,
+          symbol: followerIntent.symbol,
+          side: followerIntent.side,
+          quantity: followerIntent.quantity,
+          reason: stopPlan.stopCopyReason || 'Stop-copy condition triggered',
+        });
+        return { ...stoppedByCondition, status: CopyExecutionStatus.BLOCKED };
+      }
+    }
+
+    // Follower allocation validation
     const allocationValidation = await this.allocationService.validateAllocation({
       tenantId,
       followerId: subscription.followerId,
@@ -429,7 +541,7 @@ export class CopyExecutionService {
       return { ...blocked, status: CopyExecutionStatus.BLOCKED };
     }
 
-    // Follower risk evaluation
+    // Follower risk evaluation (GAP-08 & GAP-16)
     const riskCheck = await this.riskService.checkRisk({
       tenantId,
       followerId: subscription.followerId,
@@ -442,6 +554,9 @@ export class CopyExecutionService {
       price: followerIntent.price,
       notional: followerIntent.notional,
       riskPolicy: subscription.riskPolicy || {},
+      copyPolicy: effectivePolicy,
+      requestedLeverage: effectivePolicy?.maxLeverage ?? null,
+      marginMode: effectivePolicy?.marginMode ?? null,
     });
 
     if (riskCheck.decision === CopyRiskDecision.BLOCK || riskCheck.decision === CopyRiskDecision.STOP_COPY) {
@@ -467,12 +582,25 @@ export class CopyExecutionService {
 
       await this.executionRepo.updateStatus(blocked.id, tenantId, CopyExecutionStatus.BLOCKED, { riskDecision: riskCheck.decision, riskRuleId: riskCheck.ruleId || undefined, failureReason: riskCheck.reason || 'Risk blocked' });
 
-      // If STOP_COPY, stop subscription
       if (riskCheck.decision === CopyRiskDecision.STOP_COPY) {
         try {
           await this.subscriptionRepo.updateState(subscription.id, tenantId, 'STOPPED' as any, { stoppedAt: new Date() });
         } catch {}
       }
+
+      await this.emitNotificationIfWired({
+        tenantId,
+        followerId: subscription.followerId,
+        traderId: input.traderId,
+        strategyId: input.strategyId,
+        subscriptionId: subscription.id,
+        executionId: blocked.id,
+        status: CopyExecutionStatus.BLOCKED,
+        symbol: followerIntent.symbol,
+        side: followerIntent.side,
+        quantity: followerIntent.quantity,
+        reason: riskCheck.reason || 'Risk blocked',
+      });
 
       return { ...blocked, status: CopyExecutionStatus.BLOCKED };
     }
@@ -542,14 +670,13 @@ export class CopyExecutionService {
       if (e.message?.includes('blocked by compliance')) throw e;
     }
 
-    // Testnet/live mismatch must prevent copy - use isSandbox and tradingMode
+    // Testnet/live mismatch must prevent copy
     if (subscription.followerAccountId) {
       try {
         const followerAccount = await this.prisma.tradingAccount.findFirst({ where: { id: subscription.followerAccountId, tenantId } });
         if (followerAccount) {
           const isFollowerSandbox = (followerAccount as any).isSandbox;
           const isLeaderSimulated = leaderEvent.isSimulated;
-          // If follower is sandbox (paper) but leader is live (not simulated), or vice versa, block
           if (isFollowerSandbox !== isLeaderSimulated) {
             const blocked = await this.executionRepo.create({
               tenantId,
@@ -575,16 +702,11 @@ export class CopyExecutionService {
           }
         }
       } catch (e: any) {
-        // The paper/live check could not be made: do not copy (this used to
-        // be swallowed and the order went on to dispatch).
         const failureReason = `FOLLOWER_ACCOUNT_UNREADABLE: ${e?.message ?? 'unknown error'}`.slice(0, 500);
         this.logger.warn(`Copy blocked for subscription ${subscription.id}: ${failureReason}`);
         return { subscriptionId: subscription.id, followerId: subscription.followerId, status: CopyExecutionStatus.BLOCKED, failureReason };
       }
     }
-
-    // Exchange routing with existing risk engine and live-mode gate - must not create order merely because trader account connected
-    // Must never bypass operator confirmation / credential-source / venue attestation / signed transport / IP allowlist / distributed locks / durable store / live-mode gate
 
     const execution = await this.executionRepo.create({
       tenantId,
@@ -611,12 +733,6 @@ export class CopyExecutionService {
     await this.executionRepo.updateStatus(execution.id, tenantId, CopyExecutionStatus.MAPPED);
     await this.executionRepo.updateStatus(execution.id, tenantId, CopyExecutionStatus.RISK_CHECKED);
 
-    // Phase 3: hand the follower order to the OMS. createIntent re-runs the
-    // platform's own ownership/symbol/precision/risk/compliance/security
-    // checks; routeIntent runs the final risk decision, exchange routing and
-    // the live gate, creates the canonical order and enqueues SUBMIT_ORDER to
-    // the worker - the only path to the execution engine. Nothing here talks
-    // to a venue, and nothing here can skip a gate the OMS applies.
     const dispatch = await this.dispatchToOms({
       tenantId,
       execution,
@@ -627,6 +743,19 @@ export class CopyExecutionService {
       leaderEventId: leaderEvent.eventId,
     });
     if (dispatch.status !== CopyExecutionStatus.ROUTED) {
+      await this.emitNotificationIfWired({
+        tenantId,
+        followerId: subscription.followerId,
+        traderId: input.traderId,
+        strategyId: input.strategyId,
+        subscriptionId: subscription.id,
+        executionId: execution.id,
+        status: dispatch.status,
+        symbol: followerIntent.symbol,
+        side: followerIntent.side,
+        quantity: followerIntent.quantity,
+        reason: dispatch.reason ?? null,
+      });
       return { ...execution, status: dispatch.status, failureReason: dispatch.reason, followerIntent };
     }
 
@@ -645,25 +774,37 @@ export class CopyExecutionService {
         subscriptionId: subscription.id,
         executionId: execution.id,
         result: 'SUCCESS',
-        safeMetadata: { leaderEventId: leaderEvent.eventId, symbol: followerIntent.symbol, side: followerIntent.side, quantity: followerIntent.quantity, price: followerIntent.price },
+        safeMetadata: {
+          leaderEventId: leaderEvent.eventId,
+          symbol: followerIntent.symbol,
+          side: followerIntent.side,
+          quantity: followerIntent.quantity,
+          price: followerIntent.price,
+          executionDelayMs: followerIntent.executionDelayMs ?? 0,
+          takeProfitPrice: followerIntent.takeProfitPrice ?? null,
+          stopLossPrice: followerIntent.stopLossPrice ?? null,
+        },
         createdAt: new Date(),
       },
+    });
+
+    await this.emitNotificationIfWired({
+      tenantId,
+      followerId: subscription.followerId,
+      traderId: input.traderId,
+      strategyId: input.strategyId,
+      subscriptionId: subscription.id,
+      executionId: execution.id,
+      status: CopyExecutionStatus.ROUTED,
+      symbol: followerIntent.symbol,
+      side: followerIntent.side,
+      quantity: followerIntent.quantity,
+      reason: null,
     });
 
     return { ...execution, status: CopyExecutionStatus.ROUTED, followerIntent, omsIntentId: dispatch.omsIntentId, orderId: dispatch.orderId, jobId: dispatch.jobId };
   }
 
-  /**
-   * Create and route the OMS intent for one validated copy execution.
-   *
-   * Outcomes, each recorded on the copy execution so no path is silent:
-   *   ROUTED   - intent created, routed, SUBMIT_ORDER enqueued. The final
-   *              SUBMITTED/FILLED/REJECTED arrives from the engine via
-   *              OrderSubmissionResultService.
-   *   REJECTED - the OMS refused the order (risk, compliance, live gate,
-   *              unsupported type, LIVE environment).
-   *   FAILED   - the OMS is not wired, or submission failed operationally.
-   */
   private async dispatchToOms(input: {
     tenantId: string;
     execution: any;

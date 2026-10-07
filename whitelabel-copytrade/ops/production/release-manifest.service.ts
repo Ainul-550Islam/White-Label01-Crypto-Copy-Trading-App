@@ -1,3 +1,4 @@
+// # Serves verified release manifest metadata to admin ops console
 /**
  * Release Manifest Service
  * Builds deterministic release manifests containing git commit, package versions,

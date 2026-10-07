@@ -1,3 +1,4 @@
+// # Exposes customer withdrawal request and admin approval/rejection endpoints
 import { Controller, Get, Post, Body, Query, Param, UseGuards, Request, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { WalletService } from './wallet.service';
 import { WalletRepository } from './wallet.repository';

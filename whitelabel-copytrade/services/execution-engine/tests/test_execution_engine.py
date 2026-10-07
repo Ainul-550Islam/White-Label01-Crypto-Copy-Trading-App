@@ -1,3 +1,4 @@
+# Verifies order placement, submission idempotency, and live safety gate
 """Execution engine: startup, auth, validation and the four commands.
 
 These tests run the complete stack - FastAPI app, lifespan, composition

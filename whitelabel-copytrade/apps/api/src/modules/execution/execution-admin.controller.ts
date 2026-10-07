@@ -1,3 +1,4 @@
+// # Exposes admin kill-switch and incident management endpoints
 import {
   Body,
   Controller,

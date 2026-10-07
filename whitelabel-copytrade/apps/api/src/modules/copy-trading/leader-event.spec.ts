@@ -1,3 +1,4 @@
+// # Verifies leader-event mapping, deduplication, staleness bounds, and missing-copy detection
 /**
  * Phase 3: leader-event ingestion + missing-copy reconciliation.
  */
@@ -160,6 +161,12 @@ describe('LeaderEventIngestionService', () => {
     const { service, copyExecution } = build({ fills: [fill('f1', 3)], subscriptions: [{ ...LIVE_SUB, startedAt: new Date(NOW.getTime() - 1000) }] });
     await expect(service.ingestTenant(T, NOW)).resolves.toMatchObject({ dispatched: 0, alreadyCopied: 1 });
     expect(copyExecution.processLeaderEvent).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates repeated leader fill records in the same ingestion pass (GAP-19)', async () => {
+    const { service, copyExecution } = build({ fills: [fill('f1', 3), fill('f1', 3)], subscriptions: [LIVE_SUB] });
+    await expect(service.ingestTenant(T, NOW)).resolves.toEqual({ events: 2, dispatched: 1, alreadyCopied: 1, expired: 0 });
+    expect(copyExecution.processLeaderEvent).toHaveBeenCalledTimes(1);
   });
 });
 

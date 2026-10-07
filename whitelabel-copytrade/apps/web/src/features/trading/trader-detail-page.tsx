@@ -26,9 +26,25 @@ export function TraderDetailPage({ id }: { id: string }): JSX.Element {
     <PageContainer title={data.displayName} description="Trader profile">
       <div className="space-y-4">
         <div className="space-y-4 rounded border bg-card p-4">
-          <div className="flex gap-2">
-            <StatusBadge status={data.verificationState} />
-            {data.isFeatured && <StatusBadge status="FEATURED" variant="info" />}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex gap-2">
+              <StatusBadge status={data.verificationState} />
+              {data.isFeatured && <StatusBadge status="FEATURED" variant="info" />}
+            </div>
+            <div className="flex gap-2">
+              <Link
+                href={`/traders/${data.traderId}/performance`}
+                className="rounded border px-3 py-1 text-xs font-medium hover:bg-slate-50"
+              >
+                Performance Analytics
+              </Link>
+              <Link
+                href={`/traders/compare?ids=${encodeURIComponent(data.traderId)}`}
+                className="rounded border px-3 py-1 text-xs font-medium hover:bg-slate-50"
+              >
+                Compare
+              </Link>
+            </div>
           </div>
           <p className="text-sm">{data.bio ?? "No bio"}</p>
           <div className="grid grid-cols-2 gap-4 text-sm">

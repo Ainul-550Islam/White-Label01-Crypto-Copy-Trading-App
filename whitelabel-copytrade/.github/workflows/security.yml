@@ -1,0 +1,36 @@
+# NEW — Runs dependency audit, secret scanning, and route authorization checks
+name: Security — RBAC, Secret Hygiene & Dependency Gate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: "0 4 * * 1"
+
+jobs:
+  security-gate:
+    name: Route Authorization, Governance & Secret Hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify controller route authorization decorators
+        run: node apps/api/scripts/check-route-authorization.js
+
+      - name: Run Governance & Security 50-Checks Suite
+        run: node ops/governance-validation-50-checks.js
+
+      - name: Run Production Validation 50-Checks Suite
+        run: node ops/production-validation-50-checks.js

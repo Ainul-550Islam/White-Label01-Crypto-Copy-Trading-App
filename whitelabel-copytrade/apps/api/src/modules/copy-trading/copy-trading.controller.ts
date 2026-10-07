@@ -254,6 +254,43 @@ export class CopyTradingController {
     return sub;
   }
 
+  @Put('subscriptions/:subscriptionId')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_MANAGE)
+  async updateSubscription(
+    @Request() req: any,
+    @Param('subscriptionId') subscriptionId: string,
+    @Body() dto: UpdateFollowerSubscriptionDto,
+  ) {
+    const { tenantId, userId, roles } = this.getContext(req);
+    const requestId = req?.headers?.['x-request-id'] || req?.id;
+    const updated = await this.followerSubscriptionService.updateSubscriptionSettings(
+      tenantId,
+      subscriptionId,
+      dto,
+      userId,
+      this.isAdmin(roles) ? null : userId,
+      requestId,
+    );
+    if (!updated) throw new NotFoundException('Subscription not found');
+    return updated;
+  }
+
+  @Get('subscriptions/:subscriptionId/reconciliation-status')
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_READ)
+  async getSubscriptionReconciliationStatus(
+    @Request() req: any,
+    @Param('subscriptionId') subscriptionId: string,
+  ) {
+    const { tenantId, userId, roles } = this.getContext(req);
+    const status = await this.reconciliationService.getCustomerSubscriptionStatus(
+      tenantId,
+      subscriptionId,
+      this.isAdmin(roles) ? null : userId,
+    );
+    if (!status) throw new NotFoundException('Subscription not found');
+    return status;
+  }
+
   @Get('traders/:traderId/subscriptions')
   @RequirePermissions(Permission.COPY_SUBSCRIPTION_READ)
   async listTraderSubscriptions(@Request() req: any, @Param('traderId') traderId: string, @Query() query: any) {

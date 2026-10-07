@@ -1,3 +1,4 @@
+// # Verifies kill-switch hierarchy and fail-closed behavior
 import { validateEnv, EnvValidationError } from '@wlct/config';
 import {
   NON_WILDCARD_PERMISSIONS,

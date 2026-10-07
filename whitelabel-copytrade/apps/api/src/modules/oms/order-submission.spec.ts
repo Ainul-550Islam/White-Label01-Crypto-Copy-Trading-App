@@ -1,3 +1,4 @@
+// # Verifies partial fill progression, remaining quantity calculation, and terminal state transitions
 /**
  * Phase 3: the OMS producer half of SUBMIT_ORDER, and the result recorder.
  *
@@ -30,6 +31,8 @@ import {
   type SubmissionResultView,
 } from './order-submission-result.service';
 import { OrderIntentState } from './oms.types';
+import { FillManagementService } from './fill-management.service';
+import { OrderLifecycleService } from './order-lifecycle.service';
 
 const SPEC = buildSubmitSpecification({
   baseAsset: 'BTC',
@@ -269,3 +272,89 @@ describe('OrderSubmissionResultService', () => {
     expect(orderUpdates).toHaveLength(0);
   });
 });
+
+describe('Partial fill progression & remaining quantity (GAP-18)', () => {
+  it('computes precision-safe remaining quantity and weighted average price across partial fills', async () => {
+    const omsFills: any[] = [];
+    let intentState: string = OrderIntentState.ACKNOWLEDGED;
+    const transitions: any[] = [];
+
+    const prisma = {
+      order: {
+        findFirst: jest.fn(async () => ({ id: 'o-1', tenantId: 't-1', clientOrderId: 'oms-1', quantity: '1.0', venue: 'PAPER' })),
+        update: jest.fn(async () => ({})),
+      },
+      omsOrderIntent: {
+        findFirst: jest.fn(async () => ({ id: 'i-1', tenantId: 't-1', clientOrderId: 'oms-1', quantity: '1.0', state: intentState, cumulativeFee: '0', metadata: { transitions } })),
+        update: jest.fn(async (args: any) => {
+          if (args.data.state) intentState = args.data.state;
+          return { id: 'i-1', state: intentState, ...args.data };
+        }),
+      },
+      omsFill: {
+        findFirst: jest.fn(async (args: any) => omsFills.find((f) => f.providerFillId === args.where.providerFillId) ?? null),
+        findMany: jest.fn(async () => [...omsFills]),
+        create: jest.fn(async (args: any) => {
+          const row = { id: `fill-${omsFills.length + 1}`, ...args.data };
+          omsFills.push(row);
+          return row;
+        }),
+        update: jest.fn(async (args: any) => {
+          const row = omsFills.find((f) => f.id === args.where.id);
+          if (row) Object.assign(row, args.data);
+          return row;
+        }),
+      },
+    };
+
+    const lifecycle = new OrderLifecycleService(prisma as any);
+    const fillService = new FillManagementService(prisma as any, lifecycle);
+
+    expect(fillService.calculateRemainingQuantity('1.0', '0.4')).toBe('0.6');
+    expect(fillService.calculateRemainingQuantity('1.0', '1.0')).toBe('0');
+    expect(fillService.calculateRemainingQuantity('1.0', '1.2')).toBe('0');
+
+    const first = await fillService.processCanonicalFill({
+      tenantId: 't-1',
+      orderId: 'o-1',
+      venueTradeId: 'vt-1',
+      symbol: 'BTC-USDT',
+      side: 'BUY',
+      quantity: '0.4',
+      price: '50000',
+    });
+    expect(first).toMatchObject({
+      cumulativeQuantity: '0.4',
+      remainingQuantity: '0.6',
+      averagePrice: '50000',
+    });
+    expect(intentState).toBe(OrderIntentState.PARTIALLY_FILLED);
+
+    const second = await fillService.processCanonicalFill({
+      tenantId: 't-1',
+      orderId: 'o-1',
+      venueTradeId: 'vt-2',
+      symbol: 'BTC-USDT',
+      side: 'BUY',
+      quantity: '0.6',
+      price: '51000',
+    });
+    expect(second).toMatchObject({
+      cumulativeQuantity: '1',
+      remainingQuantity: '0',
+      averagePrice: '50600',
+    });
+    expect(intentState).toBe(OrderIntentState.FILLED);
+
+    await expect(
+      lifecycle.transition({
+        tenantId: 't-1',
+        intentId: 'i-1',
+        toState: OrderIntentState.PARTIALLY_FILLED,
+        source: 'TEST',
+        reason: 'cannot regress from terminal',
+      }),
+    ).rejects.toThrow(/Cannot transition from terminal state FILLED/);
+  });
+});
+

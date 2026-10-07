@@ -1,3 +1,4 @@
+// # Manages canonical OMS order state transitions including PARTIALLY_FILLED and FILLED
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderIntentState, isValidTransition, isTerminalState, TERMINAL_STATES } from './oms.types';

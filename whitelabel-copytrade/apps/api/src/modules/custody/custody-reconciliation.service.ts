@@ -1,3 +1,4 @@
+// # Compares internal ledger balances against custody/exchange balances
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { BlockchainProviderFactory } from './blockchain-provider.factory';

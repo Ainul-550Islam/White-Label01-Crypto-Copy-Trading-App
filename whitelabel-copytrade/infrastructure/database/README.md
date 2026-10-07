@@ -1,3 +1,4 @@
+<!-- # Ensures all tables/indexes required by GAP-01..43 are present in canonical schema -->
 # Database
 
 ## Ownership of schema changes

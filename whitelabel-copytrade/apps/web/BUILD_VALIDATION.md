@@ -7,8 +7,8 @@
 npm run build --workspace=@wlct/web
 ```
 - Compiled successfully
-- 41 routes (static + dynamic)
-- Lint warnings only for <img> vs next/image (non-blocking)
+- 43 routes (static + dynamic)
+- 0 ESLint warnings, 0 errors
 
 ### Typecheck
 ```
@@ -20,7 +20,7 @@ npm run typecheck --workspace=@wlct/web
 ```
 npm run lint --workspace=@wlct/web
 ```
-- Pass with 2 warnings (img optimization)
+- Pass with 0 warnings and 0 errors
 
 ### 50 Deterministic Checks
 ```
@@ -92,7 +92,7 @@ node src/tests/run-50-checks.js
 - White-label CSS sanitized (only hex colors, safe URL, backend-sanitized)
 
 ### Routes
-/, /login, /onboarding, /dashboard, /portfolio, /portfolio/holdings, /portfolio/performance, /portfolio/attribution, /traders, /traders/:id, /strategies, /strategies/:id, /copy-trading, /exchanges, /exchanges/connect, /exchanges/:id, /funding, /funding/deposit, /funding/withdraw, /funding/history, /billing, /billing/plans, /billing/checkout, /billing/invoices, /billing/usage, /statements, /statements/:id, /security, /security/mfa, /security/sessions, /security/devices, /security/api-keys, /account, /account/profile, /account/relationships, /account/restrictions, /notifications, /notifications/preferences, /pricing, /terms, /privacy, /status
+/, /login, /register, /onboarding, /dashboard, /portfolio, /portfolio/holdings, /portfolio/performance, /portfolio/attribution, /traders, /traders/:id, /strategies, /strategies/:id, /copy-trading, /exchanges, /exchanges/connect, /exchanges/:id, /funding, /funding/deposit, /funding/withdraw, /funding/history, /billing, /billing/plans, /billing/checkout, /billing/invoices, /billing/usage, /statements, /statements/:id, /security, /security/mfa, /security/sessions, /security/devices, /security/api-keys, /account, /account/profile, /account/relationships, /account/restrictions, /notifications, /notifications/preferences, /pricing, /terms, /privacy, /status
 
 ### Structure Compliance
 - package.json, tsconfig.json, next.config.mjs, vite.config.ts (placeholder, Next.js authoritative), next-env.d.ts

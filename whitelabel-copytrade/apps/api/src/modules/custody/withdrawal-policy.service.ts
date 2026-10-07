@@ -1,3 +1,4 @@
+// # Evaluates velocity limits, address whitelist cooldowns, and dual-approval thresholds
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CustodyPolicyService } from './custody-policy.service';

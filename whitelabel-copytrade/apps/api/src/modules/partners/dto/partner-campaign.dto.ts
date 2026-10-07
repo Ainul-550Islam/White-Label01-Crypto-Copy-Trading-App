@@ -1,3 +1,4 @@
+// # Validates referral campaign and payout request payloads
 import { IsString, IsEnum, IsOptional, MinLength, IsNumber, IsArray, MaxLength, IsBoolean, Min, Max, IsIn } from 'class-validator';
 import { PartnerDiscountType, PartnerCampaignState } from '../partner.types';
 

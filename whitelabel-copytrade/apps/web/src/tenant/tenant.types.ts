@@ -16,6 +16,8 @@ export interface TenantBranding {
   appName?: string;
   supportEmail?: string;
   supportUrl?: string;
+  termsUrl?: string;
+  privacyUrl?: string;
 }
 
 export interface TenantPlan {

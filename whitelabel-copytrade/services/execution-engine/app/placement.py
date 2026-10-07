@@ -1,3 +1,4 @@
+# Validates and executes order placement against venue adapter
 """The placement-review seam (Part 16): which venue the review asks, and what a
 simulated runtime is allowed to assert.
 

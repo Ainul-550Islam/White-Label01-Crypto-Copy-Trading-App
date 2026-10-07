@@ -1,3 +1,4 @@
+// # Records immutable compliance review events and generates regulatory export payloads
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { sanitizeMetadata } from './compliance.types';

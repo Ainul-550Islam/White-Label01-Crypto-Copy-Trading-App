@@ -1,3 +1,4 @@
+// # Wires live execution gateway client and safety guards
 import { Module } from '@nestjs/common';
 
 import { ExchangeAccountsService } from './exchange-accounts.service';

@@ -1,6 +1,14 @@
+// # Enforces follower-specific risk rules, notional caps, symbol filters, and emergency stop-copy decisions
+// # Enforces follower leverage caps and margin requirement checks
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CopyRiskDecision, FollowerRiskPolicy, isDecimalString, compareDecimalStrings } from './copy-trading.types';
+import {
+  CopyPolicy,
+  CopyRiskDecision,
+  FollowerRiskPolicy,
+  isDecimalString,
+  compareDecimalStrings,
+} from './copy-trading.types';
 
 export interface RiskCheckInput {
   tenantId: string;
@@ -14,10 +22,16 @@ export interface RiskCheckInput {
   price: string | null;
   notional: string | null;
   riskPolicy: FollowerRiskPolicy;
+  copyPolicy?: Partial<CopyPolicy> | null;
   currentExposure?: string | null;
   dailyLoss?: string | null;
   totalLoss?: string | null;
   currentDrawdown?: string | null;
+  dailyNotionalUsed?: string | null;
+  concurrentOpenCopies?: number | null;
+  requestedLeverage?: string | null;
+  marginMode?: string | null;
+  availableMarginRatio?: string | null;
 }
 
 export interface RiskCheckResult {
@@ -29,7 +43,7 @@ export interface RiskCheckResult {
 }
 
 /**
- * Applies follower-specific risk rules: max loss, max drawdown, max exposure, daily limits, stop-copy conditions, concentration, and emergency pause.
+ * Applies follower-specific risk rules: max loss, max drawdown, max exposure, daily limits, stop-copy conditions, concentration, leverage/margin constraints, and emergency pause.
  * Risk decision states: ALLOW, REDUCE, BLOCK, PAUSE, STOP_COPY. Every rejection must identify its policy/rule.
  */
 @Injectable()
@@ -40,10 +54,141 @@ export class FollowerRiskService {
 
   async checkRisk(input: RiskCheckInput): Promise<RiskCheckResult> {
     const policy = input.riskPolicy;
+    const copyPolicy = input.copyPolicy ?? null;
 
     // Emergency stop-copy
     if (policy.emergencyStopCopy) {
       return { decision: CopyRiskDecision.STOP_COPY, allowed: false, ruleId: 'EMERGENCY_STOP_COPY', reason: 'Emergency stop-copy triggered' };
+    }
+
+    // Copy policy symbol, side, and notional enforcement when provided
+    if (copyPolicy) {
+      if (Array.isArray(copyPolicy.blockedSymbols) && copyPolicy.blockedSymbols.includes(input.symbol)) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'BLOCKED_SYMBOL',
+          reason: `Symbol ${input.symbol} is blocked by copy policy`,
+        };
+      }
+      if (Array.isArray(copyPolicy.allowedSymbols) && copyPolicy.allowedSymbols.length > 0 && !copyPolicy.allowedSymbols.includes(input.symbol)) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'UNALLOWED_SYMBOL',
+          reason: `Symbol ${input.symbol} is not in allowedSymbols`,
+        };
+      }
+      if (Array.isArray(copyPolicy.allowedSides) && copyPolicy.allowedSides.length > 0 && !copyPolicy.allowedSides.includes(input.side)) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'UNALLOWED_SIDE',
+          reason: `Side ${input.side} is not in allowedSides`,
+        };
+      }
+      if (copyPolicy.maxOrderNotional && input.notional) {
+        if (!isDecimalString(copyPolicy.maxOrderNotional) || !isDecimalString(input.notional)) {
+          return { decision: CopyRiskDecision.BLOCK, allowed: false, ruleId: 'INVALID_DECIMAL', reason: 'Invalid decimal for order notional check - fail closed' };
+        }
+        if (compareDecimalStrings(input.notional, copyPolicy.maxOrderNotional) > 0) {
+          return {
+            decision: CopyRiskDecision.BLOCK,
+            allowed: false,
+            ruleId: 'MAX_ORDER_NOTIONAL',
+            reason: `Order notional ${input.notional} exceeds maxOrderNotional ${copyPolicy.maxOrderNotional}`,
+          };
+        }
+      }
+      if (copyPolicy.maxDailyNotional && input.dailyNotionalUsed && input.notional) {
+        if (!isDecimalString(copyPolicy.maxDailyNotional) || !isDecimalString(input.dailyNotionalUsed) || !isDecimalString(input.notional)) {
+          return { decision: CopyRiskDecision.BLOCK, allowed: false, ruleId: 'INVALID_DECIMAL', reason: 'Invalid decimal for daily notional check - fail closed' };
+        }
+        const projectedDaily = this.addDecimals(input.dailyNotionalUsed, input.notional);
+        if (compareDecimalStrings(projectedDaily, copyPolicy.maxDailyNotional) > 0) {
+          return {
+            decision: CopyRiskDecision.BLOCK,
+            allowed: false,
+            ruleId: 'MAX_DAILY_NOTIONAL',
+            reason: `Projected daily notional ${projectedDaily} exceeds maxDailyNotional ${copyPolicy.maxDailyNotional}`,
+          };
+        }
+      }
+      if (copyPolicy.maxConcurrentCopies !== null && copyPolicy.maxConcurrentCopies !== undefined && input.concurrentOpenCopies !== null && input.concurrentOpenCopies !== undefined) {
+        if (input.concurrentOpenCopies >= copyPolicy.maxConcurrentCopies) {
+          return {
+            decision: CopyRiskDecision.BLOCK,
+            allowed: false,
+            ruleId: 'MAX_CONCURRENT_COPIES',
+            reason: `Concurrent open copies ${input.concurrentOpenCopies} reaches max ${copyPolicy.maxConcurrentCopies}`,
+          };
+        }
+      }
+    }
+
+    // Leverage cap enforcement (GAP-16)
+    const maxLeverageCap = policy.maxLeverage ?? copyPolicy?.maxLeverage ?? null;
+    if (maxLeverageCap && input.requestedLeverage) {
+      if (!isDecimalString(maxLeverageCap) || !isDecimalString(input.requestedLeverage)) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'INVALID_LEVERAGE_DECIMAL',
+          reason: 'Invalid leverage decimal string - fail closed',
+        };
+      }
+      if (compareDecimalStrings(input.requestedLeverage, maxLeverageCap) > 0) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'MAX_LEVERAGE',
+          reason: `Requested leverage ${input.requestedLeverage}x exceeds follower max leverage ${maxLeverageCap}x`,
+        };
+      }
+    }
+
+    if (copyPolicy?.leveragePolicy === 'SPOT_ONLY' && input.requestedLeverage && isDecimalString(input.requestedLeverage)) {
+      if (compareDecimalStrings(input.requestedLeverage, '1') > 0) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'SPOT_ONLY_LEVERAGE_FORBIDDEN',
+          reason: `Leverage ${input.requestedLeverage}x is forbidden under SPOT_ONLY leverage policy`,
+        };
+      }
+    }
+
+    // Margin mode constraint enforcement (GAP-16)
+    if (Array.isArray(policy.allowedMarginModes) && policy.allowedMarginModes.length > 0 && input.marginMode) {
+      const normalizedAllowed = policy.allowedMarginModes.map((m) => m.toUpperCase());
+      if (!normalizedAllowed.includes(input.marginMode.toUpperCase())) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'UNSUPPORTED_MARGIN_MODE',
+          reason: `Margin mode ${input.marginMode} is not permitted (${normalizedAllowed.join(', ')})`,
+        };
+      }
+    }
+
+    // Minimum margin ratio check (GAP-16)
+    if (policy.minMarginRatio && input.availableMarginRatio) {
+      if (!isDecimalString(policy.minMarginRatio) || !isDecimalString(input.availableMarginRatio)) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'INVALID_MARGIN_DECIMAL',
+          reason: 'Invalid margin ratio decimal string - fail closed',
+        };
+      }
+      if (compareDecimalStrings(input.availableMarginRatio, policy.minMarginRatio) < 0) {
+        return {
+          decision: CopyRiskDecision.BLOCK,
+          allowed: false,
+          ruleId: 'INSUFFICIENT_MARGIN_RATIO',
+          reason: `Available margin ratio ${input.availableMarginRatio} is below required ${policy.minMarginRatio}`,
+        };
+      }
     }
 
     // Max daily loss - fail closed where required
@@ -142,11 +287,10 @@ export class FollowerRiskService {
       }
     }
 
-    // Concentration check - e.g. single symbol > 50% of exposure
+    // Concentration check - e.g. single symbol > 80% of exposure
     if (input.currentExposure && input.notional) {
       const newExposure = this.addDecimals(input.currentExposure, input.notional);
       if (compareDecimalStrings(newExposure, '0') > 0) {
-        // Check if this symbol would be > 80% of total exposure
         try {
           const symbolNotional = await this.calculateSymbolNotional(input.tenantId, input.followerAccountId, input.symbol);
           const newSymbolNotional = this.addDecimals(symbolNotional, input.notional);

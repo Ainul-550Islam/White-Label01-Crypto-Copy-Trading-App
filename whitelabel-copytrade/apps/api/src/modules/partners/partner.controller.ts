@@ -1,3 +1,4 @@
+// # Exposes /v1/partner/profile, /referrals, /commissions, /payouts endpoints
 import { Controller, Get, Post, Put, Body, Param, Query, BadRequestException, UseGuards } from '@nestjs/common';
 import { Permission } from '@wlct/shared-types';
 import { PlatformOnly, RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';

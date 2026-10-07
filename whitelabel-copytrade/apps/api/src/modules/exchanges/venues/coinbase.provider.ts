@@ -1,3 +1,4 @@
+// # Implements signed Advanced Trade live REST/account/symbol/health probes when live trading enabled
 import * as crypto from 'crypto';
 import {
   ExchangeVenue,

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { authApi } from '@/api/auth-api';
 import { ApiError } from '@/api/api-errors';
 import { MfaChallengeFlow } from '@/auth/mfa-flow';
@@ -115,6 +116,21 @@ export default function LoginPage(): JSX.Element {
         </form>
         <div className="mt-4">
           <button type="button" onClick={handleSso} disabled={ssoLoading || loading} className="w-full rounded border px-4 py-2 text-sm font-medium disabled:opacity-50">{ssoLoading ? 'Redirecting...' : 'Sign in with single sign-on'}</button>
+        </div>
+        <div className="mt-6 border-t pt-4 text-center text-xs text-muted">
+          <p>
+            New to {tenant?.branding?.appName ?? tenant?.name ?? 'the platform'}?{' '}
+            <Link href="/register" className="font-medium text-primary underline">
+              Create an account
+            </Link>
+          </p>
+          <div className="mt-3 flex justify-center gap-4">
+            <Link href="/" className="hover:underline">Home</Link>
+            <Link href="/pricing" className="hover:underline">Pricing</Link>
+            <Link href="/status" className="hover:underline">Status</Link>
+            <Link href="/terms" className="hover:underline">Terms</Link>
+            <Link href="/privacy" className="hover:underline">Privacy</Link>
+          </div>
         </div>
       </div>
     </div>

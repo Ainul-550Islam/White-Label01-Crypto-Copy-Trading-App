@@ -1,3 +1,4 @@
+// # Evaluates velocity, structuring, and high-risk jurisdiction rules; auto-opens compliance cases
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CompliancePolicyService } from './compliance-policy.service';

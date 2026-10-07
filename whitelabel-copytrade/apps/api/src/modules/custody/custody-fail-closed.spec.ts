@@ -1,3 +1,4 @@
+// # NEW — Verifies fail-closed withdrawal blocking on custody degradation
 /**
  * Phase 3: custody fails closed. No locally invented deposit addresses, no
  * provider that claims capabilities it does not implement, no fabricated

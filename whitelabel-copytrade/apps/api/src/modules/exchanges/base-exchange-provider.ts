@@ -1,3 +1,4 @@
+// # Shared request signing, timeout, rate-limit, and error normalization helpers
 import { Logger } from '@nestjs/common';
 import {
   ExchangeVenue,

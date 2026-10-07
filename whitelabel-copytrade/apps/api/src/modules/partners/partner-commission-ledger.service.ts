@@ -1,3 +1,4 @@
+// # Exposes paginated, filterable commission ledger entries per partner
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PartnerCommission, PartnerCommissionState, PartnerAuditAction } from './partner.types';
 import { PartnerAuditService } from './partner-audit.service';

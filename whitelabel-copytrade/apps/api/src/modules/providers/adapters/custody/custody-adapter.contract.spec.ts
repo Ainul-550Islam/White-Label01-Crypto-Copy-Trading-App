@@ -1,3 +1,4 @@
+// # Verifies custody adapter contract and signature verification
 /**
  * Custody Adapter Contract Tests
  * Deterministic tests for custody/blockchain adapter

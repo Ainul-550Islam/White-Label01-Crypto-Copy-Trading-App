@@ -13,6 +13,9 @@ export interface User {
   displayName?: string;
   avatarUrl?: string;
   mfaEnabled?: boolean;
+  status?: string;
+  emailVerified?: boolean;
+  isPlatformUser?: boolean;
 }
 
 export interface Session {

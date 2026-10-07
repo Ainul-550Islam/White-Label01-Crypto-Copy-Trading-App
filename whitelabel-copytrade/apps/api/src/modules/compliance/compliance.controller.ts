@@ -1,3 +1,4 @@
+// # Exposes case list, detail, assign, note, and decision endpoints
 import {
   Controller,
   Get,

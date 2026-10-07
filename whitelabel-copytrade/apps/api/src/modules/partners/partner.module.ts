@@ -1,3 +1,4 @@
+// # Registers all partner controllers and services in AppModule
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PartnerPolicyService } from './partner-policy.service';
@@ -22,11 +23,12 @@ import { PartnerReconciliationService } from './partner-reconciliation.service';
 import { PartnerAuditService } from './partner-audit.service';
 import { PartnerPortalService } from './partner-portal.service';
 import { PartnerController } from './partner.controller';
+import { PartnerPortalController } from '../partner/partner.controller';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 @Module({
   imports: [ConfigModule],
-  controllers: [PartnerController],
+  controllers: [PartnerController, PartnerPortalController],
   providers: [
     PrismaService,
     PartnerPolicyService,

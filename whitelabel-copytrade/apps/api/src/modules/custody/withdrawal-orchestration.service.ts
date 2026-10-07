@@ -1,3 +1,4 @@
+// # Enforces withdrawal state machine (REQUESTED -> RISK_CHECK -> COMPLIANCE_CHECK -> APPROVED -> BROADCAST -> CONFIRMED/REJECTED)
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WithdrawalPolicyService } from './withdrawal-policy.service';

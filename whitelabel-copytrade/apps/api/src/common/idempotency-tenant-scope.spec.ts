@@ -1,3 +1,4 @@
+// # Verifies tenant-scoped idempotency across all repositories and Prisma lookups
 import { readdirSync, readFileSync } from 'fs';
 import { join, relative } from 'path';
 

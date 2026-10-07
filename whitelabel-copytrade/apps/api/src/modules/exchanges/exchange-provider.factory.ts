@@ -1,3 +1,4 @@
+// # Selects live vs paper mode based on explicit safety flags
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeCapability, ExchangeOrderType, ExchangeConnectionState, ExchangeBalance, ExchangePosition, ExchangeOrder, ExchangeFill, ExchangeSymbol, ExchangeCapabilityDiscovery, ExchangePositionSide, ExchangeOrderStatus, ExchangeOrderSide, normalizeTimestampMicros } from './exchange.types';
 import { ExchangeProvider, ExchangeProviderError, ExchangeProviderErrorCode, ExchangeProviderContext, ExchangeServerTime, ExchangeAccountMetadata } from './exchange-provider.interface';

@@ -1,3 +1,4 @@
+// # Validates order intent against symbol trading rules and account balance
 import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RiskDecisionService } from '../risk-management/risk-decision.service';
@@ -64,6 +65,28 @@ export class OrderIntentService {
       if (!isValidDecimal(params.price)) throw new BadRequestException(`Invalid price decimal: ${params.price}`);
       const price = parseScaled(params.price);
       if (price <= 0n) throw new BadRequestException('Price must be > 0');
+
+      if (params.symbol.tickSize) {
+        const tick = parseScaled(params.symbol.tickSize.toString());
+        if (tick > 0n && price % tick !== 0n) {
+          throw new BadRequestException(`Price ${params.price} does not match tickSize ${params.symbol.tickSize}`);
+        }
+      }
+
+      if (params.symbol.minNotional) {
+        const minNotional = parseScaled(params.symbol.minNotional.toString());
+        const notional = (qty * price) / 100000000n;
+        if (notional < minNotional) {
+          throw new BadRequestException(`Order notional below minNotional ${params.symbol.minNotional}`);
+        }
+      }
+    }
+
+    if (params.symbol.quantityStep) {
+      const step = parseScaled(params.symbol.quantityStep.toString());
+      if (step > 0n && qty % step !== 0n) {
+        throw new BadRequestException(`Quantity ${params.quantity} does not match quantityStep ${params.symbol.quantityStep}`);
+      }
     }
   }
 

@@ -1,3 +1,4 @@
+// # Executes sanctions/PEP/watch-list checks on onboarding and withdrawal addresses
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CompliancePolicyService } from './compliance-policy.service';

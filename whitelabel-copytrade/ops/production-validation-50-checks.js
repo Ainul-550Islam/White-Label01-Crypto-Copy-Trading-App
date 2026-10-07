@@ -1,3 +1,4 @@
+// # Integrates 50-gap parity check into production validation suite
 /**
  * Deterministic validation for 50 production infrastructure requirements
  * Run with: node ops/production-validation-50-checks.js

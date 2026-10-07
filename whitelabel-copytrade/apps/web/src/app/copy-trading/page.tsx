@@ -76,9 +76,33 @@ export default function Page(): JSX.Element {
                       {s.failedCopies > 0 ? `, ${s.failedCopies} failed` : ""}
                     </span>
                   </span>
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-2">
                     <Money value={s.allocationAmount} />
                     <StatusBadge status={s.state} />
+                    <Link
+                      href={`/copy-trading/${s.subscriptionId}`}
+                      className="rounded border px-2 py-1 text-xs font-medium hover:bg-slate-50"
+                    >
+                      Overview
+                    </Link>
+                    <Link
+                      href={`/copy-trading/${s.subscriptionId}/settings`}
+                      className="rounded border px-2 py-1 text-xs hover:bg-slate-50"
+                    >
+                      Settings
+                    </Link>
+                    <Link
+                      href={`/copy-trading/${s.subscriptionId}/positions`}
+                      className="rounded border px-2 py-1 text-xs hover:bg-slate-50"
+                    >
+                      Positions
+                    </Link>
+                    <Link
+                      href={`/copy-trading/${s.subscriptionId}/orders`}
+                      className="rounded border px-2 py-1 text-xs hover:bg-slate-50"
+                    >
+                      Orders
+                    </Link>
                     {actionsFor(s.state).map((action) => (
                       <button
                         key={action}

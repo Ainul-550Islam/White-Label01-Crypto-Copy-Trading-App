@@ -1,3 +1,4 @@
+// # Persists copy execution intents with tenant-scoped idempotency keys and duplicate protection
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CopyExecutionStatus, CopySizingMode, CopyRiskDecision } from './copy-trading.types';
@@ -32,6 +33,8 @@ export class CopyExecutionRepository {
     executionIntent?: Record<string, any>;
     idempotencyKey?: string | null;
   }): Promise<any> {
+    const resolvedKey = input.idempotencyKey || `copy_${input.tenantId}_${input.leaderEventId}_${input.subscriptionId}`;
+
     // Prevent duplicate execution intent from same leader event/subscription
     const existing = await (this.prisma as any).copyExecution?.findFirst({
       where: { tenantId: input.tenantId, leaderEventId: input.leaderEventId, subscriptionId: input.subscriptionId },
@@ -41,12 +44,10 @@ export class CopyExecutionRepository {
       return existing;
     }
 
-    if (input.idempotencyKey) {
-      const existingByKey = await (this.prisma as any).copyExecution?.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
-      if (existingByKey) {
-        this.logger.log(`Idempotent execution return key=${input.idempotencyKey}`);
-        return existingByKey;
-      }
+    const existingByKey = await (this.prisma as any).copyExecution?.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: resolvedKey } });
+    if (existingByKey) {
+      this.logger.log(`Idempotent execution return key=${resolvedKey}`);
+      return existingByKey;
     }
 
     const id = randomUUID();
@@ -71,7 +72,7 @@ export class CopyExecutionRepository {
       slippageTolerance: input.slippageTolerance || null,
       maxNotional: input.maxNotional || null,
       executionIntent: input.executionIntent || {},
-      idempotencyKey: input.idempotencyKey || `copy_${input.tenantId}_${input.leaderEventId}_${input.subscriptionId}_${Date.now()}`,
+      idempotencyKey: resolvedKey,
       createdAt: now,
       updatedAt: now,
     };
@@ -84,10 +85,8 @@ export class CopyExecutionRepository {
       if (e.code === 'P2002') {
         const existingDup = await (this.prisma as any).copyExecution.findFirst({ where: { tenantId: input.tenantId, leaderEventId: input.leaderEventId, subscriptionId: input.subscriptionId } });
         if (existingDup) return existingDup;
-        if (input.idempotencyKey) {
-          const byKey = await (this.prisma as any).copyExecution.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
-          if (byKey) return byKey;
-        }
+        const byKey = await (this.prisma as any).copyExecution.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: resolvedKey } });
+        if (byKey) return byKey;
       }
       throw e;
     }
@@ -143,14 +142,11 @@ export class CopyExecutionRepository {
 
   async updateStatus(id: string, tenantId: string, status: CopyExecutionStatus, extra?: { followerOrderId?: string; followerFillId?: string; providerOrderId?: string; providerTradeId?: string; failureReason?: string; followerQuantity?: string; followerPrice?: string; riskDecision?: CopyRiskDecision; riskRuleId?: string }): Promise<any | null> {
     try {
-      // Validate status transition - simple check, more complex in service
       const existing = await (this.prisma as any).copyExecution.findFirst({ where: { id, tenantId } });
       if (!existing) return null;
 
-      // Prevent invalid transitions like FILLED -> PENDING
       const terminal = [CopyExecutionStatus.FILLED, CopyExecutionStatus.FAILED, CopyExecutionStatus.REJECTED, CopyExecutionStatus.BLOCKED];
       if (terminal.includes(existing.status as any) && existing.status !== status) {
-        // Allow only if not terminal? Actually terminal should not transition
         if (existing.status === CopyExecutionStatus.FILLED && status !== CopyExecutionStatus.FILLED) {
           this.logger.warn(`Invalid status transition rejected id=${id} from=${existing.status} to=${status}`);
           return existing;

@@ -34,15 +34,20 @@
   "jest": {
     "rootDir": "src",
     "testEnvironment": "node",
-    "testRegex": "\\.test\\.ts$",
+    "testRegex": "\\.test\\.tsx?$",
     "moduleNameMapper": {
+      "^@wlct/shared-types$": "<rootDir>/../../../packages/shared-types/src/index.ts",
+      "^@wlct/validation$": "<rootDir>/../../../packages/validation/src/index.ts",
       "^@/(.*)$": "<rootDir>/$1"
     },
     "transform": {
       "^.+\\.tsx?$": [
         "ts-jest",
         {
-          "isolatedModules": true
+          "isolatedModules": true,
+          "tsconfig": {
+            "jsx": "react-jsx"
+          }
         }
       ]
     }

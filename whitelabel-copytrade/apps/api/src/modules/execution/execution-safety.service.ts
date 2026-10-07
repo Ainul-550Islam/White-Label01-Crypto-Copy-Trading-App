@@ -1,3 +1,4 @@
+// # Centralizes platform, tenant, venue, symbol, and account kill-switch evaluation
 import { Injectable } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { AuditAction, AuditActorType, AuditOutcome } from '@wlct/shared-types';
@@ -242,6 +243,56 @@ export class ExecutionSafetyService {
       killSwitches,
       wouldTransmitLiveOrder: blockingReasons.length === 0,
       blockingReasons,
+    };
+  }
+
+  /**
+   * GAP-25: Centralized kill-switch hierarchy evaluation across platform (GLOBAL),
+   * tenant, venue (EXCHANGE), symbol (SYMBOL), strategy (STRATEGY), and account (ACCOUNT).
+   * Always fail-closed: any engaged switch in scope blocks order dispatch.
+   */
+  async evaluateOrderGate(params: {
+    tenantId: string;
+    venue?: string | null;
+    symbol?: string | null;
+    strategyId?: string | null;
+    accountId?: string | null;
+  }): Promise<{ allowed: boolean; blockingSwitches: KillSwitchView[]; reasons: string[] }> {
+    const rows = await this.prisma.killSwitch.findMany({
+      where: {
+        isEngaged: true,
+        OR: [
+          { tenantId: null, scope: 'GLOBAL' },
+          { tenantId: params.tenantId, scope: 'GLOBAL' },
+          ...(params.venue
+            ? [{ tenantId: params.tenantId, scope: 'EXCHANGE' as never, target: params.venue }]
+            : []),
+          ...(params.symbol
+            ? [{ tenantId: params.tenantId, scope: 'SYMBOL' as never, target: params.symbol }]
+            : []),
+          ...(params.strategyId
+            ? [{ tenantId: params.tenantId, scope: 'STRATEGY' as never, target: params.strategyId }]
+            : []),
+          ...(params.accountId
+            ? [{ tenantId: params.tenantId, scope: 'ACCOUNT' as never, target: params.accountId }]
+            : []),
+        ],
+      },
+      select: ExecutionSafetyService.SWITCH_SELECT,
+    });
+
+    const blockingSwitches = rows.map((r) => toKillSwitchView(r as KillSwitchRow));
+    const reasons = blockingSwitches.map(
+      (sw) =>
+        `${sw.scope} kill switch engaged${sw.target ? ` (${sw.target})` : ''}${
+          sw.reason ? `: ${sw.reason}` : ''
+        }`,
+    );
+
+    return {
+      allowed: blockingSwitches.length === 0,
+      blockingSwitches,
+      reasons,
     };
   }
 }

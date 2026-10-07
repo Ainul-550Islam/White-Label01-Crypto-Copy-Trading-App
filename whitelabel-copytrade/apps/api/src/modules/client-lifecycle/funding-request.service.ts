@@ -1,3 +1,4 @@
+// # Integrates deposit address provisioning and deposit status transitions
 import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ClientPolicyService } from './client-policy.service';

@@ -103,6 +103,7 @@ export function MfaEnrollFlow({ onSuccess, onCancel }: MfaEnrollProps): JSX.Elem
         <h3 className="text-lg font-semibold">Scan QR Code</h3>
         {qrUrl && (
           <div className="flex justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={qrUrl} alt="MFA QR Code" className="h-48 w-48" />
           </div>
         )}

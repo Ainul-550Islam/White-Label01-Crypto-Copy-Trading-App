@@ -353,4 +353,104 @@ export class CopyReconciliationService {
     ]);
     return { data, total };
   }
+
+  async getCustomerSubscriptionStatus(
+    tenantId: string,
+    subscriptionId: string,
+    followerId?: string | null,
+  ): Promise<{
+    subscriptionId: string;
+    status: 'SYNCED' | 'PENDING_REVIEW' | 'ATTENTION_REQUIRED';
+    unresolvedCount: number;
+    resolvedCount: number;
+    lastCheckedAt: string;
+    items: Array<{
+      id: string;
+      category: CopyReconciliationCategory;
+      severity: CopyReconciliationSeverity;
+      resolved: boolean;
+      createdAt: string;
+      leaderEventId: string;
+      executionId: string | null;
+      customerMessage: string;
+    }>;
+  } | null> {
+    const sub = await this.subscriptionRepo.findById(subscriptionId, tenantId);
+    if (!sub) return null;
+    if (followerId && sub.followerId !== followerId) return null;
+
+    const rows =
+      (await (this.prisma as any).copyReconciliationRecord?.findMany({
+        where: { tenantId, subscriptionId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      })) || [];
+
+    let unresolvedCount = 0;
+    let resolvedCount = 0;
+    let hasCriticalOrHigh = false;
+
+    const items = rows.map((row: any) => {
+      const resolved = Boolean(row.resolved);
+      if (resolved) resolvedCount += 1;
+      else {
+        unresolvedCount += 1;
+        if (row.severity === CopyReconciliationSeverity.CRITICAL || row.severity === CopyReconciliationSeverity.HIGH) {
+          hasCriticalOrHigh = true;
+        }
+      }
+      return {
+        id: String(row.id),
+        category: row.category as CopyReconciliationCategory,
+        severity: row.severity as CopyReconciliationSeverity,
+        resolved,
+        createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+        leaderEventId: String(row.leaderEventId ?? ''),
+        executionId: row.executionId ? String(row.executionId) : null,
+        customerMessage: this.describeCustomerAnomaly(row.category as CopyReconciliationCategory, resolved),
+      };
+    });
+
+    const status =
+      unresolvedCount === 0
+        ? 'SYNCED'
+        : hasCriticalOrHigh
+          ? 'ATTENTION_REQUIRED'
+          : 'PENDING_REVIEW';
+
+    return {
+      subscriptionId,
+      status,
+      unresolvedCount,
+      resolvedCount,
+      lastCheckedAt: rows[0]?.createdAt
+        ? rows[0].createdAt instanceof Date
+          ? rows[0].createdAt.toISOString()
+          : String(rows[0].createdAt)
+        : new Date().toISOString(),
+      items,
+    };
+  }
+
+  private describeCustomerAnomaly(category: CopyReconciliationCategory, resolved: boolean): string {
+    const suffix = resolved ? ' (resolved by reconciliation)' : ' (under automatic reconciliation review)';
+    switch (category) {
+      case CopyReconciliationCategory.MISSING_COPY:
+        return `A leader trade was not copied within the execution window${suffix}.`;
+      case CopyReconciliationCategory.DUPLICATE_COPY:
+        return `Duplicate copy intent detected and guarded${suffix}.`;
+      case CopyReconciliationCategory.STALE_INTENT:
+        return `Copy order intent remained pending longer than expected${suffix}.`;
+      case CopyReconciliationCategory.QUANTITY_MISMATCH:
+        return `Executed quantity differed from mapped copy quantity${suffix}.`;
+      case CopyReconciliationCategory.PRICE_MISMATCH:
+      case CopyReconciliationCategory.SLIPPAGE_EXCEEDED:
+        return `Execution price deviated beyond configured slippage tolerance${suffix}.`;
+      case CopyReconciliationCategory.STATUS_MISMATCH:
+      case CopyReconciliationCategory.ORDER_MISMATCH:
+        return `Order state synchronization check queued${suffix}.`;
+      default:
+        return `Copy execution verification check recorded${suffix}.`;
+    }
+  }
 }

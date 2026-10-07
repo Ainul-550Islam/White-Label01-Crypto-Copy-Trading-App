@@ -1,3 +1,4 @@
+// # Verifies deposit amount precision, confirmation thresholds, and idempotent credit
 import { BadRequestException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';

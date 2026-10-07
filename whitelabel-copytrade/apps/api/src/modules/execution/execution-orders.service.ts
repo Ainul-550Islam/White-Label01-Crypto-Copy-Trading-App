@@ -1,3 +1,4 @@
+// # Dispatches live orders to Python execution-engine or venue adapter when live trading gate is explicitly enabled; preserves fail-closed gate
 import { Injectable } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { AuditAction, AuditActorType, AuditOutcome } from '@wlct/shared-types';

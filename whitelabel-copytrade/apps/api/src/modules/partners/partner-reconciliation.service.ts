@@ -1,3 +1,4 @@
+// # Reconciles partner commission accruals against fee ledger and payout records
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PartnerReconciliationMismatchType } from './partner.types';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';

@@ -1,3 +1,4 @@
+// # Reconciles deposit/withdrawal requests against provider settlement records
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { deterministicIdempotencyKey } from './client-lifecycle.types';

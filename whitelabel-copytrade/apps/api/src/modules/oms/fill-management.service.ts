@@ -1,3 +1,4 @@
+// # Records partial and complete fills with precision-safe remaining quantity and average price tracking
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
@@ -216,6 +217,7 @@ export class FillManagementService {
 
     // Transition lifecycle
     const orderQty = intent.quantity?.toString() ?? order.quantity.toString();
+    const remainingQuantity = this.calculateRemainingQuantity(orderQty, cumulativeQuantity);
     if (isValidDecimal(orderQty) && isValidDecimal(cumulativeQuantity)) {
       const orderQtyScaled = parseScaled(orderQty);
       const cumQtyScaled = parseScaled(cumulativeQuantity);
@@ -232,22 +234,32 @@ export class FillManagementService {
           reason: `Fully filled ${cumulativeQuantity}/${orderQty} avg ${averagePrice}`,
           correlationId,
           timestampMicros: nowMicros,
+          metadata: { cumulativeQuantity, remainingQuantity: '0', averagePrice },
         });
-      } else if (isPartial && [OrderIntentState.ACKNOWLEDGED, OrderIntentState.SUBMITTED].includes(currentState as any)) {
+      } else if (isPartial && [OrderIntentState.ACKNOWLEDGED, OrderIntentState.SUBMITTED, OrderIntentState.PARTIALLY_FILLED].includes(currentState as any)) {
         await this.lifecycleService.transition({
           tenantId,
           intentId,
           toState: OrderIntentState.PARTIALLY_FILLED,
           source: 'FILL_MANAGEMENT',
-          reason: `Partially filled ${cumulativeQuantity}/${orderQty} avg ${averagePrice}`,
+          reason: `Partially filled ${cumulativeQuantity}/${orderQty} remaining ${remainingQuantity} avg ${averagePrice}`,
           correlationId,
           timestampMicros: nowMicros,
+          metadata: { cumulativeQuantity, remainingQuantity, averagePrice },
         });
       }
     }
 
-    this.logger.log(`Fill applied tenant ${tenantId} intent ${intentId} fill ${venueTradeId} qty ${quantity} price ${price} cumulative ${cumulativeQuantity}`);
-    return omsFill;
+    this.logger.log(`Fill applied tenant ${tenantId} intent ${intentId} fill ${venueTradeId} qty ${quantity} price ${price} cumulative ${cumulativeQuantity} remaining ${remainingQuantity}`);
+    return { ...omsFill, remainingQuantity };
+  }
+
+  calculateRemainingQuantity(orderQuantity: string, cumulativeQuantity: string): string {
+    if (!isValidDecimal(orderQuantity) || !isValidDecimal(cumulativeQuantity)) return '0';
+    const orderScaled = parseScaled(orderQuantity);
+    const cumScaled = parseScaled(cumulativeQuantity);
+    if (cumScaled >= orderScaled) return '0';
+    return formatScaled(orderScaled - cumScaled);
   }
 
   async getFillsForIntent(tenantId: string, intentId: string) {

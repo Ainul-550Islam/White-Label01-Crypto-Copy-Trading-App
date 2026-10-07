@@ -1,3 +1,4 @@
+// # Defines explicit VenueCapabilities matrix per venue
 /**
  * Canonical exchange domain types: venue, environment, connection state, capabilities, account state, symbols, balances, positions, orders, health, sync state, and safe references.
  * Never expose credentials inside domain types.
@@ -282,6 +283,149 @@ export interface ExchangeCapabilityDiscovery {
   symbolFormat: string;
   timestamp: string;
 }
+
+export interface VenueCapabilities {
+  venue: ExchangeVenue;
+  displayName: string;
+  spotSupported: boolean;
+  marginSupported: boolean;
+  futuresSupported: boolean;
+  perpetualsSupported: boolean;
+  supportedOrderTypes: ExchangeOrderType[];
+  liveReadSupported: boolean;
+  liveOrderExecutionGated: boolean;
+  paperSimulationSupported: boolean;
+  requiresPassphrase: boolean;
+  ipAllowlistRecommended: boolean;
+  withdrawalPermissionMustBeDisabled: boolean;
+  authenticationModel: string;
+}
+
+export const VENUE_CAPABILITIES_MATRIX: Record<ExchangeVenue, VenueCapabilities> = {
+  [ExchangeVenue.BINANCE]: {
+    venue: ExchangeVenue.BINANCE,
+    displayName: 'Binance',
+    spotSupported: true,
+    marginSupported: true,
+    futuresSupported: true,
+    perpetualsSupported: true,
+    supportedOrderTypes: [
+      ExchangeOrderType.MARKET,
+      ExchangeOrderType.LIMIT,
+      ExchangeOrderType.STOP,
+      ExchangeOrderType.STOP_LIMIT,
+      ExchangeOrderType.TAKE_PROFIT,
+      ExchangeOrderType.TAKE_PROFIT_LIMIT,
+      ExchangeOrderType.LIMIT_MAKER,
+    ],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: 'HMAC_SHA256',
+  },
+  [ExchangeVenue.BYBIT]: {
+    venue: ExchangeVenue.BYBIT,
+    displayName: 'Bybit V5',
+    spotSupported: true,
+    marginSupported: false,
+    futuresSupported: true,
+    perpetualsSupported: true,
+    supportedOrderTypes: [
+      ExchangeOrderType.MARKET,
+      ExchangeOrderType.LIMIT,
+      ExchangeOrderType.STOP,
+      ExchangeOrderType.STOP_LIMIT,
+    ],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: 'HMAC_SHA256',
+  },
+  [ExchangeVenue.OKX]: {
+    venue: ExchangeVenue.OKX,
+    displayName: 'OKX V5',
+    spotSupported: true,
+    marginSupported: true,
+    futuresSupported: true,
+    perpetualsSupported: true,
+    supportedOrderTypes: [
+      ExchangeOrderType.MARKET,
+      ExchangeOrderType.LIMIT,
+      ExchangeOrderType.STOP,
+      ExchangeOrderType.STOP_LIMIT,
+    ],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: true,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: 'HMAC_SHA256_PASSPHRASE',
+  },
+  [ExchangeVenue.KRAKEN]: {
+    venue: ExchangeVenue.KRAKEN,
+    displayName: 'Kraken',
+    spotSupported: true,
+    marginSupported: true,
+    futuresSupported: false,
+    perpetualsSupported: false,
+    supportedOrderTypes: [
+      ExchangeOrderType.MARKET,
+      ExchangeOrderType.LIMIT,
+      ExchangeOrderType.STOP,
+      ExchangeOrderType.STOP_LIMIT,
+    ],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: 'HMAC_SHA512_NONCE',
+  },
+  [ExchangeVenue.COINBASE]: {
+    venue: ExchangeVenue.COINBASE,
+    displayName: 'Coinbase Advanced Trade',
+    spotSupported: true,
+    marginSupported: false,
+    futuresSupported: false,
+    perpetualsSupported: true,
+    supportedOrderTypes: [
+      ExchangeOrderType.MARKET,
+      ExchangeOrderType.LIMIT,
+      ExchangeOrderType.STOP_LIMIT,
+    ],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: 'CDP_JWT_ES256_ED25519',
+  },
+  [ExchangeVenue.OTHER_CONFIGURED]: {
+    venue: ExchangeVenue.OTHER_CONFIGURED,
+    displayName: 'Custom Configured Venue',
+    spotSupported: false,
+    marginSupported: false,
+    futuresSupported: false,
+    perpetualsSupported: false,
+    supportedOrderTypes: [],
+    liveReadSupported: false,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: 'CUSTOM',
+  },
+};
 
 export interface ExchangeSyncResult {
   accountId: string;

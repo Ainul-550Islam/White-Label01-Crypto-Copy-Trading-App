@@ -1,3 +1,4 @@
+// # Verifies trader performance detail and trade breakdown client methods
 /**
  * Copy-trading, client-lifecycle and maintenance clients: mapping of the real
  * API records (the old types described fields the API never returned) and the
@@ -6,9 +7,14 @@
 import {
   composeTradingStatus,
   copyEligibility,
+  filterTradersByDiscovery,
+  parseCopyExecution,
+  parseCopyPolicy,
+  parseFollowerRiskPolicy,
   parseStrategy,
   parseSubscription,
   parseTrader,
+  parseTraderPerformance,
   permissionsAllowCopy,
 } from "../api/trading-api";
 import { parseOnboarding, reasonList } from "../api/client-lifecycle-api";
@@ -68,6 +74,117 @@ describe("trading-api mappers", () => {
     expect(() => parseTrader(null)).not.toThrow();
     expect(parseStrategy(undefined).status).toBe("DRAFT");
     expect(parseSubscription({}).allocationAmount).toBe("0");
+  });
+
+  test("parses canonical trader performance, copy policy, risk policy, and execution records (GAP-01)", () => {
+    const perf = parseTraderPerformance({
+      traderId: "tr-1",
+      tenantId: "t-1",
+      realizedPnl: "4820.25",
+      unrealizedPnl: "120.50",
+      maxDrawdown: "410.00",
+      winCount: 42,
+      lossCount: 18,
+      tradeCount: 60,
+      winRate: "0.7",
+      totalVolume: "250000",
+      profitFactor: "2.45",
+      historyLengthDays: 90,
+      isActual: true,
+      source: "FILLS",
+    });
+    expect(perf).toMatchObject({
+      traderId: "tr-1",
+      realizedPnl: "4820.25",
+      winCount: 42,
+      lossCount: 18,
+      tradeCount: 60,
+      winRate: "0.7",
+      isActual: true,
+      source: "FILLS",
+    });
+
+    const policy = parseCopyPolicy({
+      sizingMode: "FIXED",
+      fixedQuantity: "0.25",
+      slippageToleranceBps: 50,
+      executionDelayMs: 200,
+      takeProfitBps: 300,
+      stopLossBps: 150,
+      trailingStopBps: 75,
+    });
+    expect(policy).toMatchObject({
+      sizingMode: "FIXED",
+      fixedQuantity: "0.25",
+      slippageToleranceBps: 50,
+      executionDelayMs: 200,
+      takeProfitBps: 300,
+      stopLossBps: 150,
+      trailingStopBps: 75,
+    });
+
+    const risk = parseFollowerRiskPolicy({
+      maxDailyLoss: "500",
+      maxDrawdown: "15",
+      emergencyStopCopy: true,
+    });
+    expect(risk).toMatchObject({
+      maxDailyLoss: "500",
+      maxDrawdown: "15",
+      emergencyStopCopy: true,
+    });
+
+    const exec = parseCopyExecution({
+      id: "exec-1",
+      subscriptionId: "sub-1",
+      leaderEventId: "fill:1",
+      status: "ROUTED",
+      leaderQuantity: "1.0",
+      followerQuantity: "0.1",
+      riskDecision: "ALLOW",
+    });
+    expect(exec).toMatchObject({
+      executionId: "exec-1",
+      subscriptionId: "sub-1",
+      status: "ROUTED",
+      followerQuantity: "0.1",
+      riskDecision: "ALLOW",
+    });
+  });
+
+  test("filters and sorts traders by venue, symbol, win rate, drawdown, and volume (GAP-04)", () => {
+    const traders = [
+      parseTrader({
+        traderId: "tr-1",
+        displayName: "Alpha Quant",
+        verificationState: "VERIFIED",
+        supportedVenues: ["BINANCE"],
+        supportedSymbols: ["BTC-USDT", "ETH-USDT"],
+        followerCount: 45,
+        totalVolume: "500000",
+        totalTrades: 120,
+      }),
+      parseTrader({
+        traderId: "tr-2",
+        displayName: "Beta Swing",
+        verificationState: "UNVERIFIED",
+        supportedVenues: ["KRAKEN"],
+        supportedSymbols: ["SOL-USDT"],
+        followerCount: 15,
+        totalVolume: "900000",
+        totalTrades: 30,
+      }),
+    ];
+    const perfs = {
+      "tr-1": parseTraderPerformance({ traderId: "tr-1", realizedPnl: "8500", winRate: "0.68", maxDrawdown: "5" }),
+      "tr-2": parseTraderPerformance({ traderId: "tr-2", realizedPnl: "1200", winRate: "0.45", maxDrawdown: "22" }),
+    };
+
+    expect(filterTradersByDiscovery(traders, { venue: "BINANCE" }).map((t) => t.traderId)).toEqual(["tr-1"]);
+    expect(filterTradersByDiscovery(traders, { symbol: "SOL" }).map((t) => t.traderId)).toEqual(["tr-2"]);
+    expect(filterTradersByDiscovery(traders, { minWinRate: 60 }, perfs).map((t) => t.traderId)).toEqual(["tr-1"]);
+    expect(filterTradersByDiscovery(traders, { maxDrawdown: 10 }, perfs).map((t) => t.traderId)).toEqual(["tr-1"]);
+    expect(filterTradersByDiscovery(traders, { sortBy: "volume" }).map((t) => t.traderId)).toEqual(["tr-2", "tr-1"]);
   });
 });
 

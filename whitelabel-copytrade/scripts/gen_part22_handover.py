@@ -1,3 +1,4 @@
+# Updates handover generator to include all 50 resolved gaps
 """Part 22 - the deployment side of telemetry, generated from the side that publishes it.
 
 Generated, not written by hand, for the reason Part 15 established and Parts 16 to 21 repeated: a

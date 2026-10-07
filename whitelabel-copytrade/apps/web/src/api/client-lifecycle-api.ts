@@ -137,6 +137,40 @@ export const clientLifecycleApi = {
     return strOrNull(list[0]?.id);
   },
 
+  /**
+   * Creates the caller's own client profile when `externalIdentityRef` equals
+   * the signed-in user's id (permitted by ClientLifecycleController.createClient).
+   */
+  createOwnClientProfile: async (data: {
+    externalIdentityRef: string;
+    displayName?: string;
+    legalName?: string;
+    email?: string;
+    phone?: string;
+    countryCode?: string;
+  }): Promise<string> => {
+    const res = obj(
+      await apiClient.post<unknown>("/v1/client-lifecycle/clients", {
+        clientType: "CLIENT",
+        externalIdentityRef: data.externalIdentityRef,
+        ...(data.displayName ? { displayName: data.displayName } : {}),
+        ...(data.legalName ? { legalName: data.legalName } : {}),
+        ...(data.email ? { email: data.email } : {}),
+        ...(data.phone ? { phone: data.phone } : {}),
+        ...(data.countryCode ? { countryCode: data.countryCode } : {}),
+      }),
+    );
+    return str(res.id);
+  },
+
+  initiateOnboarding: async (clientProfileId: string): Promise<Onboarding | null> =>
+    parseOnboarding(
+      await apiClient.post<unknown>(
+        `/v1/client-lifecycle/clients/${encodeURIComponent(clientProfileId)}/onboarding`,
+        {},
+      ),
+    ),
+
   getOnboarding: async (clientProfileId: string): Promise<Onboarding | null> =>
     parseOnboarding(
       await apiClient.get<unknown>(`/v1/client-lifecycle/clients/${encodeURIComponent(clientProfileId)}/onboarding`),

@@ -1,3 +1,4 @@
+// # Renders platform/tenant/venue/symbol kill-switch toggles with mandatory reason and confirmation
 'use client';
 
 import { useState, useTransition, type CSSProperties } from 'react';

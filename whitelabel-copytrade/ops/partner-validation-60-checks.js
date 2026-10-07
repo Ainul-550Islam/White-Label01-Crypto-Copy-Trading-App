@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// # Integrates partner portal and commission ledger parity checks
 /**
  * Partner Validation 60 Checks
  * PART 26 Enterprise Partner / Reseller / Agency / Affiliate & Commission Control Plane

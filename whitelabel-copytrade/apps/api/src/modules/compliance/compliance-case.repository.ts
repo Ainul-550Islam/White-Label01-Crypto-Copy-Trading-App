@@ -1,3 +1,4 @@
+// # Persists compliance cases, notes, and decisions
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ComplianceCaseState, ComplianceCaseType, RiskLevel, ComplianceDecision } from './compliance.types';

@@ -1,3 +1,4 @@
+# Resolves KMS/Vault envelope credentials at runtime without caching plaintext to disk
 """The credential seam (Part 16): where key material comes from, and what this
 process is willing to say about it.
 

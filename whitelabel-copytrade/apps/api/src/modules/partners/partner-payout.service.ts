@@ -1,3 +1,4 @@
+// # Enforces minimum payout thresholds, hold periods, and idempotent settlement
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PartnerPayout, PartnerPayoutState, PARTNER_PAYOUT_TRANSITIONS, PartnerAuditAction, PartnerSettlementState } from './partner.types';
 import { PartnerAuditService } from './partner-audit.service';

@@ -1,3 +1,4 @@
+// # Implements compliance case state transitions and account restriction hooks
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ComplianceCaseRepository } from './compliance-case.repository';
 import { ComplianceAuditService } from './compliance-audit.service';

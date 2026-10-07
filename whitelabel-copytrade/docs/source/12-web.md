@@ -2,7 +2,7 @@
 
 The tenant-branded web client: BFF auth routes (login, refresh, two-factor, SSO start/callback, logout), the API proxy, and the copy-trading, portfolio, funding, strategies, billing and account screens, with their tests.
 
-182 files. Part of the complete source dump - see `docs/source/README.md`.
+187 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -54,8 +54,8 @@ FILE: apps/web/BUILD_VALIDATION.md
 npm run build --workspace=@wlct/web
 ```
 - Compiled successfully
-- 41 routes (static + dynamic)
-- Lint warnings only for <img> vs next/image (non-blocking)
+- 43 routes (static + dynamic)
+- 0 ESLint warnings, 0 errors
 
 ### Typecheck
 ```
@@ -67,7 +67,7 @@ npm run typecheck --workspace=@wlct/web
 ```
 npm run lint --workspace=@wlct/web
 ```
-- Pass with 2 warnings (img optimization)
+- Pass with 0 warnings and 0 errors
 
 ### 50 Deterministic Checks
 ```
@@ -139,7 +139,7 @@ node src/tests/run-50-checks.js
 - White-label CSS sanitized (only hex colors, safe URL, backend-sanitized)
 
 ### Routes
-/, /login, /onboarding, /dashboard, /portfolio, /portfolio/holdings, /portfolio/performance, /portfolio/attribution, /traders, /traders/:id, /strategies, /strategies/:id, /copy-trading, /exchanges, /exchanges/connect, /exchanges/:id, /funding, /funding/deposit, /funding/withdraw, /funding/history, /billing, /billing/plans, /billing/checkout, /billing/invoices, /billing/usage, /statements, /statements/:id, /security, /security/mfa, /security/sessions, /security/devices, /security/api-keys, /account, /account/profile, /account/relationships, /account/restrictions, /notifications, /notifications/preferences, /pricing, /terms, /privacy, /status
+/, /login, /register, /onboarding, /dashboard, /portfolio, /portfolio/holdings, /portfolio/performance, /portfolio/attribution, /traders, /traders/:id, /strategies, /strategies/:id, /copy-trading, /exchanges, /exchanges/connect, /exchanges/:id, /funding, /funding/deposit, /funding/withdraw, /funding/history, /billing, /billing/plans, /billing/checkout, /billing/invoices, /billing/usage, /statements, /statements/:id, /security, /security/mfa, /security/sessions, /security/devices, /security/api-keys, /account, /account/profile, /account/relationships, /account/restrictions, /notifications, /notifications/preferences, /pricing, /terms, /privacy, /status
 
 ### Structure Compliance
 - package.json, tsconfig.json, next.config.mjs, vite.config.ts (placeholder, Next.js authoritative), next-env.d.ts
@@ -386,6 +386,104 @@ export function getFocusableElements(container: HTMLElement): HTMLElement[] {
     container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
   ).filter((el) => !el.hasAttribute('disabled') && el.tabIndex !== -1);
 }
+```
+
+FILE: apps/web/src/api/account-api.ts
+
+```typescript
+import { apiClient } from './api-client';
+
+/**
+ * Customer Account & Profile API (/v1/users/me, /v1/auth/change-password).
+ *
+ * Every payload matches the backend DTOs (UpdateUserDto, ChangePasswordDto)
+ * because the API runs with whitelist + forbidNonWhitelisted.
+ */
+
+export type SupportedLocaleCode = 'en' | 'es' | 'ar' | 'bn' | 'tr';
+export type SupportedCurrencyCode = 'USD' | 'EUR' | 'GBP' | 'AED' | 'BDT' | 'TRY';
+
+export interface UserProfileRecord {
+  firstName: string | null;
+  lastName: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+  countryCode: string | null;
+  timezone: string;
+  locale: SupportedLocaleCode;
+  preferredCurrency: SupportedCurrencyCode;
+  marketingOptIn: boolean;
+}
+
+export interface UserRoleAssignment {
+  roleId: string;
+  key: string;
+  name: string;
+  scope: string;
+  tenantId: string | null;
+  assignedAt: string;
+  expiresAt: string | null;
+}
+
+export interface UserAccountDetail {
+  id: string;
+  tenantId: string;
+  email: string;
+  emailVerifiedAt: string | null;
+  phone: string | null;
+  phoneVerifiedAt: string | null;
+  status: string;
+  kycStatus: string;
+  isPlatformUser: boolean;
+  twoFactorEnabled: boolean;
+  lastLoginAt: string | null;
+  profile: UserProfileRecord | null;
+  roles: UserRoleAssignment[];
+  permissions: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateProfilePayload {
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+  phone?: string;
+  avatarUrl?: string;
+  bio?: string;
+  countryCode?: string;
+  timezone?: string;
+  locale?: SupportedLocaleCode;
+  preferredCurrency?: SupportedCurrencyCode;
+  marketingOptIn?: boolean;
+}
+
+export interface ChangePasswordPayload {
+  currentPassword: string;
+  newPassword: string;
+  revokeOtherSessions?: boolean;
+}
+
+export interface ChangePasswordResult {
+  changed: boolean;
+  sessionsRevoked: number;
+}
+
+export const accountApi = {
+  getMe: (): Promise<UserAccountDetail> =>
+    apiClient.get<UserAccountDetail>('/v1/users/me'),
+
+  updateProfile: (data: UpdateProfilePayload): Promise<UserAccountDetail> =>
+    apiClient.patch<UserAccountDetail>('/v1/users/me', data),
+
+  changePassword: (data: ChangePasswordPayload): Promise<ChangePasswordResult> =>
+    apiClient.post<ChangePasswordResult>('/v1/auth/change-password', {
+      currentPassword: data.currentPassword,
+      newPassword: data.newPassword,
+      revokeOtherSessions: data.revokeOtherSessions ?? true,
+    }),
+};
 ```
 
 FILE: apps/web/src/api/api-client.ts
@@ -822,6 +920,20 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+  locale?: 'en' | 'es' | 'ar' | 'bn' | 'tr';
+  referralCode?: string;
+  acceptedTerms: boolean;
+}
+
+export interface RegisterResponse {
+  redirectTo: string;
+}
+
 /** What /api/auth/login returns to the browser (never a token). */
 export interface LoginResponse {
   requiresMfa: boolean;
@@ -944,6 +1056,17 @@ export function toSessionResponse(me: MeResponse, config: PublicTenantConfig): S
 export const authApi = {
   login: (data: LoginRequest) =>
     apiClient.app.post<LoginResponse>('/api/auth/login', { email: data.email, password: data.password }),
+
+  register: (data: RegisterRequest) =>
+    apiClient.app.post<RegisterResponse>('/api/auth/register', {
+      email: data.email,
+      password: data.password,
+      ...(data.firstName ? { firstName: data.firstName } : {}),
+      ...(data.lastName ? { lastName: data.lastName } : {}),
+      ...(data.locale ? { locale: data.locale } : {}),
+      ...(data.referralCode ? { referralCode: data.referralCode } : {}),
+      acceptedTerms: data.acceptedTerms,
+    }),
 
   logout: () => apiClient.app.post<{ redirectTo: string }>('/api/auth/logout'),
 
@@ -1602,6 +1725,40 @@ export const clientLifecycleApi = {
     const list = rows(await apiClient.get<unknown>("/v1/client-lifecycle/clients", { searchParams: { limit: 1 } }));
     return strOrNull(list[0]?.id);
   },
+
+  /**
+   * Creates the caller's own client profile when `externalIdentityRef` equals
+   * the signed-in user's id (permitted by ClientLifecycleController.createClient).
+   */
+  createOwnClientProfile: async (data: {
+    externalIdentityRef: string;
+    displayName?: string;
+    legalName?: string;
+    email?: string;
+    phone?: string;
+    countryCode?: string;
+  }): Promise<string> => {
+    const res = obj(
+      await apiClient.post<unknown>("/v1/client-lifecycle/clients", {
+        clientType: "CLIENT",
+        externalIdentityRef: data.externalIdentityRef,
+        ...(data.displayName ? { displayName: data.displayName } : {}),
+        ...(data.legalName ? { legalName: data.legalName } : {}),
+        ...(data.email ? { email: data.email } : {}),
+        ...(data.phone ? { phone: data.phone } : {}),
+        ...(data.countryCode ? { countryCode: data.countryCode } : {}),
+      }),
+    );
+    return str(res.id);
+  },
+
+  initiateOnboarding: async (clientProfileId: string): Promise<Onboarding | null> =>
+    parseOnboarding(
+      await apiClient.post<unknown>(
+        `/v1/client-lifecycle/clients/${encodeURIComponent(clientProfileId)}/onboarding`,
+        {},
+      ),
+    ),
 
   getOnboarding: async (clientProfileId: string): Promise<Onboarding | null> =>
     parseOnboarding(
@@ -3813,10 +3970,10 @@ FILE: apps/web/src/app/account/page.tsx
 ```tsx
 'use client';
 import { AuthGuard } from '@/auth/auth.guard';
-import { ProfilePage } from '@/features/account/profile-page';
+import { AccountPage } from '@/features/account/account-page';
 import { AppShell } from '@/layout/app-shell';
 export default function Page(): JSX.Element {
-  return <AuthGuard><AppShell><ProfilePage /></AppShell></AuthGuard>;
+  return <AuthGuard><AppShell><AccountPage /></AppShell></AuthGuard>;
 }
 ```
 
@@ -4095,6 +4252,122 @@ export async function POST(): Promise<NextResponse> {
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'Session refresh failed.' } },
       { status: 401 }
+    );
+  }
+}
+```
+
+FILE: apps/web/src/app/api/auth/register/route.ts
+
+```typescript
+import { randomUUID } from 'node:crypto';
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { ApiError } from '@/lib/api-error';
+import { serverFetch } from '@/lib/server-api';
+import { persistSession } from '@/lib/session';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const bodySchema = z.object({
+  email: z.string().trim().email().max(254),
+  password: z.string().min(12).max(128),
+  firstName: z.string().trim().max(64).optional(),
+  lastName: z.string().trim().max(64).optional(),
+  locale: z.enum(['en', 'es', 'ar', 'bn', 'tr']).optional(),
+  referralCode: z.string().trim().max(32).optional(),
+  acceptedTerms: z.literal(true, {
+    errorMap: () => ({ message: 'You must accept the terms of service.' }),
+  }),
+});
+
+interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  refreshExpiresIn: number;
+}
+
+interface SessionPayload {
+  tokens: TokenPair;
+  user: { id: string; email: string };
+  sessionId: string;
+}
+
+export async function POST(request: Request): Promise<NextResponse> {
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json(
+      { success: false, error: { code: 'VALIDATION_ERROR', message: 'A JSON body is required.' } },
+      { status: 400 },
+    );
+  }
+
+  const parsed = bodySchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Please check the highlighted fields.',
+          details: parsed.error.issues.map((issue) => ({
+            field: issue.path.join('.'),
+            message: issue.message,
+          })),
+        },
+      },
+      { status: 400 },
+    );
+  }
+
+  const deviceId = `web-${randomUUID()}`;
+  const host = request.headers.get('host') ?? undefined;
+
+  try {
+    const result = await serverFetch<SessionPayload>('/auth/register', {
+      method: 'POST',
+      authenticated: false,
+      body: {
+        email: parsed.data.email,
+        password: parsed.data.password,
+        ...(parsed.data.firstName ? { firstName: parsed.data.firstName } : {}),
+        ...(parsed.data.lastName ? { lastName: parsed.data.lastName } : {}),
+        ...(parsed.data.locale ? { locale: parsed.data.locale } : {}),
+        ...(parsed.data.referralCode ? { referralCode: parsed.data.referralCode } : {}),
+        acceptedTerms: true,
+        deviceId,
+        deviceName: 'Customer Web',
+        platform: 'web',
+      },
+      host,
+    });
+
+    persistSession(result.tokens, deviceId, randomUUID());
+
+    return NextResponse.json(
+      {
+        success: true,
+        data: { redirectTo: '/onboarding' },
+      },
+      { status: 201 },
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, error: { code: error.code, message: error.message, details: error.details } },
+        { status: error.status },
+      );
+    }
+    return NextResponse.json(
+      {
+        success: false,
+        error: { code: 'INTERNAL_SERVER_ERROR', message: 'Registration failed. Please try again.' },
+      },
+      { status: 500 },
     );
   }
 }
@@ -5074,6 +5347,7 @@ FILE: apps/web/src/app/login/page.tsx
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { authApi } from '@/api/auth-api';
 import { ApiError } from '@/api/api-errors';
 import { MfaChallengeFlow } from '@/auth/mfa-flow';
@@ -5189,6 +5463,21 @@ export default function LoginPage(): JSX.Element {
         <div className="mt-4">
           <button type="button" onClick={handleSso} disabled={ssoLoading || loading} className="w-full rounded border px-4 py-2 text-sm font-medium disabled:opacity-50">{ssoLoading ? 'Redirecting...' : 'Sign in with single sign-on'}</button>
         </div>
+        <div className="mt-6 border-t pt-4 text-center text-xs text-muted">
+          <p>
+            New to {tenant?.branding?.appName ?? tenant?.name ?? 'the platform'}?{' '}
+            <Link href="/register" className="font-medium text-primary underline">
+              Create an account
+            </Link>
+          </p>
+          <div className="mt-3 flex justify-center gap-4">
+            <Link href="/" className="hover:underline">Home</Link>
+            <Link href="/pricing" className="hover:underline">Pricing</Link>
+            <Link href="/status" className="hover:underline">Status</Link>
+            <Link href="/terms" className="hover:underline">Terms</Link>
+            <Link href="/privacy" className="hover:underline">Privacy</Link>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -5235,19 +5524,24 @@ FILE: apps/web/src/app/page.tsx
 ```tsx
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
+import { LandingPage } from '@/features/landing/landing-page';
 
 export const dynamic = 'force-dynamic';
 
 export default function IndexPage(): JSX.Element {
   const cookieStore = cookies();
-  const hasSession = cookieStore.get('wlct_session') || cookieStore.get('access_token');
-  
-  // Tenant resolution is backend-authoritative, not from query param
-  // Landing page checks authenticated context
+  const hasSession =
+    cookieStore.get('wlct_session') ||
+    cookieStore.get('wlct_at') ||
+    cookieStore.get('access_token');
+
+  // Tenant resolution is backend-authoritative, not from query param.
+  // Authenticated sessions proceed directly to the customer dashboard;
+  // unauthenticated visitors see the tenant-branded public business site.
   if (hasSession) {
     redirect('/dashboard');
   }
-  redirect('/login');
+  return <LandingPage />;
 }
 ```
 
@@ -5306,25 +5600,279 @@ export default function Page(): JSX.Element {
 FILE: apps/web/src/app/pricing/page.tsx
 
 ```tsx
-import { redirect } from "next/navigation";
+'use client';
+
+import Link from 'next/link';
+import { useAuth } from '@/auth/auth.store';
+import { useTenant } from '@/tenant/tenant-context';
+import { PageContainer } from '@/layout/page-container';
+import { PlanComparison } from '@/features/billing/plan-comparison';
+
+const ENTITLEMENT_CATEGORIES = [
+  {
+    title: 'Copy Trading & Strategy Subscriptions',
+    detail:
+      'Follower subscriptions, leader-fill ingestion, proportional/fixed/percentage sizing, and missing-copy reconciliation governed by your organisation plan.',
+  },
+  {
+    title: 'Exchange Connectivity & Secret Management',
+    detail:
+      'Trade-only exchange account limits across Binance, Bybit, OKX, Kraken, and Coinbase with AES-256-GCM envelope encryption or Vault / AWS Secrets Manager storage.',
+  },
+  {
+    title: 'Portfolio Accounting & Verifiable Statements',
+    detail:
+      'Real-time NAV, realized/unrealized PnL, strategy attribution, and finalized period statement exports in CSV and JSON.',
+  },
+  {
+    title: 'Enterprise Security, SSO & Custom Domains',
+    detail:
+      'TOTP MFA, device trust, scoped API keys, OIDC/SAML Single Sign-On with Single Logout, and verified custom domain branding.',
+  },
+];
 
 /**
- * The plan catalogue is served by the authenticated billing portal
- * (subscription:read); there is no public pricing endpoint, so this entry
- * point forwards to the signed-in plans page instead of rendering a page whose
- * every request would be rejected.
+ * The live plan catalogue is served by the authenticated billing portal
+ * (/v1/billing/portal/plans, subscription:read). Signed-in customers see the
+ * live backend plan comparison directly; unauthenticated visitors see the
+ * entitlement & metering model with sign-in / registration actions (never
+ * hardcoded prices or plan limits).
  */
-export default function Page(): never {
-  redirect("/billing/plans");
+export default function PricingPage(): JSX.Element {
+  const { session } = useAuth();
+  const { tenant } = useTenant();
+  const brandName = tenant?.branding?.appName ?? tenant?.name ?? 'Copy Trading Platform';
+
+  return (
+    <PageContainer
+      title={`${brandName} Plans & Entitlements`}
+      description="Backend-authoritative subscription plans, feature entitlements, and usage meters"
+      actions={
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link href="/" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Home
+          </Link>
+          {session ? (
+            <Link href="/billing" className="rounded bg-primary px-3 py-1.5 text-white">
+              Billing Portal
+            </Link>
+          ) : (
+            <>
+              <Link href="/login" className="rounded border px-3 py-1.5 hover:bg-accent">
+                Sign In
+              </Link>
+              <Link href="/register" className="rounded bg-primary px-3 py-1.5 text-white">
+                Create Account
+              </Link>
+            </>
+          )}
+        </div>
+      }
+    >
+      <div className="space-y-6">
+        {session ? (
+          <div className="space-y-4">
+            <div className="rounded border bg-card p-4 text-xs text-muted">
+              Showing live plan catalogue and upgrade/downgrade eligibility for organisation{' '}
+              <strong className="text-foreground">{session.tenant.name}</strong>. All prices, trial periods, and
+              entitlement limits come directly from the billing portal API.
+            </div>
+            <PlanComparison />
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-card p-6 space-y-4">
+            <h2 className="text-base font-semibold">Organisation-Scoped Pricing Catalogue</h2>
+            <p className="text-sm text-muted leading-relaxed">
+              Plan pricing, billing intervals, trial windows, currency, and usage quotas are configured per
+              organisation on the backend and are never hardcoded in the browser. Sign in or create an account to
+              inspect the live plans published for your organisation and start a checkout session.
+            </p>
+            <div className="flex flex-wrap gap-3 pt-1">
+              <Link
+                href="/login"
+                className="rounded bg-primary px-4 py-2 text-sm font-medium text-white"
+              >
+                Sign In to View Live Plans
+              </Link>
+              <Link
+                href="/register"
+                className="rounded border px-4 py-2 text-sm font-medium hover:bg-accent"
+              >
+                Register New Account
+              </Link>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <h2 className="text-base font-semibold">What Plans Govern</h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {ENTITLEMENT_CATEGORIES.map((item) => (
+              <div key={item.title} className="rounded border bg-card p-4">
+                <h3 className="text-sm font-semibold">{item.title}</h3>
+                <p className="mt-1 text-xs text-muted leading-relaxed">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </PageContainer>
+  );
 }
 ```
 
 FILE: apps/web/src/app/privacy/page.tsx
 
 ```tsx
+'use client';
+
+import Link from 'next/link';
 import { PageContainer } from '@/layout/page-container';
-export default function Page(): JSX.Element {
-  return <PageContainer title="Privacy Policy"><p className="text-sm text-muted">Privacy content.</p></PageContainer>;
+import { useTenant } from '@/tenant/tenant-context';
+
+export default function PrivacyPage(): JSX.Element {
+  const { tenant } = useTenant();
+  const brandName = tenant?.branding?.appName ?? tenant?.name ?? 'Copy Trading Platform';
+  const supportEmail = tenant?.branding?.supportEmail;
+  const externalPrivacyUrl = tenant?.branding?.privacyUrl;
+
+  return (
+    <PageContainer
+      title="Privacy Policy & Data Governance"
+      description={`How ${brandName} collects, isolates, encrypts, retains, and governs personal and operational data`}
+      actions={
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link href="/" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Home
+          </Link>
+          <Link href="/terms" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Terms of Service
+          </Link>
+          <Link href="/login" className="rounded bg-primary px-3 py-1.5 text-white">
+            Sign In
+          </Link>
+        </div>
+      }
+    >
+      <div className="space-y-6 text-sm leading-relaxed">
+        {externalPrivacyUrl && (
+          <div className="rounded border bg-gray-50 p-4 text-xs">
+            <span className="font-medium">Organisation privacy addendum: </span>
+            <a
+              href={externalPrivacyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline"
+            >
+              {externalPrivacyUrl}
+            </a>
+          </div>
+        )}
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">1. Multi-Tenant Isolation &amp; Controller Scope</h2>
+          <p className="text-muted">
+            {brandName} operates on a strictly isolated multi-tenant architecture. Every customer profile, exchange
+            connection, subscription, portfolio statement, and audit event is bound to your organisation&apos;s
+            tenant identifier derived from the verified server-side session or domain host. PostgreSQL Row-Level
+            Security (RLS) and application-layer tenant predicates prevent cross-tenant data access.
+          </p>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">2. Categories of Data Processed</h2>
+          <ul className="list-disc pl-5 space-y-1 text-muted">
+            <li>
+              <strong className="text-foreground">Identity &amp; Account Profile:</strong> Email address, display
+              name, legal name, phone number (E.164), country/jurisdiction code, preferred locale, and currency.
+            </li>
+            <li>
+              <strong className="text-foreground">Authentication &amp; Device Security:</strong> Argon2id password
+              hashes, TOTP two-factor metadata, hashed recovery codes, OIDC/SAML Single Sign-On assertions, device
+              fingerprints, and active session records.
+            </li>
+            <li>
+              <strong className="text-foreground">Exchange Connectivity Metadata:</strong> Trade-only exchange API
+              credentials are encrypted at rest using AES-256-GCM envelope encryption with tenant-bound Additional
+              Authenticated Data (AAD) or stored in a dedicated secrets manager (HashiCorp Vault KV v2 / AWS Secrets
+              Manager). Plaintext credentials are never logged or returned to any client.
+            </li>
+            <li>
+              <strong className="text-foreground">Trading, Portfolio &amp; Accounting Records:</strong> Copy-trading
+              subscriptions, order intents, execution fills, daily equity snapshots, realized/unrealized PnL, and
+              finalized period statements required for financial reconciliation.
+            </li>
+            <li>
+              <strong className="text-foreground">Audit &amp; Telemetry Logs:</strong> Append-only security and
+              operational audit logs record privileged actions with SHA-256 hashed IP addresses and correlation IDs.
+              Client-side telemetry automatically redacts tokens, credentials, and personal identifiers before
+              transmission.
+            </li>
+          </ul>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">3. Cookies &amp; Session Storage</h2>
+          <p className="text-muted">
+            The web application uses strictly necessary <code className="font-mono text-xs">httpOnly</code> cookies
+            (<code className="font-mono text-xs">wlct_at</code>, <code className="font-mono text-xs">wlct_rt</code>,{' '}
+            <code className="font-mono text-xs">wlct_did</code>, and{' '}
+            <code className="font-mono text-xs">wlct_csrf</code>) to maintain authenticated sessions, bind refresh
+            token rotation to your device, and enforce Cross-Site Request Forgery (CSRF) protection on mutating
+            requests. Browser <code className="font-mono text-xs">localStorage</code> is restricted to non-sensitive
+            UI preferences and is cleared upon sign-out.
+          </p>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">4. Retention Policies &amp; Legal Hold Precedence</h2>
+          <p className="text-muted">
+            Data retention is governed by jurisdiction-aware retention policies configured in the platform&apos;s
+            Governance module. Regulated financial records, finalized accounting statements, compliance cases, and
+            append-only security audit trails are retained for the statutory period applicable to your jurisdiction.
+            When an active Legal Hold applies to an account or record set, automated retention purging and deletion
+            workflows are suspended until the hold is formally released by an authorized compliance reviewer.
+          </p>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">5. Data Subject Rights (Access, Export &amp; Deletion)</h2>
+          <p className="text-muted">
+            Subject to identity verification, regulatory retention obligations, and active legal holds, you may
+            request:
+          </p>
+          <ul className="list-disc pl-5 space-y-1 text-muted">
+            <li>
+              <strong className="text-foreground">Data Discovery &amp; Export:</strong> A deterministic,
+              cryptographically hashed inventory and export of your personal and account data held within your
+              organisation&apos;s tenant scope.
+            </li>
+            <li>
+              <strong className="text-foreground">Profile Rectification:</strong> Direct updates to your display
+              name, contact details, locale, and notification preferences via{' '}
+              <Link href="/account/profile" className="text-primary underline">
+                Account Profile
+              </Link>
+              .
+            </li>
+            <li>
+              <strong className="text-foreground">Erasure / Deletion Check:</strong> Evaluation and execution of
+              personal data deletion where no regulatory, financial reconciliation, or legal-hold blocker applies.
+            </li>
+          </ul>
+          {supportEmail && (
+            <p className="pt-2 text-xs text-muted">
+              For privacy inquiries or to submit a verified data subject request, contact your organisation at{' '}
+              <a href={`mailto:${supportEmail}`} className="text-primary underline">
+                {supportEmail}
+              </a>
+              .
+            </p>
+          )}
+        </section>
+      </div>
+    </PageContainer>
+  );
 }
 ```
 
@@ -5346,6 +5894,293 @@ export function Providers({ children }: { children: ReactNode }): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/app/register/page.tsx
+
+```tsx
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { authApi } from '@/api/auth-api';
+import { ApiError } from '@/api/api-errors';
+import { useAuth } from '@/auth/auth.store';
+import { useTenant } from '@/tenant/tenant-context';
+import { TenantLogo } from '@/tenant/tenant-branding';
+
+type SupportedLocale = 'en' | 'es' | 'ar' | 'bn' | 'tr';
+
+interface PasswordCheck {
+  label: string;
+  passed: boolean;
+}
+
+function evaluatePasswordRules(password: string, email: string): PasswordCheck[] {
+  const localPart = email.split('@')[0]?.trim().toLowerCase() ?? '';
+  const containsEmail =
+    localPart.length >= 3 && password.toLowerCase().includes(localPart);
+  return [
+    { label: 'At least 12 characters', passed: password.length >= 12 },
+    { label: 'At least one uppercase letter (A-Z)', passed: /[A-Z]/.test(password) },
+    { label: 'At least one lowercase letter (a-z)', passed: /[a-z]/.test(password) },
+    { label: 'At least one digit (0-9)', passed: /\d/.test(password) },
+    { label: 'At least one symbol (!@#$...)', passed: /[^A-Za-z0-9]/.test(password) },
+    { label: 'Does not contain your email username', passed: password.length > 0 && !containsEmail },
+  ];
+}
+
+export default function RegisterPage(): JSX.Element {
+  const [firstName, setFirstName] = useState<string>('');
+  const [lastName, setLastName] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [locale, setLocale] = useState<SupportedLocale>('en');
+  const [referralCode, setReferralCode] = useState<string>('');
+  const [acceptedTerms, setAcceptedTerms] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+
+  const router = useRouter();
+  const { refreshSession } = useAuth();
+  const { tenant } = useTenant();
+
+  const rules = evaluatePasswordRules(password, email);
+  const passwordValid = rules.every((r) => r.passed);
+  const canSubmit = Boolean(email.trim() && passwordValid && acceptedTerms && !loading);
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setLoading(true);
+    setError('');
+    setFieldErrors({});
+    try {
+      const res = await authApi.register({
+        email: email.trim(),
+        password,
+        ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
+        ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
+        locale,
+        ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
+        acceptedTerms,
+      });
+      await refreshSession();
+      router.push(res.redirectTo || '/onboarding');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.getUserMessage());
+        if (err.fieldErrors) {
+          setFieldErrors(err.fieldErrors);
+        }
+      } else {
+        setError('Account registration could not be completed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const brandName = tenant?.branding?.appName ?? tenant?.name ?? 'Copy Trading Platform';
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
+      <div className="w-full max-w-lg rounded-lg border bg-card p-6 shadow">
+        <div className="mb-6 text-center">
+          <TenantLogo className="mx-auto h-12 w-12 rounded" />
+          <h1 className="mt-3 text-xl font-bold">Create your {brandName} account</h1>
+          <p className="text-xs text-muted">
+            Non-custodial copy-trading account scoped to your organisation
+          </p>
+        </div>
+
+        <form onSubmit={handleRegister} className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-sm font-medium" htmlFor="register-first-name">
+                First name
+              </label>
+              <input
+                id="register-first-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                type="text"
+                maxLength={64}
+                autoComplete="given-name"
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                placeholder="First name"
+              />
+              {fieldErrors.firstName?.[0] && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.firstName[0]}</p>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium" htmlFor="register-last-name">
+                Last name
+              </label>
+              <input
+                id="register-last-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                type="text"
+                maxLength={64}
+                autoComplete="family-name"
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                placeholder="Last name"
+              />
+              {fieldErrors.lastName?.[0] && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.lastName[0]}</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium" htmlFor="register-email">
+              Work or personal email <span className="text-red-600">*</span>
+            </label>
+            <input
+              id="register-email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              type="email"
+              required
+              maxLength={254}
+              autoComplete="email"
+              className="mt-1 w-full rounded border px-3 py-2 text-sm"
+              placeholder="you@example.com"
+            />
+            {fieldErrors.email?.[0] && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.email[0]}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="text-sm font-medium" htmlFor="register-password">
+              Password <span className="text-red-600">*</span>
+            </label>
+            <input
+              id="register-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              required
+              minLength={12}
+              maxLength={128}
+              autoComplete="new-password"
+              className="mt-1 w-full rounded border px-3 py-2 text-sm"
+              placeholder="Minimum 12 characters"
+            />
+            {fieldErrors.password?.[0] && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.password[0]}</p>
+            )}
+            <ul className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+              {rules.map((rule) => (
+                <li
+                  key={rule.label}
+                  className={rule.passed ? 'text-green-700' : 'text-muted'}
+                >
+                  {rule.passed ? '✓' : '○'} {rule.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-sm font-medium" htmlFor="register-locale">
+                Preferred language
+              </label>
+              <select
+                id="register-locale"
+                value={locale}
+                onChange={(e) => setLocale(e.target.value as SupportedLocale)}
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+              >
+                <option value="en">English (EN)</option>
+                <option value="bn">বাংলা (BN)</option>
+                <option value="es">Español (ES)</option>
+                <option value="ar">العربية (AR)</option>
+                <option value="tr">Türkçe (TR)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium" htmlFor="register-referral">
+                Referral code (optional)
+              </label>
+              <input
+                id="register-referral"
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value)}
+                type="text"
+                maxLength={32}
+                className="mt-1 w-full rounded border px-3 py-2 font-mono text-sm"
+                placeholder="PARTNER-CODE"
+              />
+            </div>
+          </div>
+
+          <div className="rounded border bg-gray-50 p-3 text-xs">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                required
+                className="mt-0.5"
+              />
+              <span>
+                I accept the{' '}
+                <Link href="/terms" className="font-medium text-primary underline">
+                  Terms of Service &amp; Copy-Trading Risk Disclosure
+                </Link>{' '}
+                and acknowledge the{' '}
+                <Link href="/privacy" className="font-medium text-primary underline">
+                  Privacy Policy
+                </Link>
+                . I understand that this platform is non-custodial and requires trade-only exchange API keys.
+              </span>
+            </label>
+            {fieldErrors.acceptedTerms?.[0] && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.acceptedTerms[0]}</p>
+            )}
+          </div>
+
+          {error && (
+            <div className="rounded bg-red-50 p-2 text-xs text-red-700" role="alert">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="w-full rounded bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {loading ? 'Creating account...' : 'Create Account'}
+          </button>
+        </form>
+
+        <div className="mt-6 border-t pt-4 text-center text-xs text-muted">
+          <p>
+            Already have an account?{' '}
+            <Link href="/login" className="font-medium text-primary underline">
+              Sign in
+            </Link>
+          </p>
+          <div className="mt-3 flex justify-center gap-4">
+            <Link href="/" className="hover:underline">Home</Link>
+            <Link href="/pricing" className="hover:underline">Pricing</Link>
+            <Link href="/status" className="hover:underline">Status</Link>
+            <Link href="/terms" className="hover:underline">Terms</Link>
+            <Link href="/privacy" className="hover:underline">Privacy</Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
 FILE: apps/web/src/app/routes.tsx
 
 ```tsx
@@ -5353,6 +6188,7 @@ export const routes = {
   public: {
     landing: '/',
     login: '/login',
+    register: '/register',
     pricing: '/pricing',
     terms: '/terms',
     privacy: '/privacy',
@@ -5564,9 +6400,159 @@ export default function Page(): JSX.Element {
 FILE: apps/web/src/app/terms/page.tsx
 
 ```tsx
+'use client';
+
+import Link from 'next/link';
 import { PageContainer } from '@/layout/page-container';
-export default function Page(): JSX.Element {
-  return <PageContainer title="Terms of Service"><p className="text-sm text-muted">Terms content from backend or static legal.</p></PageContainer>;
+import { useTenant } from '@/tenant/tenant-context';
+
+export default function TermsPage(): JSX.Element {
+  const { tenant } = useTenant();
+  const brandName = tenant?.branding?.appName ?? tenant?.name ?? 'Copy Trading Platform';
+  const supportEmail = tenant?.branding?.supportEmail;
+  const externalTermsUrl = tenant?.branding?.termsUrl;
+
+  return (
+    <PageContainer
+      title="Terms of Service & Copy-Trading Risk Disclosure"
+      description={`Governing terms, non-custodial execution rules, and risk disclosures for ${brandName}`}
+      actions={
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link href="/" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Home
+          </Link>
+          <Link href="/privacy" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Privacy Policy
+          </Link>
+          <Link href="/login" className="rounded bg-primary px-3 py-1.5 text-white">
+            Sign In
+          </Link>
+        </div>
+      }
+    >
+      <div className="space-y-6 text-sm leading-relaxed">
+        {externalTermsUrl && (
+          <div className="rounded border bg-gray-50 p-4 text-xs">
+            <span className="font-medium">Organisation terms addendum: </span>
+            <a
+              href={externalTermsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline"
+            >
+              {externalTermsUrl}
+            </a>
+          </div>
+        )}
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">1. Non-Custodial Software Service</h2>
+          <p className="text-muted">
+            {brandName} is a non-custodial software-as-a-service (SaaS) copy-trading and portfolio accounting
+            platform. The platform does not take custody of your digital assets unless an explicit, licensed custody
+            adapter is enabled by your organisation. You retain direct ownership of your exchange accounts at all
+            times, and orders are routed strictly through trade-only API credentials that you authorize.
+          </p>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">2. Copy-Trading Risk Disclosure &amp; No Investment Advice</h2>
+          <p className="text-muted">
+            Digital asset trading and automated copy trading involve substantial risk of loss and are not suitable
+            for every participant. By subscribing to a trader or strategy on {brandName}, you expressly acknowledge:
+          </p>
+          <ul className="list-disc pl-5 space-y-1 text-muted">
+            <li>
+              <strong className="text-foreground">No Financial or Investment Advice:</strong> Trader profiles,
+              strategy descriptions, rankings, and historical attribution metrics are provided for informational
+              purposes only and never constitute personalized investment, legal, or tax advice.
+            </li>
+            <li>
+              <strong className="text-foreground">Execution &amp; Market Variance:</strong> Follower fills may differ
+              from leader fills due to market liquidity, exchange rate limits, minimum notional rules, symbol
+              availability, latency, or pre-trade risk rejections.
+            </li>
+            <li>
+              <strong className="text-foreground">Verifiable Performance Only:</strong> The platform never fabricates
+              or simulates trading returns. Where a valuation price or FX rate is stale or unavailable, the
+              portfolio and statement views explicitly report <code className="font-mono text-xs">STALE</code>,{' '}
+              <code className="font-mono text-xs">MISSING_PRICE</code>, or{' '}
+              <code className="font-mono text-xs">MISSING_FX</code> rather than an estimated figure.
+            </li>
+          </ul>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">3. Exchange API Credential Obligations</h2>
+          <ul className="list-disc pl-5 space-y-1 text-muted">
+            <li>
+              You must configure your exchange API keys with <strong className="text-foreground">trade-only</strong>{' '}
+              and <strong className="text-foreground">read</strong> permissions. Keys with withdrawal or transfer
+              permissions are strictly prohibited.
+            </li>
+            <li>
+              Where supported by your venue (Binance, Bybit, OKX, Kraken, Coinbase), you should bind your API key to
+              the platform&apos;s designated egress IP allowlist.
+            </li>
+            <li>
+              You may disable, rotate, or revoke your exchange connection at any time from the{' '}
+              <Link href="/exchanges" className="text-primary underline">
+                Exchange Accounts
+              </Link>{' '}
+              console.
+            </li>
+          </ul>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">4. Pre-Trade Risk Controls, Kill Switches &amp; Maintenance</h2>
+          <p className="text-muted">
+            Every copy-trading order intent is evaluated by the backend risk engine against day-start-equity daily
+            loss limits, intraday drawdown thresholds, maximum position sizing, and venue capability checks. The
+            platform or your organisation&apos;s risk administrators may activate global, tenant, strategy, symbol,
+            or follower kill switches or scheduled/emergency maintenance windows that pause order routing to protect
+            customer accounts.
+          </p>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">5. Compliance, Account Restrictions &amp; Funding</h2>
+          <p className="text-muted">
+            Access to trading and funding features requires completion of your organisation&apos;s onboarding and
+            KYC/AML verification workflow. Compliance or risk officers may apply authoritative restrictions (such as{' '}
+            <code className="font-mono text-xs">NO_TRADING</code>,{' '}
+            <code className="font-mono text-xs">NO_WITHDRAWAL</code>, or{' '}
+            <code className="font-mono text-xs">ACCOUNT_LOCKED</code>) when required by policy or regulatory review.
+            Funding and withdrawal requests transition through explicit backend verification states — a requested or
+            approved withdrawal is never treated as settled until confirmed by the settlement provider.
+          </p>
+        </section>
+
+        <section className="rounded border bg-card p-5 space-y-2">
+          <h2 className="text-base font-semibold">6. Subscriptions, Billing &amp; Taxes</h2>
+          <p className="text-muted">
+            Subscription plans, usage meters, trial windows, and invoices are governed by the authoritative billing
+            catalog for your organisation. Applicable value-added tax (VAT) or sales tax is calculated from your
+            organisation&apos;s verified tax profile and jurisdiction rules. You may review your active plan,
+            entitlements, and invoices at any time under{' '}
+            <Link href="/billing" className="text-primary underline">
+              Billing
+            </Link>
+            .
+          </p>
+          {supportEmail && (
+            <p className="pt-2 text-xs text-muted">
+              Questions regarding these Terms of Service may be directed to{' '}
+              <a href={`mailto:${supportEmail}`} className="text-primary underline">
+                {supportEmail}
+              </a>
+              .
+            </p>
+          )}
+        </section>
+      </div>
+    </PageContainer>
+  );
 }
 ```
 
@@ -5790,6 +6776,9 @@ export interface User {
   displayName?: string;
   avatarUrl?: string;
   mfaEnabled?: boolean;
+  status?: string;
+  emailVerified?: boolean;
+  isPlatformUser?: boolean;
 }
 
 export interface Session {
@@ -5930,6 +6919,7 @@ export function MfaEnrollFlow({ onSuccess, onCancel }: MfaEnrollProps): JSX.Elem
         <h3 className="text-lg font-semibold">Scan QR Code</h3>
         {qrUrl && (
           <div className="flex justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={qrUrl} alt="MFA QR Code" className="h-48 w-48" />
           </div>
         )}
@@ -6908,46 +7898,122 @@ FILE: apps/web/src/features/account/account-page.tsx
 ```tsx
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { clientLifecycleApi } from "@/api/client-lifecycle-api";
+import { useAuth } from "@/auth/auth.store";
 import { PageContainer } from "@/layout/page-container";
 import { StatusBadge } from "@/components/status-badge";
 import { LoadingState } from "@/components/loading-state";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 
+const ACCOUNT_SECTIONS = [
+  {
+    title: "Profile & Password",
+    href: "/account/profile",
+    description: "Update display name, phone, regional locale, and account password.",
+  },
+  {
+    title: "Onboarding Workflow",
+    href: "/onboarding",
+    description: "Inspect or initiate your client-lifecycle onboarding steps and blockers.",
+  },
+  {
+    title: "Authorized Relationships",
+    href: "/account/relationships",
+    description: "Review trader, follower, and strategy relationships within your tenant.",
+  },
+  {
+    title: "Account Restrictions",
+    href: "/account/restrictions",
+    description: "Inspect active compliance or risk restrictions on your accounts.",
+  },
+];
+
 /** The caller's accounts (there is no accounts/current route; the list is scoped to the caller). */
 export function AccountPage(): JSX.Element {
+  const { session } = useAuth();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["account", "institutional"],
     queryFn: () => clientLifecycleApi.listAccounts(),
   });
   const accounts = data ?? [];
   return (
-    <PageContainer title="Institutional Account" description="Account overview, status, restrictions">
-      {isLoading ? (
-        <LoadingState />
-      ) : error ? (
-        <ErrorState error={error} onRetry={() => void refetch()} />
-      ) : accounts.length === 0 ? (
-        <EmptyState title="No account yet" description="Your account appears here once onboarding opens it." />
-      ) : (
-        <div className="space-y-3">
-          {accounts.map((a) => (
-            <div key={a.id} className="space-y-2 rounded border bg-card p-4 text-sm">
-              <p>
-                <span className="font-medium">{a.displayName}</span>{" "}
-                <span className="text-xs text-muted">({a.accountType.toLowerCase()})</span>
+    <PageContainer
+      title="Account Center"
+      description="Institutional trading accounts, profile settings, relationships, and restrictions"
+      actions={
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link href="/account/profile" className="rounded bg-primary px-3 py-1.5 text-white">
+            Edit Profile &amp; Password
+          </Link>
+          <Link href="/security" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Security &amp; MFA
+          </Link>
+        </div>
+      }
+    >
+      <div className="space-y-6">
+        <div className="rounded border bg-card p-4 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="font-semibold">{session?.user.displayName ?? session?.user.email}</p>
+              <p className="text-xs text-muted">
+                {session?.user.email} · Organisation: {session?.tenant.name} · Roles:{" "}
+                {session?.user.roles.join(", ")}
               </p>
-              <div className="flex flex-wrap gap-2">
-                <StatusBadge status={a.state} />
-                {a.complianceStatus && <StatusBadge status={a.complianceStatus} />}
-                {a.riskStatus && <StatusBadge status={a.riskStatus} />}
-              </div>
             </div>
+            <StatusBadge status={session?.user.status ?? "ACTIVE"} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {ACCOUNT_SECTIONS.map((sec) => (
+            <Link
+              key={sec.href}
+              href={sec.href}
+              className="rounded border bg-card p-4 hover:shadow transition-shadow"
+            >
+              <h3 className="text-sm font-semibold text-primary">{sec.title}</h3>
+              <p className="mt-1 text-xs text-muted">{sec.description}</p>
+            </Link>
           ))}
         </div>
-      )}
+
+        <div className="space-y-3">
+          <h2 className="text-base font-semibold">Institutional &amp; Trading Accounts</h2>
+          {isLoading ? (
+            <LoadingState />
+          ) : error ? (
+            <ErrorState error={error} onRetry={() => void refetch()} />
+          ) : accounts.length === 0 ? (
+            <EmptyState
+              title="No account yet"
+              description="Your account appears here once onboarding opens it."
+              action={{ label: "Go to Onboarding", href: "/onboarding" }}
+            />
+          ) : (
+            <div className="space-y-3">
+              {accounts.map((a) => (
+                <div key={a.id} className="space-y-2 rounded border bg-card p-4 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p>
+                      <span className="font-medium">{a.displayName}</span>{" "}
+                      <span className="text-xs text-muted">({a.accountType.toLowerCase()})</span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <StatusBadge status={a.state} />
+                      {a.complianceStatus && <StatusBadge status={a.complianceStatus} />}
+                      {a.riskStatus && <StatusBadge status={a.riskStatus} />}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </PageContainer>
   );
 }
@@ -6957,18 +8023,423 @@ FILE: apps/web/src/features/account/profile-page.tsx
 
 ```tsx
 'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  accountApi,
+  type SupportedCurrencyCode,
+  type SupportedLocaleCode,
+} from '@/api/account-api';
+import { ApiError } from '@/api/api-errors';
 import { useAuth } from '@/auth/auth.store';
 import { PageContainer } from '@/layout/page-container';
+import { StatusBadge } from '@/components/status-badge';
+import { LoadingState } from '@/components/loading-state';
+import { ErrorState } from '@/components/error-state';
+
 export function ProfilePage(): JSX.Element {
-  const { session } = useAuth();
+  const { session, refreshSession } = useAuth();
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['users', 'me'],
+    queryFn: () => accountApi.getMe(),
+    enabled: Boolean(session),
+  });
+
+  const [firstName, setFirstName] = useState<string>('');
+  const [lastName, setLastName] = useState<string>('');
+  const [displayName, setDisplayName] = useState<string>('');
+  const [phone, setPhone] = useState<string>('');
+  const [bio, setBio] = useState<string>('');
+  const [countryCode, setCountryCode] = useState<string>('');
+  const [timezone, setTimezone] = useState<string>('UTC');
+  const [locale, setLocale] = useState<SupportedLocaleCode>('en');
+  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrencyCode>('USD');
+  const [marketingOptIn, setMarketingOptIn] = useState<boolean>(false);
+
+  const [savingProfile, setSavingProfile] = useState<boolean>(false);
+  const [profileNotice, setProfileNotice] = useState<string>('');
+  const [profileError, setProfileError] = useState<string>('');
+
+  const [currentPassword, setCurrentPassword] = useState<string>('');
+  const [newPassword, setNewPassword] = useState<string>('');
+  const [revokeOtherSessions, setRevokeOtherSessions] = useState<boolean>(true);
+  const [changingPassword, setChangingPassword] = useState<boolean>(false);
+  const [passwordNotice, setPasswordNotice] = useState<string>('');
+  const [passwordError, setPasswordError] = useState<string>('');
+
+  useEffect(() => {
+    if (!data) return;
+    setFirstName(data.profile?.firstName ?? '');
+    setLastName(data.profile?.lastName ?? '');
+    setDisplayName(data.profile?.displayName ?? '');
+    setPhone(data.phone ?? '');
+    setBio(data.profile?.bio ?? '');
+    setCountryCode(data.profile?.countryCode ?? '');
+    setTimezone(data.profile?.timezone ?? 'UTC');
+    setLocale(data.profile?.locale ?? 'en');
+    setPreferredCurrency(data.profile?.preferredCurrency ?? 'USD');
+    setMarketingOptIn(Boolean(data.profile?.marketingOptIn));
+  }, [data]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingProfile(true);
+    setProfileNotice('');
+    setProfileError('');
+    try {
+      await accountApi.updateProfile({
+        ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
+        ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
+        ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
+        ...(phone.trim() ? { phone: phone.trim() } : {}),
+        ...(bio.trim() ? { bio: bio.trim() } : {}),
+        ...(countryCode.trim() ? { countryCode: countryCode.trim().toUpperCase() } : {}),
+        ...(timezone.trim() ? { timezone: timezone.trim() } : {}),
+        locale,
+        preferredCurrency,
+        marketingOptIn,
+      });
+      await queryClient.invalidateQueries({ queryKey: ['users', 'me'] });
+      await refreshSession();
+      setProfileNotice('Profile updated.');
+    } catch (err) {
+      setProfileError(
+        err instanceof ApiError ? err.getUserMessage() : 'Could not update profile.',
+      );
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setChangingPassword(true);
+    setPasswordNotice('');
+    setPasswordError('');
+    try {
+      const res = await accountApi.changePassword({
+        currentPassword,
+        newPassword,
+        revokeOtherSessions,
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setPasswordNotice(
+        `Password changed.${res.sessionsRevoked > 0 ? ` ${res.sessionsRevoked} other session(s) signed out.` : ''}`,
+      );
+    } catch (err) {
+      setPasswordError(
+        err instanceof ApiError ? err.getUserMessage() : 'Could not change password.',
+      );
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
-    <PageContainer title="Profile" description="Customer profile from backend">
-      <div className="rounded border bg-card p-4">
-        <p className="text-sm">Email: {session?.user.email}</p>
-        <p className="text-sm">Display Name: {session?.user.displayName ?? 'Not set'}</p>
-        <p className="text-sm">Tenant: {session?.tenant.name}</p>
-        <p className="text-sm">Roles: {session?.user.roles.join(', ')}</p>
-      </div>
+    <PageContainer
+      title="Profile & Account Credentials"
+      description="Customer profile and password settings from backend"
+      actions={
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link href="/account" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Account Overview
+          </Link>
+          <Link href="/account/relationships" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Relationships
+          </Link>
+          <Link href="/account/restrictions" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Restrictions
+          </Link>
+          <Link href="/security" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Security &amp; MFA
+          </Link>
+        </div>
+      }
+    >
+      {isLoading ? (
+        <LoadingState />
+      ) : error ? (
+        <ErrorState error={error} onRetry={() => void refetch()} />
+      ) : (
+        <div className="space-y-6">
+          <div className="rounded border bg-card p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">Identity &amp; Organisation Summary</h2>
+                <p className="text-xs text-muted">
+                  Authoritative session context for {session?.tenant.name}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge status={data?.status ?? session?.user.status ?? 'ACTIVE'} />
+                {data?.kycStatus && <StatusBadge status={`KYC: ${data.kycStatus}`} variant="info" />}
+                <StatusBadge
+                  status={data?.twoFactorEnabled ? 'MFA ENABLED' : 'MFA DISABLED'}
+                  variant={data?.twoFactorEnabled ? 'success' : 'warning'}
+                />
+              </div>
+            </div>
+            <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <dt className="text-xs text-muted">Email</dt>
+                <dd className="font-medium">{data?.email ?? session?.user.email}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted">Display Name</dt>
+                <dd className="font-medium">
+                  {data?.profile?.displayName ?? session?.user.displayName ?? 'Not set'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted">Tenant</dt>
+                <dd className="font-medium">{session?.tenant.name}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted">Roles</dt>
+                <dd className="font-medium">{session?.user.roles.join(', ')}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <form onSubmit={handleSaveProfile} className="space-y-4 rounded border bg-card p-5">
+              <div>
+                <h3 className="text-sm font-semibold">Personal &amp; Regional Preferences</h3>
+                <p className="text-xs text-muted">
+                  Updates your profile via PATCH /v1/users/me
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium" htmlFor="profile-first-name">
+                    First Name
+                  </label>
+                  <input
+                    id="profile-first-name"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    maxLength={64}
+                    className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium" htmlFor="profile-last-name">
+                    Last Name
+                  </label>
+                  <input
+                    id="profile-last-name"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    maxLength={64}
+                    className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium" htmlFor="profile-display-name">
+                    Display Name
+                  </label>
+                  <input
+                    id="profile-display-name"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    maxLength={64}
+                    className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium" htmlFor="profile-phone">
+                    Phone (E.164, e.g. +8801712345678)
+                  </label>
+                  <input
+                    id="profile-phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+8801712345678"
+                    className="mt-1 w-full rounded border px-3 py-1.5 font-mono text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="text-xs font-medium" htmlFor="profile-country">
+                    Country (ISO-2)
+                  </label>
+                  <input
+                    id="profile-country"
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                    maxLength={2}
+                    placeholder="BD"
+                    className="mt-1 w-full rounded border px-3 py-1.5 font-mono text-sm uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium" htmlFor="profile-locale">
+                    Language
+                  </label>
+                  <select
+                    id="profile-locale"
+                    value={locale}
+                    onChange={(e) => setLocale(e.target.value as SupportedLocaleCode)}
+                    className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                  >
+                    <option value="en">English (en)</option>
+                    <option value="bn">বাংলা (bn)</option>
+                    <option value="es">Español (es)</option>
+                    <option value="ar">العربية (ar)</option>
+                    <option value="tr">Türkçe (tr)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium" htmlFor="profile-currency">
+                    Display Currency
+                  </label>
+                  <select
+                    id="profile-currency"
+                    value={preferredCurrency}
+                    onChange={(e) => setPreferredCurrency(e.target.value as SupportedCurrencyCode)}
+                    className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="AED">AED</option>
+                    <option value="BDT">BDT</option>
+                    <option value="TRY">TRY</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium" htmlFor="profile-timezone">
+                  Timezone
+                </label>
+                <input
+                  id="profile-timezone"
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  maxLength={64}
+                  placeholder="Asia/Dhaka"
+                  className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium" htmlFor="profile-bio">
+                  Bio (optional)
+                </label>
+                <textarea
+                  id="profile-bio"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  maxLength={500}
+                  rows={2}
+                  className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={marketingOptIn}
+                  onChange={(e) => setMarketingOptIn(e.target.checked)}
+                />
+                <span>Receive product and strategy announcements from my organisation</span>
+              </label>
+
+              {profileError && (
+                <div className="rounded bg-red-50 p-2 text-xs text-red-700">{profileError}</div>
+              )}
+              {profileNotice && (
+                <div className="rounded bg-green-50 p-2 text-xs text-green-800">{profileNotice}</div>
+              )}
+
+              <button
+                type="submit"
+                disabled={savingProfile}
+                className="rounded bg-primary px-4 py-2 text-xs font-medium text-white disabled:opacity-50"
+              >
+                {savingProfile ? 'Saving...' : 'Save Profile Changes'}
+              </button>
+            </form>
+
+            <form onSubmit={handleChangePassword} className="space-y-4 rounded border bg-card p-5">
+              <div>
+                <h3 className="text-sm font-semibold">Change Password</h3>
+                <p className="text-xs text-muted">
+                  Requires your current password and a new 12+ character password with upper, lower, digit, and symbol.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium" htmlFor="current-password">
+                  Current Password
+                </label>
+                <input
+                  id="current-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium" htmlFor="new-password">
+                  New Password (min 12 chars)
+                </label>
+                <input
+                  id="new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  minLength={12}
+                  maxLength={128}
+                  className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={revokeOtherSessions}
+                  onChange={(e) => setRevokeOtherSessions(e.target.checked)}
+                />
+                <span>Sign out all other devices after changing password</span>
+              </label>
+
+              {passwordError && (
+                <div className="rounded bg-red-50 p-2 text-xs text-red-700">{passwordError}</div>
+              )}
+              {passwordNotice && (
+                <div className="rounded bg-green-50 p-2 text-xs text-green-800">{passwordNotice}</div>
+              )}
+
+              <button
+                type="submit"
+                disabled={changingPassword || !currentPassword || newPassword.length < 12}
+                className="rounded bg-primary px-4 py-2 text-xs font-medium text-white disabled:opacity-50"
+              >
+                {changingPassword ? 'Updating Password...' : 'Update Password'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </PageContainer>
   );
 }
@@ -8454,32 +9925,84 @@ FILE: apps/web/src/features/exchanges/exchange-accounts-page.tsx
  * Security: Never exposes exchange secrets, only backend-verified status
  */
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { exchangeApi } from '@/api/exchange-api';
 import { PageContainer } from '@/layout/page-container';
 import { StatusBadge } from '@/components/status-badge';
 import { LoadingState } from '@/components/loading-state';
 import { EmptyState } from '@/components/empty-state';
 import { ErrorState } from '@/components/error-state';
-import Link from 'next/link';
+import { ExchangeSecurityWarning } from './exchange-security-warning';
+
 export function ExchangeAccountsPage(): JSX.Element {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['exchanges', 'accounts'],
     queryFn: () => exchangeApi.listAccounts(),
   });
+  const accounts = data?.data ?? [];
+
   return (
-    <PageContainer title="Exchange Accounts" description="Customer exchange-account list, no secret exposure" actions={<Link href="/exchanges/connect" className="rounded bg-primary px-4 py-2 text-sm text-white">Connect Exchange</Link>}>
-      {isLoading ? <LoadingState /> : error ? <ErrorState error={error} onRetry={() => refetch()} /> : (data?.data.length===0 ? <EmptyState title="No exchange accounts" description="Connect your exchange to start trading" action={{ label: 'Connect', href: '/exchanges/connect' }} /> :
-        <div className="grid gap-4 md:grid-cols-2">
-          {(data?.data ?? []).map((a) => (
-            <Link key={a.id} href={`/exchanges/${a.id}`} className="rounded border bg-card p-4 hover:shadow">
-              <div className="flex justify-between"><span className="font-medium">{a.exchange}</span><StatusBadge status={a.health} /></div>
-              <p className="text-xs text-muted">{a.label ?? a.id} | {a.environment} | Status: {a.status}</p>
-              {a.maskedApiKey && <p className="font-mono text-xs text-muted">{a.maskedApiKey}</p>}
-              <p className="text-xs">Trading: {a.tradingEnabled ? 'Enabled' : 'Disabled'}</p>
-            </Link>
-          ))}
+    <PageContainer
+      title="Exchange Accounts"
+      description="Customer exchange-account list, no secret exposure"
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="rounded border px-3 py-2 text-xs hover:bg-accent"
+          >
+            Refresh Status
+          </button>
+          <Link href="/exchanges/connect" className="rounded bg-primary px-4 py-2 text-sm text-white">
+            Connect Exchange
+          </Link>
         </div>
-      )}
+      }
+    >
+      <div className="space-y-6">
+        <ExchangeSecurityWarning />
+
+        {isLoading ? (
+          <LoadingState />
+        ) : error ? (
+          <ErrorState error={error} onRetry={() => void refetch()} />
+        ) : accounts.length === 0 ? (
+          <EmptyState
+            title="No exchange accounts"
+            description="Connect your exchange to start trading"
+            action={{ label: 'Connect', href: '/exchanges/connect' }}
+          />
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {accounts.map((a) => (
+              <Link
+                key={a.id}
+                href={`/exchanges/${a.id}`}
+                className="rounded border bg-card p-4 hover:shadow transition-shadow space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">{a.exchange}</span>
+                  <div className="flex gap-1.5">
+                    <StatusBadge status={a.status} />
+                    <StatusBadge status={a.health} />
+                  </div>
+                </div>
+                <p className="text-xs text-muted">
+                  {a.label ?? a.id} · Environment: {a.environment}
+                </p>
+                {a.maskedApiKey && (
+                  <p className="font-mono text-xs text-muted">Key: {a.maskedApiKey}</p>
+                )}
+                <div className="flex items-center justify-between pt-1 text-xs">
+                  <span>Trading: {a.tradingEnabled ? 'Enabled' : 'Disabled'}</span>
+                  <span className="text-primary underline">Manage connection →</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
     </PageContainer>
   );
 }
@@ -8490,13 +10013,13 @@ FILE: apps/web/src/features/exchanges/exchange-security-warning.tsx
 ```tsx
 export function ExchangeSecurityWarning(): JSX.Element {
   return (
-    <div className="rounded border border-yellow-200 bg-yellow-50 p-3 text-xs text-yellow-800">
-      <p className="font-medium">Security Notice</p>
-      <ul className="mt-1 list-disc pl-4">
-        <li>Never share your API secret or private keys</li>
-        <li>Use trade-only permissions, disable withdrawal</li>
-        <li>Credentials are stored securely server-side, never exposed in frontend</li>
-        <li>Enable IP allowlist on your exchange if supported</li>
+    <div className="rounded border border-yellow-200 bg-yellow-50 p-4 text-xs text-yellow-800 space-y-2">
+      <p className="font-semibold">Non-Custodial Exchange Credential Security Notice</p>
+      <ul className="list-disc pl-4 space-y-1">
+        <li>Never share your exchange credentials or private keys with anyone</li>
+        <li>Configure API keys with trade-only and read permissions; disable withdrawal and internal transfer</li>
+        <li>Credentials are envelope-encrypted server-side with tenant AAD and never exposed in the frontend</li>
+        <li>Enable IP allowlisting on your exchange venue (Binance, Bybit, OKX, Kraken, Coinbase) where supported</li>
       </ul>
     </div>
   );
@@ -8760,15 +10283,76 @@ FILE: apps/web/src/features/funding/funding-page.tsx
 
 ```tsx
 'use client';
+
+import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
+import { fundingApi } from '@/api/funding-api';
 import { PageContainer } from '@/layout/page-container';
+import { StatusBadge } from '@/components/status-badge';
 import { FundingStatus } from './funding-status';
 import { TransactionHistory } from './transaction-history';
-import Link from 'next/link';
+
 export function FundingPage(): JSX.Element {
+  const { data: accounts } = useQuery({
+    queryKey: ['funding', 'accounts'],
+    queryFn: () => fundingApi.listAccounts(),
+  });
+  const accountList = accounts ?? [];
+
   return (
-    <PageContainer title="Funding" description="Deposits, withdrawals, and transaction history" actions={<div className="flex gap-2"><Link href="/funding/deposit" className="rounded bg-primary px-4 py-2 text-sm text-white">Deposit</Link><Link href="/funding/withdraw" className="rounded border px-4 py-2 text-sm">Withdraw</Link></div>}>
+    <PageContainer
+      title="Funding"
+      description="Deposits, withdrawals, account funding eligibility, and transaction history"
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <Link href="/funding/deposit" className="rounded bg-primary px-4 py-2 text-sm text-white">
+            Deposit
+          </Link>
+          <Link href="/funding/withdraw" className="rounded border px-4 py-2 text-sm hover:bg-accent">
+            Withdraw
+          </Link>
+          <Link href="/funding/history" className="rounded border px-4 py-2 text-sm hover:bg-accent">
+            Full History
+          </Link>
+        </div>
+      }
+    >
       <div className="space-y-6">
         <FundingStatus />
+
+        {accountList.length > 0 && (
+          <div className="rounded border bg-card p-4">
+            <h2 className="text-sm font-semibold">Funding &amp; Withdrawal Capability by Account</h2>
+            <p className="text-xs text-muted">
+              Authoritative account states and funding permissions from backend client-lifecycle
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              {accountList.map((acc) => (
+                <div
+                  key={acc.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border p-3 text-xs"
+                >
+                  <div>
+                    <p className="font-medium text-sm">{acc.label}</p>
+                    <p className="text-muted">Type: {acc.accountType.replace(/_/g, ' ')}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <StatusBadge status={acc.state} />
+                    <StatusBadge
+                      status={acc.isFundingEnabled ? 'DEPOSIT ENABLED' : 'DEPOSIT BLOCKED'}
+                      variant={acc.isFundingEnabled ? 'success' : 'warning'}
+                    />
+                    <StatusBadge
+                      status={acc.isWithdrawalEnabled ? 'WITHDRAW ENABLED' : 'WITHDRAW BLOCKED'}
+                      variant={acc.isWithdrawalEnabled ? 'success' : 'warning'}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <TransactionHistory />
       </div>
     </PageContainer>
@@ -9094,6 +10678,244 @@ export function WithdrawalPage(): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/features/landing/landing-page.tsx
+
+```tsx
+'use client';
+
+import Link from 'next/link';
+import { useTenant } from '@/tenant/tenant-context';
+import { TenantLogo } from '@/tenant/tenant-branding';
+import { MaintenanceBanner } from '@/components/maintenance-banner';
+import { EXCHANGE_VENUES } from '@/api/exchange-api';
+
+const CAPABILITIES = [
+  {
+    title: 'Non-Custodial Trade-Only Execution',
+    description:
+      'Your capital stays on your own exchange account. Orders are routed through trade-only API credentials bound to your organisation with envelope encryption and tenant AAD.',
+  },
+  {
+    title: 'Deterministic Pre-Trade Risk Engine',
+    description:
+      'Every follower order passes day-start-equity daily loss checks, drawdown limits, symbol/venue allowlists, and multi-scope kill-switches before reaching the order management system.',
+  },
+  {
+    title: 'Authoritative Portfolio & Statements',
+    description:
+      'NAV, realized and unrealized PnL, fee attribution, and finalized period statements are computed and reconciled server-side with explicit stale-price and missing-FX disclosures.',
+  },
+  {
+    title: 'Enterprise Identity & Multi-Tenant Governance',
+    description:
+      'Argon2id credentials, TOTP two-factor authentication with recovery codes, OIDC and SAML Single Sign-On with Single Logout, device trust, and PostgreSQL Row-Level Security.',
+  },
+];
+
+const WORKFLOW_STEPS = [
+  {
+    step: '01',
+    title: 'Create Account & Complete Onboarding',
+    detail:
+      'Register within your organisation, enroll in two-factor authentication, and complete the authoritative client-lifecycle onboarding workflow.',
+  },
+  {
+    step: '02',
+    title: 'Connect a Trade-Only Exchange Key',
+    detail:
+      'Link Binance, Bybit, OKX, Kraken, or Coinbase using trade-only permissions. Withdrawal-capable keys are rejected by policy.',
+  },
+  {
+    step: '03',
+    title: 'Subscribe to Verified Strategies',
+    detail:
+      'Review verified trader profiles and published strategies, select fixed, proportional, or percentage allocation sizing, and acknowledge the risk disclosure.',
+  },
+  {
+    step: '04',
+    title: 'Monitor Execution, Risk & Statements',
+    detail:
+      'Track copy executions, pause or stop subscriptions at any time, inspect portfolio attribution, and export finalized accounting statements.',
+  },
+];
+
+export function LandingPage(): JSX.Element {
+  const { tenant } = useTenant();
+  const brandName = tenant?.branding?.appName ?? tenant?.name ?? 'Copy Trading Platform';
+  const supportEmail = tenant?.branding?.supportEmail;
+
+  return (
+    <div className="min-h-screen flex flex-col bg-background text-foreground">
+      <MaintenanceBanner />
+
+      <header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <TenantLogo
+              className="h-9 w-9 rounded"
+              fallback={
+                <div className="flex h-9 w-9 items-center justify-center rounded bg-primary text-sm font-bold text-white">
+                  {brandName.charAt(0).toUpperCase()}
+                </div>
+              }
+            />
+            <div>
+              <span className="font-semibold tracking-tight">{brandName}</span>
+              <span className="ml-2 hidden rounded bg-gray-100 px-2 py-0.5 text-xs text-muted sm:inline-block">
+                Non-Custodial Copy Trading
+              </span>
+            </div>
+          </div>
+
+          <nav className="flex items-center gap-3 text-sm" aria-label="Public navigation">
+            <Link href="/pricing" className="hidden rounded px-3 py-1.5 text-muted hover:text-foreground sm:inline-block">
+              Pricing
+            </Link>
+            <Link href="/status" className="hidden rounded px-3 py-1.5 text-muted hover:text-foreground sm:inline-block">
+              Status
+            </Link>
+            <Link href="/terms" className="hidden rounded px-3 py-1.5 text-muted hover:text-foreground md:inline-block">
+              Terms
+            </Link>
+            <Link href="/privacy" className="hidden rounded px-3 py-1.5 text-muted hover:text-foreground md:inline-block">
+              Privacy
+            </Link>
+            <Link href="/login" className="rounded border px-3 py-1.5 font-medium hover:bg-accent">
+              Sign In
+            </Link>
+            <Link href="/register" className="rounded bg-primary px-4 py-1.5 font-medium text-white">
+              Get Started
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <main className="flex-1">
+        <section className="border-b bg-gradient-to-b from-gray-50 to-white py-16 sm:py-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <div className="max-w-3xl space-y-6">
+              <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted">
+                <span className="h-2 w-2 rounded-full bg-green-600" aria-hidden />
+                <span>Multi-Tenant Non-Custodial SaaS · Backend-Authoritative Risk &amp; Accounting</span>
+              </div>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
+                Institutional-grade crypto copy trading for {brandName}
+              </h1>
+              <p className="text-base text-muted sm:text-lg">
+                Connect your own exchange account with trade-only API credentials, subscribe to verified strategies
+                with deterministic pre-trade risk controls, and audit every fill and statement from a single
+                tenant-isolated workspace.
+              </p>
+              <div className="flex flex-wrap gap-3 pt-2">
+                <Link
+                  href="/register"
+                  className="rounded bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm"
+                >
+                  Create Customer Account
+                </Link>
+                <Link
+                  href="/login"
+                  className="rounded border bg-card px-6 py-3 text-sm font-semibold hover:bg-accent"
+                >
+                  Sign In to Workspace
+                </Link>
+                <Link
+                  href="/pricing"
+                  className="rounded border bg-card px-5 py-3 text-sm font-medium text-muted hover:text-foreground"
+                >
+                  View Plans &amp; Entitlements
+                </Link>
+              </div>
+            </div>
+
+            <div className="mt-12 rounded-lg border bg-card p-4 sm:p-6">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Supported Exchange Venues (Trade-Only Connectivity)
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                {EXCHANGE_VENUES.map((venue) => (
+                  <span
+                    key={venue}
+                    className="rounded border bg-gray-50 px-3 py-1.5 font-mono text-xs font-medium"
+                  >
+                    {venue}
+                  </span>
+                ))}
+                <span className="text-xs text-muted">
+                  · Envelope AES-256-GCM or HashiCorp Vault / AWS Secrets Manager
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="py-14 sm:py-16">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <div className="max-w-2xl">
+              <h2 className="text-2xl font-bold tracking-tight">Core Platform Architecture</h2>
+              <p className="mt-2 text-sm text-muted">
+                Built around strict tenant isolation, fail-closed execution safety gates, and verifiable portfolio
+                accounting.
+              </p>
+            </div>
+            <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+              {CAPABILITIES.map((item) => (
+                <div key={item.title} className="rounded-lg border bg-card p-6 shadow-sm">
+                  <h3 className="text-base font-semibold">{item.title}</h3>
+                  <p className="mt-2 text-sm text-muted leading-relaxed">{item.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t bg-gray-50 py-14 sm:py-16">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <div className="max-w-2xl">
+              <h2 className="text-2xl font-bold tracking-tight">How Copy Trading Works</h2>
+              <p className="mt-2 text-sm text-muted">
+                Every stage from onboarding to statement finalization is governed by the backend API.
+              </p>
+            </div>
+            <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {WORKFLOW_STEPS.map((w) => (
+                <div key={w.step} className="rounded-lg border bg-card p-5">
+                  <span className="font-mono text-xs font-bold text-primary">STEP {w.step}</span>
+                  <h3 className="mt-2 text-sm font-semibold">{w.title}</h3>
+                  <p className="mt-2 text-xs text-muted leading-relaxed">{w.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t bg-card py-8 text-xs text-muted">
+        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 px-4 sm:flex-row sm:items-center sm:px-6">
+          <div>
+            <p className="font-medium text-foreground">
+              © {new Date().getFullYear()} {brandName}. All rights reserved.
+            </p>
+            <p className="mt-1">
+              Non-custodial software platform. Digital asset trading involves substantial risk of loss.
+              {supportEmail ? ` Support: ${supportEmail}` : ''}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-4">
+            <Link href="/pricing" className="hover:underline">Pricing</Link>
+            <Link href="/status" className="hover:underline">System Status</Link>
+            <Link href="/terms" className="hover:underline">Terms of Service</Link>
+            <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
+            <Link href="/login" className="hover:underline">Sign In</Link>
+            <Link href="/register" className="hover:underline">Register</Link>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+```
+
 FILE: apps/web/src/features/notifications/notification-preferences-page.tsx
 
 ```tsx
@@ -9163,12 +10985,67 @@ FILE: apps/web/src/features/notifications/notifications-page.tsx
 
 ```tsx
 'use client';
+
+import Link from 'next/link';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { notificationApi } from '@/api/notification-api';
 import { PageContainer } from '@/layout/page-container';
 import { NotificationCenter } from '@/components/notification-center';
+import { StatusBadge } from '@/components/status-badge';
+
 export function NotificationsPage(): JSX.Element {
+  const queryClient = useQueryClient();
+  const { data: unreadCount } = useQuery({
+    queryKey: ['notifications', 'unread-count'],
+    queryFn: () => notificationApi.getUnreadCount(),
+  });
+
+  const handleMarkAllRead = async () => {
+    await notificationApi.markAllAsRead();
+    await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+  };
+
   return (
-    <PageContainer title="Notifications" description="Full customer notification inbox from backend">
-      <NotificationCenter />
+    <PageContainer
+      title="Notifications"
+      description="Full customer notification inbox and delivery channel preferences from backend"
+      actions={
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {typeof unreadCount === 'number' && (
+            <StatusBadge
+              status={`${unreadCount} UNREAD`}
+              variant={unreadCount > 0 ? 'info' : 'neutral'}
+            />
+          )}
+          {typeof unreadCount === 'number' && unreadCount > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleMarkAllRead()}
+              className="rounded border px-3 py-1.5 hover:bg-accent"
+            >
+              Mark All Read
+            </button>
+          )}
+          <Link
+            href="/notifications/preferences"
+            className="rounded bg-primary px-3 py-1.5 text-white"
+          >
+            Delivery Preferences
+          </Link>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded border bg-card p-3 text-xs text-muted">
+          Security-critical alerts (login from a new device, MFA changes, API key events, and kill-switch notices) are
+          always delivered to your in-app inbox and verified email address. Customize non-critical category channels in{' '}
+          <Link href="/notifications/preferences" className="text-primary underline">
+            Delivery Preferences
+          </Link>
+          .
+        </div>
+        <NotificationCenter />
+      </div>
     </PageContainer>
   );
 }
@@ -9219,17 +11096,163 @@ FILE: apps/web/src/features/onboarding/onboarding-page.tsx
 
 ```tsx
 'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
+import { clientLifecycleApi } from '@/api/client-lifecycle-api';
+import { ApiError } from '@/api/api-errors';
+import { useAuth } from '@/auth/auth.store';
 import { PageContainer } from '@/layout/page-container';
 import { OnboardingProgress } from './onboarding-progress';
 import { OnboardingSteps } from './onboarding-steps';
 import { OnboardingBlockers } from './onboarding-blockers';
+import { useOnboarding } from './use-onboarding';
+
 export function OnboardingPage(): JSX.Element {
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useOnboarding();
+
+  const [legalName, setLegalName] = useState<string>(session?.user.displayName ?? '');
+  const [countryCode, setCountryCode] = useState<string>('');
+  const [phone, setPhone] = useState<string>('');
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [actionError, setActionError] = useState<string>('');
+  const [actionSuccess, setActionSuccess] = useState<string>('');
+
+  const handleStartOnboarding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session?.user.id) return;
+    setSubmitting(true);
+    setActionError('');
+    setActionSuccess('');
+    try {
+      let profileId = await clientLifecycleApi.getOwnClientProfileId();
+      if (!profileId) {
+        profileId = await clientLifecycleApi.createOwnClientProfile({
+          externalIdentityRef: session.user.id,
+          displayName: session.user.displayName ?? legalName.trim() ?? session.user.email,
+          ...(legalName.trim() ? { legalName: legalName.trim() } : {}),
+          email: session.user.email,
+          ...(phone.trim() ? { phone: phone.trim() } : {}),
+          ...(countryCode.trim() ? { countryCode: countryCode.trim().toUpperCase() } : {}),
+        });
+      }
+      if (!profileId) {
+        setActionError('Client profile could not be created.');
+        return;
+      }
+      await clientLifecycleApi.initiateOnboarding(profileId);
+      setActionSuccess('Onboarding workflow started.');
+      await queryClient.invalidateQueries({ queryKey: ['onboarding'] });
+    } catch (err) {
+      setActionError(
+        err instanceof ApiError ? err.getUserMessage() : 'Could not initiate onboarding.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <PageContainer title="Onboarding" description="Complete your account setup from authoritative workflow">
-      <OnboardingProgress />
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2"><OnboardingSteps /></div>
-        <div><OnboardingBlockers /></div>
+    <PageContainer
+      title="Onboarding"
+      description="Complete your account setup from authoritative workflow"
+      actions={
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link href="/dashboard" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Dashboard
+          </Link>
+          <Link href="/exchanges/connect" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Connect Exchange
+          </Link>
+          <Link href="/security/mfa" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Configure MFA
+          </Link>
+        </div>
+      }
+    >
+      <div className="space-y-6">
+        <OnboardingProgress />
+
+        {!isLoading && !data && session?.user.id && (
+          <form onSubmit={handleStartOnboarding} className="rounded border bg-card p-5 space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold">Start Client Onboarding</h2>
+              <p className="mt-1 text-xs text-muted">
+                No onboarding record is open for your account yet. Submit your legal details below to create your
+                client profile and start the organisation&apos;s onboarding workflow.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <label className="text-xs font-medium" htmlFor="onboarding-legal-name">
+                  Legal Full Name <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="onboarding-legal-name"
+                  value={legalName}
+                  onChange={(e) => setLegalName(e.target.value)}
+                  required
+                  maxLength={120}
+                  placeholder="Full legal name"
+                  className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium" htmlFor="onboarding-country">
+                  Country Code (ISO-2)
+                </label>
+                <input
+                  id="onboarding-country"
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                  maxLength={2}
+                  placeholder="BD"
+                  className="mt-1 w-full rounded border px-3 py-1.5 font-mono text-sm uppercase"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium" htmlFor="onboarding-phone">
+                  Phone (E.164 optional)
+                </label>
+                <input
+                  id="onboarding-phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+8801712345678"
+                  className="mt-1 w-full rounded border px-3 py-1.5 font-mono text-sm"
+                />
+              </div>
+            </div>
+
+            {actionError && (
+              <div className="rounded bg-red-50 p-2 text-xs text-red-700">{actionError}</div>
+            )}
+            {actionSuccess && (
+              <div className="rounded bg-green-50 p-2 text-xs text-green-800">{actionSuccess}</div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting || !legalName.trim()}
+              className="rounded bg-primary px-4 py-2 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {submitting ? 'Starting Onboarding...' : 'Create Client Profile & Start Onboarding'}
+            </button>
+          </form>
+        )}
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <OnboardingSteps />
+          </div>
+          <div>
+            <OnboardingBlockers />
+          </div>
+        </div>
       </div>
     </PageContainer>
   );
@@ -9282,15 +11305,29 @@ export function OnboardingSteps(): JSX.Element {
   const steps = data?.steps ?? [];
   return (
     <div className="rounded border bg-card p-4">
-      <h3 className="font-semibold">Steps</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">Steps</h3>
+        <span className="text-xs text-muted">
+          {steps.filter((s) => s.status === "COMPLETED" || s.status === "SKIPPED").length} / {steps.length} completed
+        </span>
+      </div>
       <ul className="mt-3 space-y-2">
         {steps.map((s) => (
-          <li key={s.id} className="flex items-center justify-between rounded border p-2 text-sm">
-            <span>
-              {s.stepType.replace(/_/g, " ")}
-              {!s.required && <span className="ml-1 text-xs text-muted">(optional)</span>}
-            </span>
-            <StatusBadge status={s.status} />
+          <li key={s.id} className="rounded border p-3 text-sm space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">
+                {s.stepType.replace(/_/g, " ")}
+                {!s.required && <span className="ml-1 text-xs font-normal text-muted">(optional)</span>}
+              </span>
+              <StatusBadge status={s.status} />
+            </div>
+            {s.blockingReasons.length > 0 && (
+              <ul className="list-disc pl-4 text-xs text-red-700">
+                {s.blockingReasons.map((reason, idx) => (
+                  <li key={`${s.id}-${idx}`}>{reason}</li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
         {steps.length === 0 && <p className="text-xs text-muted">No steps available</p>}
@@ -9719,6 +11756,8 @@ FILE: apps/web/src/features/portfolio/portfolio-page.tsx
 
 ```tsx
 'use client';
+
+import Link from 'next/link';
 import { PageContainer } from '@/layout/page-container';
 import { PortfolioOverview } from './portfolio-overview';
 import { HoldingsTable } from './holdings-table';
@@ -9726,9 +11765,29 @@ import { PnlPanel } from './pnl-panel';
 import { PerformanceChart } from './performance-chart';
 import { AttributionTable } from './attribution-table';
 import { ValuationStatus } from './valuation-status';
+
 export function PortfolioPage(): JSX.Element {
   return (
-    <PageContainer title="Portfolio" description="Backend-authoritative NAV, PnL, holdings, performance">
+    <PageContainer
+      title="Portfolio"
+      description="Backend-authoritative NAV, PnL, holdings, performance, and strategy attribution"
+      actions={
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link href="/portfolio/holdings" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Holdings View
+          </Link>
+          <Link href="/portfolio/performance" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Performance Series
+          </Link>
+          <Link href="/portfolio/attribution" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Attribution Breakdown
+          </Link>
+          <Link href="/statements" className="rounded bg-primary px-3 py-1.5 text-white">
+            Period Statements
+          </Link>
+        </div>
+      }
+    >
       <div className="space-y-6">
         <PortfolioOverview />
         <ValuationStatus />
@@ -10093,19 +12152,72 @@ FILE: apps/web/src/features/security/security-page.tsx
 
 ```tsx
 'use client';
+
+import Link from 'next/link';
+import { useAuth } from '@/auth/auth.store';
 import { PageContainer } from '@/layout/page-container';
+import { StatusBadge } from '@/components/status-badge';
 import { MfaSettings } from './mfa-settings';
 import { SessionsPage } from './sessions-page';
 import { DevicesPage } from './devices-page';
 import { ApiKeysPage } from './api-keys-page';
+
 export function SecurityPage(): JSX.Element {
+  const { session } = useAuth();
+
   return (
-    <PageContainer title="Security" description="Security control center">
-      <div className="grid gap-6 md:grid-cols-2">
-        <MfaSettings />
-        <SessionsPage />
-        <DevicesPage />
-        <ApiKeysPage />
+    <PageContainer
+      title="Security"
+      description="Security control center: multi-factor authentication, active sessions, trusted devices, and organisation API keys"
+      actions={
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link href="/security/mfa" className="rounded border px-3 py-1.5 hover:bg-accent">
+            MFA Only
+          </Link>
+          <Link href="/security/sessions" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Sessions
+          </Link>
+          <Link href="/security/devices" className="rounded border px-3 py-1.5 hover:bg-accent">
+            Devices
+          </Link>
+          <Link href="/security/api-keys" className="rounded border px-3 py-1.5 hover:bg-accent">
+            API Keys
+          </Link>
+          <Link href="/account/profile" className="rounded bg-primary px-3 py-1.5 text-white">
+            Change Password
+          </Link>
+        </div>
+      }
+    >
+      <div className="space-y-6">
+        <div className="rounded border bg-card p-4 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">Account Security Posture</p>
+              <p className="text-muted">
+                Every privileged action requires backend verification. Rotating refresh tokens with family reuse
+                detection protect your active sessions.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge
+                status={session?.user.mfaEnabled ? '2FA ENABLED' : '2FA RECOMMENDED'}
+                variant={session?.user.mfaEnabled ? 'success' : 'warning'}
+              />
+              <StatusBadge
+                status={session?.user.emailVerified ? 'EMAIL VERIFIED' : 'EMAIL UNVERIFIED'}
+                variant={session?.user.emailVerified ? 'success' : 'info'}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2">
+          <MfaSettings />
+          <SessionsPage />
+          <DevicesPage />
+          <ApiKeysPage />
+        </div>
       </div>
     </PageContainer>
   );
@@ -12206,6 +14318,7 @@ export function TenantLogo({ className, fallback }: { className?: string; fallba
   const logoUrl = tenant?.branding?.logoUrl;
 
   if (logoUrl && logoUrl.startsWith('https://')) {
+    /* eslint-disable-next-line @next/next/no-img-element */
     return <img src={logoUrl} alt={`${tenant?.name ?? 'Tenant'} logo`} className={className} />;
   }
 
@@ -12350,6 +14463,8 @@ export interface TenantBranding {
   appName?: string;
   supportEmail?: string;
   supportUrl?: string;
+  termsUrl?: string;
+  privacyUrl?: string;
 }
 
 export interface TenantPlan {
@@ -12831,6 +14946,119 @@ describe('BFF POST /api/auth/logout', () => {
     });
     await expect(redirectOf()).resolves.toBe('/login');
     expect(clearSession).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+FILE: apps/web/src/tests/register-route.test.ts
+
+```typescript
+/**
+ * Customer registration BFF route (POST /api/auth/register).
+ */
+
+const serverFetch = jest.fn();
+const persistSession = jest.fn();
+
+jest.mock('@/lib/server-api', () => ({ serverFetch: (...args: unknown[]) => serverFetch(...args) }));
+jest.mock('@/lib/session', () => ({ persistSession: (...args: unknown[]) => persistSession(...args) }));
+
+import { POST } from '@/app/api/auth/register/route';
+import { ApiError } from '@/lib/api-error';
+
+function makeRequest(body: unknown, host = 'acme.example.test'): Request {
+  return new Request('https://acme.example.test/api/auth/register', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', host },
+    body: JSON.stringify(body),
+  });
+}
+
+describe('BFF POST /api/auth/register', () => {
+  beforeEach(() => {
+    serverFetch.mockReset();
+    persistSession.mockReset();
+  });
+
+  it('registers a valid customer account, persists the session cookies, and redirects to /onboarding', async () => {
+    serverFetch.mockResolvedValue({
+      tokens: {
+        accessToken: 'at-1',
+        refreshToken: 'rt-1',
+        expiresIn: 900,
+        refreshExpiresIn: 604800,
+      },
+      user: { id: 'u-1', email: 'new@acme.example.test' },
+      sessionId: 'sess-1',
+    });
+
+    const res = await POST(
+      makeRequest({
+        email: 'new@acme.example.test',
+        password: 'StrongPassword!99',
+        firstName: 'Ainul',
+        lastName: 'Islam',
+        locale: 'bn',
+        acceptedTerms: true,
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { success: boolean; data: { redirectTo: string } };
+    expect(json).toEqual({
+      success: true,
+      data: { redirectTo: '/onboarding' },
+    });
+    expect(serverFetch).toHaveBeenCalledTimes(1);
+    const [path, opts] = serverFetch.mock.calls[0] as [string, { body: Record<string, unknown>; host: string }];
+    expect(path).toBe('/auth/register');
+    expect(opts.host).toBe('acme.example.test');
+    expect(opts.body).toMatchObject({
+      email: 'new@acme.example.test',
+      password: 'StrongPassword!99',
+      firstName: 'Ainul',
+      lastName: 'Islam',
+      locale: 'bn',
+      acceptedTerms: true,
+      deviceName: 'Customer Web',
+      platform: 'web',
+    });
+    expect(typeof opts.body.deviceId).toBe('string');
+    expect(persistSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects registration when acceptedTerms is false or password is shorter than 12 characters', async () => {
+    const res = await POST(
+      makeRequest({
+        email: 'new@acme.example.test',
+        password: 'short',
+        acceptedTerms: false,
+      }),
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { success: boolean; error: { code: string } };
+    expect(json.success).toBe(false);
+    expect(json.error.code).toBe('VALIDATION_ERROR');
+    expect(serverFetch).not.toHaveBeenCalled();
+    expect(persistSession).not.toHaveBeenCalled();
+  });
+
+  it('forwards backend ApiError status and code when registration is refused', async () => {
+    serverFetch.mockRejectedValue(
+      new ApiError(409, 'EMAIL_ALREADY_REGISTERED', 'An account with this email already exists.'),
+    );
+    const res = await POST(
+      makeRequest({
+        email: 'existing@acme.example.test',
+        password: 'StrongPassword!99',
+        acceptedTerms: true,
+      }),
+    );
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { success: boolean; error: { code: string; message: string } };
+    expect(json.success).toBe(false);
+    expect(json.error.code).toBe('EMAIL_ALREADY_REGISTERED');
+    expect(persistSession).not.toHaveBeenCalled();
   });
 });
 ```

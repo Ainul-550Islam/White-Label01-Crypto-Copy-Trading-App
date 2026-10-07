@@ -1,3 +1,4 @@
+# Tracks submission state, exchange order ID, and idempotency
 """Server-side assembly of one OMS submission (Phase 3).
 
 The worker forwards WHAT to trade; this module decides everything the engine

@@ -304,4 +304,75 @@ export class FollowerSubscriptionService {
 
     return updated;
   }
+
+  async updateSubscriptionSettings(
+    tenantId: string,
+    subscriptionId: string,
+    dto: {
+      allocationAmount?: string;
+      maxAllocation?: string | null;
+      minAllocation?: string | null;
+      allocationMode?: CopySizingMode;
+      copyPolicy?: Record<string, any>;
+      riskPolicy?: Record<string, any>;
+      followerAccountId?: string | null;
+    },
+    actorId: string,
+    followerId?: string | null,
+    requestId?: string,
+  ): Promise<any | null> {
+    const sub = await this.subscriptionRepo.findById(subscriptionId, tenantId);
+    if (!sub) return null;
+    if (followerId && sub.followerId !== followerId) {
+      throw new ForbiddenException('Not authorized to update this subscription');
+    }
+
+    const nextCopyPolicy = dto.copyPolicy
+      ? { ...(sub.copyPolicy || {}), ...dto.copyPolicy }
+      : (sub.copyPolicy || {});
+    const nextRiskPolicy = dto.riskPolicy
+      ? { ...(sub.riskPolicy || {}), ...dto.riskPolicy }
+      : (sub.riskPolicy || {});
+
+    const policyValidation = this.policyService.validatePolicy(nextCopyPolicy as any);
+    if (!policyValidation.valid) {
+      throw new UnprocessableEntityException(`Invalid copy policy: ${policyValidation.errors.join(', ')}`);
+    }
+
+    if (dto.allocationAmount !== undefined || dto.maxAllocation !== undefined || dto.minAllocation !== undefined || dto.allocationMode !== undefined) {
+      await this.subscriptionRepo.updateAllocation(subscriptionId, tenantId, {
+        ...(dto.allocationAmount !== undefined ? { allocationAmount: dto.allocationAmount } : {}),
+        ...(dto.maxAllocation !== undefined ? { maxAllocation: dto.maxAllocation } : {}),
+        ...(dto.minAllocation !== undefined ? { minAllocation: dto.minAllocation } : {}),
+        ...(dto.allocationMode !== undefined ? { allocationMode: dto.allocationMode } : {}),
+      });
+    }
+
+    const updated = await this.subscriptionRepo.updatePolicy(subscriptionId, tenantId, {
+      copyPolicy: nextCopyPolicy,
+      riskPolicy: nextRiskPolicy,
+    });
+
+    await (this.prisma as any).copyTradingAuditLog?.create({
+      data: {
+        id: randomUUID(),
+        tenantId,
+        event: 'SUBSCRIPTION_SETTINGS_UPDATED',
+        actorId,
+        traderId: sub.traderId,
+        followerId: sub.followerId,
+        strategyId: sub.strategyId,
+        subscriptionId,
+        result: 'SUCCESS',
+        safeMetadata: {
+          allocationMode: dto.allocationMode ?? sub.allocationMode,
+          allocationAmount: dto.allocationAmount ?? sub.allocationAmount,
+        },
+        requestId,
+        createdAt: new Date(),
+      },
+    });
+
+    return updated || (await this.subscriptionRepo.findById(subscriptionId, tenantId));
+  }
 }

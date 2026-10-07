@@ -1,3 +1,4 @@
+// # Generates/retrieves unique deposit addresses per tenant/user/asset/network
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletAddressService } from './wallet-address.service';

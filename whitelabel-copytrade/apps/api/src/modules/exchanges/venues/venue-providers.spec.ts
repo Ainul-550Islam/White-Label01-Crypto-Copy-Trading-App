@@ -1,3 +1,4 @@
+// # NEW — Verifies live/paper mode selection, signing, and fail-closed error handling for all 5 venues
 /**
  * Deterministic contract tests for the per-venue exchange providers
  * (Bybit, OKX, Kraken, Coinbase) and the provider factory registration.

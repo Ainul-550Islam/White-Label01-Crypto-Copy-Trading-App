@@ -1,3 +1,4 @@
+// # Polls and dispatches leader events idempotently with staleness and duplicate-event guards
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CopyExecutionService } from './copy-execution.service';
@@ -21,16 +22,12 @@ function positiveInt(raw: string | undefined, fallback: number): number {
 /**
  * Phase 3: automatic leader-event ingestion.
  *
- * Before this, leader events only entered the copy pipeline through the manual
- * `POST copy-trading/executions/leader-event` endpoint. This service polls the
- * leader-event store (leader fills, see LeaderEventSourceService) and feeds
- * each new fill to CopyExecutionService.processLeaderEvent, which maps, risk
- * checks and dispatches through the OMS.
- *
  * Safety properties:
  *  - Idempotent: event ids are stable (`fill:<id>`) and CopyExecution is
  *    unique per (tenant, leaderEvent, subscription); events every live
  *    subscription already has an execution for are not re-processed at all.
+ *  - In-batch duplicate protection: duplicate records for the same eventId in
+ *    one ingestion pass are deduplicated and counted as alreadyCopied.
  *  - Bounded staleness: a fill older than COPY_LEADER_EVENT_MAX_AGE_MS
  *    (default 30s) is never copied - the market has moved - and is left for
  *    reconciliation to report as MISSING_COPY instead of being filled late.
@@ -107,9 +104,9 @@ export class LeaderEventIngestionService implements OnModuleInit, OnModuleDestro
     }
 
     const strategies = await this.source.listLeadingStrategies(tenantId, [...byStrategy.keys()]);
-    // Look back one extra interval so a fill committed just before a pass
-    // boundary is still seen; events beyond maxAge are counted as expired.
     const from = new Date(now.getTime() - this.maxAgeMs - this.intervalMs);
+    const seenInPass = new Set<string>();
+
     for (const strategy of strategies) {
       const subs = byStrategy.get(strategy.id) ?? [];
       const records = await this.source.listForStrategy(tenantId, strategy, from, now);
@@ -123,6 +120,13 @@ export class LeaderEventIngestionService implements OnModuleInit, OnModuleDestro
 
       for (const record of records) {
         result.events += 1;
+        const passKey = `${tenantId}|${strategy.id}|${record.event.eventId}`;
+        if (seenInPass.has(passKey)) {
+          result.alreadyCopied += 1;
+          continue;
+        }
+        seenInPass.add(passKey);
+
         const eligible = subs.filter((s) => subscriptionWasLiveAt(s, record.occurredAt));
         if (eligible.length === 0 || eligible.every((s) => copied.has(`${record.event.eventId}|${s.id}`))) {
           result.alreadyCopied += 1;
@@ -133,6 +137,9 @@ export class LeaderEventIngestionService implements OnModuleInit, OnModuleDestro
           continue;
         }
         await this.dispatch(tenantId, record);
+        for (const s of eligible) {
+          copied.add(`${record.event.eventId}|${s.id}`);
+        }
         result.dispatched += 1;
       }
     }

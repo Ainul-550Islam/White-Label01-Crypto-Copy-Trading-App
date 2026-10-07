@@ -1,3 +1,4 @@
+// # Enforces fail-closed behavior when custody provider is unconfigured or degraded
 /**
  * Production Custody/Blockchain Adapter Bridge
  * Uses existing custody provider architecture.

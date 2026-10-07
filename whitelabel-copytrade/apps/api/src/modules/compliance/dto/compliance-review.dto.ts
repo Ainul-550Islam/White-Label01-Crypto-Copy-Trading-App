@@ -1,3 +1,4 @@
+// # Validates case review decisions and mandatory rationale
 import { IsOptional, IsString, IsEnum, IsNotEmpty, MaxLength, IsUUID, IsArray, IsObject } from 'class-validator';
 import { ComplianceDecision, ComplianceCaseState, RiskLevel } from '../compliance.types';
 

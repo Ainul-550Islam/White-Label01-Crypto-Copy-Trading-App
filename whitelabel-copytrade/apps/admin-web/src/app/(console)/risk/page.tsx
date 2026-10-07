@@ -1,3 +1,4 @@
+// # Wires kill-switch controls to live execution safety endpoints
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';

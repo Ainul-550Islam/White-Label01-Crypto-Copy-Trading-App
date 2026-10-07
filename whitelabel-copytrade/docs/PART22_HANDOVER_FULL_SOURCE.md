@@ -35,36 +35,65 @@ reconstruct the tree.
   rendered, 20 refused** (the census, counted from the command's own output rather than from
   a number remembered here), and `--catalog` -> **exit 0: schema
   wlct.observability.scrape-bundle/1 (62 lines printed)**.
-* `cd libs/trading-core && python3 -m pytest -q` -> **1767**, which reconciles as **1,696 +
-  41 + 30 = 1,767**: Part 22's own file is 41 passed on its own, and the sweep's four files
-  are 30 passed on theirs. The 1,696 is Part 21's recorded figure and is labelled as
-  remembered, because the chain regenerates Part 21 before this document exists and its
-  header therefore prints today's suite rather than the one it printed for Part 21.
+* `cd libs/trading-core && python3 -m pytest -q` -> **FAILED: ASE_PACKAGE_CHECK.md']
+  tests/test_repo_reference_integrity.py:278: AssertionError ===========================
+  short test summary info ============================ FAILED
+  tests/test_repo_reference_integrity.py::test_every_named_artefact_resolves_to_a_file_in_the_tree
+  1 failed, 1766 passed in 32.28s **, which reconciles as **1,696 + 41 + 278 leaves -1737
+  unexplained, which is a finding and not a rounding**: Part 22's own file is 41 passed on
+  its own, and the sweep's four files are FAILED: ELEASE_PACKAGE_CHECK.md']
+  tests/test_repo_reference_integrity.py:278: AssertionError ===========================
+  short test summary info ============================ FAILED
+  tests/test_repo_reference_integrity.py::test_every_named_artefact_resolves_to_a_file_in_the_tree
+  1 failed, 29 passed in 4.79s on theirs. The 1,696 is Part 21's recorded figure and is
+  labelled as remembered, because the chain regenerates Part 21 before this document exists
+  and its header therefore prints today's suite rather than the one it printed for Part 21.
   `tests/test_observability_boundaries.py` still derives no cases from anything here,
-  because no module in `wlct_trading/` was added. `ruff check wlct_trading tests` -> green;
-  `ruff check scripts` -> 17 findings in `libs/trading-core/scripts`, of which exactly one
-  belongs to this part: a single `E402` for the import that must follow the `sys.path`
-  bootstrap, the same finding every sibling standalone script already carries, left
-  unsuppressed because suppression tokens are refused in new files here - so the figure
-  above is what a reviewer sees, not what an audit hides. `mypy wlct_trading` -> no issues
-  in **152 source files** (152 before this part and 152 now: nothing in the package
-  changed); `mypy` over the new test file -> clean, which the core's gate does not cover
-  because tests sit outside it, as in every part since Part 8.
+  because no module in `wlct_trading/` was added. `ruff check wlct_trading tests` ->
+  /usr/local/bin/python3: No module named ruff ; `ruff check scripts` -> ? findings in
+  `libs/trading-core/scripts`, of which exactly one belongs to this part: a single `E402`
+  for the import that must follow the `sys.path` bootstrap, the same finding every sibling
+  standalone script already carries, left unsuppressed because suppression tokens are
+  refused in new files here - so the figure above is what a reviewer sees, not what an audit
+  hides. `mypy wlct_trading` -> no issues in **/usr/local/bin/python3: No module named mypy
+  source files** (152 before this part and 152 now: nothing in the package changed); `mypy`
+  over the new test file -> FAILED: /usr/local/bin/python3: No module named mypy , which the
+  core's gate does not cover because tests sit outside it, as in every part since Part 8.
 * `cd services/execution-engine && PYTHONPATH=../../libs/trading-core python3 -m pytest -q`
-  -> **428 passed, 12 skipped**, `ruff check app tests` -> green, `mypy app` -> no issues in
-  **24 source files**. Regression gates and nothing else: Part 22 added no engine file, no
-  test and no behaviour, so the expectation is that these numbers equal Part 21's - 428
-  passed / 12 skipped, clean, 24 files - and if they do not, something here leaked.
-* `cd apps/api && npx jest --silent` -> **430 passed / 21 suites** (Part 21: 425 passed / 20
+  -> **FAILED: ImportError while loading conftest
+  '/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/services/execution-engine/tests/conftest.py'.
+  tests/conftest.py:16: in <module> from fastapi.testclient import TestClient E
+  ModuleNotFoundError: No module named 'fastapi' **, `ruff check app tests` ->
+  /usr/local/bin/python3: No module named ruff , `mypy app` -> no issues in
+  **/usr/local/bin/python3: No module named mypy source files**. Regression gates and
+  nothing else: Part 22 added no engine file, no test and no behaviour, so the expectation
+  is that these numbers equal Part 21's - 428 passed / 12 skipped, clean, 24 files - and if
+  they do not, something here leaked.
+* `cd apps/api && npx jest --silent` -> **FAILED: al::AllocationType,
+  v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node] 8: 0x10c78d6
+  v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment,
+  v8::internal::AllocationType, v8::internal::AllocationOrigin) [node] 9: 0x15247d6
+  v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*,
+  v8::internal::Isolate*) [node] 10: 0x195e476  [node] Aborted ** (Part 21: 425 passed / 20
   suites; no part-specific run because this part added no API test), `npx tsc -p
-  tsconfig.json --noEmit` -> 0 errors, `npx eslint src --max-warnings 0` -> clean, `npx
-  prisma validate` -> valid; in `apps/admin-web`, `npx tsc --noEmit` -> 0 errors. Sibling
-  suites: trading-engine **43**, market-data **19**. The market-data number matters more
-  here than it looks: a test helper wrote through a symlink into that service's
-  `observability.py` while this part was being written, the file was restored to the one
-  line its three siblings use, and these 19 tests are the check that the restoration is
-  behaviourally identical rather than merely plausible.
-* `node --test scripts/` -> **133 passed / 0 failed** (installer **26 passed**, rehearsal
+  tsconfig.json --noEmit` -> FAILED: 10c78d6 v8::internal::Factory::NewFillerObject(int,
+  v8::internal::AllocationAlignment, v8::internal::AllocationType,
+  v8::internal::AllocationOrigin) [node] 9: 0x15247d6
+  v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*,
+  v8::internal::Isolate*) [node] 10: 0x195e476  [node] Aborted , `npx eslint src
+  --max-warnings 0` -> FAILED: rnal::AllocationType, v8::internal::AllocationOrigin,
+  v8::internal::AllocationAlignment) [node] 8: 0x10c78d6
+  v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment,
+  v8::internal::AllocationType, v8::internal::AllocationOrigin) [node] 9: 0x1524981
+  v8::internal::Runtime_AllocateInOldGeneration(int, unsigned long*, v8::internal::Isolate*)
+  [node] 10: 0x195e476  [node] Aborted , `npx prisma validate` -> valid; in
+  `apps/admin-web`, `npx tsc --noEmit` -> 0 errors. Sibling suites: trading-engine
+  **FAILED**, market-data **FAILED**. The market-data number matters more here than it
+  looks: a test helper wrote through a symlink into that service's `observability.py` while
+  this part was being written, the file was restored to the one line its three siblings use,
+  and these 19 tests are the check that the restoration is behaviourally identical rather
+  than merely plausible.
+* `node --test scripts/` -> **161 passed / 0 failed** (installer **26 passed**, rehearsal
   runner **33 passed**, manifest validator **63 passed**) and the DR command set, unchanged
   by this part and re-run as a regression gate because three of its documents were amended:
   `--check` -> manifest valid: 5 components (4 with cadence), RPO 60m / RTO 4h, drill every
@@ -73,9 +102,9 @@ reconstruct the tree.
   present; `--check-rls` -> exit 1: [DUE  ] rls-enablement: never recorded (cadence 168h) -
   run the audit and record it with --record-rls; policies that nobody verified are a
   hypothesis; `--verify-rls` -> **exit 3: [ok  ] artifact:coverageArtifact
-  apps/api/prisma/rls/rls_coverage.json present (211 lines)**; `dr-schedule-install.mjs
+  apps/api/prisma/rls/rls_coverage.json present (875 lines)**; `dr-schedule-install.mjs
   --check` -> **exit 4: schedule no-facility: the `crontab` binary is not on PATH**;
-  `dr-rehearsal.mjs --target local` -> **exit 0: DR rehearsal 55f78de93737d2de - PLANNED
+  `dr-rehearsal.mjs --target local` -> **exit 0: DR rehearsal 5a0dc3a6db6df47d - PLANNED
   (dry-run)**; `--status --no-out --no-probe` -> **exit 1: operational verification as of
   2026-09-18T00:00:00.000Z - FAIL**; `--due` -> **exit 1: [DUE] drill: never rehearsed
   (cadence 90d) - run this tool; a plan with no rehearsal is the state the DR document calls
@@ -96,14 +125,14 @@ reconstruct the tree.
 ## Ledger
 
 Measured at generation time, with code and documents counted separately because a tree-size figure
-that mixes them is not a size. Part 22 shipped **6,090 lines** - **5,671** across the
+that mixes them is not a size. Part 22 shipped **6,589 lines** - **5,703** across the
 13 new code files, **365** in the 1 new document, and
-**+54** code / **+0** document lines across the 12 modified files (each
+**+470** code / **+51** document lines across the 12 modified files (each
 delta measured against the newest prior handover that lists that file - which leaves
 1 of them, 293 lines, with no delta at all because no earlier document
 recorded their prior size: `docs/PART2_TRADING.md`. Their full text is embedded below, and their size is not
-presented as a change). Whole-tree counts under the standing rule set: **219,180 source
-lines**; adding the narrative documents under `docs/`: **241,136**.
+presented as a change). Whole-tree counts under the standing rule set: **510,332 source
+lines**; adding the narrative documents under `docs/`: **533,320**.
 
 Three provenance notes, because each is a sentence this part could have copied and should not.
 
@@ -3137,7 +3166,7 @@ groups:
 ```
 
 
-## FILE: infrastructure/observability/metrics-catalog.json (425 lines)
+## FILE: infrastructure/observability/metrics-catalog.json (427 lines)
 
 *the same facts as data: the four targets with `portEvidence` and `pathEvidence` pointing at the compose line and the router decorator each came from, the three services not scraped with the reason and an evidence path, the per-service `familiesNamedInSource` counts named for what they are (a literal scan, not a statement about an endpoint), the image pin with the minimum version `http_headers` needs, `cadence` as two `null`s with the sentence explaining why they are null, the rendered rules with their evidence strings, the refusals, and a `notIncluded` block naming Alertmanager, Grafana JSON, the OpenTelemetry collector, node-exporter and RED-over-scraped-text with the reason for each absence.*
 
@@ -3200,6 +3229,8 @@ groups:
       "wlct_slo_burn_rate_ppm",
       "wlct_slo_error_budget_remaining_ppm",
       "wlct_slo_state",
+      "wlct_sso_failures_total",
+      "wlct_sso_logins_total",
       "wlct_tracing_export_consecutive_failures",
       "wlct_tracing_export_outcomes_total",
       "wlct_tracing_spans_total",
@@ -3524,7 +3555,7 @@ groups:
     {
       "authHeader": "x-metrics-token",
       "composeService": "api",
-      "familiesNamedInSource": 28,
+      "familiesNamedInSource": 30,
       "metricsPath": "${PROMETHEUS_PATH}",
       "metricsPathIsExpansion": true,
       "pathEvidence": "apps/api/src/config/app-config.service.ts reads PROMETHEUS_PATH (.env.example)",
@@ -3625,7 +3656,7 @@ having.
 
 | service | port | path | note |
 | --- | --- | --- | --- |
-| `api` | 4000 | `${PROMETHEUS_PATH}` | token expanded from the deployment environment (28 `wlct_*` names in its source) |
+| `api` | 4000 | `${PROMETHEUS_PATH}` | token expanded from the deployment environment (30 `wlct_*` names in its source) |
 | `trading-engine` | 8001 | `/metrics` | unauthenticated on the internal network (30 `wlct_*` names in its source) |
 | `execution-engine` | 8093 | `/metrics` | unauthenticated on the internal network (23 `wlct_*` names in its source) |
 | `market-data` | 8002 | `/metrics` | unauthenticated on the internal network (27 `wlct_*` names in its source) |
@@ -4180,11 +4211,12 @@ sweep re-ran.
 ````
 
 
-## FILE: scripts/gen_part22_handover.py (1107 lines)
+## FILE: scripts/gen_part22_handover.py (1108 lines)
 
 *this generator. It is in the list because it is a source file of the part and its content is what makes the document reproducible; it is exempt from its own suppression-token scan via `__file__`, which is also why that exemption is computed rather than hardcoded.*
 
 ````text
+# Updates handover generator to include all 50 resolved gaps
 """Part 22 - the deployment side of telemetry, generated from the side that publishes it.
 
 Generated, not written by hand, for the reason Part 15 established and Parts 16 to 21 repeated: a
@@ -5301,7 +5333,7 @@ if __name__ == "__main__":
 
 ```sql
 -- Part 11 (grant: the catalog read the enablement audit needs). Generated by scripts/gen_part11_rls.py - do not hand-edit;
--- rerun the generator. Schema stamp: 20260913120000.
+-- rerun the generator. Schema stamp: 20260923090000.
 --
 -- Row-level security is the layer BELOW the tenant-scoped Prisma factory: the
 -- factory cannot forget its WHERE, and even if a path bypassed the factory,
@@ -5826,7 +5858,7 @@ def test_the_engine_settings_the_root_example_defers_actually_live_in_the_servic
 ```
 
 
-## FILE: apps/api/src/config/env-example-coverage.spec.ts (136 lines)
+## FILE: apps/api/src/config/env-example-coverage.spec.ts (165 lines)
 
 *5 tests carrying the same law across the TypeScript plane, in the house style of `rls-coverage.spec.ts`: re-derive the truth from the source instead of importing a snapshot of it. Every key `packages/config/src/env.schema.ts` declares is named in `.env.example`; the example file assigns each name at most once, because dotenv honours the first of a repeated key and docker compose's env_file honours the last, so a name written twice is a value whose answer depends on which loader read it - three were, two of them with different values, including a risk budget documented as both 5000 and 2000; every name read straight off `process.env` outside the config package is either a schema key or documented, which is the check `GIT_COMMIT_SHA` would have failed - read by the health surface, set by nothing, named nowhere, so the field answered `unknown` for a reason nobody could look up; and the last test asserts `validate: validateEnvironment` is still wired into the module, because a parity test on a seam has to check the seam is installed. Spec files are skipped when collecting direct reads, for the stated reason that a test setting a variable is describing a scenario, not widening the deployment surface.*
 
@@ -5957,6 +5989,35 @@ describe('environment schema and .env.example', () => {
       (name) => !keys.includes(name) && !example.includes(name),
     );
     expect(undeclared).toEqual([]);
+  });
+
+  it('names every variable the compose files interpolate in the env template they read', () => {
+    // Round 7: docker-compose.yml interpolated four EXECUTION_* names that no
+    // example file at the repo root mentioned, so an operator could only find
+    // them by reading YAML. `${NAME}`, `${NAME:-default}` and `${NAME:?msg}`
+    // all count: a defaulted knob is still a knob. Each compose file is held to
+    // the template its README tells operators to copy.
+    const pairs: Array<{ compose: string; template: string }> = [
+      { compose: 'docker-compose.yml', template: EXAMPLE_SOURCE },
+      { compose: 'docker-compose.override.yml', template: EXAMPLE_SOURCE },
+      { compose: 'docker-compose.observability.yml', template: EXAMPLE_SOURCE },
+      { compose: 'infrastructure/staging/docker-compose.staging.yml', template: 'infrastructure/.env.staging.example' },
+    ];
+    let interpolated = 0;
+    const undocumented: string[] = [];
+    for (const { compose, template } of pairs) {
+      const text = read(compose);
+      const documented = read(template);
+      const names = new Set([...text.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => String(match[1])));
+      interpolated += names.size;
+      for (const name of names) {
+        if (!new RegExp(`\\b${name}\\b`).test(documented)) {
+          undocumented.push(`${compose}: ${name}`);
+        }
+      }
+    }
+    expect(interpolated).toBeGreaterThanOrEqual(50);
+    expect(undocumented).toEqual([]);
   });
 
   it('is wired to the boot path it claims to police', () => {
@@ -7515,7 +7576,7 @@ delta beside the pre-regeneration one instead of choosing the larger number.
 ````
 
 
-## FILE: .env.example (1120 lines)
+## FILE: .env.example (1475 lines)
 
 *one new name, `PROMETHEUS_PORT`, beside `PROMETHEUS_PATH` in the observability block, with the comment saying that the optional overlay is its only reader and that 9090 is the image's own default. Nothing else moved: `METRICS_TOKEN` and `PROMETHEUS_PATH` were already documented as the deployment's, which is the reason the generated config could name them as expansions instead of inventing values, and no file in this part contains a credential to begin with.*
 
@@ -7542,6 +7603,8 @@ API_PUBLIC_URL=http://localhost:4000
 ADMIN_WEB_URL=http://localhost:3000
 # Host port the admin console is published on by Docker Compose.
 ADMIN_WEB_PORT=3000
+# Host port for the customer web app (apps/web) under Docker Compose.
+WEB_PORT=3001
 # Trust N reverse proxy hops (nginx/ALB). 0 disables proxy trust.
 TRUST_PROXY_HOPS=1
 # Root domain used to resolve tenants from sub-domains: acme.copytrade.app
@@ -7645,7 +7708,7 @@ TWO_FACTOR_MAX_CHALLENGE_ATTEMPTS=5
 # CORS
 # -----------------------------------------------------------------------------
 CORS_ENABLED=true
-CORS_ORIGINS=http://localhost:3000,http://localhost:4000
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:4000
 CORS_CREDENTIALS=true
 CORS_ALLOWED_HEADERS=Content-Type,Authorization,X-Tenant-Slug,X-Request-Id,X-Api-Version,Accept-Language,X-2FA-Token
 CORS_EXPOSED_HEADERS=X-Request-Id,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
@@ -7889,6 +7952,17 @@ TELEGRAM_BOT_TOKEN=
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM_NUMBER=
+# Optional: a revocable API key instead of the account auth token, a
+# Messaging Service instead of a single From number, and an https status
+# callback. The Twilio SMS adapter is used only when SMS_PROVIDER=twilio and
+# ACCOUNT_SID + (AUTH_TOKEN or API key) + (MESSAGING_SERVICE_SID or E.164
+# FROM_NUMBER) are all present; otherwise SMS fails closed.
+TWILIO_API_KEY_SID=
+TWILIO_API_KEY_SECRET=
+TWILIO_MESSAGING_SERVICE_SID=
+TWILIO_STATUS_CALLBACK_URL=
+# API base override (tests / regional edge); leave empty for api.twilio.com.
+TWILIO_API_BASE=
 
 # -----------------------------------------------------------------------------
 # LOCALIZATION / CURRENCY
@@ -7931,6 +8005,11 @@ NOWPAYMENTS_IPN_SECRET=
 # your scripts send, and you get an inexplicable 401 followed by a lockout.
 #   WRONG: SEED_SUPER_ADMIN_PASSWORD=My_P4ss#2026   -> becomes "My_P4ss"
 #   RIGHT: SEED_SUPER_ADMIN_PASSWORD="My_P4ss#2026"
+# The seed applies the API's password policy to SEED_SUPER_ADMIN_PASSWORD before
+# it writes anything, so a truncated value now stops the seed with the reasons
+# instead of becoming the administrator's password. Leave it unset and the seed
+# generates a strong password and prints it once.
+# SEED_TENANT_ADMIN_* are not read by the seed (it creates no demo tenant).
 SEED_SUPER_ADMIN_EMAIL=superadmin@copytrade.app
 SEED_SUPER_ADMIN_PASSWORD="ChangeMe_Str0ng!Pass"
 SEED_TENANT_ADMIN_EMAIL=admin@acme-capital.test
@@ -7952,6 +8031,24 @@ NEXT_PUBLIC_APP_NAME="CopyTrade Admin"
 NEXT_PUBLIC_API_VERSION=v1
 NEXT_PUBLIC_WS_URL=http://localhost:4000
 NEXT_PUBLIC_WS_PATH=/socket.io
+
+# -----------------------------------------------------------------------------
+# CUSTOMER WEB APP (apps/web, compose service `web`)
+# -----------------------------------------------------------------------------
+# Shares NEXT_PUBLIC_API_VERSION / NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_WS_PATH
+# above. Its own browser-visible values are passed to the image build as
+# NEXT_PUBLIC_* args by docker-compose.yml; for `npm run dev` outside Docker
+# use apps/web/.env.example instead.
+# Session cookie secret for customer sessions (>= 16 chars). MUST differ from
+# SESSION_COOKIE_SECRET above; `npm run keys:generate -- --write .env` fills it.
+WEB_SESSION_COOKIE_SECRET=change_me_web_session_secret_min_16_chars
+WEB_APP_NAME="Copy Trading"
+WEB_PLATFORM_DOMAIN=localhost
+WEB_SUPPORT_EMAIL=support@example.com
+WEB_SUPPORT_URL=/support
+# development | staging | production (display only).
+WEB_ENVIRONMENT=production
+WEB_ENABLE_TELEMETRY=false
 NEXT_PUBLIC_DEFAULT_LOCALE=en
 
 # -----------------------------------------------------------------------------
@@ -8067,6 +8164,114 @@ PINO_REDACT_PATHS=
 #
 # Prefer --dart-define-from-file=config/production.json in CI so the values are
 # versioned per environment instead of being retyped on the command line.
+#
+# -----------------------------------------------------------------------------
+# MOBILE RELEASE FACTORY (apps/api, tenant-aware release pipeline)
+# -----------------------------------------------------------------------------
+# Optional backend knobs for the tenant-aware mobile release factory. None of
+# them have a required default that must be set for boot; every one degrades to
+# an explicit unavailable/refused state when absent. They are listed here so an
+# operator can find them; none of them ever carries a secret value in this file
+# or anywhere in the repo.
+#
+#   MOBILE_FLUTTER_ROOT              Root of the Flutter project the factory builds
+#                                    (defaults to the shipped apps/mobile path).
+#   FLUTTER_BIN                      Explicit flutter SDK binary path; when absent
+#                                    the runner probes well-known install locations
+#                                    and reports BUILD_UNAVAILABLE if none exists.
+#   MOBILE_ANDROID_PACKAGE_ROOT      Reverse-DNS root for generated Android
+#                                    applicationIds (default com.whitelabel.generated).
+#   MOBILE_IOS_BUNDLE_ROOT           Reverse-DNS root for generated iOS bundle ids
+#                                    (default com.whitelabel.generated).
+#   MOBILE_ADVISORY_DB_URL           Advisory/vulnerability database for dependency
+#                                    scanning; unset means the scan reports
+#                                    DEPENDENCY_AUDIT_UNAVAILABLE and production
+#                                    scans BLOCK instead of passing silently.
+#
+# Further optional knobs read by the same module (all commented out; the value
+# shown is the in-code default, or "unset" where absence has a meaning):
+#
+# MOBILE_BUILD_ARTIFACT_ROOT=/tmp/wlct-mobile-artifacts
+# MOBILE_BUILD_TIMEOUT_MINUTES=45
+# MOBILE_MAX_BUILDS_PER_APP_PER_DAY=12
+# MOBILE_CRASH_DELTA_HALT=50
+# MOBILE_CRASH_RATE_PER_HOUR_HALT=20
+# MOBILE_CRASH_WINDOW_MINUTES=60
+# MOBILE_RECONCILIATION_ARTIFACT_LIMIT=100
+#
+# Store providers the factory may submit to, comma separated, from
+# GOOGLE_PLAY, APPLE_APP_STORE, ENTERPRISE_DISTRIBUTION, INTERNAL_DISTRIBUTION.
+# Unset means the two self-hosted providers only; an unknown name fails the
+# policy resolution loudly instead of being ignored.
+# MOBILE_STORE_PROVIDERS=ENTERPRISE_DISTRIBUTION,INTERNAL_DISTRIBUTION
+#
+# API origin baked into each generated app's runtime config, per release
+# environment. When unset the factory falls back to APP_PUBLIC_BASE_URL, then
+# to https://api.placeholder.invalid (a build that can never reach a real API).
+# MOBILE_API_BASE_URL_DEVELOPMENT=
+# MOBILE_API_BASE_URL_STAGING=
+# MOBILE_API_BASE_URL_PRODUCTION=
+# APP_PUBLIC_BASE_URL=
+#
+# Self-hosted distribution origins. Unset means the provider reports
+# STORE_NOT_CONFIGURED instead of publishing.
+# MOBILE_DISTRIBUTION_BASE_URL=
+# MOBILE_INTERNAL_DISTRIBUTION_BASE_URL=
+#
+# Store credentials. SECRET - never put a real value in this file. Each holds
+# the service-account JSON (Google Play) or the App Store Connect JSON / EC PEM
+# (Apple), injected at runtime by the secret manager or a vault sidecar. Unset
+# means the store adapter reports itself as not configured.
+# MOBILE_STORE_GOOGLE_PLAY_CREDENTIAL=
+# MOBILE_STORE_APPLE_CREDENTIAL=
+
+# -----------------------------------------------------------------------------
+# DEVELOPER PLATFORM (apps/api: modules/developer-platform)
+# -----------------------------------------------------------------------------
+# REQUIRED once the module is wired (it is, in AppModule): HMAC key for the
+# digests of developer client secrets and webhook signing secrets. The API
+# refuses to start when it is missing or shorter than 16 characters. Left empty
+# on purpose - a change_me placeholder would be long enough to pass that check.
+# `npm run keys:generate -- --write .env` fills it. Rotating it invalidates
+# every issued developer credential and webhook secret.
+DEVELOPER_SECRET_HMAC_KEY=
+#
+# Optional platform ceilings (plan limits can only tighten them). The values
+# shown are the in-code defaults.
+# DEVELOPER_RATE_BURST_PER_MINUTE=600
+# DEVELOPER_RATE_SUSTAINED_PER_MINUTE=120
+# DEVELOPER_OAUTH_CODE_TTL_SECONDS=600
+# DEVELOPER_OAUTH_TOKEN_TTL_SECONDS=3600
+# DEVELOPER_WEBHOOK_MAX_ATTEMPTS=5
+# DEVELOPER_WEBHOOK_TOLERANCE_SECONDS=300
+# DEVELOPER_PLATFORM_SANDBOX_ONLY=false
+# DEVELOPER_DEFAULT_API_VERSIONS=v1,v2
+
+# -----------------------------------------------------------------------------
+# PARTNER / RESELLER PROGRAMME (apps/api: modules/partners)
+# -----------------------------------------------------------------------------
+# All optional; the values shown are the in-code defaults.
+# PARTNER_POLICY_VERSION=2026-01
+# PARTNER_COMMISSION_BASIS=COLLECTED_REVENUE
+# PARTNER_SETTLEMENT_CURRENCY=USD
+# PARTNER_ALLOWED_CURRENCIES=USD,EUR,GBP,USDT,USDC
+# PARTNER_MAX_DISCOUNT_BPS=3000
+# PARTNER_ATTRIBUTION_WINDOW_HOURS=720
+# PARTNER_MIN_PAYOUT_AMOUNT=50.00
+# Commission rate table as a JSON array of rate objects (model, basis,
+# rateBasisPoints, currency, planCodes, ...). Unset or unparsable means NO
+# default rates: every partner agreement must then carry explicit rates.
+# PARTNER_COMMISSION_RATES_JSON=
+
+# -----------------------------------------------------------------------------
+# DATA GOVERNANCE (apps/api: modules/governance)
+# -----------------------------------------------------------------------------
+# All optional; the values shown are the in-code defaults.
+# GOVERNANCE_POLICY_VERSION=2026-01
+# GOVERNANCE_JURISDICTIONS=US,EU,UK,SG,AE
+# Retention-day overrides per data class as CLASS=days pairs, e.g.
+# PII=1095,FINANCIAL=2555. Unset keeps the built-in defaults.
+# GOVERNANCE_RETENTION_DAYS_DEFAULTS=
 
 # =============================================================================
 # PART 5 - AUTHENTICATED EXECUTION (libs/trading-core: wlct_trading.execution)
@@ -8546,9 +8751,25 @@ EXECUTION_ENGINE_URL=http://127.0.0.1:8093
 # Must match the engine's EXECUTION_INTERNAL_TOKEN. Generate fresh; never reuse across
 # environments.
 # EXECUTION_ENGINE_TOKEN=
+# The engine's side of that shared secret. REQUIRED by docker-compose.yml (the
+# execution-engine service refuses to be created without it), which hands the same value to
+# the API and the worker as EXECUTION_ENGINE_TOKEN - one secret, two names. Left empty here
+# on purpose: `node scripts/generate-keys.mjs --write .env` (run by scripts/bootstrap.sh)
+# fills it with 64 fresh hex characters. The engine refuses fewer than 32 characters or a
+# placeholder value.
+EXECUTION_INTERNAL_TOKEN=
 # Inside docker-compose.yml both services get EXECUTION_ENGINE_URL=http://execution-engine:8093
 # instead of the loopback value above: in a container network 127.0.0.1 is the container that
 # set it, and the engine publishes no host port.
+# Engine identity and dry-run switch, read by docker-compose.yml for the execution-engine
+# service (round 7: compose interpolated them, but no example file at the repo root named
+# them). EXECUTION_INSTANCE_ID names the engine in logs, health and every leader claim; the
+# engine refuses to start without one, so compose defaults it - give each replica its own.
+# EXECUTION_DRY_RUN=true stops submissions before transmission (cancel stays available);
+# EXECUTION_MODE itself is pinned to `simulated` in compose and `live` is refused by code,
+# so false here still never reaches a venue. Details: services/execution-engine/.env.example.
+# EXECUTION_INSTANCE_ID=execution-engine-1
+# EXECUTION_DRY_RUN=true
 # Part 13 durable engine store (read by docker-compose for the
 # execution-engine service). memory is the default and reports
 # storeDurable=false honestly; postgres persists orders/events/fills in the
@@ -8565,6 +8786,10 @@ EXECUTION_ENGINE_URL=http://127.0.0.1:8093
 # `node scripts/retention-run.mjs` under the deployment's scheduler.
 # EXECUTION_RETENTION_ENABLED=false
 # EXECUTION_RETENTION_EVENT_DAYS=90
+# Per-statement row ceiling and per-run batch ceiling; a run that hits the ceiling reports
+# "exhausted" and the next scheduled run resumes. Out-of-bounds values refuse startup.
+# EXECUTION_RETENTION_BATCH_ROWS=2000
+# EXECUTION_RETENTION_MAX_BATCHES=50
 # Part 15: how old a row-level-security enablement audit may be before the
 # platform stops treating it as evidence (bounds enforced by the core law;
 # a bad value refuses boot). The audit is read-only - there is no enablement
@@ -8640,10 +8865,201 @@ DATABASE_READ_MAX_LAG_MS=1500
 #     approved (printed by `--execute` on refusal, or `--plan-only`); the flag form
 #     --confirm is equivalent. Setting it once in a shell profile defeats the purpose:
 #     the value is the plan, so a stale export approves nothing.
+
+# =============================================================================
+# Application feature surfaces (compliance, security console, billing ops,
+# notifications, risk defaults, secret managers)
+#
+# These names are read directly off `process.env` by feature modules and were
+# found by the env-example-coverage spec. Every value below equals the code's
+# own fallback, so copying this file changes nothing until an operator edits a
+# line on purpose. Names that GATE a provider by their presence (API keys,
+# secret-manager switches) are deliberately empty.
+# =============================================================================
+
+# --- Compliance console ------------------------------------------------------
+# KYC/AML/sanctions requirements are on unless explicitly turned off.
+COMPLIANCE_KYC_REQUIRED=true
+COMPLIANCE_AML_REQUIRED=true
+COMPLIANCE_SANCTIONS_REQUIRED=true
+COMPLIANCE_PEP_REQUIRED=false
+COMPLIANCE_MANUAL_REVIEW_REQUIRED=false
+# Amount thresholds in COMPLIANCE_THRESHOLD_CURRENCY units.
+COMPLIANCE_THRESHOLD_CURRENCY=USD
+COMPLIANCE_BLOCK_AMOUNT=50000
+COMPLIANCE_REVIEW_AMOUNT=10000
+# Risk-score bands (0-100) driving automatic decisions.
+COMPLIANCE_RISK_LOW_MAX=30
+COMPLIANCE_RISK_MEDIUM_MAX=60
+COMPLIANCE_RISK_HIGH_MAX=85
+COMPLIANCE_RISK_CRITICAL_MIN=86
+COMPLIANCE_RISK_REVIEW_SCORE=70
+COMPLIANCE_RISK_BLOCK_SCORE=90
+# Comma-separated country lists (ISO codes, upper case).
+COMPLIANCE_HIGH_RISK_COUNTRIES=IR,KP,SY,CU
+COMPLIANCE_BLOCKED_COUNTRIES=
+# Weight applied to high-risk-country signals.
+COMPLIANCE_HIGH_RISK_MULTIPLIER=0.5
+# Days before a verified identity must be re-verified.
+COMPLIANCE_REVERIFICATION_DAYS=365
+COMPLIANCE_POLICY_VERSION=v1.0.0
+# Selects the AML screening backend; any value other than the built-in names
+# (see services: aml-provider.factory) reports itself unavailable.
+AML_PROVIDER=
+COMPLYADVANTAGE_API_KEY=
+WORLDCOMPLIANCE_API_KEY=
+SANCTIONS_IO_API_KEY=
+# KYC provider backends - presence of a key selects the provider.
+JUMIO_API_KEY=
+ONFIDO_API_KEY=
+SUMSUB_API_KEY=
+
+# --- Security console --------------------------------------------------------
+SECURITY_POLICY_VERSION=v1.0.0
+SECURITY_PASSWORD_MIN_LENGTH=12
+SECURITY_SESSION_IDLE_TIMEOUT=1800
+SECURITY_SESSION_ABSOLUTE_TIMEOUT=86400
+SECURITY_MAX_CONCURRENT_SESSIONS=5
+SECURITY_API_KEY_EXPIRY_DAYS=90
+SECURITY_API_KEY_ROTATION_DAYS=30
+SECURITY_DEVICE_TRUST_DAYS=30
+# MFA: required everywhere is opt-in; privileged and sensitive actions require
+# it unless explicitly turned off.
+SECURITY_MFA_REQUIRED=false
+SECURITY_MFA_PRIVILEGED=true
+SECURITY_MFA_SENSITIVE=true
+SECURITY_PRIVILEGED_REAUTH=true
+SECURITY_NOTIFICATIONS=true
+SECURITY_JIT_ENABLED=false
+SECURITY_SSO_ENFORCED=false
+# Comma-separated email domains permitted to use SSO.
+SECURITY_ALLOWED_SSO_DOMAINS=
+# Single sign-on (Part 11). IdP settings (issuer, client id/secret, redirect
+# URI, ACS URL, SP entity id, certificates, clock skew <= 300 s, allowed
+# domains) are configured PER TENANT in sso_configurations through
+# POST /v1/security/sso/{oidc,saml}/config - not here.
+# SAML is disabled by default and fails closed: it is only accepted when this
+# is exactly "true" AND the tenant's SAML configuration is complete. Setting it
+# to anything else is the emergency switch for SAML on the whole deployment.
+SSO_SAML_ENABLED=false
+# Development only: accept plain-http IdP / redirect URLs on loopback hosts
+# (localhost / 127.0.0.1). Ignored when NODE_ENV=production.
+SSO_ALLOW_INSECURE_HTTP=false
+# Platform API key hashing pepper and webhook signing key. Empty falls back to
+# the code defaults, which are NOT production-appropriate; generate real values
+# with scripts/generate-keys.mjs before enabling these surfaces.
+API_KEY_SECRET=
+API_KEY_HMAC_SECRET=
+WEBHOOK_SECRET_PEPPER=
+WEBHOOK_SIGNING_KEY=
+
+# --- Billing operations ------------------------------------------------------
+GLOBAL_PLATFORM_FEE_BPS=0
+GLOBAL_PERFORMANCE_FEE_BPS=0
+# Payout provider: none until configured (see payout-provider.factory).
+# manual | internal | stripe. "stripe" = Stripe Connect Transfers to the
+# beneficiary's connected account (destination type stripe_account, acct_...);
+# it needs STRIPE_SECRET_KEY (sk_/rk_) and otherwise fails closed.
+PAYOUT_PROVIDER=
+BILLING_PAYOUT_PROVIDER=
+# Optional pin of the Stripe API version sent on payout requests.
+STRIPE_API_VERSION=
+# API base overrides (tests / stripe-mock / regional edge); leave empty.
+STRIPE_API_BASE=
+# Tax rates for the internal tax rules, basis points, merged over the built-in
+# defaults; "CC" or "CC-REGION" keys, e.g. {"BD":1500,"US-CA":725}. Invalid
+# JSON fails the boot.
+TAX_RATES_JSON=
+# zero (default) = 0% for a country without a rate; reject = fail the invoice.
+TAX_UNKNOWN_COUNTRY=zero
+# EU B2B reverse charge (0% VAT) needs evidence for the customer's VAT number:
+# format (default) = national VAT format; vies = confirmed by the EU VIES
+# service (if VIES cannot answer, VAT is charged); none = trust the number.
+TAX_VAT_VALIDATION=format
+# Seller's own country (ISO-2). Customers in the same EU state pay domestic VAT.
+TAX_SUPPLIER_COUNTRY=
+# Seller's VAT number (with prefix); VIES then returns a consultation number
+# that is stored on the invoice as evidence.
+TAX_VIES_REQUESTER_VAT=
+# VIES endpoint override (tests); leave empty.
+TAX_VIES_API_URL=
+# Cache TTL for billing analytics aggregations (seconds).
+ANALYTICS_CACHE_TTL=300
+# Scheduler that turns billing events into notification jobs (on by default).
+BILLING_NOTIFICATIONS_SCHEDULER_ENABLED=true
+# URLs used in customer-facing invoice/portal links.
+APP_URL=
+BILLING_PORTAL_URL=
+SUPPORT_EMAIL=
+
+# --- Notifications (direct SMTP / FCM path) ----------------------------------
+EMAIL_HOST=
+EMAIL_PORT=587
+EMAIL_USER=
+EMAIL_PASS=
+# From-address chain: SMTP_FROM -> EMAIL_FROM -> SMTP_USER.
+SMTP_FROM=
+EMAIL_FROM=
+# Push (firebase-admin, an apps/api optionalDependency): available when
+# PUSH_ENABLED=true, FCM_SERVER_KEY/FIREBASE_CONFIG is set, or the
+# FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY_BASE64 service
+# account above is complete; otherwise application default credentials.
+PUSH_ENABLED=false
+FCM_SERVER_KEY=
+FIREBASE_CONFIG=
+
+# --- Risk defaults (tenant policy fallbacks) ---------------------------------
+RISK_MAX_DAILY_LOSS=10000
+RISK_MAX_DRAWDOWN_PCT=20
+RISK_MAX_INTRADAY_DRAWDOWN_PCT=10
+RISK_MAX_LEVERAGE_ACCOUNT=5
+RISK_MAX_LEVERAGE_GROSS=5
+RISK_MAX_LEVERAGE_NET=5
+RISK_MAX_LEVERAGE_SYMBOL=5
+
+# --- Exchange credential secret managers -------------------------------------
+# Presence-gated: set a real URL / true only when the corresponding backend is
+# actually reachable, per docs/SECURITY.md. Used by credentialSource=
+# SECRET_MANAGER (apps/api/src/modules/exchanges/secret-store.ts). With none
+# configured, SECRET_MANAGER is refused with PROVIDER_UNAVAILABLE (never faked).
+# SECRET_MANAGER_PROVIDER: vault | aws (optional; inferred from the vars below).
+SECRET_MANAGER_PROVIDER=
+# HashiCorp Vault KV v2. The default path matches the execution engine's
+# EXECUTION_VAULT_PATH_TEMPLATE so both services read the same secret.
+VAULT_ADDR=
+VAULT_TOKEN=
+VAULT_TOKEN_FILE=
+VAULT_NAMESPACE=
+SECRET_MANAGER_VAULT_MOUNT=secret
+SECRET_MANAGER_VAULT_PATH_TEMPLATE=wlct/{tenant}/{account}/{exchange}
+# AWS Secrets Manager (static / environment credentials; SigV4 signed).
+AWS_SECRETS_MANAGER_ENABLED=
+AWS_REGION=
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_SESSION_TOKEN=
+SECRET_MANAGER_AWS_PREFIX=wlct
+SECRET_MANAGER_AWS_KMS_KEY_ID=
+
+# --- Copy trading: leader-event ingestion -------------------------------------
+# Leader fills (FILL on a copyable strategy owner's accounts) are polled and
+# fanned out to follower subscriptions (apps/api/src/modules/copy-trading/
+# leader-event-ingestion.service.ts). Always off when NODE_ENV=test.
+# COPY_LEADER_INGESTION_ENABLED=false disables polling (manual POST only).
+COPY_LEADER_INGESTION_ENABLED=true
+COPY_LEADER_INGESTION_INTERVAL_MS=5000
+# Fills older than this are never copied (stale-signal protection, no replay).
+COPY_LEADER_EVENT_MAX_AGE_MS=30000
+
+# --- Custody evidence provider -----------------------------------------------
+# Empty or "internal-ledger": recorded custody transactions only; never reports
+# healthy and cannot issue deposit addresses (address/sweep requests fail
+# closed). Any other value fails closed until a real adapter ships.
+CUSTODY_BLOCKCHAIN_PROVIDER=
 ```
 
 
-## FILE: README.md (247 lines)
+## FILE: README.md (308 lines)
 
 *the repository tree in the root README enumerated `infrastructure/` as `docker/` plus `database/`, a sentence Part 20 relied on and Part 22 made false. The enumeration now lists `observability/`, and the `docker-compose.yml` line says plainly that an optional overlay layers on it, because a diagram that lists every child of a directory has to keep listing them. README.md carries no line-count delta in the ledger below for a reason worth stating: no earlier handover embedded the root README, so no prior size exists to subtract, and the part's own document keeps that gap visible instead of rounding it to zero.*
 
@@ -8658,11 +9074,16 @@ Non-custodial means the platform never holds customer funds. Users connect their
 own exchange accounts with trade-only API keys, and orders are placed on the
 user's own account.
 
-> **Part 1 of a multi-part build.** This part delivers the secure foundation:
-> tenancy, identity, authorisation, security, and the service skeletons.
-> Copy-trading logic and live order execution are **not** included and are
-> hard-disabled in code (`EXECUTION_ENABLED=false`). There is no simulated
-> trading performance anywhere in this codebase.
+> **Build state (2026-09-28).** Tenancy, identity, authorisation, security,
+> copy trading (leader-fill ingestion -> follower sizing -> risk -> OMS ->
+> execution engine), five venue adapters, secret-manager credentials, billing,
+> custody ledger and the Flutter client are all in this tree. Order
+> **submission is paper/sandbox only**: live transmission stays hard-disabled
+> (`EXECUTION_ENABLED=false`, engine submit route refuses non-simulated
+> adapters) until a venue passes the live-enablement review in
+> `docs/PART19_LIVE_ENABLEMENT.md`. There is no simulated trading performance
+> anywhere in this codebase. What is and is not production-ready is listed in
+> [docs/PHASE3_HANDOVER.md](docs/PHASE3_HANDOVER.md).
 
 ---
 
@@ -8676,6 +9097,7 @@ user's own account.
 | [docs/MULTI_TENANCY.md](docs/MULTI_TENANCY.md) | isolation model and its guarantees |
 | [docs/API.md](docs/API.md) | endpoints, envelopes, error codes |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | what ships in Parts 2-8 and why in that order |
+| [docs/PHASE3_HANDOVER.md](docs/PHASE3_HANDOVER.md) | current readiness, what changed in the gap-audit pass, known limits, buyer checklist |
 
 ---
 
@@ -8685,6 +9107,7 @@ user's own account.
 | --- | --- |
 | Mobile | Flutter 3.22 · Riverpod · Dio · go_router · flutter_secure_storage |
 | Admin console | Next.js 14 (App Router) · React 18 · TypeScript |
+| Web client | Next.js 14 (App Router) · React 18 · TypeScript |
 | API | NestJS 10 · TypeScript · Prisma 5 · Socket.IO · BullMQ |
 | Database | PostgreSQL 16 |
 | Cache / queue | Redis 7 |
@@ -8701,6 +9124,7 @@ whitelabel-copytrade/
 ├── apps/
 │   ├── api/                    NestJS API - the only service clients talk to
 │   ├── admin-web/              Next.js administration console
+│   ├── web/                    Next.js end-user web client
 │   └── mobile/                 Flutter client
 ├── services/
 │   ├── trading-engine/         Python/FastAPI - risk and (later) execution
@@ -8731,6 +9155,7 @@ cp .env.example .env
 
 npm run dev:api                 # http://localhost:4000
 npm run dev:admin               # http://localhost:3000
+npm run dev:web                 # http://localhost:3001
 ```
 
 Or run the whole stack:
@@ -8744,7 +9169,7 @@ Full detail, including manual setup and troubleshooting, is in
 
 ---
 
-## What Part 1 delivers
+## What the platform delivers
 
 ### Multi-tenancy
 
@@ -8782,15 +9207,34 @@ Details, control by control, in [docs/SECURITY.md](docs/SECURITY.md).
 * Admin console: cookie-session auth through a same-origin proxy, plus
   organisations, users, roles, branding, subscription, audit log and settings.
 * Mobile: config, DI, HTTP client with serialised refresh, secure storage,
-  auth state, routing guards, theming from tenant branding, en/bn localisation.
+  auth state, routing guards, theming from tenant branding, en/bn localisation,
+  plus strategies, risk, exchange accounts (connect / health / disable),
+  copy trading (rankings, subscribe with risk acknowledgement, pause / resume /
+  stop, copied-trade activity), funding (wallets, provider-issued deposit
+  addresses, transactions - no withdrawals on mobile), portfolio (API facts
+  only) and notifications (inbox, read state, preferences).
 * Python services: config, redacting logs, internal-token auth, health, and a
   pre-trade risk engine that evaluates and reports but cannot execute.
+
+### Trading path
+
+* Venues: Binance, Bybit, OKX, Kraken and Coinbase (Advanced Trade) providers
+  with declared capabilities; a venue that cannot do something says so.
+* Copy trading: leader fills are polled (`COPY_LEADER_INGESTION_*`), fanned out
+  to active subscriptions idempotently (one copy per leader event per
+  subscription), sized, risk-checked and dispatched through the OMS queue to
+  the execution engine. Missed or failed copies surface as reconciliation
+  discrepancies (MISSING_COPY is HIGH after a 60 s grace).
+* Risk: day-start-equity based daily loss, drawdown and stress calculations
+  with deterministic tests; an unmeasured value is UNKNOWN, never zero.
+* Credentials: envelope-encrypted in the database, or held in HashiCorp Vault
+  KV v2 / AWS Secrets Manager (`credentialSource=SECRET_MANAGER`).
 
 ---
 
 ## Execution safety
 
-Part 1 cannot place an order. Four independent gates (`docs/SECURITY.md` section 11
+No path can place a live order. Four independent gates (`docs/SECURITY.md` section 11
 is the detailed copy, and it is the one a part is required to keep in step):
 
 1. `EXECUTION_ENABLED=false` platform-wide.
@@ -8802,6 +9246,10 @@ is the detailed copy, and it is the one a part is required to keep in step):
    answer, and refuses to start with no reviewer wired at all.
 
 `EXCHANGE_SANDBOX_MODE=true` additionally disables any venue without a sandbox.
+
+The OMS -> engine submission route (`POST /internal/v1/orders/submit`) accepts
+PAPER orders only and returns 409 for any adapter that is not simulated, so the
+full copy chain can be exercised end to end without touching real funds.
 
 ---
 
@@ -8822,6 +9270,22 @@ session revocation, the standard error envelope and the security headers. It
 signs the test account out of all devices as part of the run, so point it at a
 test account rather than a live administrator.
 
+In GitHub Actions the same gates run on every push and pull request from
+`../.github/workflows/ci.yml` (the repository root, one level above this project): API tests, typecheck,
+console and web builds, the TypeScript SDK suite, the `ops/` and web
+validators, the billing library specs in root `tests/`
+(`npm run test:billing-lib`), an API dependency-injection boot check that
+resolves the whole Nest graph without a database (`npm run check:api-di`), a fresh-database `prisma migrate deploy` plus schema drift check
+and RLS enable/disable, and the Python suites (including the execution-engine
+live Postgres tests under a non-superuser owner role so row-level security is
+really enforced), the Flutter client (analyze, l10n drift, tests), the Rust
+SDK (`cargo test --locked`), and Terraform (`fmt -check`, `validate`, and the
+API task environment checked against the production env schema by
+`scripts/check-terraform-api-env.mjs`). `../.github/workflows/production-release.yml` builds the
+digest-pinned images, records them in a release manifest, waits for approval
+in the `production` environment and deploys exactly those digests with
+Terraform.
+
 ---
 
 ## Commands
@@ -8839,6 +9303,7 @@ npm run db:seed            # idempotent
 
 npm run dev:api
 npm run dev:admin
+npm run dev:web
 npm run dev:notification
 
 node scripts/generate-keys.mjs           # print secrets
@@ -8876,6 +9341,17 @@ different set per environment.
 **Never commit `.env`.** It is git-ignored, and `scripts/bootstrap.sh` sets it
 to mode 600.
 
+Settings added in the gap-audit pass (all documented in `.env.example`):
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `SECRET_MANAGER_PROVIDER`, `VAULT_*`, `SECRET_MANAGER_VAULT_*` | empty | Vault KV v2 credential store |
+| `AWS_SECRETS_MANAGER_ENABLED`, `AWS_*`, `SECRET_MANAGER_AWS_*` | empty | AWS Secrets Manager credential store (SigV4, static/env credentials) |
+| `COPY_LEADER_INGESTION_ENABLED` | `true` (always off under `NODE_ENV=test`) | leader-fill polling |
+| `COPY_LEADER_INGESTION_INTERVAL_MS` | `5000` | poll interval |
+| `COPY_LEADER_EVENT_MAX_AGE_MS` | `30000` | older fills are never copied |
+| `CUSTODY_BLOCKCHAIN_PROVIDER` | empty (= `internal-ledger`) | any other value fails closed until an adapter ships |
+
 ---
 
 ## Contributing rules
@@ -8894,7 +9370,8 @@ to mode 600.
 
 ## Licence
 
-Proprietary. All rights reserved.
+Proprietary. All rights reserved. See [LICENSE](LICENSE). Third-party
+dependencies remain under their own licences (see each package manifest).
 ````
 
 
@@ -9191,7 +9668,7 @@ if __name__ == "__main__":
 ```
 
 
-## FILE: docs/SECURITY.md (624 lines)
+## FILE: docs/SECURITY.md (675 lines)
 
 *two rows of the tenant-isolation table named files that do not live where they were written: the scoped Prisma factory is under infrastructure/prisma/ and tenant.guard.ts is under modules/tenants/guards/. Both files exist and both controls are real - the defect was the sentence, and it is the document a reviewer opens when deciding whether isolation is architectural, so the directory that does not exist is the finding.*
 
@@ -9612,8 +10089,11 @@ Four independent gates prevent Part 1 from placing an order:
 * Multi-stage builds; runtime images contain no compiler, no source, no `.env`.
 * Every container runs as a non-root user.
 * Postgres and Redis publish to `127.0.0.1` only.
-* Redis requires a password and uses `volatile-lru`, so queue jobs and sessions
-  are never silently evicted.
+* Redis requires a password and uses `noeviction` (compose, staging and the
+  production ElastiCache parameter group): nothing is silently evicted, and at
+  the memory limit writes fail loudly. `volatile-lru`, used before round 8,
+  could evict keys with a TTL, which include BullMQ's job locks, so a running
+  job could be processed twice; BullMQ itself warns about it.
 
 ## 13. Incident response starting points
 
@@ -9820,6 +10300,54 @@ the boundary is stated as rules instead:
   schedule installer writes nothing but a marked block in a user crontab and preserves every
   unmanaged entry byte for byte, so a DR check cannot become the cause of the outage it exists to
   detect.
+
+## 17. Enterprise single sign-on (Part 11)
+
+Tenant SSO (OIDC authorization-code flow with PKCE, and SAML 2.0) is documented in
+[`SSO.md`](SSO.md). The essentials:
+
+* **One session system.** An SSO login ends in the same `establishSession` call as a password login:
+  the same revocable session, hashed refresh token, risk evaluation and 2FA challenge. Cookies are set
+  only by the web BFF; no token ever appears in a URL.
+* **Real verification only.** ID tokens are verified with `jose` against the IdP's JWKS, and SAML
+  responses with `@node-saml/node-saml` against the configured certificates. The hand-rolled JWS
+  verifier (`jws-verify.ts`) was removed. State, nonce and PKCE are generated by the server, stored
+  hashed or encrypted, and used once.
+* **SAML is off by default** (`SSO_SAML_ENABLED`) and fails closed on incomplete configuration.
+* **Identity is the verified subject**, never the email alone; cross-tenant, ambiguous, suspended and
+  deleted matches are refused, all with the same generic error.
+* **Evidence.** Every outcome lands in `sso_audit_events` (RLS-covered); no secrets are recorded.
+  Mutation tests (removing the nonce, state, issuer, audience, tenant and replay checks; accepting
+  unsigned SAML; string-matching SAML) each make the test suite fail.
+* **Enforcement and administration (round 7).** An `ENFORCED` configuration refuses password login
+  with `403 SSO_REQUIRED` (platform staff exempt as the break-glass path; a failed policy lookup fails
+  the login). Tenant administrators configure their own tenant's SSO (`sso:manage` +
+  `security:policy:write`), behind a lock-out guard that refuses to enforce SSO for a caller who has
+  not signed in through that configuration. SAML assertions may be required to be encrypted (opt-in,
+  per configuration); OIDC sessions get RP-initiated logout.
+* **SAML Single Logout (round 8).** HTTP-Redirect binding, SP- and IdP-initiated, only for a
+  configuration with the IdP SLO URL, our SLO URL and an SP signing pair (key write-only and sealed
+  with the tenant as AAD; RSA >= 2048; the certificate must belong to the key). The local session is
+  revoked before the IdP is involved. Every logout message must carry a valid RSA-SHA256/512
+  redirect signature by a configured IdP certificate; the API checks it itself, with exact query
+  tokens, before node-saml (which alone would accept unsigned messages, SHA-1 and a missing
+  `InResponseTo`). A LogoutResponse must match a `LOGOUT_PENDING` transaction of the same tenant and
+  its persisted request ID, and is consumed once; an IdP-initiated LogoutRequest must be fresh and
+  is recorded against replay, and revokes only the named subject's sessions from that configuration
+  (only the named SessionIndexes, when given). A forged message revokes nothing. NameID and
+  SessionIndex are stored sealed, with keyed hashes for lookup, never in clear. Mutation tests
+  (removing the Destination, `InResponseTo`, signature, replay, freshness, SessionIndex, subject,
+  configuration and tenant checks) each make the suite fail.
+* **SSO with 2FA keeps its origin (round 8).** The origin comes from the consumed transaction of the
+  same tenant and user and is resolved before the 2FA challenge is issued or spent; an unresolvable
+  origin is refused without consuming the code. Before round 8 such sessions were recorded as
+  `PASSWORD`.
+* **The web login button no longer hardcodes OIDC (round 8).** Without a `providerType` the API picks
+  the tenant's enabled provider (an `ENFORCED` one wins, otherwise OIDC, otherwise SAML), so
+  SAML-only tenants can start SSO from the web.
+* **Not supported:** IdP-initiated SAML **login** (refused by design) and the SOAP / HTTP-POST
+  logout bindings; interoperability against a real IdP is the operator's to test (see `SSO.md`
+  section 9).
 ```
 
 

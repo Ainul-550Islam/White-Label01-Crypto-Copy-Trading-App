@@ -1,3 +1,4 @@
+// # Persists and resolves execution incidents with audit trail
 import { Injectable } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { AuditAction, AuditActorType, AuditOutcome } from '@wlct/shared-types';

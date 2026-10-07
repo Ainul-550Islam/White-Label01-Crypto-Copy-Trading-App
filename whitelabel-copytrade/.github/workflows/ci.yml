@@ -1,0 +1,56 @@
+# NEW — Runs lint, typecheck, unit tests, schema verification, and build on PR/push
+name: CI — Lint, Typecheck, Tests & Schema Gate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-test:
+    name: Monorepo Verification & Deterministic Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify database schema consistency (GAP-47)
+        run: node scripts/verify-schema-consistency.js
+
+      - name: Verify API route authorization & Web-API contract
+        run: |
+          node apps/api/scripts/check-route-authorization.js
+          node scripts/check-web-api-contract.js
+
+      - name: Run 50-Gap Parity Scanner (GAP-50)
+        run: node ops/gap-parity-scanner.js
+
+      - name: Run Customer Web & Admin Web Test Suites
+        run: |
+          npm test --workspace=@wlct/web
+          npm test --workspace=@wlct/admin-web
+
+      - name: Run API Deterministic Unit & Contract Tests
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: |
+          cd apps/api && npx jest --runInBand

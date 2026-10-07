@@ -1,3 +1,4 @@
+// # Verifies copy execution dispatch gates, kill-switch scopes, compliance blocks, and OMS routing
 /**
  * Phase 3: a validated copy execution is DISPATCHED through the OMS.
  *

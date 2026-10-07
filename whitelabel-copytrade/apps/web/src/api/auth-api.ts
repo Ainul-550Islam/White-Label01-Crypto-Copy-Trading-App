@@ -16,6 +16,20 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+  locale?: 'en' | 'es' | 'ar' | 'bn' | 'tr';
+  referralCode?: string;
+  acceptedTerms: boolean;
+}
+
+export interface RegisterResponse {
+  redirectTo: string;
+}
+
 /** What /api/auth/login returns to the browser (never a token). */
 export interface LoginResponse {
   requiresMfa: boolean;
@@ -138,6 +152,17 @@ export function toSessionResponse(me: MeResponse, config: PublicTenantConfig): S
 export const authApi = {
   login: (data: LoginRequest) =>
     apiClient.app.post<LoginResponse>('/api/auth/login', { email: data.email, password: data.password }),
+
+  register: (data: RegisterRequest) =>
+    apiClient.app.post<RegisterResponse>('/api/auth/register', {
+      email: data.email,
+      password: data.password,
+      ...(data.firstName ? { firstName: data.firstName } : {}),
+      ...(data.lastName ? { lastName: data.lastName } : {}),
+      ...(data.locale ? { locale: data.locale } : {}),
+      ...(data.referralCode ? { referralCode: data.referralCode } : {}),
+      acceptedTerms: data.acceptedTerms,
+    }),
 
   logout: () => apiClient.app.post<{ redirectTo: string }>('/api/auth/logout'),
 

@@ -27,8 +27,8 @@ must never be committed. `.env.example` documents every variable instead.
 | [Mobile app (Flutter)](./09-mobile.md) | Configuration, secure storage, the API client with refresh handling, routing, theming and localisation. | 81 | 14,807 |
 | [Python trading core (libs/trading-core)](./10-trading-core.md) | The pure decision core from Parts 2, 5, 6, 7 and 8: signals, orders, positions, exchanges, execution, paper and backtest engines, the dataset infrastructure, the risk package, and the complete pytest suite. | 231 | 93,562 |
 | [Infrastructure, scripts and docs](./11-infrastructure.md) | Dockerfiles, database bootstrap SQL, the helper scripts and the written documentation. | 118 | 402,363 |
-| [End-user web app (Next.js)](./12-web.md) | The tenant-branded web client: BFF auth routes (login, refresh, two-factor, SSO start/callback, logout), the API proxy, and the copy-trading, portfolio, funding, strategies, billing and account screens, with their tests. | 182 | 13,013 |
+| [End-user web app (Next.js)](./12-web.md) | The tenant-branded web client: BFF auth routes (login, refresh, two-factor, SSO start/callback, logout), the API proxy, and the copy-trading, portfolio, funding, strategies, billing and account screens, with their tests. | 187 | 15,221 |
 | [Production operations, deployment and evidence schemas](./13-ops-and-deployment.md) | The production operations module (preflight, gates, release manifest, backup/restore and rollback verification), the validation check scripts, the Terraform root module and the JSON schemas for staging evidence. | 34 | 8,451 |
 | [Cross-package tests](./14-root-tests.md) | The repository-level jest project (billing entitlement resolver and guard specs) and its configuration. | 13 | 2,430 |
-| **Total** | | **1969** | **848,249** |
+| **Total** | | **1974** | **850,457** |
 

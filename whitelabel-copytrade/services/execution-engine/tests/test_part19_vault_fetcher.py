@@ -1,3 +1,4 @@
+# Verifies Vault and AWS Secrets Manager credential resolution and fail-closed errors
 """Part 19: the concrete live-credential fetcher, and the selection that installs it.
 
 Two halves, because the gap Part 19 closed had two halves: the reader that did not

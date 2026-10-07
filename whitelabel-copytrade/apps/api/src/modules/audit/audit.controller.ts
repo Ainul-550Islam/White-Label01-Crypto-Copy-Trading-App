@@ -1,3 +1,4 @@
+// # Exposes customer-scoped GET /v1/audit/me/activity endpoint
 import { Controller, Get, HttpCode, HttpStatus, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, type PaginatedResult } from '@wlct/shared-types';
@@ -7,7 +8,7 @@ import { ListAuditLogsDto } from './dto/list-audit-logs.dto';
 import type { AuditLogEntity } from './audit.types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TenantId } from '../../common/decorators/current-tenant.decorator';
-import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { AllowAnyAuthenticated, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ApiStandardResponses } from '../../common/decorators/api-standard-responses.decorator';
 import type { AuthenticatedActor } from '@wlct/shared-types';
 
@@ -37,6 +38,27 @@ export class AuditController {
     return this.auditService.list({
       ...query,
       tenantId: scopedTenantId,
+    });
+  }
+
+  @Get('me/activity')
+  @HttpCode(HttpStatus.OK)
+  @AllowAnyAuthenticated()
+  @ApiOperation({
+    summary: 'List current customer activity and audit trail (GAP-42)',
+    description:
+      'Returns the signed-in user’s own audit trail scoped strictly to their actorId and tenantId.',
+  })
+  @ApiOkResponse({ description: 'Paginated customer activity records.' })
+  async listMyActivity(
+    @Query() query: ListAuditLogsDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ): Promise<PaginatedResult<AuditLogEntity>> {
+    return this.auditService.list({
+      ...query,
+      tenantId,
+      actorId: actor.id,
     });
   }
 }

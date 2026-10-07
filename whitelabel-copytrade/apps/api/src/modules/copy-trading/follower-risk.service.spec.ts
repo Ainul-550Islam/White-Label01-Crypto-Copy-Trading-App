@@ -1,3 +1,5 @@
+// # Verifies every copy policy and follower risk enforcement rule and fail-closed lookup path
+// # Verifies leverage and margin constraint rejections
 import { FollowerRiskService, type RiskCheckInput } from './follower-risk.service';
 import { CopyRiskDecision, type FollowerRiskPolicy } from './copy-trading.types';
 
@@ -15,6 +17,9 @@ const NO_LIMITS: FollowerRiskPolicy = {
   maxPositionSize: null,
   maxSymbolExposure: null,
   maxCopyCount: null,
+  maxLeverage: null,
+  minMarginRatio: null,
+  allowedMarginModes: null,
   emergencyStopCopy: false,
   dailyPauseEnabled: false,
 };
@@ -96,6 +101,126 @@ describe('FollowerRiskService database-backed rules fail closed', () => {
       allowed: true,
       ruleId: null,
       reason: null,
+    });
+  });
+});
+
+describe('FollowerRiskService copy policy enforcement coverage (GAP-08)', () => {
+  const service = build();
+
+  it('blocks symbols on blockedSymbols or outside allowedSymbols', async () => {
+    await expect(
+      service.checkRisk(input({}, { copyPolicy: { blockedSymbols: ['BTC-USDT'] } })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'BLOCKED_SYMBOL',
+    });
+
+    await expect(
+      service.checkRisk(input({}, { copyPolicy: { allowedSymbols: ['ETH-USDT'] } })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'UNALLOWED_SYMBOL',
+    });
+  });
+
+  it('enforces maxOrderNotional, maxDailyNotional, and maxConcurrentCopies', async () => {
+    await expect(
+      service.checkRisk(input({}, { copyPolicy: { maxOrderNotional: '10000' } })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'MAX_ORDER_NOTIONAL',
+    });
+
+    await expect(
+      service.checkRisk(input({}, { copyPolicy: { maxDailyNotional: '40000' }, dailyNotionalUsed: '20000' })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'MAX_DAILY_NOTIONAL',
+    });
+
+    await expect(
+      service.checkRisk(input({}, { copyPolicy: { maxConcurrentCopies: 3 }, concurrentOpenCopies: 3 })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'MAX_CONCURRENT_COPIES',
+    });
+  });
+
+  it('enforces emergencyStopCopy, maxDailyLoss, maxTotalLoss, maxDrawdown, and maxExposure reduction', async () => {
+    await expect(service.checkRisk(input({ emergencyStopCopy: true }))).resolves.toMatchObject({
+      decision: CopyRiskDecision.STOP_COPY,
+      ruleId: 'EMERGENCY_STOP_COPY',
+    });
+
+    await expect(service.checkRisk(input({ maxDailyLoss: '500' }, { dailyLoss: '550' }))).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      ruleId: 'MAX_DAILY_LOSS',
+    });
+
+    await expect(service.checkRisk(input({ maxTotalLoss: '1500' }, { totalLoss: '1500' }))).resolves.toMatchObject({
+      decision: CopyRiskDecision.STOP_COPY,
+      ruleId: 'MAX_TOTAL_LOSS',
+    });
+
+    await expect(service.checkRisk(input({ maxDrawdown: '15' }, { currentDrawdown: '16.5' }))).resolves.toMatchObject({
+      decision: CopyRiskDecision.PAUSE,
+      ruleId: 'MAX_DRAWDOWN',
+    });
+
+    const reduced = await service.checkRisk(input({ maxExposure: '40000' }, { currentExposure: '27500' }));
+    expect(reduced).toMatchObject({
+      decision: CopyRiskDecision.REDUCE,
+      allowed: true,
+      ruleId: 'MAX_EXPOSURE_REDUCE',
+      reducedQuantity: '0.25',
+    });
+  });
+});
+
+describe('FollowerRiskService leverage and margin constraints (GAP-16)', () => {
+  const service = build();
+
+  it('rejects orders whose requested leverage exceeds follower maxLeverage', async () => {
+    await expect(
+      service.checkRisk(input({ maxLeverage: '3' }, { requestedLeverage: '5' })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'MAX_LEVERAGE',
+    });
+  });
+
+  it('rejects leveraged requests when copyPolicy is SPOT_ONLY', async () => {
+    await expect(
+      service.checkRisk(input({}, { copyPolicy: { leveragePolicy: 'SPOT_ONLY' }, requestedLeverage: '2' })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'SPOT_ONLY_LEVERAGE_FORBIDDEN',
+    });
+  });
+
+  it('rejects unsupported margin modes and insufficient margin ratios', async () => {
+    await expect(
+      service.checkRisk(input({ allowedMarginModes: ['SPOT', 'ISOLATED'] }, { marginMode: 'CROSS' })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'UNSUPPORTED_MARGIN_MODE',
+    });
+
+    await expect(
+      service.checkRisk(input({ minMarginRatio: '0.30' }, { availableMarginRatio: '0.18' })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'INSUFFICIENT_MARGIN_RATIO',
     });
   });
 });

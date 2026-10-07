@@ -112,6 +112,7 @@ export function TenantLogo({ className, fallback }: { className?: string; fallba
   const logoUrl = tenant?.branding?.logoUrl;
 
   if (logoUrl && logoUrl.startsWith('https://')) {
+    /* eslint-disable-next-line @next/next/no-img-element */
     return <img src={logoUrl} alt={`${tenant?.name ?? 'Tenant'} logo`} className={className} />;
   }
 

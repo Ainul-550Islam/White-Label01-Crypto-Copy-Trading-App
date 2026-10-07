@@ -1,3 +1,4 @@
+# Adds AWS Secrets Manager and Vault Kubernetes/IAM auth fetcher
 """The one concrete secret fetcher this service ships: HashiCorp Vault, KV v2.
 
 Part 16 left the multi-tenant credential path half-open on purpose. The core's
