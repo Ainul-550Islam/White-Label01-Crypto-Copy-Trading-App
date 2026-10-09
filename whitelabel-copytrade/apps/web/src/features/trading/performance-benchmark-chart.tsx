@@ -1,5 +1,6 @@
 // # Responsibility: plots persisted cumulative trader and benchmark returns without generating missing observations.
 
+import type { JSX } from 'react';
 import type { PerformanceBenchmarkSeries } from '@/api/trading-api';
 
 function chartPoints(values: number[], width: number, height: number, padding: number, min: number, max: number): string {

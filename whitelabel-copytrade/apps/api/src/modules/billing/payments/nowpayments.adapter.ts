@@ -13,6 +13,8 @@ import type {
 import type { NormalizedPaymentResult, PaymentAmount } from './payment.types';
 import type { NormalizedWebhookEvent } from './webhook.types';
 import { PaymentConfigService } from './payment.config';
+import { Decimal } from '../../../common/decimal-string';
+import { nowPaymentsInvoiceAmountToNumber, paymentAmountToMinorUnits } from '../../../common/payment-amount';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 
@@ -55,12 +57,15 @@ export class NowPaymentsAdapter implements IPaymentProvider {
     const baseUrl = this.config.nowpayments?.apiBaseUrl || 'https://api.nowpayments.io/v1';
 
     try {
-      // Price must come from canonical billing plan catalog, never hardcoded
-      const amount = parseFloat(input.price);
-      if (isNaN(amount) || amount <= 0) {
+      // /invoice requires a JSON number. Convert only when the number's decimal round-trip is exact.
+      let amount: number;
+      try {
+        amount = nowPaymentsInvoiceAmountToNumber(input.price);
+      } catch {
         throw new AppException({
           code: ErrorCode.VALIDATION_ERROR,
-          message: `Invalid plan price: ${input.price} - must come from catalog`,
+          message: 'Plan price cannot be represented losslessly as a NOWPayments invoice amount',
+          context: { provider: PaymentProvider.NOWPAYMENTS, planId: input.planId },
         });
       }
 
@@ -164,63 +169,98 @@ export class NowPaymentsAdapter implements IPaymentProvider {
   }
 
   async verifyWebhookSignature(input: VerifyWebhookInput): Promise<VerifyWebhookResult> {
-    try {
-      const ipnSecret = this.config.getNowPaymentsIpnSecret();
+    const ipnSecret = this.config.getNowPaymentsIpnSecret();
+    if (!ipnSecret) {
+      this.logger.warn('NOWPayments IPN secret is not configured; rejecting webhook');
+      return { verified: false, failureReason: 'NOWPayments IPN secret is not configured' };
+    }
 
-      if (!ipnSecret) {
-        // If no IPN secret configured, verify by checking payload structure only
-        // In production, IPN secret should always be configured
-        this.logger.warn('NowPayments IPN secret not configured - using basic verification');
-        const payload = typeof input.rawBody === 'string' ? JSON.parse(input.rawBody) : JSON.parse(input.rawBody.toString('utf8'));
-        return {
-          verified: !!payload.payment_id && !!payload.payment_status,
-          eventId: payload.payment_id?.toString() || payload.order_id,
-          eventType: payload.payment_status,
-          rawEvent: payload,
-        };
+    if (typeof input.signature !== 'string' || input.signature.trim() === '') {
+      return { verified: false, failureReason: 'NOWPayments IPN signature is missing' };
+    }
+
+    const signature = input.signature.trim();
+    if (!/^[0-9a-f]{128}$/i.test(signature)) {
+      return { verified: false, failureReason: 'NOWPayments IPN signature has an invalid format' };
+    }
+
+    try {
+      const rawBody = typeof input.rawBody === 'string' ? input.rawBody : input.rawBody.toString('utf8');
+      const payload: unknown = JSON.parse(rawBody);
+      if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+        return { verified: false, failureReason: 'NOWPayments IPN payload must be a JSON object' };
       }
 
-      // NowPayments IPN verification: HMAC SHA512 of sorted payload with IPN secret
-      const rawBody = typeof input.rawBody === 'string' ? input.rawBody : input.rawBody.toString('utf8');
-      const payload = JSON.parse(rawBody);
+      const crypto = await import('crypto');
+      const canonicalPayload = JSON.stringify(sortNowPaymentsPayload(payload));
+      const expectedSignature = crypto.createHmac('sha512', ipnSecret).update(canonicalPayload, 'utf8').digest();
+      const suppliedSignature = Buffer.from(signature, 'hex');
+      if (suppliedSignature.length !== expectedSignature.length || !crypto.timingSafeEqual(suppliedSignature, expectedSignature)) {
+        this.logger.warn('NOWPayments IPN signature verification failed');
+        return { verified: false, failureReason: 'Invalid NOWPayments IPN signature' };
+      }
 
-      // Verify signature header if provided
-      if (input.signature) {
-        const crypto = await import('crypto');
-        const sortedPayload = JSON.stringify(payload);
-        const expectedSignature = crypto.createHmac('sha512', ipnSecret).update(sortedPayload).digest('hex');
-
-        if (input.signature !== expectedSignature) {
-          this.logger.warn(`NowPayments IPN signature mismatch for payment ${payload.payment_id}`);
-          return {
-            verified: false,
-            failureReason: 'Invalid IPN signature',
-          };
-        }
+      const record = payload as Record<string, unknown>;
+      const eventIdValue = record.payment_id ?? record.order_id;
+      const eventId = typeof eventIdValue === 'string' && eventIdValue.trim() !== ''
+        ? eventIdValue.trim()
+        : typeof eventIdValue === 'number' && Number.isSafeInteger(eventIdValue) && eventIdValue > 0
+          ? String(eventIdValue)
+          : undefined;
+      const eventType = typeof record.payment_status === 'string' && record.payment_status.trim() !== ''
+        ? record.payment_status.trim()
+        : undefined;
+      if (!eventId || !eventType) {
+        return { verified: false, failureReason: 'NOWPayments IPN event id or status is missing' };
       }
 
       return {
         verified: true,
-        eventId: payload.payment_id?.toString() || payload.order_id,
-        eventType: payload.payment_status,
-        rawEvent: payload,
+        eventId,
+        eventType,
+        rawEvent: record,
       };
-    } catch (error) {
-      this.logger.warn(`NowPayments webhook verification failed: ${(error as Error).message}`);
-      return {
-        verified: false,
-        failureReason: (error as Error).message,
-      };
+    } catch {
+      this.logger.warn('NOWPayments webhook verification failed due to malformed payload');
+      return { verified: false, failureReason: 'Malformed NOWPayments webhook payload' };
     }
   }
 
   async normalizeWebhookEvent(input: NormalizeEventInput): Promise<NormalizedWebhookEvent> {
     const rawEvent = input.rawEvent as any;
 
-    if (!rawEvent || !rawEvent.payment_id) {
+    if (
+      !rawEvent ||
+      !rawEvent.payment_id ||
+      typeof rawEvent.payment_status !== 'string' ||
+      rawEvent.payment_status.trim() === '' ||
+      typeof rawEvent.price_amount !== 'string' ||
+      rawEvent.price_amount.trim() === '' ||
+      typeof rawEvent.price_currency !== 'string'
+    ) {
       throw new AppException({
         code: ErrorCode.VALIDATION_ERROR,
-        message: 'Invalid NowPayments event structure',
+        message: 'Invalid NowPayments event structure or exact amount evidence',
+      });
+    }
+
+    let amount: string;
+    try {
+      const exactAmount = Decimal.parse(rawEvent.price_amount.trim());
+      if (exactAmount.isNegative()) throw new TypeError('Payment amount must not be negative');
+      amount = exactAmount.toString();
+    } catch {
+      throw new AppException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'NowPayments price amount must be a non-negative exact decimal string',
+      });
+    }
+
+    const currency = rawEvent.price_currency.trim().toUpperCase();
+    if (!/^[A-Z0-9]{2,12}$/.test(currency)) {
+      throw new AppException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'NowPayments price currency is invalid',
       });
     }
 
@@ -230,26 +270,24 @@ export class NowPaymentsAdapter implements IPaymentProvider {
     return {
       provider: PaymentProvider.NOWPAYMENTS,
       providerEventId: rawEvent.payment_id.toString(),
-      eventType: rawEvent.payment_status,
+      eventType: rawEvent.payment_status.trim(),
       eventCategory,
       paymentStatus,
       providerPaymentId: rawEvent.payment_id.toString(),
       providerInvoiceId: rawEvent.order_id?.toString(),
       providerCheckoutId: rawEvent.order_id?.toString(),
-      amount: rawEvent.price_amount ? {
-        amount: rawEvent.price_amount.toString(),
-        currency: rawEvent.price_currency?.toUpperCase() || 'USD',
-        amountInSmallestUnit: Math.round(parseFloat(rawEvent.price_amount) * 100),
-      } : undefined,
+      amount: { amount, currency },
       metadata: {
         tenantId: rawEvent.order_id?.split('_')[0] || undefined,
         orderId: rawEvent.order_id,
         payCurrency: rawEvent.pay_currency,
-        priceCurrency: rawEvent.price_currency,
+        priceCurrency: currency,
       },
       rawEvent: this.sanitizeResponse(rawEvent),
       receivedAt: new Date(),
-      providerCreatedAt: rawEvent.created_at ? new Date(rawEvent.created_at) : new Date(),
+      providerCreatedAt: typeof rawEvent.created_at === 'string' && rawEvent.created_at.trim() !== ''
+        ? new Date(rawEvent.created_at)
+        : null,
     };
   }
 
@@ -337,11 +375,19 @@ export class NowPaymentsAdapter implements IPaymentProvider {
   private normalizeNowPaymentsToPaymentResult(paymentData: any): NormalizedPaymentResult {
     const status = this.mapProviderStatusToInternalStatus(paymentData.payment_status);
     const transactionState = this.mapProviderStatusToTransactionState(paymentData.payment_status);
+    if (typeof paymentData.price_amount !== 'string' || typeof paymentData.price_currency !== 'string') {
+      throw new TypeError('NowPayments payment response is missing exact amount or currency evidence');
+    }
+
+    const exactAmount = Decimal.parse(paymentData.price_amount);
+    if (exactAmount.isNegative()) throw new TypeError('NowPayments payment amount must not be negative');
+    const currency = paymentData.price_currency.trim().toUpperCase();
+    if (!/^[A-Z0-9]{2,12}$/.test(currency)) throw new TypeError('NowPayments payment currency is invalid');
 
     const amount: PaymentAmount = {
-      amount: paymentData.price_amount?.toString() || '0',
-      currency: paymentData.price_currency?.toUpperCase() || 'USD',
-      amountInSmallestUnit: paymentData.price_amount ? Math.round(parseFloat(paymentData.price_amount) * 100) : 0,
+      amount: exactAmount.toString(),
+      currency,
+      amountInSmallestUnit: paymentAmountToMinorUnits(exactAmount.toString(), currency),
     };
 
     return {
@@ -397,4 +443,16 @@ export class NowPaymentsAdapter implements IPaymentProvider {
     delete sanitized.ipn_secret;
     return sanitized;
   }
+}
+
+function sortNowPaymentsPayload(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortNowPaymentsPayload);
+  if (typeof value !== 'object' || value === null) return value;
+
+  const source = value as Record<string, unknown>;
+  const sorted = Object.create(null) as Record<string, unknown>;
+  for (const key of Object.keys(source).sort()) {
+    sorted[key] = sortNowPaymentsPayload(source[key]);
+  }
+  return sorted;
 }

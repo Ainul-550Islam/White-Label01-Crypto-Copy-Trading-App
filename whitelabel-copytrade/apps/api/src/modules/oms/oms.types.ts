@@ -505,18 +505,35 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
   [OrderIntentState.CREATED]: [OrderIntentState.VALIDATING, OrderIntentState.REJECTED, OrderIntentState.FAILED],
   [OrderIntentState.VALIDATING]: [OrderIntentState.APPROVED, OrderIntentState.REJECTED, OrderIntentState.FAILED],
   [OrderIntentState.APPROVED]: [OrderIntentState.SUBMITTED, OrderIntentState.REJECTED, OrderIntentState.FAILED, OrderIntentState.EXPIRED],
-  [OrderIntentState.SUBMITTED]: [OrderIntentState.ACKNOWLEDGED, OrderIntentState.REJECTED, OrderIntentState.FAILED, OrderIntentState.CANCEL_REQUESTED, OrderIntentState.EXPIRED],
-  [OrderIntentState.ACKNOWLEDGED]: [OrderIntentState.PARTIALLY_FILLED, OrderIntentState.FILLED, OrderIntentState.CANCEL_REQUESTED, OrderIntentState.REJECTED, OrderIntentState.FAILED, OrderIntentState.EXPIRED],
-  [OrderIntentState.PARTIALLY_FILLED]: [OrderIntentState.FILLED, OrderIntentState.CANCEL_REQUESTED, OrderIntentState.REJECTED, OrderIntentState.FAILED],
+  [OrderIntentState.SUBMITTED]: [OrderIntentState.ACKNOWLEDGED, OrderIntentState.REJECTED, OrderIntentState.FAILED, OrderIntentState.CANCEL_REQUESTED, OrderIntentState.EXPIRED, OrderIntentState.REPLACED],
+  [OrderIntentState.ACKNOWLEDGED]: [OrderIntentState.PARTIALLY_FILLED, OrderIntentState.FILLED, OrderIntentState.CANCEL_REQUESTED, OrderIntentState.REJECTED, OrderIntentState.FAILED, OrderIntentState.EXPIRED, OrderIntentState.REPLACED],
+  [OrderIntentState.PARTIALLY_FILLED]: [OrderIntentState.FILLED, OrderIntentState.CANCEL_REQUESTED, OrderIntentState.REJECTED, OrderIntentState.FAILED, OrderIntentState.REPLACED],
   [OrderIntentState.FILLED]: [], // terminal
   [OrderIntentState.CANCEL_REQUESTED]: [OrderIntentState.CANCELLED, OrderIntentState.PARTIALLY_FILLED, OrderIntentState.FILLED, OrderIntentState.FAILED, OrderIntentState.RECONCILIATION_REQUIRED],
   [OrderIntentState.CANCELLED]: [], // terminal
   [OrderIntentState.REJECTED]: [], // terminal
   [OrderIntentState.EXPIRED]: [], // terminal
   [OrderIntentState.REPLACED]: [], // terminal (new intent created)
+  // REPLACED is the only terminal state that other states point *at*: a replace ends the
+  // original intent and starts a new one that references it. It is reachable from exactly the
+  // states an exchange can still amend - SUBMITTED, ACKNOWLEDGED, PARTIALLY_FILLED - which
+  // OrderReplaceService refuses every other state for. Omitting those edges does not make the
+  // replace unreachable, it makes it a 400 at the end of the request, after the replacement
+  // intent has already been persisted.
   [OrderIntentState.FAILED]: [OrderIntentState.RECONCILIATION_REQUIRED],
   [OrderIntentState.RECONCILIATION_REQUIRED]: [OrderIntentState.VALIDATING, OrderIntentState.CANCELLED, OrderIntentState.FILLED, OrderIntentState.REJECTED, OrderIntentState.FAILED],
 };
+
+/**
+ * The states from which an intent may be replaced, derived from `VALID_TRANSITIONS` rather than
+ * restated. A state is replaceable precisely because the table permits it to reach REPLACED, so
+ * this set cannot disagree with the guard that enforces it.
+ */
+export const REPLACEABLE_STATES: ReadonlySet<string> = new Set(
+  Object.entries(VALID_TRANSITIONS)
+    .filter(([, targets]) => targets.includes(OrderIntentState.REPLACED))
+    .map(([from]) => from),
+);
 
 export const TERMINAL_STATES = new Set<string>([
   OrderIntentState.FILLED,

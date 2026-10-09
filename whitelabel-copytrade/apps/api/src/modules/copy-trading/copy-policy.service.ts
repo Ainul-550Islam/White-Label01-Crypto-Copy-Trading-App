@@ -9,7 +9,16 @@ import {
   CopyStopExecutionPlan,
   compareDecimalStrings,
   isDecimalString,
+  matchesSymbolRule,
 } from './copy-trading.types';
+import { Decimal, decimalFromScaled12, parseDecimalString } from '../../common/decimal-string';
+
+/**
+ * Whether adverse slippage was actually measured, stated explicitly because `slippageBps: null`
+ * alone conflates two different situations: a movement too small to round to a displayed number,
+ * and a movement nobody has taken yet. The copy record carries whichever it is.
+ */
+export type SlippageMeasurementState = 'MEASURED' | 'NOT_YET_MEASURED' | 'UNMEASURABLE';
 
 /**
  * Resolves effective copy settings: proportional sizing, fixed sizing, symbol filters, max concurrent copies, slippage tolerance, delay, notional caps, and risk controls.
@@ -130,22 +139,27 @@ export class CopyPolicyService {
       if (override.fixedQuantity) merged.fixedQuantity = override.fixedQuantity;
       if (override.fixedNotional) merged.fixedNotional = override.fixedNotional;
 
-      // Notional caps - lower cannot weaken higher (must be <= higher)
+      // Notional caps - lower cannot weaken higher (must be <= higher).
+      //
+      // Compared as exact decimals. These are money ceilings: deciding with a float means two
+      // nearly-equal limits can order differently than they read, and an unparseable override would
+      // be a silently-kept base. An override that cannot be parsed is treated as unweakenable too -
+      // it is not evidence that the ceiling is safe to move.
       if (override.maxOrderNotional) {
-        const baseVal = parseFloat(base.maxOrderNotional || '1000000');
-        const overrideVal = parseFloat(override.maxOrderNotional);
-        if (overrideVal > baseVal) {
-          this.logger.warn(`Policy override attempts to weaken maxOrderNotional base=${baseVal} override=${overrideVal} - keeping base`);
+        const baseNotional = Decimal.tryParse(base.maxOrderNotional ?? '1000000') ?? Decimal.parse('1000000');
+        const overrideNotional = Decimal.tryParse(override.maxOrderNotional);
+        if (!overrideNotional || overrideNotional.gt(baseNotional)) {
+          this.logger.warn(`Policy override attempts to weaken maxOrderNotional base=${baseNotional.toString()} override=${override.maxOrderNotional} - keeping base`);
         } else {
           merged.maxOrderNotional = override.maxOrderNotional;
         }
       }
 
       if (override.maxDailyNotional) {
-        const baseVal = parseFloat(base.maxDailyNotional || '1000000');
-        const overrideVal = parseFloat(override.maxDailyNotional);
-        if (overrideVal > baseVal) {
-          this.logger.warn(`Policy override attempts to weaken maxDailyNotional base=${baseVal} override=${overrideVal} - keeping base`);
+        const baseDaily = Decimal.tryParse(base.maxDailyNotional ?? '1000000') ?? Decimal.parse('1000000');
+        const overrideDaily = Decimal.tryParse(override.maxDailyNotional);
+        if (!overrideDaily || overrideDaily.gt(baseDaily)) {
+          this.logger.warn(`Policy override attempts to weaken maxDailyNotional base=${baseDaily.toString()} override=${override.maxDailyNotional} - keeping base`);
         } else {
           merged.maxDailyNotional = override.maxDailyNotional;
         }
@@ -203,23 +217,30 @@ export class CopyPolicyService {
 
       // Leverage & Margin constraints: lower level cannot exceed higher-level maxLeverage or weaken SPOT_ONLY
       if (override.leveragePolicy) {
-        if (base.leveragePolicy === 'SPOT_ONLY' && override.leveragePolicy !== 'SPOT_ONLY' && override.maxLeverage && parseFloat(override.maxLeverage) > 1) {
-          // If tenant/strategy explicitly allows leveraged policy within platform maxLeverage, record policy
-          merged.leveragePolicy = override.leveragePolicy;
-        } else {
-          merged.leveragePolicy = override.leveragePolicy;
-        }
+        // Both branches of the original condition assigned the same value, so it was dead code
+        // dressed as a rule. The rule that matters: SPOT_ONLY stays SPOT_ONLY unless a leverage
+        // limit above 1 is actually supplied, and `maxLeverage` may not exceed the level it is
+        // overriding.
+        const suppliedLeverage = Decimal.tryParse(override.maxLeverage ?? '') ?? Decimal.ZERO;
+        merged.leveragePolicy =
+          base.leveragePolicy === 'SPOT_ONLY' &&
+          override.leveragePolicy !== 'SPOT_ONLY' &&
+          suppliedLeverage.lte(Decimal.ONE)
+            ? base.leveragePolicy
+            : override.leveragePolicy;
       }
 
       if (override.maxLeverage) {
-        const baseMaxLev = parseFloat(base.maxLeverage || '10');
-        const overrideLev = parseFloat(override.maxLeverage);
-        if (!Number.isNaN(overrideLev) && overrideLev > 0) {
-          if (overrideLev > baseMaxLev) {
-            this.logger.warn(`Policy override attempts to weaken maxLeverage base=${baseMaxLev} override=${overrideLev}`);
-          } else {
-            merged.maxLeverage = override.maxLeverage;
-          }
+        const baseMaxLev = Decimal.tryParse(base.maxLeverage ?? '10') ?? Decimal.parse('10');
+        const overrideLev = Decimal.tryParse(override.maxLeverage);
+        if (!overrideLev || !overrideLev.isPositive()) {
+          // An unreadable or non-positive leverage limit is not a limit. Keep the base ceiling and
+          // say so, rather than recording a value the venue would reject or read as unlimited.
+          this.logger.warn(`Policy override carries an unusable maxLeverage override=${override.maxLeverage} - keeping base=${baseMaxLev.toString()}`);
+        } else if (overrideLev.gt(baseMaxLev)) {
+          this.logger.warn(`Policy override attempts to weaken maxLeverage base=${baseMaxLev.toString()} override=${overrideLev.toString()}`);
+        } else {
+          merged.maxLeverage = override.maxLeverage;
         }
       }
 
@@ -286,6 +307,7 @@ export class CopyPolicyService {
     ruleId: string | null;
     reason: string | null;
     slippageBps: number | null;
+    slippageState: SlippageMeasurementState;
     effectiveDelayMs: number;
     scheduledReleaseAt: string | null;
   } {
@@ -294,53 +316,102 @@ export class CopyPolicyService {
     const baseMs = input.leaderTimestamp && Number.isFinite(Date.parse(input.leaderTimestamp)) ? Date.parse(input.leaderTimestamp) : now;
     const scheduledReleaseAt = effectiveDelayMs > 0 ? new Date(baseMs + effectiveDelayMs).toISOString() : null;
 
-    if (!input.leaderPrice || !input.executionPrice) {
+    // No reference price means no baseline to measure against. The leader's fill price *is* the
+    // slippage reference (see leader-event-source.service.ts), so its absence is a data fault
+    // rather than an ordinary market order - and copying blind is the outcome this guardrail exists
+    // to prevent. Refuse, and say which input was missing, instead of reporting a pass that was
+    // never established.
+    if (!input.leaderPrice) {
       return {
-        allowed: true,
-        ruleId: null,
-        reason: null,
+        allowed: false,
+        ruleId: 'SLIPPAGE_REFERENCE_UNAVAILABLE',
+        reason: 'Leader reference price is unavailable, so adverse slippage cannot be measured',
         slippageBps: null,
+        slippageState: 'UNMEASURABLE',
         effectiveDelayMs,
         scheduledReleaseAt,
       };
     }
 
-    if (!isDecimalString(input.leaderPrice) || !isDecimalString(input.executionPrice)) {
+    if (!isDecimalString(input.leaderPrice)) {
       return {
         allowed: false,
         ruleId: 'INVALID_SLIPPAGE_PRICE',
-        reason: 'Leader price or execution price is not a valid decimal string',
+        reason: 'Leader price is not a valid decimal string',
         slippageBps: null,
+        slippageState: 'UNMEASURABLE',
         effectiveDelayMs,
         scheduledReleaseAt,
       };
     }
 
-    const leaderP = parseFloat(input.leaderPrice);
-    const execP = parseFloat(input.executionPrice);
-    if (leaderP <= 0 || execP <= 0) {
+    // The follower's price is not known until it trades. Its absence is not a pass: the measurement
+    // has not been taken, and the result says so rather than implying the movement was zero. What
+    // constrains the fill in the meantime are the venue-side bounds on the mapped intent
+    // (intent.slippageUpper / slippageLower), derived from this same tolerance.
+    if (!input.executionPrice) {
+      return {
+        allowed: true,
+        ruleId: null,
+        reason: 'Follower execution price is not known yet; adverse slippage is not yet measured',
+        slippageBps: null,
+        slippageState: 'NOT_YET_MEASURED',
+        effectiveDelayMs,
+        scheduledReleaseAt,
+      };
+    }
+
+    if (!isDecimalString(input.executionPrice)) {
+      return {
+        allowed: false,
+        ruleId: 'INVALID_SLIPPAGE_PRICE',
+        reason: 'Execution price is not a valid decimal string',
+        slippageBps: null,
+        slippageState: 'UNMEASURABLE',
+        effectiveDelayMs,
+        scheduledReleaseAt,
+      };
+    }
+
+    // Exact decimals from here down. Prices arrive as decimal strings and are parsed into scale-12
+    // integers, so the comparison that decides whether a customer's order may proceed is made on
+    // exact values. The previous implementation divided IEEE doubles and rounded to two places
+    // before comparing, which is not a basis for a verdict expressed in basis points.
+    const leader = decimalFromScaled12(parseDecimalString(input.leaderPrice));
+    const execution = decimalFromScaled12(parseDecimalString(input.executionPrice));
+
+    if (!leader.isPositive() || !execution.isPositive()) {
       return {
         allowed: false,
         ruleId: 'INVALID_SLIPPAGE_PRICE',
         reason: 'Leader price and execution price must be positive',
         slippageBps: null,
+        slippageState: 'UNMEASURABLE',
         effectiveDelayMs,
         scheduledReleaseAt,
       };
     }
 
     const sideUpper = String(input.side || 'BUY').toUpperCase();
-    // Adverse slippage in bps: for BUY, paying higher than leaderPrice; for SELL, receiving lower than leaderPrice
-    const rawDiff = sideUpper === 'BUY' ? execP - leaderP : leaderP - execP;
-    const adverseBps = rawDiff > 0 ? Math.round((rawDiff / leaderP) * 10000 * 100) / 100 : 0;
-    const maxBps = input.policy.slippageToleranceBps ?? 100;
+    // Adverse slippage in bps: for BUY, paying higher than leaderPrice; for SELL, receiving lower
+    // than leaderPrice. Favourable movement reports zero, never a negative allowance.
+    const rawDiff = sideUpper === 'BUY' ? execution.sub(leader) : leader.sub(execution);
+    const adverseBpsExact = rawDiff.isPositive()
+      ? rawDiff.div(leader, 18, 'HALF_UP').mul(10_000).normalize()
+      : Decimal.ZERO;
 
-    if (adverseBps > maxBps) {
+    // Compared unrounded; rounded only for the response field. Rounding first would let 25.004 bps
+    // satisfy a 25 bps tolerance.
+    const maxBpsExact = Decimal.parse(input.policy.slippageToleranceBps ?? 100);
+    const displayedBps = Number(adverseBpsExact.toFixed(2, 'HALF_UP'));
+
+    if (adverseBpsExact.gt(maxBpsExact)) {
       return {
         allowed: false,
         ruleId: 'SLIPPAGE_TOLERANCE_EXCEEDED',
-        reason: `Adverse slippage ${adverseBps} bps exceeds tolerance ${maxBps} bps`,
-        slippageBps: adverseBps,
+        reason: `Adverse slippage ${adverseBpsExact.toString()} bps exceeds tolerance ${maxBpsExact.toString()} bps`,
+        slippageBps: displayedBps,
+        slippageState: 'MEASURED',
         effectiveDelayMs,
         scheduledReleaseAt,
       };
@@ -350,7 +421,8 @@ export class CopyPolicyService {
       allowed: true,
       ruleId: null,
       reason: null,
-      slippageBps: adverseBps,
+      slippageBps: displayedBps,
+      slippageState: 'MEASURED',
       effectiveDelayMs,
       scheduledReleaseAt,
     };
@@ -375,22 +447,38 @@ export class CopyPolicyService {
     let trailingActivationPrice: string | null = null;
 
     if (entryPrice && isDecimalString(entryPrice)) {
-      const entry = parseFloat(entryPrice);
-      if (entry > 0) {
+      const entry = decimalFromScaled12(parseDecimalString(entryPrice));
+      if (entry.isPositive()) {
+        // A bps delta is `entry * bps / 10000`, evaluated exactly at scale 18 and normalised. The
+        // exit prices this produces are order instructions, so they are derived the same way the
+        // order mapper derives its bounds rather than by scaling a double and trimming its digits.
+        const deltaFor = (bps: number): Decimal =>
+          entry.mul(Decimal.parse(bps)).div(10_000, 18, 'HALF_UP').normalize();
+        const isBuy = sideUpper === 'BUY';
+
         if (policy.takeProfitBps && policy.takeProfitBps > 0) {
-          const tpRatio = policy.takeProfitBps / 10000;
-          const tpVal = sideUpper === 'BUY' ? entry * (1 + tpRatio) : entry * Math.max(0, 1 - tpRatio);
-          takeProfitPrice = tpVal.toFixed(8).replace(/\.?0+$/, '');
+          const delta = deltaFor(policy.takeProfitBps);
+          const raw = isBuy ? entry.add(delta) : entry.sub(delta);
+          // A non-positive exit price is not a price. Omit it rather than emit 0, which downstream
+          // would read as an instruction to exit at zero.
+          takeProfitPrice = raw.isPositive() ? raw.toString() : null;
+          if (!takeProfitPrice) {
+            this.logger.warn(`takeProfitBps=${policy.takeProfitBps} against entry=${entryPrice} yields no positive price for a ${sideUpper}`);
+          }
         }
+
         if (policy.stopLossBps && policy.stopLossBps > 0) {
-          const slRatio = policy.stopLossBps / 10000;
-          const slVal = sideUpper === 'BUY' ? entry * Math.max(0, 1 - slRatio) : entry * (1 + slRatio);
-          stopLossPrice = slVal.toFixed(8).replace(/\.?0+$/, '');
+          const delta = deltaFor(policy.stopLossBps);
+          const raw = isBuy ? entry.sub(delta) : entry.add(delta);
+          stopLossPrice = raw.isPositive() ? raw.toString() : null;
+          if (!stopLossPrice) {
+            // A stop-loss that cannot be expressed is a control that will not exist. Loud, not silent.
+            this.logger.warn(`stopLossBps=${policy.stopLossBps} against entry=${entryPrice} yields no positive price for a ${sideUpper}; no stop-loss will be attached`);
+          }
         }
+
         if (policy.trailingStopBps && policy.trailingStopBps > 0) {
-          const trailRatio = policy.trailingStopBps / 10000;
-          const dist = entry * trailRatio;
-          trailingStopDistance = dist.toFixed(8).replace(/\.?0+$/, '');
+          trailingStopDistance = deltaFor(policy.trailingStopBps).toString();
           trailingActivationPrice = takeProfitPrice || entryPrice;
         }
       }
@@ -425,25 +513,103 @@ export class CopyPolicyService {
     };
   }
 
+  /**
+   * Validates the allow / deny symbol rules on a policy.
+   *
+   * Rules are globs (see `matchesSymbolRule`). Two failure modes are worth rejecting loudly because
+   * both leave an operator believing in a restriction that does not exist:
+   *
+   *   - a rule that can never match anything - empty, padded with whitespace, or carrying a
+   *     character no symbol contains. `'BTC USDT'` looks like a symbol and matches nothing.
+   *   - a rule set that contradicts itself - a literal appearing in both lists, or a blocked glob
+   *     that swallows an allowed entry, which makes the allow list unsatisfiable and blocks every
+   *     copy the operator expected to permit.
+   *
+   * The platform's own `*WITHDRAWAL*` deny rule is a valid glob and passes; it is the matcher, not
+   * this validator, that had to learn about patterns for that rule to mean anything.
+   */
+  validateSymbolRules(policy: CopyPolicy): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    const inspect = (rules: string[] | null | undefined, label: string): void => {
+      if (rules === null || rules === undefined) return;
+      if (!Array.isArray(rules)) {
+        errors.push(`${label} must be an array of symbol rules`);
+        return;
+      }
+      for (const rule of rules) {
+        if (typeof rule !== 'string' || rule.trim().length === 0) {
+          errors.push(`${label} contains an empty rule`);
+          continue;
+        }
+        if (rule !== rule.trim()) {
+          errors.push(`${label} rule "${rule}" has surrounding whitespace and will never match`);
+        }
+        if (/\s/.test(rule)) {
+          errors.push(`${label} rule "${rule}" contains whitespace and will never match a symbol`);
+        }
+        if (!/^[A-Za-z0-9*._/$:-]+$/.test(rule)) {
+          errors.push(`${label} rule "${rule}" contains characters that are not valid in a symbol or glob`);
+        }
+      }
+    };
+
+    inspect(policy.allowedSymbols, 'allowedSymbols');
+    inspect(policy.blockedSymbols, 'blockedSymbols');
+
+    const blocked = Array.isArray(policy.blockedSymbols) ? policy.blockedSymbols : [];
+    const allowed = Array.isArray(policy.allowedSymbols) ? policy.allowedSymbols : [];
+
+    if (blocked.some((rule) => rule.trim() === '*')) {
+      errors.push("blockedSymbols '*' blocks every symbol");
+    }
+
+    for (const entry of allowed) {
+      if (typeof entry !== 'string' || entry.length === 0) continue;
+      const conflicting = blocked.find(
+        (rule) => typeof rule === 'string' && !rule.includes('*') && rule.toUpperCase() === entry.toUpperCase(),
+      );
+      if (conflicting) {
+        errors.push(`symbol ${entry} appears in both allowedSymbols and blockedSymbols`);
+        continue;
+      }
+      // Only a literal allow entry can be swallowed unambiguously; comparing two globs would be a
+      // claim this validator cannot support.
+      if (!entry.includes('*')) {
+        const swallower = blocked.find((rule) => typeof rule === 'string' && rule.includes('*') && matchesSymbolRule(rule, entry));
+        if (swallower) {
+          errors.push(`allowedSymbols entry ${entry} is blocked by rule ${swallower}, so no symbol can satisfy both`);
+        }
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
   validatePolicy(policy: CopyPolicy): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
-    if (policy.maxOrderNotional && isNaN(parseFloat(policy.maxOrderNotional))) errors.push('maxOrderNotional must be valid decimal');
-    if (policy.maxDailyNotional && isNaN(parseFloat(policy.maxDailyNotional))) errors.push('maxDailyNotional must be valid decimal');
+    if (policy.maxOrderNotional && !isDecimalString(policy.maxOrderNotional)) errors.push('maxOrderNotional must be valid decimal');
+    if (policy.maxDailyNotional && !isDecimalString(policy.maxDailyNotional)) errors.push('maxDailyNotional must be valid decimal');
     if (policy.slippageToleranceBps !== null && policy.slippageToleranceBps !== undefined && (policy.slippageToleranceBps < 0 || policy.slippageToleranceBps > 10000)) errors.push('slippageToleranceBps must be 0-10000');
     if (policy.executionDelayMs !== null && policy.executionDelayMs !== undefined && (policy.executionDelayMs < 0 || policy.executionDelayMs > 60000)) errors.push('executionDelayMs must be 0-60000');
     if (policy.maxConcurrentCopies !== null && policy.maxConcurrentCopies !== undefined && policy.maxConcurrentCopies < 1) errors.push('maxConcurrentCopies must be >=1');
-    if (policy.maxLeverage && (isNaN(parseFloat(policy.maxLeverage)) || parseFloat(policy.maxLeverage) <= 0)) errors.push('maxLeverage must be > 0');
+    const parsedMaxLeverage = policy.maxLeverage ? Decimal.tryParse(policy.maxLeverage) : null;
+    if (policy.maxLeverage && (!parsedMaxLeverage || !parsedMaxLeverage.isPositive())) errors.push('maxLeverage must be > 0');
     if (policy.takeProfitBps !== null && policy.takeProfitBps !== undefined && policy.takeProfitBps < 0) errors.push('takeProfitBps must be >= 0');
     if (policy.stopLossBps !== null && policy.stopLossBps !== undefined && (policy.stopLossBps < 0 || policy.stopLossBps > 10000)) errors.push('stopLossBps must be 0-10000');
     if (policy.trailingStopBps !== null && policy.trailingStopBps !== undefined && (policy.trailingStopBps < 0 || policy.trailingStopBps > 10000)) errors.push('trailingStopBps must be 0-10000');
 
-    // Platform mandatory caps
-    const platformMaxOrder = parseFloat(this.platformPolicy.maxOrderNotional || '100000');
-    if (policy.maxOrderNotional && parseFloat(policy.maxOrderNotional) > platformMaxOrder) errors.push(`maxOrderNotional cannot exceed platform cap ${platformMaxOrder}`);
+    // Platform mandatory caps, compared exactly.
+    const platformMaxOrder = this.platformPolicy.maxOrderNotional ?? '100000';
+    if (policy.maxOrderNotional && compareDecimalStrings(policy.maxOrderNotional, platformMaxOrder) > 0) {
+      errors.push(`maxOrderNotional cannot exceed platform cap ${platformMaxOrder}`);
+    }
 
-    const platformMaxLev = parseFloat(this.platformPolicy.maxLeverage || '10');
-    if (policy.maxLeverage && parseFloat(policy.maxLeverage) > platformMaxLev) errors.push(`maxLeverage cannot exceed platform cap ${platformMaxLev}`);
+    const platformMaxLev = this.platformPolicy.maxLeverage ?? '10';
+    if (parsedMaxLeverage && parsedMaxLeverage.gt(Decimal.parse(platformMaxLev))) {
+      errors.push(`maxLeverage cannot exceed platform cap ${platformMaxLev}`);
+    }
 
     return { valid: errors.length === 0, errors };
   }

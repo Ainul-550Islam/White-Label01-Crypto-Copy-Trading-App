@@ -16,11 +16,10 @@ export interface ImageSecurityInput {
 
 export class ImageSecurityService {
   private readonly allowedBaseImages: string[] = [
-    'node:20-alpine',
-    'node:20.11-alpine',
-    'node:20-slim',
-    'gcr.io/distroless/nodejs20-debian12',
-    'public.ecr.aws/docker/library/node:20-alpine',
+    'node:22.23.3-bookworm-slim',
+    'node:22.23.3-alpine',
+    'gcr.io/distroless/nodejs22-debian12',
+    'public.ecr.aws/docker/library/node:22.23.3-alpine',
   ];
 
   private readonly forbiddenBaseImages: string[] = [
@@ -132,7 +131,7 @@ export class ImageSecurityService {
   }
 
   private extractBaseImage(imageName: string): string {
-    return 'node:20-alpine';
+    return 'node:22.23.3-alpine';
   }
 
   private redactDigest(digest: string): string {

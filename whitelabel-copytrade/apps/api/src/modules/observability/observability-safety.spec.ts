@@ -347,6 +347,29 @@ describe('Part 9 metric cardinality - the rules the registry enforces at the doo
     expect(registry.render()).toContain(`wlct_registry_series_overflow_total{service="capped"}`);
   });
 
+  it('registers GAP-177 outbox metrics without tenant or event identifiers as labels', () => {
+    const registry = createMetricsRegistry();
+    const families = [
+      'wlct_outbox_lag_seconds',
+      'wlct_outbox_published_total',
+      'wlct_outbox_failed_total',
+    ];
+    for (const family of families) {
+      expect(registry.hasFamily(family)).toBe(true);
+      expect(registry.wouldAccept(family, {})).toBe(true);
+      expect(registry.wouldAccept(family, { tenant_id: 'tenant-one' })).toBe(false);
+      expect(registry.wouldAccept(family, { event_type: 'copy.execution.filled' })).toBe(false);
+    }
+
+    registry.setGauge('wlct_outbox_lag_seconds', {}, 12);
+    registry.inc('wlct_outbox_published_total', {}, 2);
+    registry.inc('wlct_outbox_failed_total', {}, 1);
+    const exposition = registry.render();
+    expect(exposition).toContain('wlct_outbox_lag_seconds{service="api"} 12');
+    expect(exposition).toContain('wlct_outbox_published_total{service="api"} 2');
+    expect(exposition).toContain('wlct_outbox_failed_total{service="api"} 1');
+  });
+
   it('the API registry exposes only allow-listed label universes', () => {
     const registry = createMetricsRegistry();
     const source = read('apps/api/src/modules/observability/metrics.registry.provider.ts');

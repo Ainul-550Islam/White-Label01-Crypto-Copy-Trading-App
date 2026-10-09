@@ -7,28 +7,30 @@
     "dev": "next dev -p 3000 -H 0.0.0.0",
     "build": "next build",
     "start": "next start -p 3000 -H 0.0.0.0",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "dev:e2e": "next dev -p 3102 -H 127.0.0.1"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
     "@wlct/shared-types": "1.0.0",
+    "@wlct/utils": "1.0.0",
     "@wlct/validation": "1.0.0",
     "jose": "^5.9.3",
-    "next": "14.2.15",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "server-only": "^0.0.1",
     "socket.io-client": "^4.8.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
-    "@types/react": "^18.3.11",
-    "@types/react-dom": "^18.3.0",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.15",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.0",
     "typescript": "^5.5.4"
   },
   "jest": {
@@ -36,7 +38,8 @@
     "testEnvironment": "node",
     "testRegex": "\\.test\\.tsx?$",
     "moduleNameMapper": {
-      "^@/(.*)$": "<rootDir>/$1"
+      "^@/(.*)$": "<rootDir>/$1",
+      "^@wlct/utils/api-error$": "<rootDir>/../../../packages/utils/src/api-error.ts"
     },
     "transform": {
       "^.+\\.tsx?$": [

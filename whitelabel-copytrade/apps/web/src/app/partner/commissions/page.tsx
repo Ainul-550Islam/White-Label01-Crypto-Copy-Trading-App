@@ -1,6 +1,7 @@
 // # NEW — Partner commission ledger route
 // # NEW — commission ledger route
 'use client';
+import type { JSX } from 'react';
 
 import React from 'react';
 import Link from 'next/link';

@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { NavService } from './nav.service';
 import { PnLService } from './pnl.service';
 import { PerformanceService } from './performance.service';
@@ -43,6 +44,7 @@ export class PortfolioSnapshotService {
     private readonly positionAccounting: PositionAccountingService,
     private readonly cashLedger: CashLedgerService,
     private readonly policyService: AccountingPolicyService,
+    @Optional() private readonly outbox?: OutboxService,
   ) {}
 
   async createSnapshot(params: {
@@ -69,17 +71,6 @@ export class PortfolioSnapshotService {
       sourceId: snapshotId,
       timestampBucket: timestamp.toISOString().slice(0, 10),
     });
-
-    // Duplicate snapshot prevention — immutable idempotent with snapshotId tenantId scope timestamp
-    try {
-      const existing = await (this.prisma as any).portfolioSnapshot.findFirst({
-        where: { tenantId, OR: [{ idempotencyKey }, { snapshotId }] },
-      });
-      if (existing) {
-        this.logger.log({ event: 'portfolio.snapshot.idempotent_hit', snapshotId, tenantId });
-        return toSnapshotView(existing);
-      }
-    } catch {}
 
     // Calculate NAV
     const navResult = await this.navService.calculateNav({ tenantId, profileId, at: timestamp, baseCurrency });
@@ -126,52 +117,87 @@ export class PortfolioSnapshotService {
       .update(JSON.stringify({ tenantId, profileId, snapshotId, timestamp: timestamp.toISOString(), nav: navResult.nav, holdings }))
       .digest('hex');
 
-    const snapshot = await (this.prisma as any).portfolioSnapshot.create({
-      data: {
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing portfolio snapshot without its portfolio.snapshot.created event');
+    }
+    const snapshot = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const store = tx as any;
+      const existing = await store.portfolioSnapshot.findFirst({
+        where: { tenantId, OR: [{ idempotencyKey }, { snapshotId }] },
+      });
+      if (existing) {
+        this.logger.log({ event: 'portfolio.snapshot.idempotent_hit', snapshotId, tenantId });
+        await this.outbox!.append(tx, {
+          tenantId,
+          aggregateType: 'portfolio_snapshot',
+          aggregateId: existing.id,
+          eventType: 'portfolio.snapshot.created',
+          idempotencyKey: `portfolio-snapshot:${existing.id}:created`,
+          correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+          occurredAt: existing.timestamp,
+          payload: { snapshotId: existing.snapshotId, asOf: new Date(existing.timestamp).toISOString() },
+        });
+        return existing;
+      }
+
+      const created = await store.portfolioSnapshot.create({
+        data: {
+          tenantId,
+          profileId,
+          snapshotId,
+          timestamp,
+          baseCurrency,
+          cash: cash.balance,
+          positions: holdings as any,
+          nav: navResult.nav,
+          grossAssetValue: navResult.grossAssetValue,
+          grossLiability: navResult.grossLiability,
+          realizedPnl: pnlResult.grossPnl ? (await this.pnlService.calculateRealizedPnl({ tenantId, profileId })).realizedPnl : null,
+          unrealizedPnl: pnlResult.evidence?.gross?.unrealized ?? null,
+          grossPnl: pnlResult.grossPnl,
+          netPnl: pnlResult.netPnl,
+          // fees is a decimal-string column: the fee total of the same window as gross/net PnL
+          // (netPnl = grossPnl - fees). The fee ledger rows are kept as cash-breakdown evidence.
+          fees: pnlResult.fees ?? null,
+          cashBreakdown: {
+            balance: cash.balance,
+            currency: cash.currency,
+            baseCurrencyBalance: cash.baseCurrencyBalance ?? null,
+            recentFeeEntries: fees.map((entry: any) => ({
+              id: entry.id,
+              cashFlowType: entry.cashFlowType,
+              amount: entry.amount,
+              currency: entry.currency,
+              baseCurrencyAmount: entry.baseCurrencyAmount ?? null,
+              occurredAt: entry.occurredAt,
+            })),
+          } as any,
+          // No performance/methodology/fingerprint/correlationId columns: kept in performanceMetrics.
+          performanceMetrics: {
+            twr: twr.evidence ?? null,
+            methodology: navResult.methodology ?? null,
+            fingerprint,
+            correlationId: correlationId ?? null,
+          } as any,
+          valuationEvidence: navResult.evidences as any,
+          sourceReferences: navResult.sourceReferences,
+          calculationVersion: policy.calculationVersion,
+          policyVersion: policy.policyVersion,
+          dataCompleteness: navResult.dataCompleteness,
+          idempotencyKey,
+        },
+      });
+      await this.outbox!.append(tx, {
         tenantId,
-        profileId,
-        snapshotId,
-        timestamp,
-        baseCurrency,
-        cash: cash.balance,
-        positions: holdings as any,
-        nav: navResult.nav,
-        grossAssetValue: navResult.grossAssetValue,
-        grossLiability: navResult.grossLiability,
-        realizedPnl: pnlResult.grossPnl ? (await this.pnlService.calculateRealizedPnl({ tenantId, profileId })).realizedPnl : null,
-        unrealizedPnl: pnlResult.evidence?.gross?.unrealized ?? null,
-        grossPnl: pnlResult.grossPnl,
-        netPnl: pnlResult.netPnl,
-        // fees is a decimal-string column: the fee total of the same window as gross/net PnL
-        // (netPnl = grossPnl - fees). The fee ledger rows are kept as cash-breakdown evidence.
-        fees: pnlResult.fees ?? null,
-        cashBreakdown: {
-          balance: cash.balance,
-          currency: cash.currency,
-          baseCurrencyBalance: cash.baseCurrencyBalance ?? null,
-          recentFeeEntries: fees.map((entry: any) => ({
-            id: entry.id,
-            cashFlowType: entry.cashFlowType,
-            amount: entry.amount,
-            currency: entry.currency,
-            baseCurrencyAmount: entry.baseCurrencyAmount ?? null,
-            occurredAt: entry.occurredAt,
-          })),
-        } as any,
-        // No performance/methodology/fingerprint/correlationId columns: kept in performanceMetrics.
-        performanceMetrics: {
-          twr: twr.evidence ?? null,
-          methodology: navResult.methodology ?? null,
-          fingerprint,
-          correlationId: correlationId ?? null,
-        } as any,
-        valuationEvidence: navResult.evidences as any,
-        sourceReferences: navResult.sourceReferences,
-        calculationVersion: policy.calculationVersion,
-        policyVersion: policy.policyVersion,
-        dataCompleteness: navResult.dataCompleteness,
-        idempotencyKey,
-      },
+        aggregateType: 'portfolio_snapshot',
+        aggregateId: created.id,
+        eventType: 'portfolio.snapshot.created',
+        idempotencyKey: `portfolio-snapshot:${created.id}:created`,
+        correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+        occurredAt: created.timestamp,
+        payload: { snapshotId: created.snapshotId, asOf: new Date(created.timestamp).toISOString() },
+      });
+      return created;
     });
 
     this.logger.log({ event: 'portfolio.snapshot.created', snapshotId, tenantId, nav: navResult.nav });

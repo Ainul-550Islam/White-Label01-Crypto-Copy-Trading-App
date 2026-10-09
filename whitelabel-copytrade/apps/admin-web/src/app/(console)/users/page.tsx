@@ -1,7 +1,8 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, type Column } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { toneForStatus } from '@/lib/theme';
@@ -35,9 +36,10 @@ function displayName(row: UserRow): string {
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: { page?: string; search?: string; status?: string };
+  searchParams: Promise<{ page?: string; search?: string; status?: string }>;
 }): Promise<JSX.Element> {
-  const page = Number.parseInt(searchParams.page ?? '1', 10);
+  const query = await searchParams;
+  const page = Number.parseInt(query.page ?? '1', 10);
 
   let data: Paginated<UserRow> | null = null;
   let error: string | null = null;
@@ -47,8 +49,8 @@ export default async function UsersPage({
       searchParams: {
         page: Number.isFinite(page) && page > 0 ? page : 1,
         limit: 25,
-        search: searchParams.search,
-        status: searchParams.status,
+        search: query.search,
+        status: query.status,
       },
     });
   } catch (caught) {

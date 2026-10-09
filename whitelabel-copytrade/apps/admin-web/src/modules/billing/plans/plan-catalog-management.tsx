@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 
 import { activatePlan, archivePlan, createPlan, deactivatePlan, getPlans, updatePlan } from './plan-api';
 import { formatAudience, formatBps, formatInterval, formatPrice, formatStatus, LIMIT_LABELS } from './plan-formatters';
@@ -150,8 +150,6 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
   const [form, setForm] = useState<PlanForm>(emptyForm());
 
   const load = async (requestedPage = pageNumber) => {
-    setLoading(true);
-    setError(null);
     try {
       const result = await getPlans({ page: requestedPage, limit: PAGE_SIZE, search, sortBy: 'sortOrder', sortOrder: 'asc', includeInactive });
       setPage(result);
@@ -163,8 +161,15 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
     }
   };
 
+  const refresh = async (requestedPage = pageNumber) => {
+    setLoading(true);
+    setError(null);
+    await load(requestedPage);
+  };
+
   useEffect(() => {
-    load(1);
+    const timer = window.setTimeout(() => void load(1), 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeInactive]);
 
@@ -175,7 +180,7 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
     try {
       await action();
       setMessage(success);
-      await load();
+      await refresh();
       return true;
     } catch (e) {
       setMessage(`Error: ${errorText(e)}`);
@@ -250,7 +255,7 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          load(1);
+          void refresh(1);
         }}
         className="flex gap-2"
       >
@@ -264,7 +269,7 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
         <button type="submit" className="px-4 py-2 bg-gray-800 text-white rounded text-sm">
           Search
         </button>
-        <button type="button" onClick={() => load()} className="px-3 py-2 border rounded text-sm">
+        <button type="button" onClick={() => void refresh()} className="px-3 py-2 border rounded text-sm">
           Refresh
         </button>
         <label className="flex items-center gap-2 text-sm">
@@ -369,10 +374,10 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
             {page?.pagination.totalItems ?? 0} plans - page {pageNumber} of {Math.max(1, totalPages)}
           </span>
           <div className="flex gap-2">
-            <button onClick={() => load(pageNumber - 1)} disabled={loading || pageNumber <= 1} className="px-3 py-1 border rounded disabled:opacity-50">
+            <button onClick={() => void refresh(pageNumber - 1)} disabled={loading || pageNumber <= 1} className="px-3 py-1 border rounded disabled:opacity-50">
               Previous
             </button>
-            <button onClick={() => load(pageNumber + 1)} disabled={loading || pageNumber >= totalPages} className="px-3 py-1 border rounded disabled:opacity-50">
+            <button onClick={() => void refresh(pageNumber + 1)} disabled={loading || pageNumber >= totalPages} className="px-3 py-1 border rounded disabled:opacity-50">
               Next
             </button>
           </div>

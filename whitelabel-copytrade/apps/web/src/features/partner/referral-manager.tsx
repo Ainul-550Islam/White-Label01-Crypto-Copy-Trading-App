@@ -1,5 +1,6 @@
 // # NEW — Creates referral links/codes and displays attribution funnel
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

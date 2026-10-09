@@ -6,7 +6,9 @@
  * Since Next.js is the existing frontend framework, next.config.mjs is authoritative.
  */
 
-export default {
+const viteConfig = {
   // Placeholder - Next.js is used, not Vite
   // See next.config.mjs for actual configuration
 };
+
+export default viteConfig;

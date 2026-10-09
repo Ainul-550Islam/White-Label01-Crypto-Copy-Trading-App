@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
@@ -16,13 +17,14 @@ export const metadata: Metadata = { title: 'Checkout' };
  *    payment state - the query string itself is never trusted as success.
  * With neither, there is nothing to do, so the page says so.
  */
-export default function BillingCheckoutPage({
+export default async function BillingCheckoutPage({
   searchParams,
 }: {
-  searchParams: { planId?: string; checkout_id?: string; payment_id?: string; session_id?: string };
-}): JSX.Element {
-  const planId = typeof searchParams.planId === 'string' ? searchParams.planId.trim() : '';
-  const returning = Boolean(searchParams.checkout_id || searchParams.payment_id || searchParams.session_id);
+  searchParams: Promise<{ planId?: string; checkout_id?: string; payment_id?: string; session_id?: string }>;
+}): Promise<JSX.Element> {
+  const query = await searchParams;
+  const planId = typeof query.planId === 'string' ? query.planId.trim() : '';
+  const returning = Boolean(query.checkout_id || query.payment_id || query.session_id);
 
   if (!planId && !returning) {
     return (

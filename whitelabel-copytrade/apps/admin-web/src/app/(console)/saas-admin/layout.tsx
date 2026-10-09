@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { ReactNode } from 'react';
 
 import { BillingScope } from '@/modules/billing/billing-scope';

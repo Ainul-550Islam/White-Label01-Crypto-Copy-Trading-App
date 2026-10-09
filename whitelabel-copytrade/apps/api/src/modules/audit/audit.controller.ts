@@ -58,7 +58,7 @@ export class AuditController {
     return this.auditService.list({
       ...query,
       tenantId,
-      actorId: actor.id,
+      actorId: actor.userId,
     });
   }
 }

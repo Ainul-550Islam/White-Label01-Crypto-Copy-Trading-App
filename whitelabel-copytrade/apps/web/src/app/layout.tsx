@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import '@/styles/globals.css';

@@ -14,7 +14,7 @@
  * parameter (never interpolation), transaction-first statement order.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { PrismaService } from './prisma.service';
@@ -42,6 +42,11 @@ const migrationPath = join(
   'migration.sql',
 );
 const migrationText = readFileSync(migrationPath, 'utf8');
+const migrationsDirectory = join(repoRoot, 'apps', 'api', 'prisma', 'migrations');
+const part11MigrationTexts = readdirSync(migrationsDirectory, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && /^\d{14}_part11_row_level_security$/.test(entry.name))
+  .map((entry) => readFileSync(join(migrationsDirectory, entry.name, 'migration.sql'), 'utf8'));
+const allMigrationText = part11MigrationTexts.join('\n');
 const enableText = readFileSync(join(repoRoot, 'apps', 'api', 'prisma', 'rls', 'enable.sql'), 'utf8');
 const disableText = readFileSync(join(repoRoot, 'apps', 'api', 'prisma', 'rls', 'disable.sql'), 'utf8');
 
@@ -91,17 +96,19 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
     expect(coverage.covered.length).toBeGreaterThanOrEqual(38);
   });
 
-  it('every covered table has exactly one policy, and no excluded table has any', () => {
+  it('every covered table has exactly one additive policy across migration history, and no excluded table has any', () => {
+    const allMigrationSql = sqlOnly(allMigrationText);
     for (const [table] of truth.covered) {
       const pattern = new RegExp(
         `CREATE POLICY ${coverage.policyName} ON "${table}"\\s+AS PERMISSIVE\\s+FOR ALL\\s+TO PUBLIC\\s+USING \\(tenant_id = ${coverage.functionName}\\(\\)\\)\\s+WITH CHECK \\(tenant_id = ${coverage.functionName}\\(\\)\\);`,
       );
-      expect(migrationText).toMatch(pattern);
+      expect(allMigrationText.match(pattern) ?? []).toHaveLength(1);
     }
     for (const [table] of truth.excluded) {
-      expect(migrationSql).not.toContain(`ON "${table}"`);
+      expect(allMigrationSql).not.toContain(`ON "${table}"`);
     }
-    expect([...migrationText.matchAll(/CREATE POLICY /g)]).toHaveLength(truth.covered.length);
+    expect([...allMigrationText.matchAll(/CREATE POLICY /g)]).toHaveLength(truth.covered.length);
+    expect([...migrationText.matchAll(/CREATE POLICY /g)]).toHaveLength(1);
   });
 
   it('the GUC name the function reads is the name the service helper writes', () => {

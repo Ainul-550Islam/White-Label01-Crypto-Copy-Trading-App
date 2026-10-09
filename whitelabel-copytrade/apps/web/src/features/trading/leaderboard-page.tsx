@@ -1,5 +1,6 @@
 // # Uses shared TradingState
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";

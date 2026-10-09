@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { useState } from 'react';
 import { authApi } from '@/api/auth-api';

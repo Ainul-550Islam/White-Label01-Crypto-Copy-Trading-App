@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
@@ -18,8 +19,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * effective entitlements, for platform operators. The id must be a UUID
  * (the API's ParseUuidPipe would reject anything else with 400 anyway).
  */
-export default function SaasTenantDetailPage({ params }: { params: { id: string } }): JSX.Element {
-  const claims = getConsoleClaims();
+export default async function SaasTenantDetailPage({ params }: { params: Promise<{ id: string }> }): Promise<JSX.Element> {
+  const { id } = await params;
+  const claims = await getConsoleClaims();
   if (!claims?.isPlatformUser || !hasPermission(claims, 'platform:manage')) {
     return (
       <div className="p-6">
@@ -31,7 +33,7 @@ export default function SaasTenantDetailPage({ params }: { params: { id: string 
     );
   }
 
-  const tenantId = decodeURIComponent(params.id);
+  const tenantId = decodeURIComponent(id);
   if (!UUID_PATTERN.test(tenantId)) {
     return (
       <div className="p-6 space-y-4">

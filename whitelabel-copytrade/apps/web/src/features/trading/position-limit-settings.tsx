@@ -1,8 +1,9 @@
 // # Responsibility: customer settings surface for user-wide concurrent position-slot and open-order ceilings.
 
 'use client';
+import type { JSX } from 'react';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { userPositionLimitsApi } from '@/api/user-position-limits-api';
 
@@ -35,28 +36,17 @@ export function PositionLimitSettings(): JSX.Element {
     retry: false,
   });
 
-  const [maxConcurrentPositions, setMaxConcurrentPositions] = useState(() => {
-    const value = limitsQuery.data?.limits.maxConcurrentPositions;
-    return value === null || value === undefined ? '' : String(value);
-  });
-  const [maxOpenOrders, setMaxOpenOrders] = useState(() => {
-    const value = limitsQuery.data?.limits.maxOpenOrders;
-    return value === null || value === undefined ? '' : String(value);
-  });
-
-  useEffect(() => {
-    if (!limitsQuery.data) return;
-    setMaxConcurrentPositions(
-      limitsQuery.data.limits.maxConcurrentPositions === null
-        ? ''
-        : String(limitsQuery.data.limits.maxConcurrentPositions),
-    );
-    setMaxOpenOrders(
-      limitsQuery.data.limits.maxOpenOrders === null
-        ? ''
-        : String(limitsQuery.data.limits.maxOpenOrders),
-    );
-  }, [limitsQuery.data]);
+  const [draft, setDraft] = useState<Partial<{ maxConcurrentPositions: string; maxOpenOrders: string }>>({});
+  const maxConcurrentPositions = draft.maxConcurrentPositions ?? (
+    limitsQuery.data?.limits.maxConcurrentPositions == null
+      ? ''
+      : String(limitsQuery.data.limits.maxConcurrentPositions)
+  );
+  const maxOpenOrders = draft.maxOpenOrders ?? (
+    limitsQuery.data?.limits.maxOpenOrders == null
+      ? ''
+      : String(limitsQuery.data.limits.maxOpenOrders)
+  );
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -65,6 +55,7 @@ export function PositionLimitSettings(): JSX.Element {
         maxOpenOrders: parseLimitInput(maxOpenOrders, 'Maximum open orders'),
       }),
     onSuccess: () => {
+      setDraft({});
       void queryClient.invalidateQueries({ queryKey: USER_POSITION_LIMITS_QUERY_KEY });
     },
   });
@@ -132,7 +123,7 @@ export function PositionLimitSettings(): JSX.Element {
                 step={1}
                 inputMode="numeric"
                 value={maxConcurrentPositions}
-                onChange={(event) => setMaxConcurrentPositions(event.target.value)}
+                onChange={(event) => setDraft((current) => ({ ...current, maxConcurrentPositions: event.target.value }))}
                 placeholder="No limit"
                 className="w-full rounded-md border bg-background px-3 py-2"
               />
@@ -151,7 +142,7 @@ export function PositionLimitSettings(): JSX.Element {
                 step={1}
                 inputMode="numeric"
                 value={maxOpenOrders}
-                onChange={(event) => setMaxOpenOrders(event.target.value)}
+                onChange={(event) => setDraft((current) => ({ ...current, maxOpenOrders: event.target.value }))}
                 placeholder="No limit"
                 className="w-full rounded-md border bg-background px-3 py-2"
               />
@@ -172,8 +163,8 @@ export function PositionLimitSettings(): JSX.Element {
             <button
               type="button"
               onClick={() => {
-                setMaxConcurrentPositions('');
-                setMaxOpenOrders('');
+                setDraft((current) => ({ ...current, maxConcurrentPositions: '' }));
+                setDraft((current) => ({ ...current, maxOpenOrders: '' }));
                 saveMutation.reset();
               }}
               className="rounded-md border px-4 py-2 text-sm font-medium"

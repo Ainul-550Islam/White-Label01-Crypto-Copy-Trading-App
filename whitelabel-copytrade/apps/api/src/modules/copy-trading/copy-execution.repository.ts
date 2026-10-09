@@ -1,8 +1,30 @@
 // # Persists copy execution intents with tenant-scoped idempotency keys and duplicate protection
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { CopyExecutionStatus, CopySizingMode, CopyRiskDecision } from './copy-trading.types';
 import { randomUUID } from 'crypto';
+
+function copyExecutionEventType(status: CopyExecutionStatus): string | null {
+  switch (status) {
+    case CopyExecutionStatus.FILLED:
+      return 'copy.execution.filled';
+    case CopyExecutionStatus.FAILED:
+    case CopyExecutionStatus.REJECTED:
+      return 'copy.execution.failed';
+    case CopyExecutionStatus.SKIPPED:
+      return 'copy.execution.skipped';
+    default:
+      return null;
+  }
+}
+
+function safeExecutionIntent(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
 
 /**
  * Persistence abstraction for copy execution intents/results, leader event references, follower mappings, idempotency, status transitions, and reconciliation metadata.
@@ -12,7 +34,10 @@ import { randomUUID } from 'crypto';
 export class CopyExecutionRepository {
   private readonly logger = new Logger(CopyExecutionRepository.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxService,
+  ) {}
 
   async create(input: {
     tenantId: string;
@@ -140,25 +165,93 @@ export class CopyExecutionRepository {
     return { data, total };
   }
 
-  async updateStatus(id: string, tenantId: string, status: CopyExecutionStatus, extra?: { followerOrderId?: string; followerFillId?: string; providerOrderId?: string; providerTradeId?: string; failureReason?: string; followerQuantity?: string; followerPrice?: string; riskDecision?: CopyRiskDecision; riskRuleId?: string }): Promise<any | null> {
+  async updateStatus(
+    id: string,
+    tenantId: string,
+    status: CopyExecutionStatus,
+    extra?: {
+      followerOrderId?: string;
+      followerFillId?: string;
+      providerOrderId?: string;
+      providerTradeId?: string;
+      failureReason?: string;
+      followerQuantity?: string;
+      followerPrice?: string;
+      riskDecision?: CopyRiskDecision;
+      riskRuleId?: string;
+    },
+  ): Promise<any | null> {
+    const eventType = copyExecutionEventType(status);
     try {
-      const existing = await (this.prisma as any).copyExecution.findFirst({ where: { id, tenantId } });
-      if (!existing) return null;
+      return await this.prisma.withTenantRls(tenantId, async (tx) => {
+        const existing = await tx.copyExecution.findFirst({ where: { id, tenantId } });
+        if (!existing) return null;
 
-      const terminal = [CopyExecutionStatus.FILLED, CopyExecutionStatus.FAILED, CopyExecutionStatus.REJECTED, CopyExecutionStatus.BLOCKED];
-      if (terminal.includes(existing.status as any) && existing.status !== status) {
-        if (existing.status === CopyExecutionStatus.FILLED && status !== CopyExecutionStatus.FILLED) {
-          this.logger.warn(`Invalid status transition rejected id=${id} from=${existing.status} to=${status}`);
-          return existing;
+        const terminal = [
+          CopyExecutionStatus.FILLED,
+          CopyExecutionStatus.FAILED,
+          CopyExecutionStatus.REJECTED,
+          CopyExecutionStatus.BLOCKED,
+        ];
+        if (terminal.includes(existing.status as CopyExecutionStatus) && existing.status !== status) {
+          if (existing.status === CopyExecutionStatus.FILLED && status !== CopyExecutionStatus.FILLED) {
+            this.logger.warn(`Invalid status transition rejected id=${id} from=${existing.status} to=${status}`);
+            return existing;
+          }
         }
-      }
 
-      return await (this.prisma as any).copyExecution.update({
-        where: { id },
-        data: { status, ...extra, updatedAt: new Date(), retryCount: extra?.failureReason ? { increment: 1 } : undefined },
+        const updated = await tx.copyExecution.update({
+          where: { id, tenantId },
+          data: {
+            status,
+            ...extra,
+            updatedAt: new Date(),
+            retryCount: extra?.failureReason ? { increment: 1 } : undefined,
+          },
+        });
+
+        if (eventType !== null) {
+          const subscription = await tx.copySubscription.findFirst({
+            where: { id: updated.subscriptionId, tenantId },
+            select: { strategyId: true },
+          });
+          const intent = safeExecutionIntent(updated.executionIntent);
+          const symbol = typeof intent.symbol === 'string' ? intent.symbol : null;
+          const side = typeof intent.side === 'string' ? intent.side.toUpperCase() : null;
+          const quantity = extra?.followerQuantity ?? updated.followerQuantity;
+
+          await this.outbox.append(tx, {
+            tenantId,
+            aggregateType: 'copy.execution',
+            aggregateId: updated.id,
+            eventType,
+            idempotencyKey: `copy-execution:${updated.id}:${status}`,
+            payload: {
+              executionId: updated.id,
+              subscriptionId: updated.subscriptionId,
+              followerId: updated.followerId,
+              traderId: updated.traderId,
+              strategyId: subscription?.strategyId ?? null,
+              status,
+              symbol,
+              side,
+              quantity: typeof quantity === 'string' ? quantity : null,
+            },
+          });
+        }
+
+        return updated;
       });
-    } catch (e: any) {
-      this.logger.warn(`Failed to update execution status id=${id} error=${e.message}`);
+    } catch (error) {
+      if (eventType !== null) {
+        this.logger.error(
+          `Terminal copy execution state and outbox event were rolled back id=${id} tenant=${tenantId}`,
+        );
+        throw error;
+      }
+      this.logger.warn(
+        `Failed to update execution status id=${id} error=${error instanceof Error ? error.message : 'unknown error'}`,
+      );
       return null;
     }
   }

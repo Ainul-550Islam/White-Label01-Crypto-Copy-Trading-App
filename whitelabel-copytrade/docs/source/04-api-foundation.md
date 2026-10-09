@@ -2,7 +2,7 @@
 
 Entrypoint, configuration service, Swagger, and the cross-cutting filters, guards, interceptors, pipes and middleware.
 
-69 files. Part of the complete source dump - see `docs/source/README.md`.
+73 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -1001,6 +1001,869 @@ export const REQUEST_LOCALE_PROPERTY = 'locale';
 export const REQUEST_IP_HASH_PROPERTY = 'ipHash';
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+```
+
+FILE: apps/api/src/common/decimal-string.spec.ts
+
+```typescript
+// # Responsibility: regression tests for exact decimal-string arithmetic with no binary floating-point conversion.
+//
+// Two jobs, and the first is the original one: the Layer 1 functions in this module are imported
+// across the API, so their observable behaviour is pinned here rather than left to whatever the
+// next refactor assumes. The block below this header is that contract, unchanged.
+//
+// The second job is coverage for the arbitrary-scale `Decimal` layer added on top of Layer 1:
+// exact arithmetic, the five rounding modes, venue step/tick snapping, and the regression where
+// the previous hand-rolled BigInt helpers silently fell back to `parseFloat` (triggered by
+// `String(1e-7 / 100) === '1e-9'`, which their parser could not tokenise).
+
+import {
+  DECIMAL_FACTOR,
+  DECIMAL_SCALE,
+  Decimal,
+  DecimalError,
+  bpsOf,
+  clampDecimal,
+  dec,
+  decimalFromScaled12,
+  divideDecimalStrings,
+  formatDecimalString,
+  isDecimalString,
+  maxDecimal,
+  minDecimal,
+  multiplyDecimalStrings,
+  parseDecimalString,
+} from './decimal-string';
+
+describe('decimal-string arithmetic', () => {
+  it('round-trips decimal values while preserving significant precision', () => {
+    expect(formatDecimalString(parseDecimalString('0.000000000001'), 12)).toBe('0.000000000001');
+    expect(formatDecimalString(parseDecimalString('-125.340000000000'), 8)).toBe('-125.34');
+  });
+
+  it('rejects exponent notation, non-string input and excess precision', () => {
+    expect(() => parseDecimalString('1e-8')).toThrow(TypeError);
+    expect(() => parseDecimalString('0.1234567890123')).toThrow(TypeError);
+    expect(() => parseDecimalString(1 as unknown as string)).toThrow(TypeError);
+  });
+
+  it('validates unknown decimal input without throwing or floating-point conversion', () => {
+    expect(isDecimalString('12.5')).toBe(true);
+    expect(isDecimalString('1e-8')).toBe(false);
+    expect(isDecimalString('0.1234567890123')).toBe(false);
+    expect(isDecimalString(null)).toBe(false);
+    expect(isDecimalString('9'.repeat(81))).toBe(false);
+  });
+
+  it('multiplies and divides with deterministic half-away-from-zero rounding', () => {
+    expect(formatDecimalString(multiplyDecimalStrings(parseDecimalString('1.25'), parseDecimalString('2.4')))).toBe('3');
+    expect(formatDecimalString(divideDecimalStrings(parseDecimalString('1'), parseDecimalString('3')), 12)).toBe('0.333333333333');
+    expect(formatDecimalString(divideDecimalStrings(parseDecimalString('-1'), parseDecimalString('6')), 12)).toBe('-0.166666666667');
+  });
+});
+
+describe('Decimal (Layer 2): parsing', () => {
+  it('parses integers, fixed point, signs and exponent notation exactly', () => {
+    expect(Decimal.parse('0').toString()).toBe('0');
+    expect(Decimal.parse('42').toString()).toBe('42');
+    expect(Decimal.parse('0.001').toString()).toBe('0.001');
+    expect(Decimal.parse('-1.50').toString()).toBe('-1.5');
+    expect(Decimal.parse('1e-7').toString()).toBe('0.0000001');
+    expect(Decimal.parse('1e-9').toString()).toBe('0.000000001');
+    expect(Decimal.parse('2.5E+3').toString()).toBe('2500');
+    expect(Decimal.parse('.5').toString()).toBe('0.5');
+    expect(Decimal.parse('5.').toString()).toBe('5');
+    expect(Decimal.parse('+3.25').toString()).toBe('3.25');
+  });
+
+  it('never emits exponent notation, even for tiny values', () => {
+    // The regression that broke the copy-sizing path: 1e-7 / 100.
+    const tiny = Decimal.parse('1e-7').div(100, 18);
+    expect(tiny.toString()).toBe('0.000000001');
+    expect(tiny.toString()).not.toMatch(/e/i);
+    expect(Decimal.parse('0.000000000000000001').toString()).toBe('0.000000000000000001');
+  });
+
+  it('parses beyond Layer 1 precision, which is the reason Layer 2 exists', () => {
+    // Layer 1's pattern admits at most 12 fractional digits.
+    expect(isDecimalString('0.000000000000000001')).toBe(false);
+    // Layer 2 holds it exactly.
+    expect(Decimal.parse('0.000000000000000001').toString()).toBe('0.000000000000000001');
+  });
+
+  it('rejects non-finite and malformed input', () => {
+    expect(() => Decimal.parse('')).toThrow(DecimalError);
+    expect(() => Decimal.parse('abc')).toThrow(DecimalError);
+    expect(() => Decimal.parse('1.2.3')).toThrow(DecimalError);
+    expect(() => Decimal.parse('.' as never)).toThrow(DecimalError);
+    expect(() => Decimal.parse(NaN)).toThrow(DecimalError);
+    expect(() => Decimal.parse(Infinity)).toThrow(DecimalError);
+  });
+
+  it('exact string maths beats the float equivalent', () => {
+    // Every finite double round-trips through its shortest decimal form, so a
+    // float input parses - but to the float's value, not the intended one. That
+    // is why financial call sites pass strings.
+    expect(Decimal.parse(String(0.1 + 0.2)).toString()).toBe('0.30000000000000004');
+    expect(Decimal.parse(String(0.1 + 0.2)).eq('0.3')).toBe(false);
+    expect(Decimal.parse('0.1').add('0.2').eq('0.3')).toBe(true);
+    expect(Decimal.parse('0.1').add('0.2').toString()).toBe('0.3');
+  });
+
+  it('tryParse and isDecimal are non-throwing', () => {
+    expect(Decimal.tryParse('nope')).toBeNull();
+    expect(Decimal.tryParse(null)).toBeNull();
+    expect(Decimal.tryParse('1.5')!.toString()).toBe('1.5');
+    expect(Decimal.isDecimal('1e-9')).toBe(true);
+    expect(Decimal.isDecimal('x')).toBe(false);
+  });
+});
+
+describe('Decimal (Layer 2): arithmetic is exact', () => {
+  it('adds and subtracts without float drift', () => {
+    expect(dec('0.1').add('0.2').toString()).toBe('0.3');
+    expect(dec('1.005').sub('1').toString()).toBe('0.005');
+    expect(dec('0.3').sub('0.1').toString()).toBe('0.2');
+    expect(dec('1e-9').add('1e-9').toString()).toBe('0.000000002');
+  });
+
+  it('multiplies exactly at full precision', () => {
+    expect(dec('0.0000123456789').mul('1').toString()).toBe('0.0000123456789');
+    expect(dec('60000').mul('0.001').toString()).toBe('60');
+    expect(dec('1e-7').mul('1e-9').toString()).toBe('0.0000000000000001');
+  });
+
+  it('divides with an explicit scale and rounding mode', () => {
+    expect(dec('1').div('3', 4).toString()).toBe('0.3333');
+    expect(dec('1').div('3', 2, 'FLOOR').toString()).toBe('0.33');
+    expect(dec('2').div('3', 2, 'CEIL').toString()).toBe('0.67');
+    expect(dec('0.15').div('0.1', 2).toString()).toBe('1.5');
+    expect(dec('100').div('3', 0, 'HALF_UP').toString()).toBe('33');
+    expect(() => dec('1').div('0')).toThrow(DecimalError);
+  });
+
+  it('compares exactly, including across scales and signs', () => {
+    expect(dec('0.1').add('0.2').cmp('0.3')).toBe(0);
+    expect(dec('1.0').cmp('1')).toBe(0);
+    expect(dec('-2').cmp('-1')).toBe(-1);
+    expect(dec('1e-9').gt('0')).toBe(true);
+    expect(dec('5').lte('5')).toBe(true);
+  });
+
+  it('applies HALF_EVEN (banker) rounding', () => {
+    expect(dec('2.5').toFixed(0, 'HALF_EVEN')).toBe('2');
+    expect(dec('3.5').toFixed(0, 'HALF_EVEN')).toBe('4');
+    expect(dec('2.5').toFixed(0, 'HALF_UP')).toBe('3');
+    expect(dec('-2.5').toFixed(0, 'HALF_UP')).toBe('-3');
+    expect(dec('-2.5').toFixed(0, 'FLOOR')).toBe('-3');
+    expect(dec('-2.5').toFixed(0, 'DOWN')).toBe('-2');
+  });
+});
+
+describe('Decimal (Layer 2): venue precision normalisation', () => {
+  it('floors a size down to the step and refuses to return zero', () => {
+    expect(Decimal.floorToStep('0.00123', '0.001')!.toString()).toBe('0.001');
+    // A size below one step must not silently become an order.
+    expect(Decimal.floorToStep('0.0005', '0.001')).toBeNull();
+    expect(Decimal.floorToStep('0', '0.001')).toBeNull();
+    expect(Decimal.floorToStep('7.9', '1')!.toString()).toBe('7');
+    // An 18-dp step is representable in Layer 2 and not in Layer 1.
+    expect(isDecimalString('0.000000000000000001')).toBe(false);
+    expect(Decimal.floorToStep('0.0000123456789', '0.000000000000000001')!.toString()).toBe('0.0000123456789');
+  });
+
+  it('snaps prices to a tick in the requested direction', () => {
+    expect(Decimal.roundToTick('60000.007', '0.01', 'FLOOR').toString()).toBe('60000');
+    expect(Decimal.roundToTick('60000.001', '0.01', 'CEIL').toString()).toBe('60000.01');
+    expect(Decimal.roundToTick('60000.005', '0.01').toString()).toBe('60000.01');
+    expect(Decimal.ceilToTick('60000.00', '0.01').toString()).toBe('60000');
+    expect(Decimal.floorToTick('60000.009', '0.01').toString()).toBe('60000');
+  });
+
+  it('rejects an invalid step instead of returning the raw size', () => {
+    expect(Decimal.floorToStep('1', '0')).toBeNull();
+    expect(Decimal.floorToStep('1', '-0.1')).toBeNull();
+  });
+});
+
+describe('Decimal (Layer 2): helpers', () => {
+  it('computes basis points exactly', () => {
+    expect(bpsOf('60000', 50).toString()).toBe('300');
+    expect(bpsOf('0.00001234', 100).toString()).toBe('0.0000001234');
+    expect(() => bpsOf('1', -1)).toThrow(DecimalError);
+  });
+
+  it('clamps, mins and maxes', () => {
+    expect(clampDecimal('5', '1', '10').toString()).toBe('5');
+    expect(clampDecimal('0', '1', '10').toString()).toBe('1');
+    expect(clampDecimal('99', '1', '10').toString()).toBe('10');
+    expect(() => clampDecimal('5', '10', '1')).toThrow(DecimalError);
+    expect(maxDecimal('1', '2', '3').toString()).toBe('3');
+    expect(minDecimal('1', '2', '3').toString()).toBe('1');
+  });
+
+  it('round-trips to scaled bigint only when exact', () => {
+    expect(dec('1.23').toScaledBigInt(2)).toBe(123n);
+    expect(() => dec('1.234').toScaledBigInt(2)).toThrow(DecimalError);
+    expect(dec('100').toScaledBigInt(0)).toBe(100n);
+  });
+
+  it('normalises away trailing zeros but keeps zero canonical', () => {
+    expect(dec('1.5000').normalize().toString()).toBe('1.5');
+    expect(dec('0.000').toString()).toBe('0');
+    expect(dec('-0.0').toString()).toBe('0');
+  });
+});
+
+describe('Layer 1 <-> Layer 2 interop', () => {
+  it('bridges to 12-place scaled units only when exact', () => {
+    expect(dec('1.5').toScaled12Exact()).toBe(parseDecimalString('1.5'));
+    expect(decimalFromScaled12(parseDecimalString('1.5')).toString()).toBe('1.5');
+    // 18 dp does not fit, and must throw rather than silently truncate.
+    expect(dec('0.000000000000000001').fitsLayer1()).toBe(false);
+    expect(() => dec('0.000000000000000001').toScaled12Exact()).toThrow(DecimalError);
+    expect(dec('1.5').fitsLayer1()).toBe(true);
+  });
+
+  it('round-trips a Layer 1 value through Layer 2 losslessly', () => {
+    for (const text of ['0', '1', '-1', '0.1', '60000.123456789', '-0.000000000001', '99999999.999999999999']) {
+      const scaled = parseDecimalString(text);
+      const roundTripped = decimalFromScaled12(scaled);
+      expect(roundTripped.toString()).toBe(Decimal.parse(text).toString());
+      expect(roundTripped.toScaled12Exact()).toBe(scaled);
+    }
+  });
+});
+
+describe('Layer 1 (frozen): existing exports behave as the API already depends on', () => {
+  it('DECIMAL_SCALE and DECIMAL_FACTOR stay at 12 places', () => {
+    expect(DECIMAL_SCALE).toBe(12);
+    expect(DECIMAL_FACTOR).toBe(1_000_000_000_000n);
+  });
+
+  it('isDecimalString accepts plain 12-dp input and rejects anything else', () => {
+    expect(isDecimalString('0')).toBe(true);
+    expect(isDecimalString('123')).toBe(true);
+    expect(isDecimalString('-0.5')).toBe(true);
+    expect(isDecimalString('0.123456789012')).toBe(true);
+    // 13 places, exponent form, leading zeros and junk are all rejected.
+    expect(isDecimalString('0.1234567890123')).toBe(false);
+    expect(isDecimalString('1e-7')).toBe(false);
+    expect(isDecimalString('007')).toBe(false);
+    expect(isDecimalString('')).toBe(false);
+    expect(isDecimalString(null)).toBe(false);
+    expect(isDecimalString(undefined)).toBe(false);
+    expect(isDecimalString(5)).toBe(false);
+  });
+
+  it('parseDecimalString scales exactly and throws on bad input', () => {
+    expect(parseDecimalString('1')).toBe(DECIMAL_FACTOR);
+    expect(parseDecimalString('1.5')).toBe(DECIMAL_FACTOR + DECIMAL_FACTOR / 2n);
+    expect(parseDecimalString('-1')).toBe(-DECIMAL_FACTOR);
+    expect(parseDecimalString('0')).toBe(0n);
+    expect(() => parseDecimalString('1e-7')).toThrow(TypeError);
+    expect(() => parseDecimalString('0.1234567890123')).toThrow(TypeError);
+  });
+
+  it('formatDecimalString trims trailing zeros and honours outputPlaces', () => {
+    expect(formatDecimalString(DECIMAL_FACTOR)).toBe('1');
+    expect(formatDecimalString(DECIMAL_FACTOR + DECIMAL_FACTOR / 2n)).toBe('1.5');
+    expect(formatDecimalString(0n)).toBe('0');
+    expect(formatDecimalString(parseDecimalString('-0.00000001'))).toBe('-0.00000001');
+    expect(formatDecimalString(parseDecimalString('1.123456789'), 2)).toBe('1.12');
+    expect(formatDecimalString(parseDecimalString('1.5'), 0)).toBe('1');
+    expect(() => formatDecimalString(0n, 13)).toThrow(RangeError);
+    expect(() => formatDecimalString(0n, -1)).toThrow(RangeError);
+  });
+
+  it('divideDecimalStrings and multiplyDecimalStrings round half away from zero', () => {
+    expect(divideDecimalStrings(parseDecimalString('1'), parseDecimalString('3')))
+      .toBe(parseDecimalString('0.333333333333'));
+    expect(() => divideDecimalStrings(1n, 0n)).toThrow(RangeError);
+    expect(multiplyDecimalStrings(parseDecimalString('2'), parseDecimalString('3')))
+      .toBe(parseDecimalString('6'));
+    expect(multiplyDecimalStrings(parseDecimalString('0.1'), parseDecimalString('3')))
+      .toBe(parseDecimalString('0.3'));
+    expect(multiplyDecimalStrings(parseDecimalString('-2'), parseDecimalString('0.5')))
+      .toBe(parseDecimalString('-1'));
+  });
+});
+```
+
+FILE: apps/api/src/common/decimal-string.ts
+
+```typescript
+// # Responsibility: exact decimal-string arithmetic for trading, risk, and fee calculations.
+//
+// This is the ONE canonical module for money, prices, quantities and rates on the
+// API. It exposes two layers over the same representation, and a call site picks
+// the layer that matches what it knows about the value.
+//
+//   Layer 1 - fixed scale 12 (DECIMAL_SCALE).
+//     `parseDecimalString` / `formatDecimalString` / `divideDecimalStrings` /
+//     `multiplyDecimalStrings`. Fast, allocation-light, and the convention most
+//     of the API already speaks: every value is a bigint of 12-place scaled
+//     units. Use it when the value provably fits 12 decimal places.
+//
+//   Layer 2 - arbitrary scale (`Decimal`).
+//     An exact `unscaled * 10^-scale` value with an explicit scale, so it can
+//     represent a venue step of 1e-18 without silently truncating, and with the
+//     rounding modes that directional decisions need (a size floors DOWN, a
+//     slippage ceiling rounds UP). Use it wherever a value crosses the venue
+//     precision boundary or needs deterministic rounding.
+//
+// WHY BOTH, AND WHY THEY ARE NOT DUPLICATES
+// ----------------------------------------
+// Layer 1 cannot express what the copy-execution path needs: its pattern admits
+// at most 12 fractional digits (`\d{1,12}`), and a venue that quotes a quantity
+// step of 0.000000000000000001 is not representable at all. Neither layer 1
+// helper can round in a chosen direction, and size snapping must floor - any
+// other direction can over-allocate a follower's balance. Rather than fork a
+// second decimal library, the arbitrary-precision layer lives here, next to the
+// fixed-scale one it supersedes, and `Decimal.toScaled12Exact()` bridges back.
+//
+// INVARIANTS
+// ----------
+//   1. No operation ever uses `number` for a value. `number` input is accepted
+//      for ergonomics and parsed at its shortest round-trip decimal, which is the
+//      float's value and not necessarily the intended one; financial call sites
+//      must pass strings. No arithmetic here is performed on a `number`.
+//   2. Parsing is total over exact decimal and scientific-notation input and
+//      throws `DecimalError` on anything else. It never degrades to a float.
+//   3. `Decimal.toString()` / `.toFixed()` never emit exponent notation, so the
+//      result is always safe to hand to an exchange REST/WS API.
+//   4. Rounding is explicit at every point where precision is lost. Size snapping
+//      floors; price snapping takes a direction; division requires a scale.
+//   5. Layer 1's exported signatures and behaviour are frozen - they predate this
+//      module's Layer 2 and are depended on across the API.
+
+// =============================================================================
+// Layer 1 - fixed scale 12 (frozen).
+// =============================================================================
+
+export const DECIMAL_SCALE = 12;
+export const DECIMAL_FACTOR = 1_000_000_000_000n;
+const DECIMAL_STRING_PATTERN = /^([+-]?)(0|[1-9]\d*)(?:\.(\d{1,12}))?$/;
+
+/** Returns whether unknown input is a plain, exactly representable decimal string. */
+export function isDecimalString(input: unknown): input is string {
+  return typeof input === 'string' && input.length <= 80 && DECIMAL_STRING_PATTERN.test(input.trim());
+}
+
+/** Parse a base-10 decimal string into a 12-place scaled integer without floating point. */
+export function parseDecimalString(input: string): bigint {
+  if (typeof input !== 'string' || input.length > 80) {
+    throw new TypeError('Decimal value must be a string of at most 80 characters');
+  }
+  const match = DECIMAL_STRING_PATTERN.exec(input.trim());
+  if (!match) throw new TypeError('Decimal value must be a plain base-10 string with at most 12 decimal places');
+  const sign = match[1] === '-' ? -1n : 1n;
+  const fractional = (match[3] ?? '').padEnd(DECIMAL_SCALE, '0');
+  return sign * (BigInt(match[2]) * DECIMAL_FACTOR + BigInt(fractional || '0'));
+}
+
+/** Format a 12-place scaled integer as a non-exponential decimal string. */
+export function formatDecimalString(value: bigint, outputPlaces = 8): string {
+  if (!Number.isInteger(outputPlaces) || outputPlaces < 0 || outputPlaces > DECIMAL_SCALE) {
+    throw new RangeError('outputPlaces must be an integer from 0 through 12');
+  }
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  const integer = absolute / DECIMAL_FACTOR;
+  const fraction = (absolute % DECIMAL_FACTOR).toString().padStart(DECIMAL_SCALE, '0');
+  const retained = fraction.slice(0, outputPlaces);
+  const result = outputPlaces === 0 ? integer.toString() : `${integer}.${retained}`;
+  const trimmed = result.includes('.') ? result.replace(/0+$/, '').replace(/\.$/, '') : result;
+  return `${negative && absolute !== 0n ? '-' : ''}${trimmed}`;
+}
+
+/** Rounded division of two scaled values, returning another scaled value. */
+export function divideDecimalStrings(numerator: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) throw new RangeError('Cannot divide by zero');
+  const scaledNumerator = numerator * DECIMAL_FACTOR;
+  const quotient = scaledNumerator / denominator;
+  const remainder = scaledNumerator % denominator;
+  const absRemainder = remainder < 0n ? -remainder : remainder;
+  const absDenominator = denominator < 0n ? -denominator : denominator;
+  const shouldRound = absRemainder * 2n >= absDenominator;
+  if (!shouldRound) return quotient;
+  const sign = (scaledNumerator < 0n) !== (denominator < 0n) ? -1n : 1n;
+  return quotient + sign;
+}
+
+/** Multiply two scaled values and round half away from zero back to 12 places. */
+export function multiplyDecimalStrings(left: bigint, right: bigint): bigint {
+  const product = left * right;
+  const quotient = product / DECIMAL_FACTOR;
+  const remainder = product % DECIMAL_FACTOR;
+  if ((remainder < 0n ? -remainder : remainder) * 2n < DECIMAL_FACTOR) return quotient;
+  return quotient + (product < 0n ? -1n : 1n);
+}
+
+// =============================================================================
+// Layer 2 - arbitrary scale, explicit rounding.
+// =============================================================================
+
+/** How a value is rounded when digits must be discarded. */
+export type RoundingMode = 'FLOOR' | 'CEIL' | 'DOWN' | 'HALF_UP' | 'HALF_EVEN';
+
+/** Thrown for any value this module refuses to represent. Never caught to continue. */
+export class DecimalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DecimalError';
+  }
+}
+
+/** Digits per bigint limb do not exist here; these bound absurd input instead. */
+const MAX_SCALE = 1_000;
+const MAX_DIGITS = 10_000;
+const DECIMAL_RE = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
+
+function pow10(exponent: number): bigint {
+  if (!Number.isInteger(exponent) || exponent < 0) {
+    throw new DecimalError(`pow10 requires a non-negative integer, got ${exponent}`);
+  }
+  return 10n ** BigInt(exponent);
+}
+
+/** Truncating division that floors toward negative infinity. */
+function divFloor(a: bigint, b: bigint): bigint {
+  if (b === 0n) throw new DecimalError('Division by zero');
+  const quotient = a / b;
+  return a % b !== 0n && a < 0n !== b < 0n ? quotient - 1n : quotient;
+}
+
+/** Truncating division that ceils toward positive infinity. */
+function divCeil(a: bigint, b: bigint): bigint {
+  if (b === 0n) throw new DecimalError('Division by zero');
+  const quotient = a / b;
+  return a % b !== 0n && a < 0n === b < 0n ? quotient + 1n : quotient;
+}
+
+/**
+ * An exact decimal: `unscaled * 10^-scale`, with `scale >= 0`.
+ *
+ * Addition and subtraction rescale to the larger scale and are always exact.
+ * Multiplication is exact. Division is the only deliberately lossy operation and
+ * therefore requires the caller to state a target scale and rounding mode.
+ */
+export class Decimal {
+  /** Value = unscaled * 10^-scale. */
+  readonly unscaled: bigint;
+  /** Number of fractional digits held. Always >= 0. */
+  readonly scale: number;
+
+  private constructor(unscaled: bigint, scale: number) {
+    this.unscaled = unscaled;
+    this.scale = scale;
+  }
+
+  // ---------------------------------------------------------------- factories
+
+  static readonly ZERO = new Decimal(0n, 0);
+  static readonly ONE = new Decimal(1n, 0);
+
+  /** Build from already-scaled units. Prefer {@link parse} for textual input. */
+  static fromUnscaled(unscaled: bigint, scale = 0): Decimal {
+    if (!Number.isInteger(scale) || scale < 0 || scale > MAX_SCALE) {
+      throw new DecimalError(`Invalid scale: ${scale}`);
+    }
+    return new Decimal(unscaled, scale);
+  }
+
+  /**
+   * Parse an exact decimal.
+   *
+   * Accepts integers, fixed point (`"0.001"`), signs and scientific notation
+   * (`"1e-9"`, `"2.5E+3"`) - all exactly, never through a float. Rejects `NaN`,
+   * `Infinity`, empty strings and bare `.`/`+`.
+   *
+   * `number` input is accepted for ergonomics but is inherently lossy: a
+   * fractional double parses at its shortest round-trip decimal, which is the
+   * value the *float* holds, not necessarily the intended one (`0.1 + 0.2`
+   * becomes `0.30000000000000004`, not `0.3`). Financial call sites must pass
+   * strings; this module never performs arithmetic on a `number`.
+   */
+  static parse(value: string | number | bigint | Decimal): Decimal {
+    if (value instanceof Decimal) return value;
+    if (typeof value === 'bigint') return new Decimal(value, 0);
+
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) {
+        throw new DecimalError(`Cannot parse non-finite number: ${value}`);
+      }
+      if (Number.isInteger(value) && Number.isSafeInteger(value)) {
+        return new Decimal(BigInt(value), 0);
+      }
+      return Decimal.parse(value.toString());
+    }
+
+    const raw = String(value).trim();
+    if (raw.length === 0) throw new DecimalError('Cannot parse an empty string');
+    if (raw.length > MAX_DIGITS) throw new DecimalError('Decimal input too long');
+
+    const match = DECIMAL_RE.exec(raw);
+    if (!match) throw new DecimalError(`Invalid decimal: "${raw}"`);
+
+    const sign = match[1];
+    const intPart = match[2] ?? '';
+    const fracPart = match[3] ?? '';
+    const expPart = match[4];
+
+    if (intPart === '' && fracPart === '') {
+      throw new DecimalError(`Invalid decimal: "${raw}"`);
+    }
+
+    const exponent = expPart ? Number(expPart) : 0;
+    if (!Number.isSafeInteger(exponent)) {
+      throw new DecimalError(`Invalid exponent in "${raw}"`);
+    }
+
+    const digits = intPart + fracPart;
+    const unscaledAbs = digits.length > 0 ? BigInt(digits) : 0n;
+    // Value = digits * 10^(exponent - fracPart.length)
+    const netExponent = exponent - fracPart.length;
+
+    let unscaled = sign === '-' ? -unscaledAbs : unscaledAbs;
+    let scale: number;
+
+    if (netExponent >= 0) {
+      unscaled *= pow10(netExponent);
+      scale = 0;
+    } else {
+      scale = -netExponent;
+    }
+
+    if (scale > MAX_SCALE) {
+      throw new DecimalError(`Scale ${scale} exceeds the supported maximum`);
+    }
+
+    return new Decimal(unscaled, scale);
+  }
+
+  /** Parse, returning `null` instead of throwing. For optional input. */
+  static tryParse(value: unknown): Decimal | null {
+    if (value === null || value === undefined) return null;
+    const acceptable =
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'bigint' ||
+      value instanceof Decimal;
+    if (!acceptable) return null;
+    try {
+      return Decimal.parse(value as string | number | bigint | Decimal);
+    } catch {
+      return null;
+    }
+  }
+
+  /** True when the value is an exact decimal this module can parse. */
+  static isDecimal(value: unknown): boolean {
+    return Decimal.tryParse(value) !== null;
+  }
+
+  // ------------------------------------------------------------ normalisation
+
+  /** Rescale two values to a common scale. Exact in both directions here. */
+  private static align(a: Decimal, b: Decimal): [bigint, bigint, number] {
+    const scale = Math.max(a.scale, b.scale);
+    return [a.unscaled * pow10(scale - a.scale), b.unscaled * pow10(scale - b.scale), scale];
+  }
+
+  /** Rescale this value to `scale`, applying `mode` when digits must be lost. */
+  rescale(scale: number, mode: RoundingMode = 'HALF_UP'): Decimal {
+    if (!Number.isInteger(scale) || scale < 0 || scale > MAX_SCALE) {
+      throw new DecimalError(`Invalid target scale: ${scale}`);
+    }
+    if (scale >= this.scale) {
+      return new Decimal(this.unscaled * pow10(scale - this.scale), scale);
+    }
+
+    const drop = this.scale - scale;
+    const divisor = pow10(drop);
+    const remainder = this.unscaled % divisor;
+    let quotient = this.unscaled / divisor;
+
+    if (remainder !== 0n) {
+      const negative = this.unscaled < 0n;
+      const absRemainder = remainder < 0n ? -remainder : remainder;
+      const twiceAbsRemainder = absRemainder * 2n;
+
+      switch (mode) {
+        case 'DOWN':
+          break; // truncate toward zero
+        case 'FLOOR':
+          if (negative) quotient -= 1n;
+          break;
+        case 'CEIL':
+          if (!negative) quotient += 1n;
+          break;
+        case 'HALF_UP':
+          if (twiceAbsRemainder >= divisor) quotient += negative ? -1n : 1n;
+          break;
+        case 'HALF_EVEN':
+          if (twiceAbsRemainder > divisor || (twiceAbsRemainder === divisor && quotient % 2n !== 0n)) {
+            quotient += negative ? -1n : 1n;
+          }
+          break;
+        default: {
+          const exhaustive: never = mode;
+          throw new DecimalError(`Unknown rounding mode: ${String(exhaustive)}`);
+        }
+      }
+    }
+
+    return new Decimal(quotient, scale);
+  }
+
+  /** Drop trailing fractional zeros so canonical output stays minimal. */
+  normalize(): Decimal {
+    let unscaled = this.unscaled;
+    let scale = this.scale;
+    if (unscaled === 0n) return Decimal.ZERO;
+    while (scale > 0 && unscaled % 10n === 0n) {
+      unscaled /= 10n;
+      scale -= 1;
+    }
+    return new Decimal(unscaled, scale);
+  }
+
+  // --------------------------------------------------------------- arithmetic
+
+  add(other: Decimal | string | number | bigint): Decimal {
+    const o = Decimal.parse(other as never);
+    const [a, b, scale] = Decimal.align(this, o);
+    return new Decimal(a + b, scale).normalize();
+  }
+
+  sub(other: Decimal | string | number | bigint): Decimal {
+    const o = Decimal.parse(other as never);
+    const [a, b, scale] = Decimal.align(this, o);
+    return new Decimal(a - b, scale).normalize();
+  }
+
+  /** Exact multiplication - no rounding, no precision loss. */
+  mul(other: Decimal | string | number | bigint): Decimal {
+    const o = Decimal.parse(other as never);
+    return new Decimal(this.unscaled * o.unscaled, this.scale + o.scale).normalize();
+  }
+
+  /**
+   * Division. `scale` is the fractional digits of the result and `mode` decides
+   * the final digit, because division is the only operation that loses precision
+   * by construction and the caller must say how much it wants.
+   */
+  div(other: Decimal | string | number | bigint, scale = 18, mode: RoundingMode = 'HALF_UP'): Decimal {
+    const o = Decimal.parse(other as never);
+    if (o.unscaled === 0n) throw new DecimalError('Division by zero');
+
+    // (a / 10^as) / (b / 10^bs) = (a * 10^bs) / (b * 10^as); scale the numerator
+    // by 10^scale to land the quotient on the requested number of digits.
+    const numerator = this.unscaled * pow10(o.scale) * pow10(scale);
+    const denominator = o.unscaled * pow10(this.scale);
+
+    if (mode === 'FLOOR') return new Decimal(divFloor(numerator, denominator), scale).normalize();
+    if (mode === 'CEIL') return new Decimal(divCeil(numerator, denominator), scale).normalize();
+
+    const quotient = divFloor(numerator, denominator);
+    const remainder = numerator - quotient * denominator;
+    if (remainder === 0n) return new Decimal(quotient, scale).normalize();
+
+    // Recompute with one guard digit so HALF_* modes see the true tail instead of
+    // deciding from an already-truncated value.
+    const extraNumerator = this.unscaled * pow10(o.scale) * pow10(scale + 1);
+    const extraQuotient = divFloor(extraNumerator, denominator);
+    return new Decimal(extraQuotient, scale + 1).rescale(scale, mode).normalize();
+  }
+
+  // -------------------------------------------------------------- comparisons
+
+  /** -1, 0 or 1. Exact; never through a float. */
+  cmp(other: Decimal | string | number | bigint): -1 | 0 | 1 {
+    const o = Decimal.parse(other as never);
+    const [a, b] = Decimal.align(this, o);
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+
+  eq(other: Decimal | string | number | bigint): boolean { return this.cmp(other) === 0; }
+  gt(other: Decimal | string | number | bigint): boolean { return this.cmp(other) > 0; }
+  gte(other: Decimal | string | number | bigint): boolean { return this.cmp(other) >= 0; }
+  lt(other: Decimal | string | number | bigint): boolean { return this.cmp(other) < 0; }
+  lte(other: Decimal | string | number | bigint): boolean { return this.cmp(other) <= 0; }
+
+  isZero(): boolean { return this.unscaled === 0n; }
+  isPositive(): boolean { return this.unscaled > 0n; }
+  isNegative(): boolean { return this.unscaled < 0n; }
+
+  abs(): Decimal { return this.unscaled < 0n ? new Decimal(-this.unscaled, this.scale) : this; }
+  neg(): Decimal { return new Decimal(-this.unscaled, this.scale); }
+
+  // ------------------------------------------------------ step / tick snapping
+
+  /**
+   * Snap a size DOWN to a multiple of `step`, or `null` when the result is zero
+   * or `step` is unusable.
+   *
+   * Flooring is the safe direction for quantities: it can only reduce exposure.
+   * Returning `null` rather than `0` matters because a zero-sized order is not a
+   * small order, it is an invalid one, and the caller has to decide what to do
+   * about a size that vanishes at the venue's precision.
+   */
+  static floorToStep(value: Decimal | string, step: Decimal | string): Decimal | null {
+    const v = Decimal.parse(value as never);
+    const s = Decimal.parse(step as never);
+    if (s.isZero() || s.isNegative()) return null;
+    const steps = v.div(s, 0, 'FLOOR');
+    const snapped = steps.mul(s).normalize();
+    return snapped.isZero() ? null : snapped;
+  }
+
+  /**
+   * Snap a price to a multiple of `tick` in the requested direction:
+   *   - BUY ceiling   -> 'CEIL'  (never pay more than the bound allows)
+   *   - SELL floor    -> 'FLOOR'
+   *   - reference px  -> 'HALF_UP'
+   */
+  static roundToTick(
+    value: Decimal | string,
+    tick: Decimal | string,
+    direction: RoundingMode = 'HALF_UP',
+  ): Decimal {
+    const v = Decimal.parse(value as never);
+    const t = Decimal.parse(tick as never);
+    if (t.isZero() || t.isNegative()) return v;
+    const steps = v.div(t, 0, direction);
+    return steps.mul(t).normalize();
+  }
+
+  /** Next tick boundary at or above `value`. */
+  static ceilToTick(value: Decimal | string, tick: Decimal | string): Decimal {
+    return Decimal.roundToTick(value, tick, 'CEIL');
+  }
+
+  /** Previous tick boundary at or below `value`. */
+  static floorToTick(value: Decimal | string, tick: Decimal | string): Decimal {
+    return Decimal.roundToTick(value, tick, 'FLOOR');
+  }
+
+  // ------------------------------------------------------------------- output
+
+  /** Canonical plain-decimal string. Never exponent notation. `"0"` for zero. */
+  toString(): string {
+    if (this.unscaled === 0n) return '0';
+    const negative = this.unscaled < 0n;
+    const digits = (negative ? -this.unscaled : this.unscaled).toString();
+
+    if (this.scale === 0) return (negative ? '-' : '') + digits;
+
+    const padded = digits.padStart(this.scale + 1, '0');
+    const intPart = padded.slice(0, -this.scale);
+    const fracPart = padded.slice(-this.scale).replace(/0+$/, '');
+    const body = fracPart ? `${intPart}.${fracPart}` : intPart;
+    return (negative ? '-' : '') + body;
+  }
+
+  /** Fixed-point string carrying exactly `dp` fractional digits. */
+  toFixed(dp: number, mode: RoundingMode = 'HALF_UP'): string {
+    const rounded = this.rescale(dp, mode);
+    const negative = rounded.unscaled < 0n;
+    const digits = (negative ? -rounded.unscaled : rounded.unscaled).toString();
+    if (dp === 0) return (negative ? '-' : '') + digits;
+    const padded = digits.padStart(dp + 1, '0');
+    return `${negative ? '-' : ''}${padded.slice(0, -dp)}.${padded.slice(-dp)}`;
+  }
+
+  /** Exact bigint of `value * 10^dp`; throws when digits would be lost. */
+  toScaledBigInt(dp: number): bigint {
+    const scaled = this.rescale(dp, 'DOWN');
+    if (!scaled.eq(this)) {
+      throw new DecimalError(`Cannot represent ${this.toString()} exactly at scale ${dp}`);
+    }
+    return scaled.unscaled;
+  }
+
+  // ------------------------------------------------------ Layer 1 interop
+
+  /**
+   * Convert to the Layer 1 representation (12-place scaled bigint), throwing when
+   * the value does not fit. Silently truncating here would let a value that
+   * needs 18 decimal places enter the fixed-scale world as a different number.
+   */
+  toScaled12Exact(): bigint {
+    return this.toScaledBigInt(DECIMAL_SCALE);
+  }
+
+  /** True when this value is exactly representable in Layer 1. */
+  fitsLayer1(): boolean {
+    try {
+      this.toScaled12Exact();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Lossy escape hatch for display and non-financial comparison only. Never use
+   * the result in a decision or hand it to a venue.
+   */
+  toNumber(): number {
+    return Number(this.toString());
+  }
+
+  toJSON(): string {
+    return this.toString();
+  }
+}
+
+/** Shorthand for {@link Decimal.parse}, so call sites stay short and consistent. */
+export function dec(value: string | number | bigint | Decimal): Decimal {
+  return Decimal.parse(value);
+}
+
+/** Build a {@link Decimal} from Layer 1 units without going through a string. */
+export function decimalFromScaled12(scaled: bigint): Decimal {
+  return Decimal.fromUnscaled(scaled, DECIMAL_SCALE);
+}
+
+/** Largest of the given values. Throws on an empty list. */
+export function maxDecimal(...values: Array<Decimal | string | number>): Decimal {
+  if (values.length === 0) throw new DecimalError('maxDecimal requires at least one value');
+  return values.map((value) => Decimal.parse(value as never)).reduce((a, b) => (a.gte(b) ? a : b));
+}
+
+/** Smallest of the given values. Throws on an empty list. */
+export function minDecimal(...values: Array<Decimal | string | number>): Decimal {
+  if (values.length === 0) throw new DecimalError('minDecimal requires at least one value');
+  return values.map((value) => Decimal.parse(value as never)).reduce((a, b) => (a.lte(b) ? a : b));
+}
+
+/** Clamp `value` into `[lo, hi]`. Throws when `lo > hi`. */
+export function clampDecimal(
+  value: Decimal | string,
+  lo: Decimal | string,
+  hi: Decimal | string,
+): Decimal {
+  const v = Decimal.parse(value as never);
+  const l = Decimal.parse(lo as never);
+  const h = Decimal.parse(hi as never);
+  if (l.gt(h)) throw new DecimalError('clampDecimal: lower bound exceeds upper bound');
+  if (v.lt(l)) return l;
+  if (v.gt(h)) return h;
+  return v;
+}
+
+/**
+ * Basis points of a value, exact at every step.
+ * 50 bps of 60000 is 300, with no float rounding anywhere in between.
+ */
+export function bpsOf(value: Decimal | string, bps: number | string): Decimal {
+  const v = Decimal.parse(value as never);
+  const b = Decimal.parse(bps as never);
+  if (b.isNegative()) throw new DecimalError('bpsOf: basis points must not be negative');
+  return v.mul(b).div(10_000, 18, 'HALF_UP').normalize();
+}
 ```
 
 FILE: apps/api/src/common/decorators/api-standard-responses.decorator.ts
@@ -3860,6 +4723,7 @@ export class ThrottlerBehindProxyGuard extends ThrottlerGuard {
 FILE: apps/api/src/common/idempotency-tenant-scope.spec.ts
 
 ```typescript
+// # Verifies tenant-scoped idempotency across all repositories and Prisma lookups
 import { readdirSync, readFileSync } from 'fs';
 import { join, relative } from 'path';
 
@@ -4702,6 +5566,145 @@ export class TenantResolutionMiddleware implements NestMiddleware {
       hostname.endsWith('.local')
     );
   }
+}
+```
+
+FILE: apps/api/src/common/payment-amount.spec.ts
+
+```typescript
+// # Contract-tests exact minor-unit and NOWPayments invoice amount conversions.
+import { nowPaymentsInvoiceAmountToNumber, paymentAmountToMinorUnits } from './payment-amount';
+
+describe('exact payment amount conversions', () => {
+  it.each([
+    ['49.99', 'USD', 4999],
+    ['100', 'JPY', 100],
+    ['0.00000001', 'BTC', 1],
+    ['0.000000000000000001', 'ETH', 1],
+    ['1.230000', 'USDT', 1230000],
+    ['0.000001', 'TRX', 1],
+  ])('scales %s %s to an exact safe integer', (amount, currency, expected) => {
+    expect(paymentAmountToMinorUnits(amount, currency)).toBe(expected);
+  });
+
+  it('rejects precision beyond the configured currency scale instead of rounding', () => {
+    expect(() => paymentAmountToMinorUnits('1.001', 'USD')).toThrow(/represent .* exactly at scale 2/);
+    expect(() => paymentAmountToMinorUnits('0.0000000000000000001', 'ETH')).toThrow(/supported maximum|exactly at scale/);
+  });
+
+  it('rejects invalid currencies, negative amounts, and values beyond the safe integer range', () => {
+    expect(() => paymentAmountToMinorUnits('1.00', 'UNKNOWN')).toThrow(/scale is not configured/);
+    expect(() => paymentAmountToMinorUnits('-0.01', 'USD')).toThrow(/must not be negative/);
+    expect(() => paymentAmountToMinorUnits('90071992547409.92', 'USD')).toThrow(/safe minor-unit range/);
+    expect(() => paymentAmountToMinorUnits(1.23, 'USD')).toThrow(/exact decimal string/);
+  });
+
+  it('allows a NOWPayments invoice JSON number only when its decimal round-trip is exact', () => {
+    expect(nowPaymentsInvoiceAmountToNumber('49.99')).toBe(49.99);
+    expect(nowPaymentsInvoiceAmountToNumber('1.2300')).toBe(1.23);
+    expect(() => nowPaymentsInvoiceAmountToNumber('1.230000000000000001')).toThrow(/losslessly/);
+    expect(nowPaymentsInvoiceAmountToNumber('0.0000000000000000001')).toBe(1e-19);
+    expect(() => nowPaymentsInvoiceAmountToNumber('0')).toThrow(/greater than zero/);
+    expect(() => nowPaymentsInvoiceAmountToNumber(1.23)).toThrow(/exact decimal string/);
+  });
+});
+```
+
+FILE: apps/api/src/common/payment-amount.ts
+
+```typescript
+// # Converts payment decimal strings into exact minor units and safe provider-required numbers.
+import { Decimal } from './decimal-string';
+
+const CURRENCY_SCALE: Readonly<Record<string, number>> = Object.freeze({
+  AUD: 2,
+  BHD: 3,
+  BIF: 0,
+  BNB: 18,
+  BTC: 8,
+  CAD: 2,
+  CLP: 0,
+  DOGE: 8,
+  DJF: 0,
+  EUR: 2,
+  GBP: 2,
+  GNF: 0,
+  IQD: 3,
+  ISK: 0,
+  JOD: 3,
+  JPY: 0,
+  KMF: 0,
+  KRW: 0,
+  KWD: 3,
+  LYD: 3,
+  LTC: 8,
+  OMR: 3,
+  PYG: 0,
+  RWF: 0,
+  TND: 3,
+  TRX: 6,
+  UGX: 0,
+  USD: 2,
+  USDC: 6,
+  USDT: 6,
+  VND: 0,
+  VUV: 0,
+  XAF: 0,
+  XOF: 0,
+  XPF: 0,
+  ETH: 18,
+});
+
+/**
+ * Returns a safely representable integer count of currency minor units.
+ * The decimal is scaled with BigInt and rejected rather than rounded when its precision exceeds
+ * the configured currency scale or the resulting integer exceeds JavaScript's exact integer range.
+ */
+export function paymentAmountToMinorUnits(amountValue: unknown, currencyValue: unknown): number {
+  if (typeof amountValue !== 'string' || amountValue.trim() === '') {
+    throw new TypeError('Payment amount must be a non-empty exact decimal string');
+  }
+  if (typeof currencyValue !== 'string' || currencyValue.trim() === '') {
+    throw new TypeError('Payment currency must be a non-empty string');
+  }
+
+  const currency = currencyValue.trim().toUpperCase();
+  const scale = CURRENCY_SCALE[currency];
+  if (scale === undefined) {
+    throw new TypeError(`Minor-unit scale is not configured for ${currency}`);
+  }
+
+  const amount = Decimal.parse(amountValue);
+  if (amount.isNegative()) throw new TypeError('Payment amount must not be negative');
+  const minorUnits = amount.toScaledBigInt(scale);
+  if (minorUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError('Payment amount exceeds the exact safe minor-unit range');
+  }
+  return Number(minorUnits);
+}
+
+/**
+ * NOWPayments' invoice endpoint requires `price_amount` to be a JSON number. This conversion is
+ * permitted only when its JSON round-trip decimal is identical to the authoritative input string.
+ */
+export function nowPaymentsInvoiceAmountToNumber(amountValue: unknown): number {
+  if (typeof amountValue !== 'string' || amountValue.trim() === '') {
+    throw new TypeError('NOWPayments invoice amount must be a non-empty exact decimal string');
+  }
+
+  const exactAmount = Decimal.parse(amountValue);
+  if (exactAmount.isNegative() || exactAmount.isZero()) {
+    throw new TypeError('NOWPayments invoice amount must be greater than zero');
+  }
+
+  const numericAmount = Number(exactAmount.toString());
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    throw new RangeError('NOWPayments invoice amount is outside the supported JSON number range');
+  }
+  if (!Decimal.parse(numericAmount.toString()).eq(exactAmount)) {
+    throw new RangeError('NOWPayments invoice amount cannot be represented losslessly as a JSON number');
+  }
+  return numericAmount;
 }
 ```
 
@@ -6907,8 +7910,21 @@ async function bootstrap(): Promise<void> {
   // `/health*` directly. Nest matches these entries literally, so each
   // sub-route of HealthController must be listed here; the controller itself is
   // VERSION_NEUTRAL so URI versioning does not re-add a `/v1` segment.
+  // `healthz` and `readyz` are the Kubernetes-conventional aliases of `/health`
+  // and `/health/ready` (see HealthProbeAliasController). They must be excluded
+  // here too, or they would only be reachable as `/api/v1/healthz` - which is
+  // exactly the path a stock liveness probe does not use.
   app.setGlobalPrefix(config.globalPrefix, {
-    exclude: ['health', 'health/ready', 'health/deep', 'health/startup', 'health/trading', 'metrics'],
+    exclude: [
+      'health',
+      'health/ready',
+      'health/deep',
+      'health/startup',
+      'health/trading',
+      'healthz',
+      'readyz',
+      'metrics',
+    ],
   });
 
   app.enableVersioning({

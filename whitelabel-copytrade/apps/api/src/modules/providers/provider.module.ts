@@ -52,8 +52,7 @@ import { ProviderWebhookService } from './provider-webhook.service';
 import { ProviderObservationService } from './provider-observation.service';
 
 // Adapters
-import { StripeProductionAdapter } from './adapters/payment/stripe.adapter';
-import { NowPaymentsProductionAdapter } from './adapters/payment/nowpayments.adapter';
+import { StripeProductionAdapter, NowPaymentsProductionAdapter } from './adapters/payment.adapter';
 import { BinanceProductionAdapter } from './adapters/exchange/binance.adapter';
 import { BybitProductionAdapter } from './adapters/exchange/bybit.adapter';
 import { OkxProductionAdapter } from './adapters/exchange/okx.adapter';
@@ -62,7 +61,7 @@ import { CoinbaseProductionAdapter } from './adapters/exchange/coinbase.adapter'
 import { KycProductionAdapter } from './adapters/kyc/kyc.adapter';
 import { AmlProductionAdapter } from './adapters/aml/aml.adapter';
 import { PayoutProductionAdapter } from './adapters/payout/payout.adapter';
-import { CustodyProductionAdapter } from './adapters/custody/custody.adapter';
+import { CustodyProductionAdapter } from './adapters/custody.adapter';
 import { NotificationProductionAdapter } from './adapters/notification/notification.adapter';
 
 @Module({

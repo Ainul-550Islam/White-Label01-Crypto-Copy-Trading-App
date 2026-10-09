@@ -1,5 +1,6 @@
 // # Responsibility: mounts the authenticated applicant workflow inside the customer trading application shell.
 'use client';
+import type { JSX } from 'react';
 
 import { AuthGuard } from '@/auth/auth.guard';
 import { LeadTraderApplicationPage } from '@/features/trading/lead-trader-application-page';

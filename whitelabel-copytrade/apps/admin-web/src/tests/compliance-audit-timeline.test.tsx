@@ -1,7 +1,7 @@
 // # NEW — Verifies compliance audit timeline rendering
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ComplianceAuditTimeline } from '../modules/compliance/compliance-audit-timeline';
+import { ComplianceAuditTimeline } from '../features/compliance/compliance-audit-timeline';
 
 describe('ComplianceAuditTimeline (GAP-34)', () => {
   test('renders chronological compliance audit events with actor and rationale', () => {

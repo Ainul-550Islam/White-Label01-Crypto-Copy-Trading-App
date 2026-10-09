@@ -10,25 +10,25 @@ node scripts/generate-source-dump.mjs
 Each entry is rendered as `FILE: exact/path/to/file` followed by the complete
 content of that file, so a path can be located by searching for its `FILE:` line.
 
-Excluded on purpose: generated output (`node_modules`, `dist`, `.next`, Prisma
+Excluded on purpose: generated output (`node_modules`, `dist`, `.next`, `.generated`, Prisma
 migrations, lockfiles including `.terraform.lock.hcl`), binary assets, and `.env` - which holds real secrets and
 must never be committed. `.env.example` documents every variable instead.
 
 | Section | Contents | Files | Lines |
 | --- | --- | ---: | ---: |
-| [Repository root](./01-root.md) | Workspace wiring, the shared TypeScript base config, the complete environment reference and the Compose topology. | 12 | 2,795 |
-| [Shared packages (@wlct/*)](./02-packages.md) | The contracts every runtime agrees on: shared types, validated configuration, validation schemas and the crypto/util layer. | 52 | 8,885 |
-| [API - data model](./03-api-prisma.md) | The Prisma schema and the idempotent seed that provisions roles, permissions and the platform tenant. | 12 | 15,513 |
-| [API - bootstrap, config and common layer](./04-api-foundation.md) | Entrypoint, configuration service, Swagger, and the cross-cutting filters, guards, interceptors, pipes and middleware. | 69 | 6,960 |
-| [API - infrastructure](./05-api-infrastructure.md) | Prisma service and tenant-scoped client, Redis, envelope encryption, password hashing, logging and i18n. | 36 | 7,068 |
-| [API - feature modules](./06-api-modules.md) | Auth, users, tenants, RBAC, audit, security events, feature flags, billing, notifications, queue, realtime and health. | 901 | 225,689 |
-| [Backing services](./07-services.md) | The Python trading-engine, market-data and execution-engine services, the low-latency gateway, and the TypeScript notification worker. The execution engine runs simulated only; live mode is refused by code. | 149 | 35,870 |
-| [Admin console (Next.js)](./08-admin-web.md) | Server-side session handling, the proxy route, and the console screens. | 79 | 10,843 |
+| [Repository root](./01-root.md) | Workspace wiring, the shared TypeScript base config, the complete environment reference and the Compose topology. | 17 | 61,667 |
+| [Shared packages (@wlct/*)](./02-packages.md) | The contracts every runtime agrees on: shared types, validated configuration, validation schemas and the crypto/util layer. | 53 | 9,041 |
+| [API - data model](./03-api-prisma.md) | The Prisma schema and the idempotent seed that provisions roles, permissions and the platform tenant. | 12 | 15,690 |
+| [API - bootstrap, config and common layer](./04-api-foundation.md) | Entrypoint, configuration service, Swagger, and the cross-cutting filters, guards, interceptors, pipes and middleware. | 73 | 7,960 |
+| [API - infrastructure](./05-api-infrastructure.md) | Prisma service and tenant-scoped client, Redis, envelope encryption, password hashing, logging and i18n. | 36 | 7,087 |
+| [API - feature modules](./06-api-modules.md) | Auth, users, tenants, RBAC, audit, security events, feature flags, billing, notifications, queue, realtime and health. | 985 | 244,507 |
+| [Backing services](./07-services.md) | The Python trading-engine, market-data and execution-engine services, the low-latency gateway, and the TypeScript notification worker. The execution engine runs simulated only; live mode is refused by code. | 152 | 35,883 |
+| [Admin console (Next.js)](./08-admin-web.md) | Server-side session handling, the proxy route, and the console screens. | 101 | 13,959 |
 | [Mobile app (Flutter)](./09-mobile.md) | Configuration, secure storage, the API client with refresh handling, routing, theming and localisation. | 81 | 14,807 |
-| [Python trading core (libs/trading-core)](./10-trading-core.md) | The pure decision core from Parts 2, 5, 6, 7 and 8: signals, orders, positions, exchanges, execution, paper and backtest engines, the dataset infrastructure, the risk package, and the complete pytest suite. | 231 | 93,562 |
-| [Infrastructure, scripts and docs](./11-infrastructure.md) | Dockerfiles, database bootstrap SQL, the helper scripts and the written documentation. | 118 | 402,363 |
-| [End-user web app (Next.js)](./12-web.md) | The tenant-branded web client: BFF auth routes (login, refresh, two-factor, SSO start/callback, logout), the API proxy, and the copy-trading, portfolio, funding, strategies, billing and account screens, with their tests. | 187 | 15,221 |
-| [Production operations, deployment and evidence schemas](./13-ops-and-deployment.md) | The production operations module (preflight, gates, release manifest, backup/restore and rollback verification), the validation check scripts, the Terraform root module and the JSON schemas for staging evidence. | 34 | 8,451 |
-| [Cross-package tests](./14-root-tests.md) | The repository-level jest project (billing entitlement resolver and guard specs) and its configuration. | 13 | 2,430 |
-| **Total** | | **1974** | **850,457** |
+| [Python trading core (libs/trading-core)](./10-trading-core.md) | The pure decision core from Parts 2, 5, 6, 7 and 8: signals, orders, positions, exchanges, execution, paper and backtest engines, the dataset infrastructure, the risk package, and the complete pytest suite. | 231 | 93,614 |
+| [Infrastructure, scripts and docs](./11-infrastructure.md) | Dockerfiles, database bootstrap SQL, the helper scripts and the written documentation. | 136 | 406,247 |
+| [End-user web app (Next.js)](./12-web.md) | The tenant-branded web client: BFF auth routes (login, refresh, two-factor, SSO start/callback, logout), the API proxy, and the copy-trading, portfolio, funding, strategies, billing and account screens, with their tests. | 290 | 27,427 |
+| [Production operations, deployment and evidence schemas](./13-ops-and-deployment.md) | The production operations module (preflight, gates, release manifest, backup/restore and rollback verification), the validation check scripts, the Terraform root module and the JSON schemas for staging evidence. | 39 | 10,757 |
+| [Cross-package tests](./14-root-tests.md) | The repository-level jest project (billing entitlement resolver and guard specs) and its configuration. | 25 | 4,099 |
+| **Total** | | **2231** | **952,745** |
 

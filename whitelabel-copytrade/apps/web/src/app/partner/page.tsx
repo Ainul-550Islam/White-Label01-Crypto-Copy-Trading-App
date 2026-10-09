@@ -1,6 +1,7 @@
 // # NEW — Partner/IB portal dashboard route
 // # NEW — partner portal overview route
 'use client';
+import type { JSX } from 'react';
 
 import React from 'react';
 import Link from 'next/link';

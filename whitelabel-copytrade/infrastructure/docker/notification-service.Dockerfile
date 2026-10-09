@@ -6,7 +6,7 @@
 # needs travels on the job payload, so a compromised worker cannot read tenant
 # data.
 # ---------------------------------------------------------------------------
-FROM node:20.11.0-bookworm-slim AS base
+FROM node:22.23.3-bookworm-slim AS base
 ENV NODE_ENV=production \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false

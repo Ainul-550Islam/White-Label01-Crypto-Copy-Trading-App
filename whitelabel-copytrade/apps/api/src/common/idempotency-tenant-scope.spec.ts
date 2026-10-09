@@ -11,6 +11,7 @@ import { ComplianceCaseRepository } from '../modules/compliance/compliance-case.
 import { ClientProfileRepository } from '../modules/client-lifecycle/client-profile.repository';
 import { CopyExecutionRepository } from '../modules/copy-trading/copy-execution.repository';
 import { CopySubscriptionRepository } from '../modules/copy-trading/copy-subscription.repository';
+import { OutboxService } from '../infrastructure/outbox/outbox.service';
 import { WalletRepository } from '../modules/custody/wallet.repository';
 import { AccountingEventRepository } from '../modules/portfolio-accounting/accounting-event.repository';
 
@@ -46,7 +47,7 @@ const CASES: ScopeCase[] = [
     name: 'billing PayoutRepository.create',
     delegate: 'payout',
     create: (prisma, tenantId, idempotencyKey, variant) =>
-      new PayoutRepository(prisma).create({
+      new PayoutRepository(prisma, { append: jest.fn() } as never).create({
         settlementId: `settlement-${variant}`,
         beneficiaryId: `beneficiary-${variant}`,
         beneficiaryType: 'TRADER' as any,
@@ -152,7 +153,7 @@ const CASES: ScopeCase[] = [
     name: 'copy-trading CopyExecutionRepository.create',
     delegate: 'copyExecution',
     create: (prisma, tenantId, idempotencyKey, variant) =>
-      new CopyExecutionRepository(prisma).create({
+      new CopyExecutionRepository(prisma, new OutboxService()).create({
         tenantId,
         leaderEventId: `leader-event-${variant}`,
         subscriptionId: `subscription-${variant}`,

@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { useEffect } from 'react';
 
@@ -16,7 +17,6 @@ export default function GlobalError({
   reset: () => void;
 }): JSX.Element {
   useEffect(() => {
-    // eslint-disable-next-line no-console
     console.error('admin-web.render_error', { digest: error.digest });
   }, [error]);
 

@@ -492,6 +492,7 @@ services:
         NEXT_PUBLIC_SUPPORT_URL: ${WEB_SUPPORT_URL:-/support}
         NEXT_PUBLIC_ENVIRONMENT: ${WEB_ENVIRONMENT:-production}
         NEXT_PUBLIC_ENABLE_TELEMETRY: ${WEB_ENABLE_TELEMETRY:-false}
+        NEXT_PUBLIC_SITE_URL: ${WEB_PUBLIC_SITE_URL:-}
     container_name: wlct-web
     <<: *default-restart
     logging: *default-logging

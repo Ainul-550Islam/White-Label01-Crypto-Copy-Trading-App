@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   ComplianceCaseQueue,
   type ComplianceCaseQueueItem,
-} from '../modules/compliance/compliance-case-queue';
+} from '../features/compliance/compliance-case-queue';
 
 const SAMPLE_CASES: ComplianceCaseQueueItem[] = [
   {

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
 import { Payout, PayoutStatus, PayoutProvider, BeneficiaryType, PayoutDestination } from './payout.types';
 import { randomUUID } from 'crypto';
 
@@ -12,7 +13,10 @@ import { randomUUID } from 'crypto';
 export class PayoutRepository {
   private readonly logger = new Logger(PayoutRepository.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxService,
+  ) {}
 
   async create(data: {
     settlementId: string;
@@ -221,42 +225,68 @@ export class PayoutRepository {
     },
   ): Promise<Payout | null> {
     try {
-      const existing = await (this.prisma as any).payout?.findFirst({ where: { id } });
-      if (!existing) return null;
+      const snapshot = await (this.prisma as any).payout?.findFirst({ where: { id } });
+      if (!snapshot) return null;
 
-      // Protect finalized records from illegal mutation
-      if (existing.status === PayoutStatus.SUCCEEDED) {
-        if (updates.status && updates.status !== PayoutStatus.SUCCEEDED && updates.status !== PayoutStatus.REVERSED) {
-          throw new Error(`Cannot mutate SUCCEEDED payout ${id} to ${updates.status}`);
+      return await this.prisma.withTenantRls(snapshot.tenantId, async (tx) => {
+        const existing = await tx.payout.findFirst({ where: { id, tenantId: snapshot.tenantId } });
+        if (!existing) return null;
+
+        // Protect finalized records from illegal mutation.
+        if (existing.status === PayoutStatus.SUCCEEDED) {
+          if (updates.status && updates.status !== PayoutStatus.SUCCEEDED && updates.status !== PayoutStatus.REVERSED) {
+            throw new Error(`Cannot mutate SUCCEEDED payout ${id} to ${updates.status}`);
+          }
         }
-      }
-      if (existing.status === PayoutStatus.REVERSED) {
-        throw new Error(`Cannot mutate REVERSED payout ${id}`);
-      }
+        if (existing.status === PayoutStatus.REVERSED) {
+          throw new Error(`Cannot mutate REVERSED payout ${id}`);
+        }
 
-      const data: any = { updatedAt: new Date() };
-      if (updates.status) data.status = updates.status;
-      if (updates.providerPayoutId !== undefined) data.providerPayoutId = updates.providerPayoutId;
-      if (updates.providerReference !== undefined) data.providerReference = updates.providerReference;
-      if (updates.failureReason !== undefined) data.failureReason = updates.failureReason;
-      if (updates.processedAt !== undefined) data.processedAt = updates.processedAt ? new Date(updates.processedAt) : null;
-      if (updates.succeededAt !== undefined) data.succeededAt = updates.succeededAt ? new Date(updates.succeededAt) : null;
-      if (updates.failedAt !== undefined) data.failedAt = updates.failedAt ? new Date(updates.failedAt) : null;
-      if (updates.cancelledAt !== undefined) data.cancelledAt = updates.cancelledAt ? new Date(updates.cancelledAt) : null;
+        const now = new Date();
+        const data: Record<string, unknown> = { updatedAt: now };
+        if (updates.status) data.status = updates.status;
+        if (updates.providerPayoutId !== undefined) data.providerPayoutId = updates.providerPayoutId;
+        if (updates.providerReference !== undefined) data.providerReference = updates.providerReference;
+        if (updates.failureReason !== undefined) data.failureReason = updates.failureReason;
+        if (updates.processedAt !== undefined) data.processedAt = updates.processedAt ? new Date(updates.processedAt) : null;
+        if (updates.succeededAt !== undefined) data.succeededAt = updates.succeededAt ? new Date(updates.succeededAt) : null;
+        if (updates.failedAt !== undefined) data.failedAt = updates.failedAt ? new Date(updates.failedAt) : null;
+        if (updates.cancelledAt !== undefined) data.cancelledAt = updates.cancelledAt ? new Date(updates.cancelledAt) : null;
 
-      // Auto-set timestamps based on status
-      if (updates.status === PayoutStatus.PROCESSING && !data.processedAt) data.processedAt = new Date();
-      if (updates.status === PayoutStatus.SUCCEEDED && !data.succeededAt) data.succeededAt = new Date();
-      if (updates.status === PayoutStatus.FAILED && !data.failedAt) data.failedAt = new Date();
-      if (updates.status === PayoutStatus.CANCELLED && !data.cancelledAt) data.cancelledAt = new Date();
+        // Auto-set timestamps based on the requested state.
+        if (updates.status === PayoutStatus.PROCESSING && !data.processedAt) data.processedAt = now;
+        if (updates.status === PayoutStatus.SUCCEEDED && !data.succeededAt) data.succeededAt = now;
+        if (updates.status === PayoutStatus.FAILED && !data.failedAt) data.failedAt = now;
+        if (updates.status === PayoutStatus.CANCELLED && !data.cancelledAt) data.cancelledAt = now;
 
-      const updated = await (this.prisma as any).payout?.update({
-        where: { id },
-        data,
+        const transition = await tx.payout.updateMany({
+          where: { id, tenantId: snapshot.tenantId, status: existing.status },
+          data,
+        });
+        if (transition.count !== 1) return null;
+
+        const updated = await tx.payout.findFirst({ where: { id, tenantId: snapshot.tenantId } });
+        if (!updated) throw new Error('payout row disappeared inside its tenant transaction');
+        if (updated.status === PayoutStatus.SUCCEEDED) {
+          await this.outbox.append(tx, {
+            tenantId: snapshot.tenantId,
+            aggregateType: 'payout',
+            aggregateId: updated.id,
+            eventType: 'payout.completed',
+            idempotencyKey: `payout:${updated.id}:completed`,
+            payload: {
+              payoutId: updated.id,
+              settlementId: updated.settlementId,
+              beneficiaryType: updated.beneficiaryType,
+              beneficiaryId: updated.beneficiaryId,
+              amount: updated.amount,
+              currency: updated.currency,
+              status: PayoutStatus.SUCCEEDED,
+            },
+          });
+        }
+        return this.mapToDomain(updated);
       });
-
-      if (!updated) return null;
-      return this.mapToDomain(updated);
     } catch (error: any) {
       if (error.code === 'P2021' || error.message?.includes('does not exist')) return null;
       throw error;

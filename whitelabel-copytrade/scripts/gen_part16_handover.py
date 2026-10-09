@@ -69,11 +69,11 @@ NEW: Final[list[tuple[str, str]]] = [
         '44 tests of the venue mapping: the complete apiRestrictions answer read field by field, every flag and millis quirk (0, negatives, strings, booleans where an int belongs), a non-object payload refusing to be interpreted, the account projection ignoring anything non-boolean, the two kinds of "we do not know" a symbol catalog can produce, the seven-case withdrawal conjunction, the five-case trading conjunction, a parse failure surfacing as MALFORMED and never as a refusal, a symbol catalog that throws leaving no claims while the key\'s own answer stays venue-backed, and the real signed client checked end to end (path, GET, signature=, API-key header, the weight taken from the capability table, two reviews being two calls because the gatherer caches nothing), with 401/403/429 arriving through the same client the orders use.',
     ),
     (
-        'services/execution-engine/app/credentials.py',
+        'services/execution-engine/app/exchanges/credentials.py',
         "the service's credential wiring: build_credential_provider turning Settings into a provider plus its provenance label, none/environment/secret-manager with the last two refused for reasons an operator can act on, credential_env_names mirroring the core's own construction byte for byte (a check that disagrees with the code it guards turns a missing variable into a passing boot), the boot check that the named variables exist before anything tries to place an order, the single-tenant scoping that makes the environment source development-only, and a describe() that reports source, cache seconds and identity fields while having no field a key could fit into.",
     ),
     (
-        'services/execution-engine/app/placement.py',
+        'services/execution-engine/app/orders/placement.py',
         "the service's review wiring: build_placement_reviewer composing policy, gatherer, cache and reviewer from Settings plus whatever the composition root injects; will_transmit_orders deciding requires_venue_attestation (and a transmitting runtime with no venue gatherer refusing to build rather than running a review that could not block anything); LocalPlacementAttestor standing in for a simulated runtime so paper orders still produce real findings; the cache in front of every gatherer with the TTL that is also the freshness bound; review_placement returning the request alongside the verdict so a caller can persist both halves; and a boot log that reads the label through describe() because a collaborator whose source property explodes must not fail the boot that is trying to report on it.",
     ),
     (

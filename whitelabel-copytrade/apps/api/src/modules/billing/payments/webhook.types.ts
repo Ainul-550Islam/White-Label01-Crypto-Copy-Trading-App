@@ -61,7 +61,8 @@ export interface NormalizedWebhookEvent {
   };
   rawEvent?: unknown;
   receivedAt: Date;
-  providerCreatedAt: Date;
+  /** Null when the provider supplied no verifiable event timestamp; never synthesize one. */
+  providerCreatedAt: Date | null;
 }
 
 export interface WebhookEventRecord {

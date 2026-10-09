@@ -1,9 +1,10 @@
 'use client';
+import type { JSX } from 'react';
 
 import { useState, useTransition, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { apiClient } from '@/lib/api-client';
 import { theme } from '@/lib/theme';
 

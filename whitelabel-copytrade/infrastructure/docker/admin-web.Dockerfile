@@ -6,7 +6,7 @@
 # and its traced dependencies. NEXT_PUBLIC_* values are baked in at build time,
 # which is why nothing secret may ever carry that prefix.
 # ---------------------------------------------------------------------------
-FROM node:20.11.0-bookworm-slim AS base
+FROM node:22.23.3-bookworm-slim AS base
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false \
     NEXT_TELEMETRY_DISABLED=1

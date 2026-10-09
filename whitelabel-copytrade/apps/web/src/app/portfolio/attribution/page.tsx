@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { AuthGuard } from '@/auth/auth.guard';
 import { AttributionTable } from '@/features/portfolio/attribution-table';
 import { AppShell } from '@/layout/app-shell';

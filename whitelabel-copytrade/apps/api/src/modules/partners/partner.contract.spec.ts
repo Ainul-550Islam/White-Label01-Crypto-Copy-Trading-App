@@ -384,3 +384,12 @@ describe('Commission Contract', () => {
     expect(canDirectAssign).toBe(false);
   });
 });
+
+/**
+ * `export {}` is load-bearing: without it this file is a global SCRIPT, not a
+ * module, so its top-level declarations land in the shared global scope. That
+ * collided with an identically-named `isValidTransition` / `redactEvidence` in
+ * another contract spec and failed the whole program with TS2393 ("Duplicate
+ * function implementation"). Exporting nothing keeps every helper file-private.
+ */
+export {};

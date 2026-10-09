@@ -105,8 +105,21 @@ async function bootstrap(): Promise<void> {
   // `/health*` directly. Nest matches these entries literally, so each
   // sub-route of HealthController must be listed here; the controller itself is
   // VERSION_NEUTRAL so URI versioning does not re-add a `/v1` segment.
+  // `healthz` and `readyz` are the Kubernetes-conventional aliases of `/health`
+  // and `/health/ready` (see HealthProbeAliasController). They must be excluded
+  // here too, or they would only be reachable as `/api/v1/healthz` - which is
+  // exactly the path a stock liveness probe does not use.
   app.setGlobalPrefix(config.globalPrefix, {
-    exclude: ['health', 'health/ready', 'health/deep', 'health/startup', 'health/trading', 'metrics'],
+    exclude: [
+      'health',
+      'health/ready',
+      'health/deep',
+      'health/startup',
+      'health/trading',
+      'healthz',
+      'readyz',
+      'metrics',
+    ],
   });
 
   app.enableVersioning({

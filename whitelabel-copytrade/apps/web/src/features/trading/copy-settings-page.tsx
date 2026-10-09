@@ -1,8 +1,9 @@
 // # NEW — Form for sizing mode, allocation limits, symbol/venue allowlists, order type policy, slippage, execution delay, TP/SL, and follower risk policy
 // # Adds TP/SL/trailing stop configuration inputs and effective policy preview
 "use client";
+import type { JSX } from 'react';
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { tradingApi, type AllocationMode } from "@/api/trading-api";
@@ -22,104 +23,96 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
   const sub = detailQuery.data?.subscription;
   const effectivePolicy = detailQuery.data?.effectivePolicy;
 
-  const [allocationMode, setAllocationMode] = useState<AllocationMode>("FIXED");
-  const [allocationAmount, setAllocationAmount] = useState("100");
-  const [minAllocation, setMinAllocation] = useState("");
-  const [maxAllocation, setMaxAllocation] = useState("");
-  const [maxPositionSize, setMaxPositionSize] = useState("");
-  const [maxNotional, setMaxNotional] = useState("");
-  const [maxLeverage, setMaxLeverage] = useState("1");
-  const [allowedSymbolsText, setAllowedSymbolsText] = useState("");
-  const [allowedVenuesText, setAllowedVenuesText] = useState("");
-  const [orderTypePolicy, setOrderTypePolicy] = useState("MARKET_AND_LIMIT");
-  const [slippageToleranceBps, setSlippageToleranceBps] = useState("50");
-  const [executionDelayMs, setExecutionDelayMs] = useState("0");
-  const [takeProfitBps, setTakeProfitBps] = useState("");
-  const [stopLossBps, setStopLossBps] = useState("");
-  const [trailingStopBps, setTrailingStopBps] = useState("");
-  const [maxDailyLoss, setMaxDailyLoss] = useState("");
-  const [maxDrawdown, setMaxDrawdown] = useState("");
-  const [maxOpenExposure, setMaxOpenExposure] = useState("");
-  const [maxDailyCopiedTrades, setMaxDailyCopiedTrades] = useState("");
-  const [emergencyStopCopy, setEmergencyStopCopy] = useState(false);
-
-  useEffect(() => {
-    if (!sub) return;
-    setAllocationMode(sub.allocationMode);
-    setAllocationAmount(sub.allocationAmount || "100");
-    setMinAllocation(sub.minAllocation ?? "");
-    setMaxAllocation(sub.maxAllocation ?? "");
-    const cp = sub.copyPolicy ?? effectivePolicy;
-    if (cp) {
-      setMaxPositionSize(cp.maxPositionSize ?? "");
-      setMaxNotional(cp.maxNotional ?? "");
-      setMaxLeverage(cp.maxLeverage ?? "1");
-      setAllowedSymbolsText(cp.allowedSymbols?.join(", ") ?? "");
-      setAllowedVenuesText(cp.allowedVenues?.join(", ") ?? "");
-      setOrderTypePolicy(cp.orderTypePolicy || "MARKET_AND_LIMIT");
-      setSlippageToleranceBps(
-        cp.slippageToleranceBps !== null ? String(cp.slippageToleranceBps) : "50",
-      );
-      setExecutionDelayMs(cp.executionDelayMs !== null ? String(cp.executionDelayMs) : "0");
-      setTakeProfitBps(cp.takeProfitBps !== null ? String(cp.takeProfitBps) : "");
-      setStopLossBps(cp.stopLossBps !== null ? String(cp.stopLossBps) : "");
-      setTrailingStopBps(cp.trailingStopBps !== null ? String(cp.trailingStopBps) : "");
-    }
-    if (sub.riskPolicy) {
-      setMaxDailyLoss(sub.riskPolicy.maxDailyLoss ?? "");
-      setMaxDrawdown(sub.riskPolicy.maxDrawdown ?? "");
-      setMaxOpenExposure(sub.riskPolicy.maxOpenExposure ?? "");
-      setMaxDailyCopiedTrades(
-        sub.riskPolicy.maxDailyCopiedTrades !== null
-          ? String(sub.riskPolicy.maxDailyCopiedTrades)
-          : "",
-      );
-      setEmergencyStopCopy(sub.riskPolicy.emergencyStopCopy);
-    }
-  }, [sub, effectivePolicy]);
+  const defaultSettings = {
+    allocationMode: (sub?.allocationMode ?? "FIXED") as AllocationMode,
+    allocationAmount: sub?.allocationAmount || "100",
+    minAllocation: sub?.minAllocation ?? "",
+    maxAllocation: sub?.maxAllocation ?? "",
+    maxPositionSize: (sub?.copyPolicy ?? effectivePolicy)?.maxPositionSize ?? "",
+    maxNotional: (sub?.copyPolicy ?? effectivePolicy)?.maxNotional ?? "",
+    maxLeverage: (sub?.copyPolicy ?? effectivePolicy)?.maxLeverage ?? "1",
+    allowedSymbolsText: (sub?.copyPolicy ?? effectivePolicy)?.allowedSymbols?.join(", ") ?? "",
+    blockedSymbolsText: (sub?.copyPolicy ?? effectivePolicy)?.blockedSymbols?.join(", ") ?? "",
+    allowedVenuesText: (sub?.copyPolicy ?? effectivePolicy)?.allowedVenues?.join(", ") ?? "",
+    orderTypePolicy: (sub?.copyPolicy ?? effectivePolicy)?.orderTypePolicy || "MARKET_AND_LIMIT",
+    slippageToleranceBps: (sub?.copyPolicy ?? effectivePolicy)?.slippageToleranceBps != null
+      ? String((sub?.copyPolicy ?? effectivePolicy)?.slippageToleranceBps)
+      : "50",
+    executionDelayMs: (sub?.copyPolicy ?? effectivePolicy)?.executionDelayMs != null
+      ? String((sub?.copyPolicy ?? effectivePolicy)?.executionDelayMs)
+      : "0",
+    takeProfitBps: (sub?.copyPolicy ?? effectivePolicy)?.takeProfitBps != null
+      ? String((sub?.copyPolicy ?? effectivePolicy)?.takeProfitBps)
+      : "",
+    stopLossBps: (sub?.copyPolicy ?? effectivePolicy)?.stopLossBps != null
+      ? String((sub?.copyPolicy ?? effectivePolicy)?.stopLossBps)
+      : "",
+    trailingStopBps: (sub?.copyPolicy ?? effectivePolicy)?.trailingStopBps != null
+      ? String((sub?.copyPolicy ?? effectivePolicy)?.trailingStopBps)
+      : "",
+    maxDailyLoss: sub?.riskPolicy?.maxDailyLoss ?? "",
+    maxDrawdown: sub?.riskPolicy?.maxDrawdown ?? "",
+    maxOpenExposure: sub?.riskPolicy?.maxOpenExposure ?? "",
+    maxDailyCopiedTrades: sub?.riskPolicy?.maxDailyCopiedTrades != null
+      ? String(sub.riskPolicy.maxDailyCopiedTrades)
+      : "",
+    emergencyStopCopy: sub?.riskPolicy?.emergencyStopCopy ?? false,
+  };
+  type CopySettings = typeof defaultSettings;
+  const [draft, setDraft] = useState<Partial<CopySettings>>({});
+  const settings: CopySettings = { ...defaultSettings, ...draft };
+  const updateSetting = <K extends keyof CopySettings,>(key: K, value: CopySettings[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const allowedSymbols = allowedSymbolsText
+      const allowedSymbols = settings.allowedSymbolsText
         .split(",")
-        .map((s) => s.trim())
+        .map((s: string) => s.trim())
         .filter(Boolean);
-      const allowedVenues = allowedVenuesText
+      const blockedSymbols = settings.blockedSymbolsText
         .split(",")
-        .map((s) => s.trim())
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+      const allowedVenues = settings.allowedVenuesText
+        .split(",")
+        .map((s: string) => s.trim())
         .filter(Boolean);
       return tradingApi.updateCopySubscriptionSettings(subscriptionId, {
-        allocationMode,
-        allocationAmount,
-        minAllocation: minAllocation.trim() || null,
-        maxAllocation: maxAllocation.trim() || null,
+        allocationMode: settings.allocationMode,
+        allocationAmount: settings.allocationAmount,
+        minAllocation: settings.minAllocation.trim() || null,
+        maxAllocation: settings.maxAllocation.trim() || null,
         copyPolicy: {
-          sizingMode: allocationMode,
-          maxPositionSize: maxPositionSize.trim() || null,
-          maxNotional: maxNotional.trim() || null,
-          maxLeverage: maxLeverage.trim() || null,
+          sizingMode: settings.allocationMode,
+          maxPositionSize: settings.maxPositionSize.trim() || null,
+          maxNotional: settings.maxNotional.trim() || null,
+          maxLeverage: settings.maxLeverage.trim() || null,
           allowedSymbols: allowedSymbols.length > 0 ? allowedSymbols : null,
+          blockedSymbols: blockedSymbols.length > 0 ? blockedSymbols : null,
           allowedVenues: allowedVenues.length > 0 ? allowedVenues : null,
-          orderTypePolicy,
-          slippageToleranceBps: slippageToleranceBps.trim() ? Number(slippageToleranceBps) : null,
-          executionDelayMs: executionDelayMs.trim() ? Number(executionDelayMs) : 0,
-          takeProfitBps: takeProfitBps.trim() ? Number(takeProfitBps) : null,
-          stopLossBps: stopLossBps.trim() ? Number(stopLossBps) : null,
-          trailingStopBps: trailingStopBps.trim() ? Number(trailingStopBps) : null,
-          emergencyStop: emergencyStopCopy,
+          orderTypePolicy: settings.orderTypePolicy,
+          slippageToleranceBps: settings.slippageToleranceBps.trim() ? Number(settings.slippageToleranceBps) : null,
+          executionDelayMs: settings.executionDelayMs.trim() ? Number(settings.executionDelayMs) : 0,
+          takeProfitBps: settings.takeProfitBps.trim() ? Number(settings.takeProfitBps) : null,
+          stopLossBps: settings.stopLossBps.trim() ? Number(settings.stopLossBps) : null,
+          trailingStopBps: settings.trailingStopBps.trim() ? Number(settings.trailingStopBps) : null,
+          emergencyStop: settings.emergencyStopCopy,
         },
         riskPolicy: {
-          maxDailyLoss: maxDailyLoss.trim() || null,
-          maxDrawdown: maxDrawdown.trim() || null,
-          maxOpenExposure: maxOpenExposure.trim() || null,
-          maxDailyCopiedTrades: maxDailyCopiedTrades.trim()
-            ? Number(maxDailyCopiedTrades)
+          maxDailyLoss: settings.maxDailyLoss.trim() || null,
+          maxDrawdown: settings.maxDrawdown.trim() || null,
+          maxOpenExposure: settings.maxOpenExposure.trim() || null,
+          maxDailyCopiedTrades: settings.maxDailyCopiedTrades.trim()
+            ? Number(settings.maxDailyCopiedTrades)
             : null,
-          emergencyStopCopy,
+          emergencyStopCopy: settings.emergencyStopCopy,
         },
       });
     },
     onSuccess: () => {
+      setDraft({});
       void qc.invalidateQueries({ queryKey: ["copy-subscription-detail", subscriptionId] });
       void qc.invalidateQueries({ queryKey: ["copy-subscriptions"] });
     },
@@ -171,8 +164,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Sizing Mode</span>
                     <select
                       aria-label="Sizing Mode"
-                      value={allocationMode}
-                      onChange={(e) => setAllocationMode(e.target.value as AllocationMode)}
+                      value={settings.allocationMode}
+                      onChange={(e) => updateSetting('allocationMode', e.target.value as AllocationMode)}
                       className="w-full rounded border px-2 py-1.5"
                     >
                       <option value="FIXED">FIXED</option>
@@ -185,8 +178,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Allocation Amount</span>
                     <input
                       aria-label="Allocation Amount"
-                      value={allocationAmount}
-                      onChange={(e) => setAllocationAmount(e.target.value)}
+                      value={settings.allocationAmount}
+                      onChange={(e) => updateSetting('allocationAmount', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -194,8 +187,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Min Allocation</span>
                     <input
                       aria-label="Min Allocation"
-                      value={minAllocation}
-                      onChange={(e) => setMinAllocation(e.target.value)}
+                      value={settings.minAllocation}
+                      onChange={(e) => updateSetting('minAllocation', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -203,8 +196,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Max Allocation</span>
                     <input
                       aria-label="Max Allocation"
-                      value={maxAllocation}
-                      onChange={(e) => setMaxAllocation(e.target.value)}
+                      value={settings.maxAllocation}
+                      onChange={(e) => updateSetting('maxAllocation', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -212,8 +205,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Max Position Size</span>
                     <input
                       aria-label="Max Position Size"
-                      value={maxPositionSize}
-                      onChange={(e) => setMaxPositionSize(e.target.value)}
+                      value={settings.maxPositionSize}
+                      onChange={(e) => updateSetting('maxPositionSize', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -221,8 +214,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Max Notional per Order</span>
                     <input
                       aria-label="Max Notional per Order"
-                      value={maxNotional}
-                      onChange={(e) => setMaxNotional(e.target.value)}
+                      value={settings.maxNotional}
+                      onChange={(e) => updateSetting('maxNotional', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -230,8 +223,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Max Leverage</span>
                     <input
                       aria-label="Max Leverage"
-                      value={maxLeverage}
-                      onChange={(e) => setMaxLeverage(e.target.value)}
+                      value={settings.maxLeverage}
+                      onChange={(e) => updateSetting('maxLeverage', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -239,8 +232,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Order Type Policy</span>
                     <select
                       aria-label="Order Type Policy"
-                      value={orderTypePolicy}
-                      onChange={(e) => setOrderTypePolicy(e.target.value)}
+                      value={settings.orderTypePolicy}
+                      onChange={(e) => updateSetting('orderTypePolicy', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     >
                       <option value="MARKET_AND_LIMIT">MARKET_AND_LIMIT</option>
@@ -261,8 +254,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Slippage Tolerance (bps)</span>
                     <input
                       aria-label="Slippage Tolerance (bps)"
-                      value={slippageToleranceBps}
-                      onChange={(e) => setSlippageToleranceBps(e.target.value)}
+                      value={settings.slippageToleranceBps}
+                      onChange={(e) => updateSetting('slippageToleranceBps', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -270,8 +263,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Execution Delay (ms)</span>
                     <input
                       aria-label="Execution Delay (ms)"
-                      value={executionDelayMs}
-                      onChange={(e) => setExecutionDelayMs(e.target.value)}
+                      value={settings.executionDelayMs}
+                      onChange={(e) => updateSetting('executionDelayMs', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -279,8 +272,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Take-Profit (bps)</span>
                     <input
                       aria-label="Take-Profit (bps)"
-                      value={takeProfitBps}
-                      onChange={(e) => setTakeProfitBps(e.target.value)}
+                      value={settings.takeProfitBps}
+                      onChange={(e) => updateSetting('takeProfitBps', e.target.value)}
                       placeholder="e.g. 300"
                       className="w-full rounded border px-2 py-1.5"
                     />
@@ -289,8 +282,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Stop-Loss (bps)</span>
                     <input
                       aria-label="Stop-Loss (bps)"
-                      value={stopLossBps}
-                      onChange={(e) => setStopLossBps(e.target.value)}
+                      value={settings.stopLossBps}
+                      onChange={(e) => updateSetting('stopLossBps', e.target.value)}
                       placeholder="e.g. 150"
                       className="w-full rounded border px-2 py-1.5"
                     />
@@ -299,8 +292,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Trailing Stop (bps)</span>
                     <input
                       aria-label="Trailing Stop (bps)"
-                      value={trailingStopBps}
-                      onChange={(e) => setTrailingStopBps(e.target.value)}
+                      value={settings.trailingStopBps}
+                      onChange={(e) => updateSetting('trailingStopBps', e.target.value)}
                       placeholder="e.g. 75"
                       className="w-full rounded border px-2 py-1.5"
                     />
@@ -309,9 +302,19 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Allowed Symbols (comma-separated)</span>
                     <input
                       aria-label="Allowed Symbols"
-                      value={allowedSymbolsText}
-                      onChange={(e) => setAllowedSymbolsText(e.target.value)}
+                      value={settings.allowedSymbolsText}
+                      onChange={(e) => updateSetting('allowedSymbolsText', e.target.value)}
                       placeholder="BTC-USDT, ETH-USDT"
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Blocked Symbols (comma-separated, * allowed as a wildcard)</span>
+                    <input
+                      aria-label="Blocked Symbols"
+                      value={settings.blockedSymbolsText}
+                      onChange={(e) => updateSetting('blockedSymbolsText', e.target.value)}
+                      placeholder="e.g. *WITHDRAWAL*, DOGE-USDT"
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -319,8 +322,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Allowed Venues (comma-separated)</span>
                     <input
                       aria-label="Allowed Venues"
-                      value={allowedVenuesText}
-                      onChange={(e) => setAllowedVenuesText(e.target.value)}
+                      value={settings.allowedVenuesText}
+                      onChange={(e) => updateSetting('allowedVenuesText', e.target.value)}
                       placeholder="BINANCE, BYBIT"
                       className="w-full rounded border px-2 py-1.5"
                     />
@@ -336,8 +339,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Max Daily Loss</span>
                     <input
                       aria-label="Max Daily Loss"
-                      value={maxDailyLoss}
-                      onChange={(e) => setMaxDailyLoss(e.target.value)}
+                      value={settings.maxDailyLoss}
+                      onChange={(e) => updateSetting('maxDailyLoss', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -345,8 +348,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Max Drawdown</span>
                     <input
                       aria-label="Max Drawdown"
-                      value={maxDrawdown}
-                      onChange={(e) => setMaxDrawdown(e.target.value)}
+                      value={settings.maxDrawdown}
+                      onChange={(e) => updateSetting('maxDrawdown', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -354,8 +357,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Max Open Exposure</span>
                     <input
                       aria-label="Max Open Exposure"
-                      value={maxOpenExposure}
-                      onChange={(e) => setMaxOpenExposure(e.target.value)}
+                      value={settings.maxOpenExposure}
+                      onChange={(e) => updateSetting('maxOpenExposure', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -363,8 +366,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                     <span className="text-muted">Max Daily Copied Trades</span>
                     <input
                       aria-label="Max Daily Copied Trades"
-                      value={maxDailyCopiedTrades}
-                      onChange={(e) => setMaxDailyCopiedTrades(e.target.value)}
+                      value={settings.maxDailyCopiedTrades}
+                      onChange={(e) => updateSetting('maxDailyCopiedTrades', e.target.value)}
                       className="w-full rounded border px-2 py-1.5"
                     />
                   </label>
@@ -372,8 +375,8 @@ export function CopySettingsPage({ subscriptionId }: { subscriptionId: string })
                 <label className="mt-3 flex items-center gap-2 text-xs font-medium text-rose-800">
                   <input
                     type="checkbox"
-                    checked={emergencyStopCopy}
-                    onChange={(e) => setEmergencyStopCopy(e.target.checked)}
+                    checked={settings.emergencyStopCopy}
+                    onChange={(e) => updateSetting('emergencyStopCopy', e.target.checked)}
                   />
                   Engage Emergency Copy Stop (blocks all new copied child orders immediately)
                 </label>

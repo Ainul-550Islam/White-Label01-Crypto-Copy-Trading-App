@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { buildVerifyBody, twoFactorRequestSchema } from '@/lib/two-factor-verify';
 
 export const runtime = 'nodejs';
@@ -19,7 +19,7 @@ interface VerifiedSession {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const challengeToken = cookieStore.get('wlct_2fa')?.value;
   const deviceId = cookieStore.get('wlct_2fa_did')?.value;
 
@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       host: request.headers.get('host') ?? undefined,
     });
 
-    persistSession(result.tokens, deviceId, randomUUID());
+    await persistSession(result.tokens, deviceId, randomUUID());
 
     const response = NextResponse.json({ success: true, data: { redirectTo: '/dashboard' } });
     response.cookies.delete('wlct_2fa');

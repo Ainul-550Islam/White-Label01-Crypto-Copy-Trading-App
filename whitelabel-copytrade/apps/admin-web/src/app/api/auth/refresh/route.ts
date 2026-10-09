@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { NextResponse } from 'next/server';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { clearSession, getCsrfToken, getDeviceId, getRefreshToken, persistSession } from '@/lib/session';
 
@@ -22,7 +22,7 @@ interface SessionPayload {
  */
 export async function POST(request: Request): Promise<NextResponse> {
   const submitted = request.headers.get('x-csrf-token');
-  const expected = getCsrfToken();
+  const expected = await getCsrfToken();
 
   if (!expected || submitted !== expected) {
     return NextResponse.json(
@@ -31,11 +31,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const refreshToken = getRefreshToken();
-  const deviceId = getDeviceId();
+  const refreshToken = await getRefreshToken();
+  const deviceId = await getDeviceId();
 
   if (!refreshToken || !deviceId) {
-    clearSession();
+    await clearSession();
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'No active session.' } },
       { status: 401 },
@@ -49,11 +49,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       body: { refreshToken, deviceId },
     });
 
-    persistSession(result.tokens, deviceId, randomUUID());
+    await persistSession(result.tokens, deviceId, randomUUID());
 
     return NextResponse.json({ success: true, data: { refreshed: true } });
   } catch (error) {
-    clearSession();
+    await clearSession();
 
     const status = error instanceof ApiError ? error.status : 401;
 

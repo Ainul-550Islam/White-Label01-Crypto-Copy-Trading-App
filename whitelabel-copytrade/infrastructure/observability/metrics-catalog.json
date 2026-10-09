@@ -42,6 +42,9 @@
       "wlct_ops_alert_folds_total",
       "wlct_ops_alert_open_count",
       "wlct_orders_submitted_total",
+      "wlct_outbox_failed_total",
+      "wlct_outbox_lag_seconds",
+      "wlct_outbox_published_total",
       "wlct_probe_",
       "wlct_probe_age",
       "wlct_probe_total",
@@ -208,7 +211,7 @@
   ],
   "reading": "The deployment side of the platform's telemetry, as data. `targets` are the services whose own compose block and source say there is something to scrape; `excluded` names every candidate that is not scraped and why, because an omission reads as an oversight. `rules.rendered` are ALERT_RULES entries with a numeric threshold AND a registered family; `rules.refused` is the rest of the catalog with the reason each stayed unwritten. `families` is a literal scan of each service's own source: a name listed there is a mention, not proof the endpoint serves it, and the count is not a count of series. Nothing here records a measurement - no scrape was performed to build it.",
   "rules": {
-    "catalogSize": 24,
+    "catalogSize": 25,
     "refused": [
       {
         "reason": "no numeric threshold in the catalog (threshold: None)",
@@ -314,6 +317,22 @@
     "rendered": [
       {
         "evidence": [
+          "registered help: Age in seconds of the oldest unpublished outbox event; alert threshold 60 seconds; zero when none.",
+          "apps/api/src/infrastructure/metrics/metrics.registry.ts defines wlct_outbox_lag_seconds as the age in seconds of the oldest unpublished event and names the 60-second alert threshold in its help text; apps/api/src/modules/observability/metrics.registry.provider.ts registers the family at API boot",
+          "the catalog threshold and family are both seconds, so the expression uses 60 without unit conversion; any comparison change belongs in ALERT_RULES"
+        ],
+        "expr": "wlct_outbox_lag_seconds > 60",
+        "family": "wlct_outbox_lag_seconds",
+        "labels": {
+          "rule_id": "OUTBOX_LAG_HIGH",
+          "severity": "warning"
+        },
+        "ruleId": "OUTBOX_LAG_HIGH",
+        "severity": "WARNING",
+        "title": "Transactional outbox lag"
+      },
+      {
+        "evidence": [
           "registered help: Remaining error-budget ratio of the latest evaluation tick, ppm (0..1_000_000).",
           "the catalog's unit `remaining_budget_ppm` is the family's name verbatim, so the threshold needs no conversion",
           "the direction is `<=` because the condition says the remaining budget IS ZERO: a gauge that counts remaining budget fires downward, and `>` would alert on every healthy second of the platform's life"
@@ -382,7 +401,7 @@
     {
       "authHeader": "x-metrics-token",
       "composeService": "api",
-      "familiesNamedInSource": 30,
+      "familiesNamedInSource": 33,
       "metricsPath": "${PROMETHEUS_PATH}",
       "metricsPathIsExpansion": true,
       "pathEvidence": "apps/api/src/config/app-config.service.ts reads PROMETHEUS_PATH (.env.example)",

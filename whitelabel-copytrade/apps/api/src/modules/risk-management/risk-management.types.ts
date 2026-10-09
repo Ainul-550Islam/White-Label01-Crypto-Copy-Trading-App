@@ -365,6 +365,20 @@ export interface CorrelationResult {
   reason: string;
   severity: RiskSeverity;
   isUnknown: boolean;
+  /**
+   * Where the observations came from and whether they were still fresh when the coefficient was
+   * computed. Optional because a caller that supplies candle rows without timestamps cannot claim
+   * them; a consumer that needs to show provenance must treat absence as "not available" rather
+   * than printing an interval it was never told.
+   */
+  sourceInterval?: string | null;
+  sourceMethodology?: string | null;
+  /** Close time of the newest observation used. Null when no observation was used. */
+  sourceTimestamp?: string | null;
+  /** True when the newest observation was older than the caller's freshness limit. */
+  isStale?: boolean;
+  /** The freshness limit applied, in milliseconds, so the reader can judge the verdict. */
+  sourceMaxAgeMs?: number | null;
 }
 
 // ---------- VaR ----------

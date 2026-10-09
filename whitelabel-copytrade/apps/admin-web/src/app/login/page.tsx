@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
@@ -10,8 +11,8 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Sign in' };
 
-export default function LoginPage(): JSX.Element {
-  if (getAccessToken()) {
+export default async function LoginPage(): Promise<JSX.Element> {
+  if (await getAccessToken()) {
     redirect('/dashboard');
   }
 

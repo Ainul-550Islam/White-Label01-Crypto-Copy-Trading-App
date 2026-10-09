@@ -1,7 +1,7 @@
 // # NEW — Verifies admin execution incident console and kill-switch actions
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ExecutionIncidentTable } from '../modules/execution/execution-incident-table';
+import { ExecutionIncidentTable } from '../features/execution/execution-incident-table';
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: jest.fn(), push: jest.fn() }),

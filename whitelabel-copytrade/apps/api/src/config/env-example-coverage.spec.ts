@@ -12,7 +12,7 @@
  * `infrastructure/prisma/rls-coverage.spec.ts`: re-derive the truth from the source at
  * test time instead of importing a snapshot of it that could itself drift.
  *
- * The third check exists because of what this audit actually found. `health.service.ts`
+ * The direct-process.env inventory check exists because of what this audit actually found. `health.service.ts`
  * reads `process.env.GIT_COMMIT_SHA` directly, outside the schema - a legitimate exception,
  * since a build stamp is not a deployment knob - except that nothing in the repository set
  * it and no file named it, so `GET /v1/health` was reporting `commit: "unknown"` for a
@@ -22,6 +22,8 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { validateEnv } from '@wlct/config';
 
 const repoRoot = join(__dirname, '..', '..', '..', '..');
 
@@ -41,6 +43,18 @@ function declaredKeys(source: string): string[] {
 /** Assignments an operator actually gets: a name at column zero, not a commented mention. */
 function activeAssignments(example: string): string[] {
   return [...example.matchAll(/^([A-Z][A-Z0-9_]{2,})=/gm)].map((match) => String(match[1]));
+}
+
+function parseExampleAssignments(example: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const match of example.matchAll(/^([A-Z][A-Z0-9_]*)=(.*)$/gm)) {
+    const name = String(match[1]);
+    if (Object.hasOwn(values, name)) {
+      throw new Error(`Duplicate active assignment in .env.minimal.example: ${name}`);
+    }
+    values[name] = String(match[2]);
+  }
+  return values;
 }
 
 function walkFiles(directory: string, found: string[] = []): string[] {
@@ -97,6 +111,47 @@ describe('environment schema and .env.example', () => {
   const keys = declaredKeys(schema);
   const assigned = activeAssignments(example);
 
+  it('validates the capped local API/web/admin paper-trading environment', () => {
+    const minimalSource = read('.env.minimal.example');
+    const raw = parseExampleAssignments(minimalSource);
+    const names = activeAssignments(minimalSource);
+
+    expect(names.length).toBe(Object.keys(raw).length);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.length).toBeLessThanOrEqual(40);
+    expect(raw).toMatchObject({
+      NODE_ENV: 'development',
+      API_BASE_URL: 'http://localhost:4000/api',
+      ADMIN_TENANT_SLUG: 'platform',
+      EXECUTION_ENABLED: 'true',
+      DRY_RUN: 'false',
+      PAPER_TRADING: 'true',
+      LIVE_TRADING_ENABLED: 'false',
+      EXCHANGE_SANDBOX_MODE: 'true',
+      TRADING_MODE: 'PAPER',
+      TRADING_ENABLED: 'true',
+    });
+    expect(raw.SESSION_COOKIE_SECRET.length).toBeGreaterThanOrEqual(16);
+    expect(raw.WEB_SESSION_COOKIE_SECRET.length).toBeGreaterThanOrEqual(16);
+
+    const compose = read('docker-compose.yml');
+    expect(compose).toContain(
+      'SESSION_COOKIE_SECRET: ${SESSION_COOKIE_SECRET:?SESSION_COOKIE_SECRET is required}',
+    );
+    expect(compose).toContain(
+      'SESSION_COOKIE_SECRET: ${WEB_SESSION_COOKIE_SECRET:?WEB_SESSION_COOKIE_SECRET is required}',
+    );
+
+    const env = validateEnv(raw);
+    expect(env.NODE_ENV).toBe('development');
+    expect(env.EXECUTION_ENABLED).toBe(true);
+    expect(env.DRY_RUN).toBe(false);
+    expect(env.PAPER_TRADING).toBe(true);
+    expect(env.PAPER_TRADING_ENABLED).toBe(true);
+    expect(env.LIVE_TRADING_ENABLED).toBe(false);
+    expect(env.EXCHANGE_SANDBOX_MODE).toBe(true);
+  });
+
   it('declares enough keys that this check cannot pass by scanning nothing', () => {
     expect(keys.length).toBeGreaterThanOrEqual(200);
     expect(assigned.length).toBeGreaterThanOrEqual(200);
@@ -136,14 +191,19 @@ describe('environment schema and .env.example', () => {
       { compose: 'docker-compose.yml', template: EXAMPLE_SOURCE },
       { compose: 'docker-compose.override.yml', template: EXAMPLE_SOURCE },
       { compose: 'docker-compose.observability.yml', template: EXAMPLE_SOURCE },
-      { compose: 'infrastructure/staging/docker-compose.staging.yml', template: 'infrastructure/.env.staging.example' },
+      {
+        compose: 'infrastructure/staging/docker-compose.staging.yml',
+        template: 'infrastructure/.env.staging.example',
+      },
     ];
     let interpolated = 0;
     const undocumented: string[] = [];
     for (const { compose, template } of pairs) {
       const text = read(compose);
       const documented = read(template);
-      const names = new Set([...text.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => String(match[1])));
+      const names = new Set(
+        [...text.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => String(match[1])),
+      );
       interpolated += names.size;
       for (const name of names) {
         if (!new RegExp(`\\b${name}\\b`).test(documented)) {

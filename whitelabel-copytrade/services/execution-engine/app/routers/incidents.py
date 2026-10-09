@@ -32,7 +32,7 @@ from wlct_trading.execution.incidents import ExecutionIncident, IncidentRecorder
 
 from app.incidents_sql import IncidentReadError
 from app.schemas import IncidentListRequest, IncidentListResponse, IncidentView
-from app.security import ServiceCaller, require_internal_auth, require_tenant_match
+from app.security.internal_auth import ServiceCaller, require_internal_auth, require_tenant_match
 
 router = APIRouter(prefix="/internal/v1", tags=["incidents"])
 

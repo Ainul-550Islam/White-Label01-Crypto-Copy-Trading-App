@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -17,8 +18,8 @@ export const dynamic = 'force-dynamic';
  * data through the API, which re-authorises the request; a forged cookie buys
  * an attacker a rendered sidebar and nothing else.
  */
-export default function ConsoleLayout({ children }: { children: ReactNode }): JSX.Element {
-  const token = getAccessToken();
+export default async function ConsoleLayout({ children }: { children: ReactNode }): Promise<JSX.Element> {
+  const token = await getAccessToken();
 
   if (!token) {
     redirect('/login');

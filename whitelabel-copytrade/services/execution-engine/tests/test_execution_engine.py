@@ -28,7 +28,7 @@ from wlct_trading.orders import Order
 from app.composition import SUPPORTED_COMMANDS, ExecutionUnavailable, build_runtime
 from app.config import Settings
 from app.main import CORRELATION_HEADER
-from app.security import CALLER_AUTH_HEADER, TENANT_HEADER
+from app.security.internal_auth import CALLER_AUTH_HEADER, TENANT_HEADER
 from tests.conftest import BASE_ENV, auth_headers
 
 

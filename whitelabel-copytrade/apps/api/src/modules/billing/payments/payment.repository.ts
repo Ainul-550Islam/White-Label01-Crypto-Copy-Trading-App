@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import type { PaymentRecord, PaymentFilter, PaymentCreationInput, PaymentUpdateInput, PaymentStatus } from './payment.types';
-import { PaymentProvider } from './payment.types';
+import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
+import type { PaymentRecord, PaymentFilter, PaymentCreationInput, PaymentUpdateInput } from './payment.types';
+import { PaymentProvider, PaymentStatus } from './payment.types';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 
@@ -94,7 +95,10 @@ export function buildProviderReference(existing: unknown, links: PaymentProvider
 export class PaymentRepository {
   private readonly logger = new Logger(PaymentRepository.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly outbox?: OutboxService,
+  ) {}
 
   async create(input: PaymentCreationInput): Promise<PaymentRecord> {
     try {
@@ -241,51 +245,83 @@ export class PaymentRepository {
     return [];
   }
 
-  async update(id: string, input: PaymentUpdateInput): Promise<PaymentRecord> {
+  async update(id: string, input: PaymentUpdateInput, tenantId?: string): Promise<PaymentRecord> {
     try {
-      const updateData: any = {};
+      const owner = tenantId
+        ? { tenantId }
+        : await (this.prisma as any).payment?.findUnique({ where: { id }, select: { tenantId: true } });
+      if (!owner?.tenantId) throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Payment not found' });
 
-      if (input.status) updateData.status = input.status;
-      if (input.paidAt !== undefined) updateData.paidAt = input.paidAt;
-      if (input.failedAt !== undefined) updateData.failedAt = input.failedAt;
-      if (input.cancelledAt !== undefined) updateData.cancelledAt = input.cancelledAt;
-      if (input.refundedAt !== undefined) updateData.refundedAt = input.refundedAt;
-      if (input.failureReason !== undefined) updateData.failureReason = input.failureReason;
-      if (input.failureCode !== undefined) updateData.failureCode = input.failureCode;
-
-      const links: PaymentProviderLinks = {};
-      if (input.providerReference) {
-        if (input.providerReference.providerPaymentId) updateData.providerPaymentId = input.providerReference.providerPaymentId;
-        if (input.providerReference.providerCheckoutId) updateData.providerCheckoutId = input.providerReference.providerCheckoutId;
-        if (input.providerReference.providerSessionId) updateData.providerSessionId = input.providerReference.providerSessionId;
-        if (input.providerReference.providerInvoiceId) updateData.providerInvoiceId = input.providerReference.providerInvoiceId;
-        if (input.providerReference.providerCustomerId) links.providerCustomerId = input.providerReference.providerCustomerId;
-        if (input.providerReference.checkoutUrl) links.checkoutUrl = input.providerReference.checkoutUrl;
-        if (input.providerReference.invoiceUrl) links.invoiceUrl = input.providerReference.invoiceUrl;
-      }
-
-      const extras: PaymentRecordExtras = {};
-      if (input.transactionState) extras.transactionState = input.transactionState;
-      if (input.rawProviderStatus !== undefined) extras.rawProviderStatus = input.rawProviderStatus;
-
-      const touchesJson = Object.keys(links).length > 0 || Object.keys(extras).length > 0 || Boolean(input.metadata);
-      if (touchesJson) {
-        const existing = await (this.prisma as any).payment?.findUnique({ where: { id } });
+      return await this.prisma.withTenantRls(owner.tenantId, async (tx) => {
+        const paymentStore = tx as any;
+        const existing = await paymentStore.payment.findFirst({ where: { id, tenantId: owner.tenantId } });
         if (!existing) throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Payment not found' });
-        if (Object.keys(links).length > 0) updateData.providerReference = buildProviderReference(existing.providerReference, links);
-        updateData.metadata = buildPaymentMetadata(existing.metadata, (input.metadata as any) ?? null, extras);
-      }
 
-      const payment = await (this.prisma as any).payment?.update({
-        where: { id },
-        data: updateData,
-      });
+        const updateData: any = {};
+        if (input.status) updateData.status = input.status;
+        if (input.paidAt !== undefined) updateData.paidAt = input.paidAt;
+        if (input.failedAt !== undefined) updateData.failedAt = input.failedAt;
+        if (input.cancelledAt !== undefined) updateData.cancelledAt = input.cancelledAt;
+        if (input.refundedAt !== undefined) updateData.refundedAt = input.refundedAt;
+        if (input.failureReason !== undefined) updateData.failureReason = input.failureReason;
+        if (input.failureCode !== undefined) updateData.failureCode = input.failureCode;
 
-      if (payment) {
+        const links: PaymentProviderLinks = {};
+        if (input.providerReference) {
+          if (input.providerReference.providerPaymentId) updateData.providerPaymentId = input.providerReference.providerPaymentId;
+          if (input.providerReference.providerCheckoutId) updateData.providerCheckoutId = input.providerReference.providerCheckoutId;
+          if (input.providerReference.providerSessionId) updateData.providerSessionId = input.providerReference.providerSessionId;
+          if (input.providerReference.providerInvoiceId) updateData.providerInvoiceId = input.providerReference.providerInvoiceId;
+          if (input.providerReference.providerCustomerId) links.providerCustomerId = input.providerReference.providerCustomerId;
+          if (input.providerReference.checkoutUrl) links.checkoutUrl = input.providerReference.checkoutUrl;
+          if (input.providerReference.invoiceUrl) links.invoiceUrl = input.providerReference.invoiceUrl;
+        }
+
+        const extras: PaymentRecordExtras = {};
+        if (input.transactionState) extras.transactionState = input.transactionState;
+        if (input.rawProviderStatus !== undefined) extras.rawProviderStatus = input.rawProviderStatus;
+
+        const touchesJson = Object.keys(links).length > 0 || Object.keys(extras).length > 0 || Boolean(input.metadata);
+        if (touchesJson) {
+          if (Object.keys(links).length > 0) {
+            updateData.providerReference = buildProviderReference(existing.providerReference, links);
+          }
+          updateData.metadata = buildPaymentMetadata(existing.metadata, (input.metadata as any) ?? null, extras);
+        }
+
+        const payment = await paymentStore.payment.update({ where: { id }, data: updateData });
+        const eventType =
+          input.status === PaymentStatus.SUCCEEDED && existing.status !== PaymentStatus.SUCCEEDED
+            ? 'payment.succeeded'
+            : input.status === PaymentStatus.FAILED && existing.status !== PaymentStatus.FAILED
+              ? 'payment.failed'
+              : null;
+
+        if (eventType) {
+          if (!this.outbox) {
+            throw new Error('Transactional outbox is unavailable; refusing payment transition without its webhook event');
+          }
+          const amount = typeof payment.amount === 'string' ? payment.amount : String(payment.amount);
+          const correlationId = typeof payment.orderId === 'string' && payment.orderId.length <= 64 ? payment.orderId : payment.id;
+          await this.outbox.append(tx, {
+            tenantId: payment.tenantId,
+            aggregateType: 'payment',
+            aggregateId: payment.id,
+            eventType,
+            idempotencyKey: `payment:${payment.id}:${eventType}`,
+            correlationId,
+            occurredAt: payment.updatedAt,
+            payload: {
+              paymentId: payment.id,
+              amount,
+              currency: payment.currency,
+              status: payment.status,
+            },
+          });
+        }
+
         return this.mapToPaymentRecord(payment);
-      }
-
-      throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Payment not found' });
+      });
     } catch (error) {
       if (error instanceof AppException) throw error;
       this.logger.error(`Failed to update payment ${id}: ${(error as Error).message}`);
@@ -296,7 +332,7 @@ export class PaymentRepository {
     }
   }
 
-  async updateStatus(id: string, status: PaymentStatus, additionalData?: Partial<PaymentUpdateInput>): Promise<PaymentRecord> {
+  async updateStatus(id: string, status: PaymentStatus, additionalData?: Partial<PaymentUpdateInput>, tenantId?: string): Promise<PaymentRecord> {
     const updateInput: PaymentUpdateInput = {
       status,
       ...additionalData,
@@ -314,7 +350,7 @@ export class PaymentRepository {
       updateInput.refundedAt = now;
     }
 
-    return this.update(id, updateInput);
+    return this.update(id, updateInput, tenantId);
   }
 
   async findLatestByTenantAndPlan(tenantId: string, planId: string): Promise<PaymentRecord | null> {

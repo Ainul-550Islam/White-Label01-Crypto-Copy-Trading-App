@@ -5,8 +5,8 @@ import { getAccessToken } from '@/lib/session';
 export const dynamic = 'force-dynamic';
 
 /** The root path is a router: signed-in users land on the overview. */
-export default function IndexPage(): never {
-  if (getAccessToken()) {
+export default async function IndexPage(): Promise<never> {
+  if (await getAccessToken()) {
     redirect('/dashboard');
   }
 

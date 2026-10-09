@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
 import type { InvoiceRecord, InvoiceFilter, CreateInvoiceInput, UpdateInvoiceInput, InvoiceStatus, InvoiceWithLines, InvoiceLineItem } from './invoice.types';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
@@ -66,7 +67,10 @@ export function buildInvoiceMetadata(
 export class InvoiceRepository {
   private readonly logger = new Logger(InvoiceRepository.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly outbox?: OutboxService,
+  ) {}
 
   async create(input: CreateInvoiceInput): Promise<InvoiceRecord> {
     try {
@@ -89,8 +93,12 @@ export class InvoiceRepository {
       // Calculate totals from lines using precise decimal handling
       const totals = this.calculateTotalsFromLines(input.lines, input.currency);
 
-      const invoice = await (this.prisma as any).invoice?.create({
-        data: {
+      if (!this.outbox) {
+        throw new Error('Transactional outbox is unavailable; refusing invoice creation without its invoice.created event');
+      }
+      const invoice = await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+        const created = await (tx as any).invoice.create({
+          data: {
           id: this.generateId(),
           invoiceNumber: await this.generateInvoiceNumber(input.tenantId),
           tenantId: input.tenantId,
@@ -141,15 +149,30 @@ export class InvoiceRepository {
             billingPeriodStart: invoiceIso(line.billingPeriodStart as any),
             billingPeriodEnd: invoiceIso(line.billingPeriodEnd as any),
           })) as any,
-        },
+          },
+        });
+        if (!created) {
+          throw new AppException({ code: ErrorCode.INTERNAL_SERVER_ERROR, message: 'Invoice persistence is unavailable' });
+        }
+        await this.outbox!.append(tx, {
+          tenantId: input.tenantId,
+          aggregateType: 'invoice',
+          aggregateId: created.id,
+          eventType: 'invoice.created',
+          idempotencyKey: `invoice:${created.id}:created`,
+          correlationId: created.id,
+          occurredAt: created.createdAt,
+          payload: {
+            invoiceId: created.id,
+            amount: created.total,
+            currency: created.currency,
+            status: created.status,
+          },
+        });
+        return created;
       });
 
-      if (invoice) {
-        return this.mapToInvoiceRecord(invoice);
-      }
-
-      this.logger.warn('Invoice model not found in Prisma schema, using fallback');
-      return this.createFallbackRecord(input, totals);
+      return this.mapToInvoiceRecord(invoice);
     } catch (error) {
       if ((error as any).code === 'P2002') {
         // Unique constraint violation - try to find existing
@@ -158,11 +181,6 @@ export class InvoiceRepository {
       }
 
       this.logger.error(`Failed to create invoice: ${(error as Error).message}`);
-      if ((error as any).code === 'P2021' || (error as Error).message.includes('does not exist')) {
-        const totals = this.calculateTotalsFromLines(input.lines, input.currency);
-        return this.createFallbackRecord(input, totals);
-      }
-
       throw new AppException({
         code: ErrorCode.INTERNAL_SERVER_ERROR,
         message: 'Failed to create invoice',
@@ -253,32 +271,56 @@ export class InvoiceRepository {
 
   async update(id: string, input: UpdateInvoiceInput): Promise<InvoiceRecord> {
     try {
-      const updateData: any = {};
-      if (input.status) updateData.status = input.status;
-      if (input.dueDate !== undefined) updateData.dueDate = input.dueDate;
-      if (input.amountPaid) updateData.amountPaid = input.amountPaid;
-      if (input.amountDue) updateData.amountDue = input.amountDue;
-      if (input.amountRefunded) updateData.amountRefunded = input.amountRefunded;
-      const extras: InvoiceRecordExtras = {};
-      if (input.amountCredited) extras.amountCredited = input.amountCredited;
-      if (input.providerInvoiceId) extras.providerInvoiceId = input.providerInvoiceId;
-      if (Object.keys(extras).length > 0 || input.metadata) {
-        const existing = await (this.prisma as any).invoice?.findUnique({ where: { id } });
-        if (!existing) throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Invoice not found' });
-        updateData.metadata = buildInvoiceMetadata(existing.metadata, (input.metadata as any) ?? null, extras);
-      }
-      if (input.finalizedAt !== undefined) updateData.finalizedAt = input.finalizedAt;
-      if (input.paidAt !== undefined) updateData.paidAt = input.paidAt;
-      if (input.voidedAt !== undefined) updateData.voidedAt = input.voidedAt;
-
-      const invoice = await (this.prisma as any).invoice?.update({
+      const owner = await (this.prisma as any).invoice?.findUnique({
         where: { id },
-        data: updateData,
+        select: { tenantId: true },
       });
+      if (!owner?.tenantId) throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Invoice not found' });
 
-      if (invoice) return this.mapToInvoiceRecord(invoice);
+      return await this.prisma.withTenantRls(owner.tenantId, async (tx) => {
+        const invoiceStore = tx as any;
+        const existing = await invoiceStore.invoice.findFirst({ where: { id, tenantId: owner.tenantId } });
+        if (!existing) throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Invoice not found' });
 
-      throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Invoice not found' });
+        const updateData: any = {};
+        if (input.status) updateData.status = input.status;
+        if (input.dueDate !== undefined) updateData.dueDate = input.dueDate;
+        if (input.amountPaid !== undefined) updateData.amountPaid = input.amountPaid;
+        if (input.amountDue !== undefined) updateData.amountDue = input.amountDue;
+        if (input.amountRefunded !== undefined) updateData.amountRefunded = input.amountRefunded;
+        const extras: InvoiceRecordExtras = {};
+        if (input.amountCredited) extras.amountCredited = input.amountCredited;
+        if (input.providerInvoiceId) extras.providerInvoiceId = input.providerInvoiceId;
+        if (Object.keys(extras).length > 0 || input.metadata) {
+          updateData.metadata = buildInvoiceMetadata(existing.metadata, (input.metadata as any) ?? null, extras);
+        }
+        if (input.finalizedAt !== undefined) updateData.finalizedAt = input.finalizedAt;
+        if (input.paidAt !== undefined) updateData.paidAt = input.paidAt;
+        if (input.voidedAt !== undefined) updateData.voidedAt = input.voidedAt;
+
+        const invoice = await invoiceStore.invoice.update({ where: { id }, data: updateData });
+        if (input.status === 'PAID' && existing.status !== 'PAID') {
+          if (!this.outbox) {
+            throw new Error('Transactional outbox is unavailable; refusing invoice payment without its invoice.paid event');
+          }
+          await this.outbox.append(tx, {
+            tenantId: invoice.tenantId,
+            aggregateType: 'invoice',
+            aggregateId: invoice.id,
+            eventType: 'invoice.paid',
+            idempotencyKey: `invoice:${invoice.id}:paid`,
+            correlationId: invoice.paymentId && invoice.paymentId.length <= 64 ? invoice.paymentId : invoice.id,
+            occurredAt: invoice.paidAt ?? invoice.updatedAt,
+            payload: {
+              invoiceId: invoice.id,
+              amount: invoice.amountPaid,
+              currency: invoice.currency,
+              status: invoice.status,
+            },
+          });
+        }
+        return this.mapToInvoiceRecord(invoice);
+      });
     } catch (error) {
       if (error instanceof AppException) throw error;
       this.logger.error(`Failed to update invoice ${id}: ${(error as Error).message}`);
@@ -407,45 +449,6 @@ export class InvoiceRepository {
       voidedAt: prismaInvoice.voidedAt || null,
       createdAt: prismaInvoice.createdAt,
       updatedAt: prismaInvoice.updatedAt,
-    };
-  }
-
-  private createFallbackRecord(input: CreateInvoiceInput, totals: any): InvoiceRecord {
-    const now = new Date();
-    return {
-      id: this.generateId(),
-      invoiceNumber: `INV-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-      tenantId: input.tenantId,
-      customerId: input.customerId || null,
-      subscriptionId: input.subscriptionId || null,
-      paymentId: input.paymentId || null,
-      currency: input.currency,
-      status: 'DRAFT' as any,
-      issueDate: input.issueDate || now,
-      dueDate: input.dueDate || null,
-      billingPeriodStart: input.billingPeriod?.start || null,
-      billingPeriodEnd: input.billingPeriod?.end || null,
-      billingInterval: input.billingPeriod?.interval || null,
-      subtotal: totals.subtotal,
-      discountTotal: totals.discountTotal,
-      taxTotal: totals.taxTotal,
-      total: totals.total,
-      amountPaid: '0',
-      amountDue: totals.total,
-      amountRefunded: '0',
-      amountCredited: '0',
-      provider: input.provider || null,
-      providerInvoiceId: input.providerInvoiceId || null,
-      planId: input.planId || null,
-      planCode: input.planCode || null,
-      planName: input.planName || null,
-      idempotencyKey: input.idempotencyKey,
-      metadata: input.metadata || null,
-      finalizedAt: null,
-      paidAt: null,
-      voidedAt: null,
-      createdAt: now,
-      updatedAt: now,
     };
   }
 

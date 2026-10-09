@@ -1,6 +1,7 @@
 // # Responsibility: authenticated customer page for per-user concurrent position and open-order limits.
 
 'use client';
+import type { JSX } from 'react';
 
 import { AuthGuard } from '@/auth/auth.guard';
 import { AppShell } from '@/layout/app-shell';

@@ -31,6 +31,7 @@ function build(overrides: {
   const prisma = {
     complianceCase: { findFirst: complianceFindFirst },
     operationalMaintenanceWindow: { findFirst: windowFindFirst },
+    withTenantRls: jest.fn(async (_tenantId: string, work: (tx: unknown) => Promise<unknown>) => work({})),
   };
   const subscriptionRepo = {
     findById: jest.fn(async () => overrides.subscription ?? null),
@@ -65,6 +66,7 @@ function build(overrides: {
     guard as never,
     guard as never,
     maintenance as never,
+    { append: jest.fn(async () => ({ id: 'outbox-1' })) } as never,
   );
   return { service, complianceFindFirst, guard, subscriptionRepo, windowFindFirst, traderProfileService };
 }

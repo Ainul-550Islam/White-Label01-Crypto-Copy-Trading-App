@@ -163,5 +163,9 @@ export function createMetricsRegistry(): MetricsRegistry {
     { bounds: { stage: new Set<string>(SSO_FAILURE_STAGES) } },
   );
 
+  // GAP-177: the relay exposes process-wide aggregate facts only. Tenant,
+  // event, aggregate, subscription and user identifiers stay in durable rows.
+  registry.registerOutboxMetrics();
+
   return registry;
 }

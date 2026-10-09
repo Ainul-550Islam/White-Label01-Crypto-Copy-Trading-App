@@ -1,5 +1,6 @@
 // # Ensures ticket creation, reply thread, and status tracking
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";

@@ -11,13 +11,17 @@ export type CopyTradingNotificationEventType =
   | 'COPY_EXECUTION_FAILED'
   | 'COPY_EXECUTION_SKIPPED'
   | 'COPY_RISK_DRAWDOWN_BREACH'
+  | 'COPY_SUBSCRIPTION_CREATED'
   | 'COPY_SUBSCRIPTION_PAUSED'
+  | 'COPY_SUBSCRIPTION_RESUMED'
   | 'COPY_SUBSCRIPTION_STOPPED'
+  | 'COPY_SUBSCRIPTION_CANCELLED'
   | 'COPY_RECONCILIATION_MISMATCH';
 
 export interface CopyTradingNotificationPayload {
   tenantId: string;
   userId: string;
+  sourceEventId: string;
   eventType: CopyTradingNotificationEventType;
   subscriptionId?: string;
   executionId?: string;
@@ -43,23 +47,41 @@ export class CopyTradingNotificationProcessor {
     const title = payload.title ?? this.defaultTitle(payload.eventType, payload.symbol);
     const body = payload.body ?? this.defaultBody(payload);
 
-    const record = await this.prisma.notification.create({
-      data: {
-        tenantId: payload.tenantId,
-        userId: payload.userId,
-        channel: NotificationChannel.IN_APP,
-        type: payload.eventType,
-        title,
-        body,
+    const record = await this.prisma.withTenantRls(payload.tenantId, async (tx) => {
+      await tx.notification.createMany({
         data: {
-          subscriptionId: payload.subscriptionId ?? null,
-          executionId: payload.executionId ?? null,
-          symbol: payload.symbol ?? null,
-          reason: payload.reason ?? null,
-          ...(payload.metadata ?? {}),
+          tenantId: payload.tenantId,
+          userId: payload.userId,
+          sourceEventId: payload.sourceEventId,
+          channel: NotificationChannel.IN_APP,
+          type: payload.eventType,
+          title,
+          body,
+          data: {
+            subscriptionId: payload.subscriptionId ?? null,
+            executionId: payload.executionId ?? null,
+            symbol: payload.symbol ?? null,
+            reason: payload.reason ?? null,
+            ...(payload.metadata ?? {}),
+          },
+          deliveredAt: new Date(),
         },
-        deliveredAt: new Date(),
-      },
+        skipDuplicates: true,
+      });
+
+      const existing = await tx.notification.findFirst({
+        where: {
+          tenantId: payload.tenantId,
+          userId: payload.userId,
+          sourceEventId: payload.sourceEventId,
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, createdAt: true },
+      });
+      if (!existing) {
+        throw new Error('outbox notification insert did not produce a tenant-scoped row');
+      }
+      return existing;
     });
 
     try {
@@ -116,10 +138,16 @@ export class CopyTradingNotificationProcessor {
         return `Copied Signal Skipped${sym}`;
       case 'COPY_RISK_DRAWDOWN_BREACH':
         return 'Copy-Trading Drawdown Guardrail Triggered';
+      case 'COPY_SUBSCRIPTION_CREATED':
+        return 'Copy Subscription Started';
       case 'COPY_SUBSCRIPTION_PAUSED':
         return 'Copy Subscription Paused';
+      case 'COPY_SUBSCRIPTION_RESUMED':
+        return 'Copy Subscription Resumed';
       case 'COPY_SUBSCRIPTION_STOPPED':
         return 'Copy Subscription Stopped';
+      case 'COPY_SUBSCRIPTION_CANCELLED':
+        return 'Copy Subscription Cancelled';
       case 'COPY_RECONCILIATION_MISMATCH':
         return 'Copy-Trading Reconciliation Alert';
     }

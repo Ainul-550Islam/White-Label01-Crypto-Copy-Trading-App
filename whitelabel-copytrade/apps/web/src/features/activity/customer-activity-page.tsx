@@ -1,5 +1,6 @@
 // # NEW — Renders customer audit trail for subscriptions, settings changes, orders, funding, and security events
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";

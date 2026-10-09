@@ -1,5 +1,7 @@
 import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { RiskEventService } from './risk-event.service';
 import { RiskPolicyScope, RiskSeverity, RiskEventType } from './risk-management.types';
 
@@ -27,6 +29,7 @@ export class KillSwitchOrchestratorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventService: RiskEventService,
+    private readonly outbox: OutboxService,
   ) {}
 
   async requestKillSwitch(params: {
@@ -46,32 +49,65 @@ export class KillSwitchOrchestratorService {
       throw new ForbiddenException('Kill-switch reason must be at least 10 characters');
     }
 
-    // Check if already engaged
-    const existing = await this.prisma.killSwitch.findFirst({
-      where: { tenantId: tenantId ?? undefined, scope: scope as any, target: target ?? undefined, isEngaged: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (existing) {
-      this.logger.log(`Kill-switch already engaged for ${scope} ${target ?? ''}, id ${existing.id}`);
-      return { id: existing.id, isEngaged: true };
-    }
+    const now = new Date();
+    const transitionEventId = randomUUID();
+    const createData = {
+      tenantId: tenantId ?? null,
+      scope: scope as any,
+      target: target ?? null,
+      isEngaged: true,
+      reason: reason.slice(0, 500),
+      engagedByUserId: requestedByUserId ?? null,
+      engagedAt: now,
+      status: 'TRIGGERED' as any,
+      triggeredByRule: triggeredByRule ?? null,
+      triggeredAt: now,
+      severity: (severity as any) ?? 'CRITICAL',
+      requiresExplicitClear: requiresExplicitClear ?? true,
+    };
 
-    const created = await this.prisma.killSwitch.create({
-      data: {
-        tenantId: tenantId ?? null,
-        scope: scope as any,
-        target: target ?? null,
-        isEngaged: true,
-        reason: reason.slice(0, 500),
-        engagedByUserId: requestedByUserId ?? null,
-        engagedAt: new Date(),
-        status: 'TRIGGERED' as any,
-        triggeredByRule: triggeredByRule ?? null,
-        triggeredAt: new Date(),
-        severity: (severity as any) ?? 'CRITICAL',
-        requiresExplicitClear: requiresExplicitClear ?? true,
-      },
-    });
+    let created: any;
+    if (tenantId) {
+      const result = await this.prisma.withTenantRls(tenantId, async (tx) => {
+        const existing = await tx.killSwitch.findFirst({
+          where: { tenantId, scope: scope as any, target: target ?? null, isEngaged: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (existing) return { row: existing, created: false };
+
+        const row = await tx.killSwitch.create({ data: createData });
+        await this.outbox.append(tx, {
+          tenantId,
+          aggregateType: 'kill_switch',
+          aggregateId: row.id,
+          eventType: 'kill_switch.activated',
+          idempotencyKey: `kill-switch:${row.id}:activated:${transitionEventId}`,
+          payload: {
+            killSwitchId: row.id,
+            scope,
+            target: target ?? null,
+            isEngaged: true,
+            activatedAt: now.toISOString(),
+          },
+        });
+        return { row, created: true };
+      });
+      if (!result.created) {
+        this.logger.log(`Kill-switch already engaged for ${scope} ${target ?? ''}, id ${result.row.id}`);
+        return { id: result.row.id, isEngaged: true };
+      }
+      created = result.row;
+    } else {
+      const existing = await this.prisma.killSwitch.findFirst({
+        where: { tenantId: null, scope: scope as any, target: target ?? null, isEngaged: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing) {
+        this.logger.log(`Kill-switch already engaged for ${scope} ${target ?? ''}, id ${existing.id}`);
+        return { id: existing.id, isEngaged: true };
+      }
+      created = await this.prisma.killSwitch.create({ data: createData });
+    }
 
     await this.prisma.auditLog.create({
       data: {
@@ -143,23 +179,62 @@ export class KillSwitchOrchestratorService {
       throw new ForbiddenException('Kill-switch clear reason must be at least 20 characters');
     }
 
-    const ks = await this.prisma.killSwitch.findUnique({ where: { id: killSwitchId } });
-    if (!ks) throw new ForbiddenException(`Kill-switch ${killSwitchId} not found`);
-    if (!ks.isEngaged) throw new ForbiddenException(`Kill-switch ${killSwitchId} not engaged`);
+    const snapshot = await this.prisma.killSwitch.findUnique({ where: { id: killSwitchId } });
+    if (!snapshot) throw new ForbiddenException(`Kill-switch ${killSwitchId} not found`);
+    if (tenantId && snapshot.tenantId !== tenantId) throw new ForbiddenException('Kill-switch is outside the active tenant');
+    if (!snapshot.isEngaged) throw new ForbiddenException(`Kill-switch ${killSwitchId} not engaged`);
 
-    // If requiresExplicitClear, must have been acknowledged first? For now allow clear with reason.
-    await this.prisma.killSwitch.update({
-      where: { id: killSwitchId },
-      data: {
-        isEngaged: false,
-        releasedByUserId: clearedByUserId,
-        releasedAt: new Date(),
-        status: 'CLEARED' as any,
-        clearedByUserId: clearedByUserId,
-        clearedAt: new Date(),
-        clearedReason: reason.slice(0, 500),
-      },
-    });
+    const ownerTenantId = tenantId ?? snapshot.tenantId ?? undefined;
+    const releasedAt = new Date();
+    const transitionEventId = randomUUID();
+    let ks: NonNullable<typeof snapshot> = snapshot;
+    if (ownerTenantId) {
+      ks = await this.prisma.withTenantRls(ownerTenantId, async (tx) => {
+        const current = await tx.killSwitch.findFirst({ where: { id: killSwitchId, tenantId: ownerTenantId } });
+        if (!current) throw new ForbiddenException(`Kill-switch ${killSwitchId} not found`);
+        if (!current.isEngaged) throw new ForbiddenException(`Kill-switch ${killSwitchId} not engaged`);
+        const updated = await tx.killSwitch.update({
+          where: { id: killSwitchId },
+          data: {
+            isEngaged: false,
+            releasedByUserId: clearedByUserId,
+            releasedAt,
+            status: 'CLEARED' as any,
+            clearedByUserId,
+            clearedAt: releasedAt,
+            clearedReason: reason.slice(0, 500),
+          },
+        });
+        await this.outbox.append(tx, {
+          tenantId: ownerTenantId,
+          aggregateType: 'kill_switch',
+          aggregateId: killSwitchId,
+          eventType: 'kill_switch.released',
+          idempotencyKey: `kill-switch:${killSwitchId}:released:${transitionEventId}`,
+          payload: {
+            killSwitchId,
+            scope: updated.scope,
+            target: updated.target,
+            isEngaged: false,
+            releasedAt: releasedAt.toISOString(),
+          },
+        });
+        return updated;
+      });
+    } else {
+      ks = await this.prisma.killSwitch.update({
+        where: { id: killSwitchId },
+        data: {
+          isEngaged: false,
+          releasedByUserId: clearedByUserId,
+          releasedAt,
+          status: 'CLEARED' as any,
+          clearedByUserId,
+          clearedAt: releasedAt,
+          clearedReason: reason.slice(0, 500),
+        },
+      });
+    }
 
     await this.prisma.auditLog.create({
       data: {

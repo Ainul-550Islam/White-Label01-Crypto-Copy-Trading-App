@@ -9,8 +9,10 @@ import {
   Req,
   ForbiddenException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { Permission } from '@wlct/shared-types';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { RiskDecisionService } from './risk-decision.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
@@ -18,6 +20,7 @@ import { PortfolioExposureService } from './portfolio-exposure.service';
 import { PositionRiskService } from './position-risk.service';
 import { MarginRiskService } from './margin-risk.service';
 import { LeverageRiskService } from './leverage-risk.service';
+import { LeveragePolicyService } from '../risk/leverage-policy.service';
 import { LiquidationRiskService } from './liquidation-risk.service';
 import { ConcentrationRiskService } from './concentration-risk.service';
 import { DrawdownRiskService } from './drawdown-risk.service';
@@ -29,10 +32,12 @@ import { RiskManagementSnapshotRepository } from './risk-snapshot.repository';
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { KillSwitchOrchestratorService, KillSwitchRequestScope } from './kill-switch-orchestrator.service';
 import { RiskReconciliationService } from './risk-reconciliation.service';
+import { CustomerExposureService } from './customer-exposure.service';
+import type { CustomerRiskAnalysisView } from './customer-risk-analysis.types';
 import { RiskCheckDto } from './dto/risk-check.dto';
 import { UpsertRiskPolicyDto, RiskPolicyScopeDto } from './dto/risk-policy.dto';
 import { RiskPolicyScope, CircuitBreakerScope } from './risk-management.types';
-import { authTenantId, authUserIdOrNull } from '../../common/guards/request-principal';
+import { authTenantId, authUserIdOrNull, principal } from '../../common/guards/request-principal';
 
 /**
  * Institutional risk controller with RBAC:
@@ -57,12 +62,14 @@ import { authTenantId, authUserIdOrNull } from '../../common/guards/request-prin
 @Controller('risk-management')
 export class RiskManagementController {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly decisionService: RiskDecisionService,
     private readonly policyService: InstitutionalRiskPolicyService,
     private readonly exposureService: PortfolioExposureService,
     private readonly positionService: PositionRiskService,
     private readonly marginService: MarginRiskService,
     private readonly leverageService: LeverageRiskService,
+    private readonly leveragePolicyService: LeveragePolicyService,
     private readonly liquidationService: LiquidationRiskService,
     private readonly concentrationService: ConcentrationRiskService,
     private readonly drawdownService: DrawdownRiskService,
@@ -74,6 +81,10 @@ export class RiskManagementController {
     private readonly breakerService: CircuitBreakerService,
     private readonly killSwitchService: KillSwitchOrchestratorService,
     private readonly reconciliationService: RiskReconciliationService,
+    // Customer-facing exposure: owner-scoped and non-sandbox-correct, unlike the institutional
+    // PortfolioExposureService above, which answers for an operator-selected account. Both are
+    // real routes; neither replaces the other.
+    private readonly customerExposureService: CustomerExposureService,
   ) {}
 
   private getTenantId(req: any): string {
@@ -210,6 +221,68 @@ export class RiskManagementController {
 
   // ---------- Exposure ----------
 
+  /**
+   * Answers "may this account trade at this leverage?" against the two ceilings that actually
+   * bind: the tenant's institutional policy and the venue's own capability for the account's
+   * exchange. Both values are read from the same sources the risk evaluation uses, so a customer
+   * asking before they trade gets the same answer the engine would give.
+   *
+   * `LeveragePolicyService` was written for exactly this and was injected nowhere - it had a spec
+   * and no caller - so the effective ceiling existed as a rule with no surface. Every unknown
+   * stays unknown: no account, no venue capability, or an unreadable policy is a refusal that
+   * names the missing input, never a default allowance.
+   */
+  @Get('leverage-policy')
+  @RequirePermissions(Permission.RISK_READ)
+  async getLeveragePolicy(
+    @Req() req: any,
+    @Query('accountId') accountId?: string,
+    @Query('requestedLeverage') requestedLeverage?: string,
+    @Query('marginMode') marginMode?: string,
+  ) {
+    const tenantId = this.getTenantId(req);
+    if (!accountId) throw new BadRequestException('accountId is required');
+    const requested = Number(requestedLeverage);
+    if (!Number.isInteger(requested) || requested < 1) {
+      throw new BadRequestException('requestedLeverage is required and must be a positive integer');
+    }
+    const mode = marginMode === 'ISOLATED' ? 'ISOLATED' : 'CROSS';
+
+    const account = await this.prisma.tradingAccount.findFirst({
+      where: { id: accountId, tenantId },
+      include: { exchange: true },
+    });
+    if (!account) throw new NotFoundException(`account ${accountId} not found`);
+
+    // The policy service resolves over tenant / trader / strategy / follower, not account: its
+    // account-scoped ceiling is a threshold value (`maxLeverageAccount`), while the *account's own*
+    // ceiling below comes from the account's venue capability. Passing an account id here was a
+    // type error - the parameter does not exist.
+    const policy = await this.policyService.resolveEffectivePolicy({ tenantId });
+    const policyCeiling = policy.thresholds.maxLeverageAccount ?? policy.thresholds.maxLeverageGross ?? null;
+
+    // A non-integer policy ceiling cannot be reported as a leverage limit. The service's contract
+    // is integral leverage, so an unparseable ceiling is passed as the sentinel that makes it
+    // refuse - the reason will name the policy, which is the truthful cause.
+    const maximumAllowed = policyCeiling !== null && /^\d+$/.test(policyCeiling) ? Number(policyCeiling) : 0;
+    const venueMaximum = account.exchange?.maxLeverage ?? null;
+
+    const result = this.leveragePolicyService.evaluate({
+      requestedLeverage: requested,
+      maximumAllowed,
+      venueMaximum: typeof venueMaximum === 'number' ? venueMaximum : null,
+      marginMode: mode,
+      accountCanTrade: account.canTrade === true,
+    });
+
+    return {
+      ...result,
+      accountId,
+      policyCeiling,
+      venueCeiling: venueMaximum === null || venueMaximum === undefined ? null : String(venueMaximum),
+    };
+  }
+
   @Get('exposure')
   @RequirePermissions(Permission.RISK_READ)
   async getExposure(@Req() req: any, @Query('accountId') accountId?: string) {
@@ -223,6 +296,64 @@ export class RiskManagementController {
     const tenantId = this.getTenantId(req);
     this.checkTenantAccess(req, tenantId);
     return this.exposureService.calculateExposure({ tenantId, accountId });
+  }
+
+  /**
+   * The caller's own exposure across every account they own. Tenant and user come from the
+   * verified token via `principal`, which refuses when either is absent - a query parameter can
+   * never widen the scope to another tenant or user.
+   */
+  @Get('my-exposure')
+  @RequireAnyPermission(Permission.RISK_READ, Permission.PORTFOLIO_READ)
+  async getMyExposure(@Req() req: any) {
+    const { tenantId, userId } = principal(req);
+    return this.customerExposureService.calculateMyExposure({ tenantId, userId });
+  }
+
+  /**
+   * The caller's own concentration and correlation in one response.
+   *
+   * The scope comes from `principal` alone, which throws when either the tenant or the user is
+   * absent. The request object is accepted for the Express `query` bundle but is never read for
+   * scope: a `tenantId`, `userId`, or `accountId` in the query string is ignored, so a caller cannot
+   * redirect this route at another tenant's or another user's risk data by adding a parameter. The
+   * two analyses are run against the same verified scope and returned together so a client cannot
+   * pair one caller's concentration with another's correlation.
+   */
+  @Get('my-risk-analysis')
+  @RequireAnyPermission(Permission.RISK_READ, Permission.PORTFOLIO_READ)
+  async getMyRiskAnalysis(@Req() req: any): Promise<CustomerRiskAnalysisView> {
+    const { tenantId, userId } = principal(req);
+    const [concentration, correlation] = await Promise.all([
+      this.concentrationService.evaluateMyConcentration({ tenantId, userId }),
+      this.correlationService.evaluateMyCorrelation({ tenantId, userId }),
+    ]);
+    return {
+      tenantId,
+      requestedAt: new Date().toISOString(),
+      dataScope: 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS',
+      concentration,
+      correlation,
+    };
+  }
+
+  /**
+   * A trader profile's exposure, scoped to the profile owner's non-sandbox accounts. The trader is
+   * bound to the route; tenant and user still come only from the token. A profile the caller cannot
+   * be shown is a 404 rather than an empty result, so the route does not confirm that a private
+   * profile exists.
+   */
+  @Get('trader-exposure/:traderId')
+  @RequireAnyPermission(Permission.RISK_READ, Permission.PORTFOLIO_READ)
+  async getTraderExposure(@Req() req: any, @Param('traderId') traderId: string) {
+    const { tenantId, userId } = principal(req);
+    const exposure = await this.customerExposureService.calculateTraderExposure({
+      tenantId,
+      traderId,
+      userId,
+    });
+    if (!exposure) throw new NotFoundException('Trader exposure is not available.');
+    return exposure;
   }
 
   // ---------- Position risk ----------

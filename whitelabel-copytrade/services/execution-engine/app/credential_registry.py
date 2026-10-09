@@ -1,7 +1,7 @@
 """Credential registry wiring for the execution engine (Part 23).
 
 The credential provider (:mod:`wlct_trading.execution.credentials`, built by
-:mod:`app.credentials`) already refuses to hand out secrets to anything that
+:mod:`app.exchanges.credentials`) already refuses to hand out secrets to anything that
 cannot sign with them. What the registry adds is the *accounting* around that
 provider: lifecycle metadata (when the wiring was built, from which source),
 capability declarations (what this deployment's credential path can and

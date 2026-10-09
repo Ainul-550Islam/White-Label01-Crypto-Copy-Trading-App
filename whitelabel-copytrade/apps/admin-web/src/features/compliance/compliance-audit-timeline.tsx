@@ -1,6 +1,7 @@
 // # NEW — Renders chronological compliance audit timeline
 // # NEW — immutable audit timeline component
 'use client';
+import type { JSX } from 'react';
 
 import React from 'react';
 import { Badge } from '@/components/ui';

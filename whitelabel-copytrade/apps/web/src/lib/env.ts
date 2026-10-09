@@ -1,8 +1,12 @@
 import { z } from 'zod';
 
 /**
- * Server-side configuration for customer web.
- * Validated lazily on first use. Only NEXT_PUBLIC_ vars are browser-safe.
+ * Server-side configuration for customer web: the two values that must never reach the browser,
+ * validated so a misconfigured deployment fails on first use rather than at the first API call.
+ *
+ * Browser-visible configuration is not defined here. It lives in `config/runtime-config.ts`, which
+ * is the one module that reads `NEXT_PUBLIC_*`; this file previously restated those values, so two
+ * places had to agree about the same string and only one of them was ever updated.
  */
 
 const serverSchema = z.object({
@@ -34,13 +38,3 @@ export function serverEnv(): ServerEnv {
   cached = parsed.data;
   return cached;
 }
-
-/** Browser-visible configuration. Contains nothing sensitive. */
-export const publicEnv = {
-  appName: process.env.NEXT_PUBLIC_APP_NAME ?? 'Copy Trading',
-  apiVersion: process.env.NEXT_PUBLIC_API_VERSION ?? 'v1',
-  wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? '',
-  wsPath: process.env.NEXT_PUBLIC_WS_PATH ?? '/socket.io',
-  platformDomain: process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'localhost',
-  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? 'support@example.com',
-} as const;

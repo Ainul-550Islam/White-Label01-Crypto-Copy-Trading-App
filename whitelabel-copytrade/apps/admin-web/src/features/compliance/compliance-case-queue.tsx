@@ -1,6 +1,7 @@
 // # NEW — Renders filterable compliance case queue by severity, status, and SLA
 // # NEW — case list with filters
 'use client';
+import type { JSX } from 'react';
 
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';

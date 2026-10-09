@@ -1,0 +1,83 @@
+# Responsibility: the reviewed secret-scanning policy — every accepted finding is a specific, synthetic value, never a rule or a path suppressed wholesale.
+# gitleaks configuration. `gitleaks detect` with this file is the gate: it fails on anything the
+# default ruleset finds that is not one of the exact values below.
+#
+# The finding this file answers was 160 matches across the git history. Reviewing them took reading the
+# values, and every one of them is synthetic: documentation examples (`sk_live_0123456789abcdefghij` in
+# a handover doc that has since been deleted from the tree but remains in history), unit-test fixtures
+# (`AKEY-12345678`, `leader-fee-policy-key-0001`), an algorithm name matched by a JWT heuristic, and an
+# explicit `replace-me-with-64-hex-characters-generated-fresh` placeholder in .env.staging.example.
+#
+# Why exact values rather than `paths` or rule-level exclusions: a path allowlist for docs/ would hide
+# the next real key somebody pastes into a handover document, which is exactly the accident this gate
+# exists to catch. An entry below suppresses one reviewed string and nothing else, so a different value
+# in the same file still fails the scan. Adding a value here is a reviewed decision: it belongs in a
+# commit with a reason, and a real credential never belongs here at all — it belongs rotated.
+#
+# `regexTarget = "secret"` compares against the captured secret rather than the surrounding line, so
+# the match cannot be widened by editing neighbouring text.
+
+# `useDefault` is not optional and its absence is not obvious: a config file *replaces* the ruleset,
+# so without this line the scan finds nothing - including a real secret - and reports success. That
+# failure mode was measured while writing this file: a planted `ghp_…` token in docs/ was invisible
+# until [extend] useDefault was set.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Reviewed synthetic values matched by the generic-api-key heuristic (11 values; see the file header)."
+regexTarget = "secret"
+regexes = [
+  # illustrative or fixture value: apps/api/src/modules/exchanges/secret-store.spec.ts, docs/source/06-api-modules.md
+  '''AKEY-12345678''',
+  # illustrative or fixture value: apps/api/src/modules/exchanges/exchange.types.ts, apps/web/src/features/exchanges/exchange-capabilities.tsx
+  '''CDP_JWT_ES256_ED25519''',
+  # illustrative or fixture value: docs/PART6_PERSISTENCE_HANDOVER_FULL_SOURCE.md, docs/source/10-trading-core.md …
+  '''NhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j''',
+  # illustrative or fixture value: docs/PART6_HANDOVER_FULL_SOURCE.md, docs/source/10-trading-core.md …
+  '''TEST_EXPLODING_V1''',
+  # illustrative or fixture value: docs/PART11_HANDOVER_FULL_SOURCE.md, docs/PART12_HANDOVER_FULL_SOURCE.md …
+  '''aGVsbG93b3JsZGFiY2RlZg==''',
+  # illustrative or fixture value: docs/PART11_HANDOVER_FULL_SOURCE.md, docs/PART12_HANDOVER_FULL_SOURCE.md …
+  '''abcdefghijklmnop1234''',
+  # illustrative or fixture value: docs/PART11_HANDOVER_FULL_SOURCE.md, docs/PART12_HANDOVER_FULL_SOURCE.md …
+  '''c3VwZXJzZWNyZXR2YWx1ZWZvcmV2ZXJ5b25lCg==''',
+  # illustrative or fixture value: apps/api/src/modules/exchanges/secret-store.spec.ts, docs/source/06-api-modules.md
+  '''hvs.12345678''',
+  # illustrative or fixture value: apps/api/src/modules/partners/partner.contract.spec.ts, docs/source/06-api-modules.md
+  '''idem_refund_123''',
+  # test fixture: apps/api/src/modules/copy-trading/leader-fee.spec.ts
+  '''leader-fee-policy-key-0001''',
+  # illustrative or fixture value: docs/PART11_HANDOVER_FULL_SOURCE.md, docs/PART13_HANDOVER_FULL_SOURCE.md …
+  '''replace-me-with-64-hex-characters-generated-fresh''',
+]
+
+[[allowlists]]
+description = "Reviewed synthetic values matched by the jwt heuristic (4 values; see the file header)."
+regexTarget = "secret"
+regexes = [
+  # illustrative or fixture value: docs/PART9_HANDOVER_FULL_SOURCE.md, docs/fixtures/observability_fixtures.json …
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.9fKq-_2example_sig_x''',
+  # illustrative or fixture value: apps/api/src/modules/observability/observability-safety.spec.ts, docs/PART9_HANDOVER_FULL_SOURCE.md …
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij_k''',
+  # illustrative or fixture value: apps/api/src/modules/mobile-release/mobile-release.contract.spec.ts, docs/source/06-api-modules.md
+  '''eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.c3VwZXJzZWNyZXRzaWduYXR1cmU''',
+  # illustrative or fixture value: docs/PART10_HANDOVER_FULL_SOURCE.md, docs/source/10-trading-core.md …
+  '''eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefGHIJKLmnop''',
+]
+
+[[allowlists]]
+description = "Reviewed synthetic values matched by the stripe-access-token heuristic (3 values; see the file header)."
+regexTarget = "secret"
+regexes = [
+  # illustrative or fixture value: RELEASE_PACKAGE_CHECK.md, docs/PART9_HANDOVER_FULL_SOURCE.md …
+  '''sk_live_0123456789abcdefghij''',
+  # illustrative or fixture value: RELEASE_PACKAGE_CHECK.md, docs/source/07-services.md …
+  '''sk_live_51H8xYzabcd''',
+  # illustrative or fixture value: RELEASE_PACKAGE_CHECK.md, docs/PART16_HANDOVER_FULL_SOURCE.md …
+  '''sk_live_abcdefghij''',
+]
+
+[[allowlists]]
+description = "Generated test key material. apps/api/.generated/ is gitignored (.gitignore:40) and written at test time by apps/api/test/sso-test-keys.global-setup.js, so it never reaches a commit - and `gitleaks dir`/`--no-git` do not read .gitignore, so a working-tree scan would otherwise report it on every run. A path allowlist is used only here and only because `git check-ignore` proves the path is untracked; the test suite asserts that every path entry in this file satisfies that."
+paths = ['''apps/api/\.generated/''']

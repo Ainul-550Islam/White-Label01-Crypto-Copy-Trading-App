@@ -42,8 +42,8 @@ from app.schemas import (
     SubmitOrderResponse,
     VerifyResponse,
 )
-from app.submission import prepare_submission, record_submission
-from app.security import (
+from app.orders.submission import prepare_submission, record_submission
+from app.security.internal_auth import (
     ServiceCaller,
     require_internal_auth,
     require_internal_auth_readonly,
@@ -302,7 +302,7 @@ async def submit_order(
     Validation, placement review, safety gates, risk, idempotency, the adapter
     call and position bookkeeping all happen inside ``ExecutionEngine.submit``,
     which never raises for an expected failure. The context it judges is
-    assembled HERE (app.submission), fail-closed: every input this process has
+    assembled HERE (app.orders.submission), fail-closed: every input this process has
     not positively observed is reported as unknown, and unknown blocks.
 
     A retried job (same clientOrderId) comes back as DUPLICATE from the store's

@@ -6,7 +6,7 @@ Local setup, from a clean checkout to a running stack.
 
 | Tool | Version | Needed for |
 | --- | --- | --- |
-| Node.js | 20.11.0 (see `.nvmrc`) | API, admin console, notification worker |
+| Node.js | 22.23.3 (see `.nvmrc`) | API, admin console, notification worker |
 | npm | 10+ | workspaces |
 | Docker + Compose v2 | recent | Postgres, Redis, the full stack |
 | Python | 3.11 | trading-engine, market-data (only if run outside Docker) |

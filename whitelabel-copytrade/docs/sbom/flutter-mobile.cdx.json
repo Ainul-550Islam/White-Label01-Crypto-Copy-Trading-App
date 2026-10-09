@@ -1,0 +1,3228 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:5085ac69-e484-5896-b15c-9985820abc99",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-08T00:00:00Z",
+    "tools": [
+      {
+        "vendor": "White-Label Crypto Copy Trading",
+        "name": "whitelabel-sbom-generator",
+        "version": "1.1.0"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:generic/wlct-mobile-flutter-application@1.0.0",
+      "name": "wlct-mobile-flutter-application",
+      "version": "1.0.0"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:005c21bdef983a1a15a74631907ffe5ff65665ec33d85baac5d34013aacc1995",
+      "name": "intl",
+      "purl": "pkg:pub/intl@0.20.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#intl"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for intl@0.20.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "0.20.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1ca20c894b1717686a2319b8548763d812bc0aabdac580420a44c5178c57a867"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:077e7ca94e59a890d500c08d051311fc998431a04567d1392574af4f1bc20acd",
+      "name": "flutter_riverpod",
+      "purl": "pkg:pub/flutter_riverpod@2.6.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_riverpod"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for flutter_riverpod@2.6.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.6.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9532ee6db4a943a1ed8383072a2e3eeda041db5657cdf6d2acecf3c21ecbe7e1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:0917777e217046e12aa0e316ed0143a1b436b9fcedc6b2c6a58d7022eedfedf4",
+      "name": "matcher",
+      "purl": "pkg:pub/matcher@0.12.20",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#matcher"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for matcher@0.12.20"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "0.12.20",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "31bd099b47c10cd1aeb55146a2d46ce0277630ecef3f7dae54ad7873f36696cd"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:0d3bd787625eb43499f5b15211e86d96d9352f9b450906fdd9183799b2b17c0e",
+      "name": "shared_preferences_platform_interface",
+      "purl": "pkg:pub/shared_preferences_platform_interface@2.4.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#shared_preferences_platform_interface"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for shared_preferences_platform_interface@2.4.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.4.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "57cbf196c486bc2cf1f02b85784932c6094376284b3ad5779d1b1c6c6a816b80"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:0f7d4f995f32630db77260f45e39c86e757aba6bbe2f97e248cb3e5ef45ec0ad",
+      "name": "shared_preferences",
+      "purl": "pkg:pub/shared_preferences@2.5.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#shared_preferences"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for shared_preferences@2.5.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.5.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6e8bf70b7fef813df4e9a36f658ac46d107db4b4cfe1048b477d4e453a8159f5"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:0f987fa97511c43bfaee24898edc78967db35d13eceba7b4cc507aee5ffaa621",
+      "name": "equatable",
+      "purl": "pkg:pub/equatable@2.1.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#equatable"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for equatable@2.1.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3bce007a596ff8b3119c45d68aaef631272537c03d30e5d4534dd24bf4c5eaa2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:11b5406c0b5d0d8145dd581b5824e25ed2073a79c2029f8c891963be6bfafaa4",
+      "name": "material_color_utilities",
+      "purl": "pkg:pub/material_color_utilities@0.13.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#material_color_utilities"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for material_color_utilities@0.13.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "0.13.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9c337007e82b1889149c82ed242ed1cb24a66044e30979c44912381e9be4c48b"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:132cf63780c5023e98ba95623dd11dc65413c26da94ce34b5e35a0c593083d4a",
+      "name": "flutter_test",
+      "purl": "pkg:pub/flutter_test@0.0.0",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_test"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock (Flutter SDK package)"
+        }
+      ],
+      "version": "0.0.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:14381d7021617dec7605cbfb6535139da4cf248e253eb97a3c58c3339ad3881c",
+      "name": "shared_preferences_web",
+      "purl": "pkg:pub/shared_preferences_web@2.4.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#shared_preferences_web"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for shared_preferences_web@2.4.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.4.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c49bd060261c9a3f0ff445892695d6212ff603ef3115edbb448509d407600019"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:1b5134ef892dd8420bc8cdc3ad540c7a327074ebe8417f80bfb9f370cbab7bea",
+      "name": "http_parser",
+      "purl": "pkg:pub/http_parser@4.0.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#http_parser"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for http_parser@4.0.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "4.0.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2aa08ce0341cc9b354a498388e30986515406668dbcc4f7c950c3e715496693b"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:1d7a80bed138e7d6c85605b2dfcb02008dde118e73d9756b4b0e741886fa802a",
+      "name": "state_notifier",
+      "purl": "pkg:pub/state_notifier@1.0.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#state_notifier"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for state_notifier@1.0.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b8677376aa54f2d7c58280d5a007f9e8774f1968d1fb1c096adcb4792fba29bb"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:2aee8ef1fd82ae2ade81030fefec8c969aae3c65f1154ae73df4e27778a3a9fb",
+      "name": "path_provider",
+      "purl": "pkg:pub/path_provider@2.1.5",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#path_provider"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for path_provider@2.1.5"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.1.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "50c5dd5b6e1aaf6fb3a78b33f6aa3afca52bf903a8a5298f53101fdaee55bbcd"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:2be0cc89e7f8c646d6aad20a3f842b2267741b0e74e63fcca303930fe7b82f00",
+      "name": "path_provider_windows",
+      "purl": "pkg:pub/path_provider_windows@2.3.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#path_provider_windows"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for path_provider_windows@2.3.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.3.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bd6f00dbd873bfb70d0761682da2b3a2c2fccc2b9e84c495821639601d81afe7"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:2d2ec5dd0f6525e40f625184d2d935bc0aa3845743f870f842aa4609f3bf60bc",
+      "name": "shared_preferences_android",
+      "purl": "pkg:pub/shared_preferences_android@2.4.7",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#shared_preferences_android"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for shared_preferences_android@2.4.7"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.4.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9f9f3d372d4304723e6136663bb291c0b93f5e4c8a4a6314347f481a33bda2b1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:30817319d41194f569d297a1ac5f47bf5dacccc7466cc4f8c50a95c355d442d6",
+      "name": "dio",
+      "purl": "pkg:pub/dio@5.11.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#dio"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for dio@5.11.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "5.11.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "852ec3b48cc431ac04fff978413c541502b67ffc3e26921e74e3d994694192c1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:30a232e6bfe3516fb4dec7152f746f55fc0e14cfc1d4691ea562f6a882292965",
+      "name": "win32_registry",
+      "purl": "pkg:pub/win32_registry@1.1.5",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#win32_registry"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for win32_registry@1.1.5"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.1.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "21ec76dfc731550fd3e2ce7a33a9ea90b828fdf19a5c3bcf556fa992cfa99852"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:31134f441e7c4459c92c98b1788e82c517a7ce79c01fa655d4eec65a92623a91",
+      "name": "crypto",
+      "purl": "pkg:pub/crypto@3.0.7",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#crypto"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for crypto@3.0.7"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "3.0.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:32f656ce79ab31137196bf6ff614625d2697cad842b91b5af8ac821f508faec7",
+      "name": "vm_service",
+      "purl": "pkg:pub/vm_service@14.2.5",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#vm_service"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for vm_service@14.2.5"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "14.2.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5c5f338a667b4c644744b661f309fb8080bb94b18a7e91ef1dbd343bed00ed6d"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:34c46baed97dc540dabe0fd823d90283a90d5f9d45f62cb966c6b78cebdae243",
+      "name": "leak_tracker_testing",
+      "purl": "pkg:pub/leak_tracker_testing@3.0.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#leak_tracker_testing"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for leak_tracker_testing@3.0.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "3.0.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8d5a2d49f4a66b49744b23b018848400d23e54caf9463f4eb20df3eb8acb2eb1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:35505c42a19cdb8671796ea862c9aeecb542fffd494ba696a66de0f7c7074b68",
+      "name": "flutter_secure_storage_linux",
+      "purl": "pkg:pub/flutter_secure_storage_linux@1.2.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_secure_storage_linux"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for flutter_secure_storage_linux@1.2.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.2.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "be76c1d24a97d0b98f8b54bce6b481a380a6590df992d0098f868ad54dc8f688"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:3b9698751548cc09d9d3cf39fa8e0478fcba1e62991e8f27d368abb683d41bbd",
+      "name": "string_scanner",
+      "purl": "pkg:pub/string_scanner@1.2.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#string_scanner"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for string_scanner@1.2.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.2.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "556692adab6cfa87322a115640c11f13cb77b3f076ddcc5d6ae3c20242bedcde"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:3db596062263256b078c44cbffcde877ccedde81ee68c10ea7656d1ceecfa9ee",
+      "name": "async",
+      "purl": "pkg:pub/async@2.11.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#async"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for async@2.11.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.11.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "947bfcf187f74dbc5e146c9eb9c0f10c9f8b30743e341481c1e2ed3ecc18c20c"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:3eada0aee28112f8fd6bbe89d030c38e9fb7f82b07f3b4b4c5762b8a62de3cf7",
+      "name": "device_info_plus_platform_interface",
+      "purl": "pkg:pub/device_info_plus_platform_interface@7.0.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#device_info_plus_platform_interface"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for device_info_plus_platform_interface@7.0.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "7.0.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "0b04e02b30791224b31969eb1b50d723498f402971bff3630bca2ba839bd1ed2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:40701959748d13559c2d2b11583dbcbe11cbd512a55a26ab8d64c26436c814b3",
+      "name": "path_provider_android",
+      "purl": "pkg:pub/path_provider_android@2.2.15",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#path_provider_android"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for path_provider_android@2.2.15"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.2.15",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4adf4fd5423ec60a29506c76581bc05854c55e3a0b72d35bb28d661c9686edf2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:4235596c0322b29b62a3fdc5a824afa1057022ddab02555285b93ceef2d532b5",
+      "name": "stack_trace",
+      "purl": "pkg:pub/stack_trace@1.12.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#stack_trace"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for stack_trace@1.12.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.12.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "277654b3034d17ac6f9f1cb5595db011b1d5d41e8806866db28e0abaa101c490"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:43ad685dca6352cb761c3d248c454fcab0238c33fc6579e76282a32c3485c5b4",
+      "name": "path_provider_platform_interface",
+      "purl": "pkg:pub/path_provider_platform_interface@2.1.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#path_provider_platform_interface"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for path_provider_platform_interface@2.1.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.1.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "88f5779f72ba699763fa3a3b06aa4bf6de76c8e5de842cf6f29e2e06476c2334"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:43b49bb68c6e6415e1839a4ec242cef52a26561cf542523866b0e8e118134d6b",
+      "name": "flutter_lints",
+      "purl": "pkg:pub/flutter_lints@4.0.0",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_lints"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock (development dependency)"
+        }
+      ],
+      "version": "4.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3f41d009ba7172d5ff9be5f6e6e6abb4300e263aab8866d2a0842ed2a70f8f0c"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:4634002d5c2277088f6c97acbfc66319349d921f1c8333df0f39f7bf3d4def7d",
+      "name": "leak_tracker_flutter_testing",
+      "purl": "pkg:pub/leak_tracker_flutter_testing@3.0.10",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#leak_tracker_flutter_testing"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for leak_tracker_flutter_testing@3.0.10"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "3.0.10",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1dbc140bb5a23c75ea9c4811222756104fbcd1a27173f0c34ca01e16bea473c1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:46eb3f94cc21b41906dd1729e29a7e5e5ece65f477d703610a1935fb0e8b589e",
+      "name": "collection",
+      "purl": "pkg:pub/collection@1.19.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#collection"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for collection@1.19.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.19.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2f5709ae4d3d59dd8f7cd309b4e023046b57d8a6c82130785d2b0e5868084e76"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:477d7d208b52384b5be140b3d8a75f76518da8f29804b09907d021d7a0744e99",
+      "name": "package_info_plus_platform_interface",
+      "purl": "pkg:pub/package_info_plus_platform_interface@3.2.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#package_info_plus_platform_interface"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for package_info_plus_platform_interface@3.2.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "3.2.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "202a487f08836a592a6bd4f901ac69b3a8f146af552bbd14407b6b41e1c3f086"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:47c420d406aff9a1b4ca85ca644fc8b5a03fbcb0aae45833338531308bdd821f",
+      "name": "clock",
+      "purl": "pkg:pub/clock@1.1.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#clock"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for clock@1.1.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.1.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e51d50bca3217c9a9fa2b41a30e4a38971133f5f9ec7a3d57bae095007f1d28e"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:4b778189effedd93e4dd12be74dece4a2ea7f9b56659b3e9ec90d1671879bd5a",
+      "name": "flutter_secure_storage_windows",
+      "purl": "pkg:pub/flutter_secure_storage_windows@3.1.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_secure_storage_windows"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for flutter_secure_storage_windows@3.1.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "3.1.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b20b07cb5ed4ed74fc567b78a72936203f587eba460af1df11281c9326cd3709"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:4dee1345a9b6461178f1cf9ba5b733b8c38811784039824b0c7b90205cbb8ae7",
+      "name": "typed_data",
+      "purl": "pkg:pub/typed_data@1.4.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#typed_data"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for typed_data@1.4.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.4.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f9049c039ebfeb4cf7a7104a675823cd72dba8297f264b6637062516699fa006"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:4e8e49d1ffe9a3c36a27aa47b8406658fd1eac4b8eb7ba8a8ae0c91cef0b37dc",
+      "name": "ffi",
+      "purl": "pkg:pub/ffi@2.1.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#ffi"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for ffi@2.1.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.1.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "16ed7b077ef01ad6170a3d0c57caa4a112a38d7a2ed5602e0aca9ca6f3d98da6"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:5117dedec5f87a7947018fef1b64c2262a4579dadf313ce00a0d164d51fe1301",
+      "name": "path",
+      "purl": "pkg:pub/path@1.9.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#path"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for path@1.9.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.9.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:517c3f5657a5771d0b1b7d0bc1ecec2bf3f6194ab7135107aac78c06a3848ff1",
+      "name": "path_provider_linux",
+      "purl": "pkg:pub/path_provider_linux@2.2.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#path_provider_linux"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for path_provider_linux@2.2.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.2.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f7a1fe3a634fe7734c8d3f2766ad746ae2a2884abe22e241a8b301bf5cac3279"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:5279cabed53438036c8bd17f11ffe295a465dc15a4ab9a7faa0bd1fd5c5d1c71",
+      "name": "mocktail",
+      "purl": "pkg:pub/mocktail@1.0.5",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#mocktail"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock (development dependency)"
+        }
+      ],
+      "version": "1.0.5",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5e1bf53cc7baa8062a33b84424deb61513858ea05c601b8509e683815b5914aa"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:53778dc0c7708a2a218ee9ac7eb661ed859f15c327472f159fa6525a8cd1e576",
+      "name": "flutter_secure_storage",
+      "purl": "pkg:pub/flutter_secure_storage@9.2.4",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_secure_storage"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for flutter_secure_storage@9.2.4"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "9.2.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9cad52d75ebc511adfae3d447d5d13da15a55a92c9410e50f67335b6d21d16ea"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:5496429a7015f6b9f2e008ffc97f1789651bb6e177deff7bb853673a678dde07",
+      "name": "mime",
+      "purl": "pkg:pub/mime@2.1.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#mime"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for mime@2.1.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bd47de35f07e27267e69c8c8b22edf9473bfee170a60d60fcc93730c5144b7f6"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:699759aed1621a24f57897c2507abe6731ef6f1c8bc2ead32942ac2047b799a0",
+      "name": "fake_async",
+      "purl": "pkg:pub/fake_async@1.3.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#fake_async"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for fake_async@1.3.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.3.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5368f224a74523e8d2e7399ea1638b37aecfca824a3cc4dfdf77bf1fa905ac44"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:71a1eb3771bcc4eea30ffb25e6250bb4f089f88ea2e8886d7f89162515cb2f6b",
+      "name": "meta",
+      "purl": "pkg:pub/meta@1.19.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#meta"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for meta@1.19.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.19.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "307249ce4ff29d58a18e97f6345f539382eb9c9c29ecda628900f31de0443dd9"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:76a52ffbc81716cdbfb444cc44936d49abb88bdadb5c849b9183cfbbcf71f74b",
+      "name": "xdg_directories",
+      "purl": "pkg:pub/xdg_directories@1.1.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#xdg_directories"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for xdg_directories@1.1.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7a3f37b05d989967cdddcbb571f1ea834867ae2faa29725fd085180e0883aa15"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:77c7aac73a84b0feb63687b84ae8b97a8230240eb588d5656a0322e70d0d5c09",
+      "name": "logging",
+      "purl": "pkg:pub/logging@1.3.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#logging"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for logging@1.3.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.3.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c8245ada5f1717ed44271ed1c26b8ce85ca3228fd2ffdb75468ab01979309d61"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:7a747374240583a2ad18d41893f30305609145c91a602e02984d2d7b75e64b09",
+      "name": "leak_tracker",
+      "purl": "pkg:pub/leak_tracker@11.0.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#leak_tracker"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for leak_tracker@11.0.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "11.0.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "33e2e26bdd85a0112ec15400c8cbffea70d0f9c3407491f672a2fad47915e2de"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:7ebcb33aeacf348cfc565297d45878b7f98c3eaa958f59e2f3d0126ea459caad",
+      "name": "dio_web_adapter",
+      "purl": "pkg:pub/dio_web_adapter@2.2.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#dio_web_adapter"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for dio_web_adapter@2.2.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.2.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3a1b2cd7be71086f38504956e3ebcd2837288d231ff454bafa78021244102bfc"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:863f7a5464d07b48072942753bbab1ea19f668df3e02ce238033f43309dc0fd9",
+      "name": "flutter_localizations",
+      "purl": "pkg:pub/flutter_localizations@0.0.0",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_localizations"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock (Flutter SDK package)"
+        }
+      ],
+      "version": "0.0.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:894f5341b3c4ca6cc4ef1d790981b3f0468210f14f826a34e321946c394966f9",
+      "name": "flutter_web_plugins",
+      "purl": "pkg:pub/flutter_web_plugins@0.0.0",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_web_plugins"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock (Flutter SDK package)"
+        }
+      ],
+      "version": "0.0.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:8a89132c1c3857f188321bc572cc26c1da8d8a90d2fed1e228d4a9f9fd16c6cd",
+      "name": "stream_channel",
+      "purl": "pkg:pub/stream_channel@2.1.4",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#stream_channel"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for stream_channel@2.1.4"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.1.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "969e04c80b8bcdf826f8f16579c7b14d780458bd97f56d107d3950fdbeef059d"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:8be23a9e64ccb59b58eae28bc0704a8e6271b264617a9bd700eef55d31bd7033",
+      "name": "lints",
+      "purl": "pkg:pub/lints@4.0.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#lints"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for lints@4.0.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "4.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "976c774dd944a42e83e2467f4cc670daef7eed6295b10b36ae8c85bcbf828235"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:9547ec33c871ba2b4cd20ca980318e987fb7d9f81f86304213d533f733d41a9a",
+      "name": "js",
+      "purl": "pkg:pub/js@0.6.7",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#js"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for js@0.6.7"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "0.6.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f2c445dce49627136094980615a031419f7f3eb393237e4ecd97ac15dea343f3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:962fa2608a275c11743df41f7ce5d6f46b60c64b1823f80d3006bd9b72b387e6",
+      "name": "shared_preferences_windows",
+      "purl": "pkg:pub/shared_preferences_windows@2.4.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#shared_preferences_windows"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for shared_preferences_windows@2.4.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.4.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "94ef0f72b2d71bc3e700e025db3710911bd51a71cefb65cc609dd0d9a982e3c1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:9909e4dedb0bb39746f81ffdaa773fe06303d0c18dc0e46a0bdb59c8933b9e5e",
+      "name": "vector_math",
+      "purl": "pkg:pub/vector_math@2.4.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#vector_math"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for vector_math@2.4.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.4.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "92b9910f66ed1057fd4da7b040ae7c74cafacf885bdc81be496928d5049b032d"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:99ddf03f3913e1aa12c8cd9c849e4d96946d2873eaf89f3f2c41e06a3ea1ed10",
+      "name": "flutter",
+      "purl": "pkg:pub/flutter@0.0.0",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock (Flutter SDK package)"
+        }
+      ],
+      "version": "0.0.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:9d313226218fad8e93266c9a761d60cd425dfe981f44504c7e17b7a3ee33762b",
+      "name": "source_span",
+      "purl": "pkg:pub/source_span@1.10.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#source_span"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for source_span@1.10.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.10.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "53e943d4206a5e30df338fd4c6e7a077e02254531b138a15aec3bd143c1a8b3c"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:a5b0858fe8bdd982532faf2131d1c5625af31811588c78b793d24105ec00f180",
+      "name": "package_info_plus",
+      "purl": "pkg:pub/package_info_plus@8.3.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#package_info_plus"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for package_info_plus@8.3.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "8.3.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "16eee997588c60225bda0488b6dcfac69280a6b7a3cf02c741895dd370a02968"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:a62653050f9a3b8d91c3eb378b8f5ddcb3cd4053c8869f5c630c6dc26735cc49",
+      "name": "shared_preferences_linux",
+      "purl": "pkg:pub/shared_preferences_linux@2.4.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#shared_preferences_linux"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for shared_preferences_linux@2.4.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.4.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "580abfd40f415611503cae30adf626e6656dfb2f0cee8f465ece7b6defb40f2f"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:a71204febfa7d8f8e4b6f8499280d046c7e52c03f910924086ec6f24d38a6c15",
+      "name": "flutter_secure_storage_web",
+      "purl": "pkg:pub/flutter_secure_storage_web@1.2.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_secure_storage_web"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for flutter_secure_storage_web@1.2.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.2.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f4ebff989b4f07b2656fb16b47852c0aab9fed9b4ec1c70103368337bc1886a9"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:aff7ac1819025c542018dccdb544edbd53271a124714fe4bad9f2f3e258bea80",
+      "name": "go_router",
+      "purl": "pkg:pub/go_router@14.8.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#go_router"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for go_router@14.8.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "14.8.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f02fd7d2a4dc512fec615529824fdd217fecb3a3d3de68360293a551f21634b3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:b487a8918ee51eb7ccf891b6a81771c48be936fbc341f59d10ff771dac3f06ce",
+      "name": "fixnum",
+      "purl": "pkg:pub/fixnum@1.1.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#fixnum"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for fixnum@1.1.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b6dc7065e46c974bc7c5f143080a6764ec7a4be6da1285ececdc37be96de53be"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:bac989d0e6ddce4dc62e888a09e5aeb8e088f19f4e2e26a2749f2a07825aed06",
+      "name": "device_info_plus",
+      "purl": "pkg:pub/device_info_plus@10.1.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#device_info_plus"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for device_info_plus@10.1.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "10.1.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a7fd703482b391a87d60b6061d04dfdeab07826b96f9abd8f5ed98068acc0074"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:c0370d0525016f6b4d5139a4ea2c2ac187d51fa528e828b8fde3906a040285f2",
+      "name": "boolean_selector",
+      "purl": "pkg:pub/boolean_selector@2.1.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#boolean_selector"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for boolean_selector@2.1.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6cfb5af12253eaf2b368f07bacc5a80d1301a071c73360d746b7f2e32d762c66"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:c0628fab46ee24b977abfc5d380b7d94df072eed024f2fa6a2d580e75653cf1b",
+      "name": "characters",
+      "purl": "pkg:pub/characters@1.4.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#characters"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for characters@1.4.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.4.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "faf38497bda5ead2a8c7615f4f7939df04333478bf32e4173fcb06d428b5716b"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:c136a413e7442c87fce8c694e77bf781188dc1989c1a50f4e12036793de4c1d3",
+      "name": "http",
+      "purl": "pkg:pub/http@1.6.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#http"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for http@1.6.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.6.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:c296abc16375006d55c20c12fda34809d36734f6a22ad0541de6bb251bb6d2ce",
+      "name": "test_api",
+      "purl": "pkg:pub/test_api@0.7.12",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#test_api"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for test_api@0.7.12"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "0.7.12",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2a122cbe059f8b610d3a5415f42e255b6c17b1f21eee1d960f31080237fb4f11"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:c42214b34f6a761ce047d7760ce3b7187200b1a9524135154a1f27f3a05e2926",
+      "name": "flutter_secure_storage_macos",
+      "purl": "pkg:pub/flutter_secure_storage_macos@3.1.3",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_secure_storage_macos"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for flutter_secure_storage_macos@3.1.3"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "3.1.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6c0a2795a2d1de26ae202a0d78527d163f4acbb11cde4c75c670f3a0fc064247"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:cbf1886cf440d48fbe611d8e9151d24a2dcbb16ee4b0a6684b35dd7fed48b204",
+      "name": "uuid",
+      "purl": "pkg:pub/uuid@4.6.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#uuid"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for uuid@4.6.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "4.6.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9b129329f58692f6e6578329498a8fe9fbe98f090beb764ffbb8ee2eadd01dcd"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:cc5d3d37521820297e809b9f0cb8bf1798796379b3f3d975d73a01cdf9907684",
+      "name": "win32",
+      "purl": "pkg:pub/win32@5.10.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#win32"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for win32@5.10.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "5.10.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "daf97c9d80197ed7b619040e86c8ab9a9dad285e7671ee7390f9180cc828a51e"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:d1a25c113436ac98f10ff3e3be9f592bf74b1b73e2be4a3b6a200d21205ac262",
+      "name": "path_provider_foundation",
+      "purl": "pkg:pub/path_provider_foundation@2.4.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#path_provider_foundation"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for path_provider_foundation@2.4.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.4.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4843174df4d288f5e29185bd6e72a6fbdf5a4a4602717eed565497429f179942"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:d4aed49906fa486829126b6cd42676a975054a09fb8cc94a759a466529214bd7",
+      "name": "term_glyph",
+      "purl": "pkg:pub/term_glyph@1.2.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#term_glyph"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for term_glyph@1.2.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.2.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a29248a84fbb7c79282b40b8c72a1209db169a2e0542bce341da992fe1bc7e84"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:d50fd5a20f7eafe8fc8b4f05408cfc95b912ddf9d537904f4ce6a5ad51f7cb30",
+      "name": "web",
+      "purl": "pkg:pub/web@1.1.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#web"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for web@1.1.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:d6b6bb5374f5e0a8df39485c64d4911f30292d62af536817fecc23050163e752",
+      "name": "shared_preferences_foundation",
+      "purl": "pkg:pub/shared_preferences_foundation@2.5.4",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#shared_preferences_foundation"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for shared_preferences_foundation@2.5.4"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.5.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6a52cfcdaeac77cad8c97b539ff688ccfc458c007b4db12be584fbe5c0e49e03"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:ddc7bf2bd9f6cee98da41222045d1061c46a0530a82cf3a32690b26e9fe7014d",
+      "name": "flutter_secure_storage_platform_interface",
+      "purl": "pkg:pub/flutter_secure_storage_platform_interface@1.1.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#flutter_secure_storage_platform_interface"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for flutter_secure_storage_platform_interface@1.1.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "1.1.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "cf91ad32ce5adef6fba4d736a542baca9daf3beac4db2d04be350b87f69ac4a8"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:dfaebafa2308d0616e387c98ddf6b88440464b97faa880e2a0ea66f9403cf9ec",
+      "name": "riverpod",
+      "purl": "pkg:pub/riverpod@2.6.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#riverpod"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for riverpod@2.6.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.6.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "59062512288d3056b2321804332a13ffdd1bf16df70dcc8e506e411280a72959"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:e4ebf9968c16038aba1d8a4bd7f1ec4df13134e3ff6eab2ffe6c824662d27401",
+      "name": "platform",
+      "purl": "pkg:pub/platform@3.1.6",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#platform"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for platform@3.1.6"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "3.1.6",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5d6b1b0036a5f331ebc77c850ebc8506cbc1e9416c27e59b439f917a902a4984"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:e9e795f89e88461850a95cd4df19312d6c34b77a31f1ce7274050b5f9dae154f",
+      "name": "plugin_platform_interface",
+      "purl": "pkg:pub/plugin_platform_interface@2.1.8",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#plugin_platform_interface"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for plugin_platform_interface@2.1.8"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "2.1.8",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4820fbfdb9478b1ebae27888254d445073732dae3d6ea81f0b7e06d5dedc3f02"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:f51c29f9e70352c27e44323465ca9b3dd7a654ef03583a5f570f5ffe14b7d39f",
+      "name": "sky_engine",
+      "purl": "pkg:pub/sky_engine@0.0.0",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#sky_engine"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock (Flutter SDK package)"
+        }
+      ],
+      "version": "0.0.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:ffcff2fe916351e3a907a7007eb1431b62adf7083b7f2b32ad1446198a3ef86d",
+      "name": "file",
+      "purl": "pkg:pub/file@7.0.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pub"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "apps/mobile/pubspec.lock#file"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "pub.dev archive SHA-256 verified by pubspec.lock for file@7.0.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "apps/mobile/pubspec.lock"
+        }
+      ],
+      "version": "7.0.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a3b4f84adafef897088c160faf7dfffb7696046cb13ae90b508c2cbc95d3b8d4"
+        }
+      ]
+    }
+  ]
+}

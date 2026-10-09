@@ -1,4 +1,5 @@
 // # NEW — Admin console route for compliance cases and KYC/AML queue
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
 import { serverFetch } from '@/lib/server-api';
@@ -6,7 +7,7 @@ import { theme } from '@/lib/theme';
 import {
   ComplianceCaseQueue,
   type ComplianceCaseQueueItem,
-} from '@/modules/compliance/compliance-case-queue';
+} from '@/features/compliance/compliance-case-queue';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,23 +24,28 @@ export default async function ComplianceQueuePage(): Promise<JSX.Element> {
     }
   };
 
+  // Both endpoints answer with the platform's paged envelope - `{ data, total, page, limit }` from
+  // `complianceCase.repository.listTenantCases` and `transactionMonitoringService.listSignals`.
+  // This page asked for `items` and `cases`, neither of which those services return, so the queue
+  // rendered empty against the real API while the console reported no failure at all: a silent
+  // empty page is indistinguishable from a tenant with no cases, which is the worst way for a
+  // compliance screen to be wrong.
   const [casesRes, signalsRes] = await Promise.all([
     track(
       'compliance cases',
-      serverFetch<{ items?: ComplianceCaseQueueItem[]; cases?: ComplianceCaseQueueItem[] }>(
-        '/compliance/cases',
-        { searchParams: { limit: 50 } },
-      ),
+      serverFetch<{ data?: ComplianceCaseQueueItem[]; total?: number }>('/compliance/cases', {
+        searchParams: { limit: 50 },
+      }),
     ),
     track(
       'monitoring signals',
-      serverFetch<{ items?: unknown[]; total?: number }>('/compliance/monitoring/signals', {
+      serverFetch<{ data?: unknown[]; total?: number }>('/compliance/monitoring/signals', {
         searchParams: { limit: 25 },
       }),
     ),
   ]);
 
-  const cases = casesRes?.items ?? casesRes?.cases ?? [];
+  const cases = casesRes?.data ?? [];
   const openCases = cases.filter((c) => c.state !== 'RESOLVED' && c.state !== 'CLOSED');
   const escalatedCases = openCases.filter(
     (c) => c.state === 'ESCALATED' || c.riskLevel === 'CRITICAL' || c.riskLevel === 'HIGH',
@@ -78,7 +84,7 @@ export default async function ComplianceQueuePage(): Promise<JSX.Element> {
         />
         <StatTile
           label="Monitoring Signals"
-          value={signalsRes?.total ?? signalsRes?.items?.length ?? 0}
+          value={signalsRes?.total ?? signalsRes?.data?.length ?? 0}
           hint="Velocity, structuring & jurisdiction alerts"
         />
       </div>

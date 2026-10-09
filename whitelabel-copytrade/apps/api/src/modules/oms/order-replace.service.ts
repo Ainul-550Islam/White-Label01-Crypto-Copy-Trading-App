@@ -3,7 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
 import { OrderIntentService } from './order-intent.service';
 import { RiskDecisionService } from '../risk-management/risk-decision.service';
-import { OrderIntentState, isValidDecimal, parseScaled } from './oms.types';
+import { OrderIntentState, REPLACEABLE_STATES, isValidDecimal, parseScaled } from './oms.types';
 import { ExchangeSymbolService } from '../exchanges/exchange-symbol.service';
 
 /**
@@ -15,12 +15,6 @@ import { ExchangeSymbolService } from '../exchanges/exchange-symbol.service';
 @Injectable()
 export class OrderReplaceService {
   private readonly logger = new Logger(OrderReplaceService.name);
-
-  private static readonly REPLACEABLE_STATES = new Set<string>([
-    OrderIntentState.SUBMITTED,
-    OrderIntentState.ACKNOWLEDGED,
-    OrderIntentState.PARTIALLY_FILLED,
-  ]);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -52,7 +46,7 @@ export class OrderReplaceService {
     if (!intent) throw new BadRequestException(`Intent ${intentId} not found`);
 
     const currentState = intent.state ?? intent.status;
-    if (!OrderReplaceService.REPLACEABLE_STATES.has(currentState)) {
+    if (!REPLACEABLE_STATES.has(currentState)) {
       throw new BadRequestException(`Order ${intentId} not replaceable in state ${currentState}`);
     }
 

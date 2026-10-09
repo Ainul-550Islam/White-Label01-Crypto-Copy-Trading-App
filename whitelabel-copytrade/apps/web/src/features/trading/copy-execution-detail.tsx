@@ -1,5 +1,6 @@
 // # NEW — Renders leader event details, sizing calculation, risk decision, child order linkage, and execution timeline
 "use client";
+import type { JSX } from 'react';
 
 import React from "react";
 import type { CopyExecutionItem } from "@/api/trading-api";

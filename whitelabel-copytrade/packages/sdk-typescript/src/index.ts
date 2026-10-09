@@ -53,29 +53,6 @@ export const DEVELOPER_SCOPES = [
   'developer:manage',
 ] as const;
 
-/** The 23 authoritative event types mirrored from the platform catalog. */
-export const DEVELOPER_EVENT_TYPES = [
-  'customer.created',
-  'customer.updated',
-  'subscription.created',
-  'subscription.changed',
-  'subscription.cancelled',
-  'payment.succeeded',
-  'payment.failed',
-  'invoice.created',
-  'invoice.paid',
-  'funding.requested',
-  'funding.confirmed',
-  'withdrawal.requested',
-  'withdrawal.confirmed',
-  'copy.subscription.created',
-  'copy.subscription.cancelled',
-  'order.created',
-  'order.acknowledged',
-  'order.filled',
-  'order.rejected',
-  'portfolio.snapshot.created',
-  'statement.generated',
-  'compliance.review.required',
-  'security.event',
-] as const;
+export { DEVELOPER_EVENT_TYPES } from './generated/event-types';
+export type { DeveloperEventType } from './generated/event-types';
+export type { components, operations, paths } from './generated/schema';

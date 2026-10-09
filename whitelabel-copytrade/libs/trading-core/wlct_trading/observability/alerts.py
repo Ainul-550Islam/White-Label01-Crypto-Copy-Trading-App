@@ -324,6 +324,15 @@ ALERT_RULES: tuple[AlertRule, ...] = (
         ),
         blocks_trading=False,
     ),
+    AlertRule(
+        "OUTBOX_LAG_HIGH",
+        AlertSeverity.WARNING,
+        "Transactional outbox lag",
+        "The oldest unpublished transactional outbox event is more than 60 seconds old.",
+        threshold=60.0,
+        unit="oldest_unpublished_event_seconds",
+        blocks_trading=False,
+    ),
 )
 
 _RULES_BY_ID: dict[str, AlertRule] = {rule.rule_id: rule for rule in ALERT_RULES}

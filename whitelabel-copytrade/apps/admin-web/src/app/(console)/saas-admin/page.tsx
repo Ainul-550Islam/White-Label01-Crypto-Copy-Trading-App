@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 
 import { ErrorNotice } from '@/components/ui';
@@ -15,8 +16,8 @@ export const metadata: Metadata = { title: 'SaaS tenants' };
  * would only collect 403s, so the page explains that instead of rendering
  * an empty console. The API remains the actual gate.
  */
-export default function SaasAdminPage(): JSX.Element {
-  const claims = getConsoleClaims();
+export default async function SaasAdminPage(): Promise<JSX.Element> {
+  const claims = await getConsoleClaims();
   if (!claims?.isPlatformUser || !hasPermission(claims, 'platform:manage')) {
     return (
       <div className="p-6">

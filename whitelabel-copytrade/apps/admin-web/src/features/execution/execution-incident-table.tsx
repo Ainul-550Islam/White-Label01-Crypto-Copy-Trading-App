@@ -1,12 +1,13 @@
 // # NEW — Displays execution incidents, venue outages, and manual resolution actions
 // # NEW — incidents table/detail UI
 'use client';
+import type { JSX } from 'react';
 
 import React, { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge, DataTable } from '@/components/ui';
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, formatRelative } from '@/lib/format';
 import { theme } from '@/lib/theme';
 

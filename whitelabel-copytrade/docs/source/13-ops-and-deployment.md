@@ -2,7 +2,7 @@
 
 The production operations module (preflight, gates, release manifest, backup/restore and rollback verification), the validation check scripts, the Terraform root module and the JSON schemas for staging evidence.
 
-34 files. Part of the complete source dump - see `docs/source/README.md`.
+39 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -1094,10 +1094,1369 @@ output "domain_name" {
 }
 ```
 
+FILE: ops/gap-parity-scanner-51-100.js
+
+```javascript
+#!/usr/bin/env node
+// # Responsibility: evaluates repository-backed implementation, workflow, and assertion evidence for GAP-51 through GAP-100; it never trusts filenames or hard-coded statuses.
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+const FORBIDDEN_PLACEHOLDERS = [
+  ['Rest of the code', 'here'].join(' '),
+  ['existing code', 'omitted'].join(' '),
+  ['same as', 'above'].join(' '),
+  ['TODO-only', 'implementation'].join(' '),
+];
+
+function criterion(key, evidence, mode) {
+  return { key, evidence, mode: mode || (evidence.length > 1 ? 'all' : 'any') };
+}
+function probe(file, patterns) {
+  return { file, patterns };
+}
+function source(file, ...patterns) {
+  return probe(file, patterns);
+}
+function test(file, subjectPattern) {
+  return probe(file, ['\\b(?:test|it)\\s*\\(', '\\bexpect\\s*\\(', subjectPattern]);
+}
+
+// Each record is a declarative evidence rubric, not a status. The scanner evaluates
+// implementation behavior, a customer/operator/API surface, and test assertions from
+// file contents. Commercial weights are disclosed again in the final report.
+const BASELINE_ACCEPTED_GAPS = 50;
+const PRODUCTION_CRITICAL_GAP_IDS = new Set([
+  'GAP-55', 'GAP-57', 'GAP-60', 'GAP-61', 'GAP-62', 'GAP-63', 'GAP-64', 'GAP-65',
+  'GAP-66', 'GAP-67', 'GAP-68', 'GAP-69', 'GAP-70', 'GAP-71', 'GAP-72', 'GAP-73',
+  'GAP-74', 'GAP-75', 'GAP-76', 'GAP-77', 'GAP-78', 'GAP-79', 'GAP-80', 'GAP-81',
+  'GAP-82', 'GAP-83', 'GAP-95', 'GAP-96', 'GAP-97', 'GAP-98', 'GAP-100',
+]);
+
+const GAP_CHECKS = [
+  {
+    id: 'GAP-51', title: 'Trader profile, follower/AUM/activity detail', commercialWeight: 5,
+    criteria: [
+      criterion('tenant-profile-read', [source('apps/api/src/modules/copy-trading/trader-profile.service.ts', 'class\\s+TraderProfileService', 'getProfile')]),
+      criterion('customer-profile-surface', [source('apps/web/src/features/trading/trader-detail-page.tsx', 'TraderDetailPage', 'followerCount')]),
+      criterion('verified-aum-or-activity-provenance', [source('apps/api/src/modules/copy-trading/trader-profile.service.ts', 'aum|assetsUnderManagement|asset[s]? under management', 'source|provenance|asOf')]),
+      criterion('profile-regression-assertions', [test('apps/web/src/tests/trader-detail-page.test.tsx', 'followerCount|AUM|activity')]),
+    ],
+  },
+  {
+    id: 'GAP-52', title: 'Lead-trader application and qualification workflow', commercialWeight: 5,
+    criteria: [
+      criterion('existing-trader-profile-and-verification-foundation', [source('apps/api/src/modules/copy-trading/trader-profile.service.ts', 'class\\s+TraderProfileService', 'verificationState|TraderVerificationState')]),
+      criterion('application-domain-state-machine', [source('apps/api/src/modules/copy-trading/lead-trader-application.service.ts', 'class\\s+LeadTraderApplicationService', 'apply|transition|qualification')]),
+      criterion('applicant-and-review-queue-surfaces', [source('apps/web/src/features/trading/lead-trader-application-page.tsx', 'application|qualification'), source('apps/admin-web/src/features/trading/lead-trader-application-queue.tsx', 'review|application')]),
+      criterion('application-authorization-and-tenant-scope', [source('apps/api/src/modules/copy-trading/lead-trader-application.service.ts', 'tenantId', 'assertTenant|tenantId.*userId|userId.*tenantId')]),
+      criterion('application-regression-assertions', [test('apps/api/src/modules/copy-trading/lead-trader-application.spec.ts', 'application|qualification|transition')]),
+    ],
+  },
+  {
+    id: 'GAP-53', title: 'Lead-trader profit-share and fee configuration', commercialWeight: 5,
+    criteria: [
+      criterion('existing-platform-fee-policy-and-calculator', [source('apps/api/src/modules/billing/fees/fee-policy.service.ts', 'FeePolicyService', 'effective|fee'), source('apps/api/src/modules/billing/fees/fee-calculator.service.ts', 'FeeCalculatorService|calculate', 'fee|basisPoints')]),
+      criterion('effective-fee-policy-engine', [source('apps/api/src/modules/copy-trading/leader-fee.service.ts', 'class\\s+LeaderFeeService', 'effective|basis|fee')]),
+      criterion('customer-fee-configuration-surface', [source('apps/web/src/features/trading/leader-fee-settings-page.tsx', 'fee|commission|basis')]),
+      criterion('exact-money-arithmetic', [source('apps/api/src/modules/copy-trading/leader-fee.service.ts', 'BigInt|Decimal|parseDecimalString')]),
+      criterion('fee-policy-regression-assertions', [test('apps/api/src/modules/copy-trading/leader-fee.spec.ts', 'fee|commission|round')]),
+    ],
+  },
+  {
+    id: 'GAP-54', title: 'Leaderboard timeframe and ranking methodology', commercialWeight: 4,
+    criteria: [
+      criterion('ranking-methodology', [source('apps/api/src/modules/copy-trading/trader-ranking.service.ts', 'class\\s+TraderRankingService', 'weight|score|rank')]),
+      criterion('explicit-timeframe-control', [source('apps/web/src/features/trading/trader-ranking-controls.tsx', 'timeframe|period|window'), source('apps/web/src/features/trading/traders-page.tsx', 'timeframe|period|window')]),
+      criterion('ranking-response-explains-method', [source('apps/api/src/modules/copy-trading/trader-ranking.service.ts', 'weighting|methodology')]),
+      criterion('ranking-regression-assertions', [test('apps/api/src/modules/copy-trading/trader-ranking.spec.ts', 'rank|score|weight|timeframe'), test('apps/web/src/tests/trader-ranking-controls.test.tsx', 'timeframe|rank|filter')]),
+    ],
+  },
+  {
+    id: 'GAP-55', title: 'Verified performance calculation methodology', commercialWeight: 5,
+    criteria: [
+      criterion('deterministic-exact-calculation', [source('apps/api/src/modules/copy-trading/performance-calculation.service.ts', 'TIME_WEIGHTED_RETURN', 'flowBoundary', 'parseDecimalString')]),
+      criterion('unavailable-on-incomplete-input', [source('apps/api/src/modules/copy-trading/performance-calculation.service.ts', 'dataCompleteness', 'UNAVAILABLE', 'stale|incomplete|boundary')]),
+      criterion('customer-methodology-disclosure', [source('apps/web/src/features/trading/performance-methodology.tsx', 'methodology|calculationVersion|dataCompleteness')]),
+      criterion('canonical-calculation-integration', [source('apps/api/src/modules/copy-trading/trader-performance.service.ts', 'PerformanceCalculationService|flowBoundary|TIME_WEIGHTED_RETURN')]),
+      criterion('calculation-regression-assertions', [test('apps/api/src/modules/copy-trading/performance-calculation.spec.ts', 'incomplete|duplicate|return|drawdown')]),
+    ],
+  },
+  {
+    id: 'GAP-56', title: 'Verified benchmark and market comparison overlay', commercialWeight: 4,
+    criteria: [
+      criterion('tenant-scoped-persisted-benchmark-service', [source('apps/api/src/modules/copy-trading/performance-benchmark.service.ts', 'getTraderBenchmarkSeries', 'tenantId', 'portfolioPerformanceRecord')]),
+      criterion('benchmark-provenance-and-no-synthesis', [source('apps/api/src/modules/copy-trading/performance-benchmark.service.ts', 'sourceReferences', 'UNAVAILABLE', 'benchmarkKey')]),
+      criterion('authorized-controller-and-chart', [source('apps/api/src/modules/copy-trading/performance-benchmark.controller.ts', 'RequirePermissions', 'authTenantId'), source('apps/web/src/features/trading/performance-benchmark-chart.tsx', 'UNAVAILABLE|PARTIAL|observations')]),
+      criterion('benchmark-regression-assertions', [test('apps/api/src/modules/copy-trading/performance-benchmark.spec.ts', 'UNAVAILABLE|COMPLETE|benchmark'), test('apps/web/src/tests/performance-benchmark-chart.test.tsx', 'UNAVAILABLE|benchmark')]),
+    ],
+  },
+  {
+    id: 'GAP-57', title: 'Unified trader risk score', commercialWeight: 5,
+    criteria: [
+      criterion('explainable-fresh-factor-engine', [source('apps/api/src/modules/risk/trader-risk-score.service.ts', 'class\\s+TraderRiskScoreService', 'observedAt', 'weightBps')]),
+      criterion('missing-or-stale-is-unavailable', [source('apps/api/src/modules/risk/trader-risk-score.service.ts', 'STALE', 'MISSING', 'UNAVAILABLE')]),
+      criterion('customer-risk-score-surface', [source('apps/web/src/features/trading/trader-risk-score.tsx', 'confidence|factor|risk')]),
+      criterion('risk-score-regression-assertions', [test('apps/api/src/modules/risk/trader-risk-score.spec.ts', 'STALE|MISSING|score|confidence')]),
+      criterion('canonical-data-api-integration', [source('apps/api/src/modules/copy-trading/trader-profile.service.ts', 'TraderRiskScoreService|riskScore|riskFactors')]),
+    ],
+  },
+  {
+    id: 'GAP-58', title: 'Trader exposure and asset allocation breakdown', commercialWeight: 4,
+    criteria: [
+      criterion('measured-exposure-domain', [source('apps/api/src/modules/risk-management/portfolio-exposure.service.ts', 'class\\s+PortfolioExposureService', 'exposure|valuation')]),
+      criterion('tenant-authorized-trader-exposure-api', [source('apps/api/src/modules/risk-management/risk.controller.ts', 'exposure|authTenantId')]),
+      criterion('customer-trader-exposure-panel', [source('apps/web/src/features/trading/trader-exposure-panel.tsx', 'exposure|allocation|UNAVAILABLE')]),
+      criterion('exposure-regression-assertions', [test('apps/web/src/tests/trader-exposure-panel.test.tsx', 'exposure|unknown|unavailable')]),
+    ],
+  },
+  {
+    id: 'GAP-59', title: 'Concentration and correlation risk view', commercialWeight: 4,
+    criteria: [
+      criterion('server-risk-calculations', [source('apps/api/src/modules/risk-management/concentration-risk.service.ts', 'class\\s+ConcentrationRiskService', 'concentration'), source('apps/api/src/modules/risk-management/correlation-risk.service.ts', 'correlation')]),
+      criterion('measured-or-stale-risk-evidence', [source('apps/api/src/modules/risk-management/concentration-risk.service.ts', 'stale|source|observedAt|timestamp')]),
+      criterion('customer-risk-panel-and-tests', [source('apps/web/src/features/trading/concentration-risk-panel.tsx', 'concentration|correlation'), test('apps/api/src/modules/risk/concentration-risk.spec.ts', 'concentration|correlation')]),
+    ],
+  },
+  {
+    id: 'GAP-60', title: 'Preview-only exact-decimal allocation rebalance planner', commercialWeight: 5,
+    criteria: [
+      criterion('exact-decimal-preview-without-execution', [source('apps/api/src/modules/copy-trading/allocation-rebalance.service.ts', 'parseDecimalString', 'executable:\\s*false', 'no order|no transfer')]),
+      criterion('authenticated-preview-route-and-provenance', [source('apps/api/src/modules/copy-trading/allocation-rebalance.controller.ts', 'RequirePermissions', 'authTenantId', 'CLIENT_SUPPLIED_UNVERIFIED')]),
+      criterion('customer-preview-ui-and-api-link', [source('apps/web/src/features/trading/allocation-rebalance-page.tsx', 'previewAllocationRebalance|UNAVAILABLE|preview')]),
+      criterion('planner-regression-assertions', [test('apps/api/src/modules/copy-trading/allocation-rebalance.spec.ts', 'executable|UNAVAILABLE|10000'), test('apps/web/src/tests/allocation-rebalance-page.test.tsx', 'preview|UNAVAILABLE')]),
+      criterion('persisted-portfolio-valuation-input', [source('apps/api/src/modules/copy-trading/allocation-rebalance.controller.ts', 'portfolioPosition|portfolioBalance|allocationRepository')]),
+    ],
+  },
+  {
+    id: 'GAP-61', title: 'Copy budget and allocation-cap automation', commercialWeight: 5,
+    criteria: [
+      criterion('existing-per-subscription-budget-and-policy', [source('apps/api/src/modules/copy-trading/follower-allocation.service.ts', 'allocationAmount|maxAllocation|allocation')]),
+      criterion('global-active-copy-budget-engine', [source('apps/api/src/modules/copy-trading/copy-budget.service.ts', 'active|aggregate|budget|reserve')]),
+      criterion('customer-budget-surface', [source('apps/web/src/features/trading/copy-budget-settings.tsx', 'budget|allocation')]),
+      criterion('budget-enforcement-test', [test('apps/api/src/modules/copy-trading/copy-budget.spec.ts', 'budget|allocation|cap')]),
+    ],
+  },
+  {
+    id: 'GAP-62', title: 'Maximum concurrent position and order limits', commercialWeight: 5,
+    criteria: [
+      criterion('existing-position-risk-gates', [source('apps/api/src/modules/risk-management/position-risk.service.ts', 'position|limit|risk')]),
+      criterion('explicit-user-concurrent-position-limit', [source('apps/api/src/modules/risk/position-limit.service.ts', 'maxConcurrent|openPositions|openOrders')]),
+      criterion('customer-position-limit-control', [source('apps/web/src/features/trading/position-limit-settings.tsx', 'position|order|limit')]),
+      criterion('position-limit-regression-assertions', [test('apps/api/src/modules/risk/position-limit.spec.ts', 'position|limit|concurrent')]),
+    ],
+  },
+  {
+    id: 'GAP-63', title: 'Copy-trading symbol allow and deny policies', commercialWeight: 4,
+    criteria: [
+      criterion('policy-intersection-and-validation', [source('apps/api/src/modules/copy-trading/copy-policy.service.ts', 'allowedSymbols', 'blockedSymbols', 'validateSymbolRules')]),
+      criterion('pre-dispatch-symbol-enforcement', [source('apps/api/src/modules/copy-trading/follower-risk.service.ts', 'UNALLOWED_SYMBOL', 'BLOCKED_SYMBOL')]),
+      criterion('customer-settings-and-contract-link', [source('apps/web/src/features/trading/copy-settings-page.tsx', 'Allowed Symbols', 'Blocked Symbols', 'updateCopySubscriptionSettings')]),
+      criterion('symbol-policy-regression-assertions', [test('apps/api/src/modules/copy-trading/follower-risk.service.spec.ts', 'blockedSymbols|allowedSymbols|UNALLOWED_SYMBOL')]),
+    ],
+  },
+  {
+    id: 'GAP-64', title: 'Leverage and margin-mode policy surface', commercialWeight: 5,
+    criteria: [
+      criterion('server-ceiling-and-venue-capability', [source('apps/api/src/modules/risk/leverage-policy.service.ts', 'class\\s+LeveragePolicyService', 'maximumAllowed', 'venueMaximum')]),
+      criterion('leverage-regression-assertions', [test('apps/api/src/modules/risk/leverage-policy.spec.ts', 'venue|ceiling|accountCanTrade')]),
+      criterion('customer-leverage-policy-surface', [source('apps/web/src/features/trading/leverage-policy-panel.tsx', 'leverage|margin|maximum')]),
+      criterion('service-connected-to-authoritative-risk-api', [source('apps/api/src/modules/risk-management/risk.controller.ts', 'LeveragePolicyService|evaluate\\(')]),
+    ],
+  },
+  {
+    id: 'GAP-65', title: 'Liquidation distance and margin health alerts', commercialWeight: 5,
+    criteria: [
+      criterion('existing-canonical-liquidation-risk', [source('apps/api/src/modules/risk-management/liquidation-risk.service.ts', 'liquidation|margin|risk')]),
+      criterion('customer-liquidation-alert-surface', [source('apps/web/src/features/trading/liquidation-risk-alert.tsx', 'liquidation|margin|UNKNOWN')]),
+      criterion('notification-dispatch-and-test', [source('apps/api/src/modules/notifications/processors/liquidation-risk-notification.processor.ts', 'liquidation|notification'), test('apps/api/src/modules/risk/liquidation-risk.spec.ts', 'liquidation|margin')]),
+    ],
+  },
+  {
+    id: 'GAP-66', title: 'User-configurable slippage tolerance', commercialWeight: 5,
+    criteria: [
+      criterion('subscription-setting-and-api-contract', [source('apps/web/src/features/trading/copy-settings-page.tsx', 'Slippage Tolerance', 'slippageToleranceBps', 'updateCopySubscriptionSettings')]),
+      criterion('exact-adverse-slippage-enforcement', [source('apps/api/src/modules/copy-trading/copy-policy.service.ts', 'evaluateSlippageAndDelay', 'SLIPPAGE_TOLERANCE_EXCEEDED', 'parseDecimalString')]),
+      criterion('no-substituted-follower-fill-price', [source('apps/api/src/modules/copy-trading/copy-execution.service.ts', 'executionPrice:\\s*followerIntent\\.price \\|\\| null')]),
+      criterion('slippage-regression-assertions', [test('apps/api/src/modules/copy-trading/copy-policy.service.spec.ts', 'SLIPPAGE_TOLERANCE_EXCEEDED|SLIPPAGE_REFERENCE_UNAVAILABLE'), test('apps/web/src/tests/copy-settings-page.test.tsx', 'slippageToleranceBps')]),
+    ],
+  },
+  {
+    id: 'GAP-67', title: 'Copy execution retry/failure timeline', commercialWeight: 4,
+    criteria: [
+      criterion('durable-copy-execution-state', [source('apps/api/src/modules/copy-trading/copy-trading.types.ts', 'CopyExecutionStatus|failureReason|retryCount'), source('apps/api/src/modules/copy-trading/copy-execution.service.ts', 'failureReason|retryCount|status')]),
+      criterion('owner-filtered-execution-read-api', [source('apps/api/src/modules/copy-trading/copy-trading.controller.ts', 'executions|authTenantId|subscriptionId')]),
+      criterion('customer-timeline-surface', [source('apps/web/src/features/trading/copy-execution-status-timeline.tsx', 'timeline|retry|failure')]),
+      criterion('timeline-state-regression-assertions', [test('apps/api/src/modules/copy-trading/copy-execution-status.spec.ts', 'retry|transition|failure')]),
+    ],
+  },
+  {
+    id: 'GAP-68', title: 'OMS state machine visualization and recovery action', commercialWeight: 4,
+    criteria: [
+      criterion('canonical-lifecycle-and-events', [source('apps/api/src/modules/oms/order-lifecycle.service.ts', 'transition|OrderEvent|event')]),
+      criterion('operator-timeline-surface', [source('apps/admin-web/src/features/execution/order-state-timeline.tsx', 'timeline|status|event')]),
+      criterion('recovery-authorized-through-oms', [source('apps/api/src/modules/oms/order-lifecycle.service.ts', 'permission|authorize|transition')]),
+      criterion('lifecycle-regression-assertions', [test('apps/api/src/modules/oms/order-state-machine.spec.ts', 'transition|illegal|recovery')]),
+    ],
+  },
+  {
+    id: 'GAP-69', title: 'Exchange user-data stream health', commercialWeight: 4,
+    criteria: [
+      criterion('persisted-stream-and-health-evidence', [source('apps/api/prisma/schema.prisma', 'model\\s+ExchangeStreamSession'), source('apps/api/src/modules/exchanges/exchange-health.service.ts', 'stream|health|session')]),
+      criterion('account-scoped-user-stream-api', [source('apps/api/src/modules/exchanges/exchange-user-stream.controller.ts', 'authTenantId|accountId|health')]),
+      criterion('operator-stream-health-surface', [source('apps/admin-web/src/features/execution/exchange-stream-health.tsx', 'stream|health|UNKNOWN')]),
+      criterion('stream-lifecycle-regression-assertions', [test('apps/api/src/modules/exchanges/exchange-user-stream.spec.ts', 'stream|health|UNKNOWN')]),
+    ],
+  },
+  {
+    id: 'GAP-70', title: 'Clock drift and venue timestamp safety', commercialWeight: 4,
+    criteria: [
+      criterion('existing-venue-time-evidence', [source('apps/api/src/modules/exchanges/exchange-connectivity.service.ts', 'serverTime|clockDrift|timestamp')]),
+      criterion('bounded-clock-offset-service', [source('apps/api/src/modules/exchanges/venue-clock.service.ts', 'offset|drift|maximum|fail')]),
+      criterion('execution-engine-monotonic-sync', [source('services/execution-engine/app/exchanges/clock_sync.py', 'monotonic|offset|drift')]),
+      criterion('clock-safety-regression-assertions', [test('apps/api/src/modules/exchanges/venue-clock.spec.ts', 'drift|offset|reject')]),
+    ],
+  },
+  {
+    id: 'GAP-71', title: 'Exchange rate-limit budget and backpressure', commercialWeight: 5,
+    criteria: [
+      criterion('atomic-tenant-budget-reservation', [source('apps/api/src/modules/exchanges/exchange-rate-limit.service.ts', 'incrementBy', 'getCacheKey\\(input\\.tenantId')]),
+      criterion('routing-denies-unavailable-budget', [source('apps/api/src/modules/exchanges/exchange-routing.service.ts', 'RATE_LIMIT_STATE_UNAVAILABLE', 'rateLimitCheck\\.allowed')]),
+      criterion('operator-rate-limit-dashboard', [source('apps/admin-web/src/features/execution/exchange-rate-limit-health.tsx', 'budget|remaining|pressure')]),
+      criterion('rate-limit-outage-regression-assertions', [test('apps/api/src/modules/exchanges/exchange-rate-limit.service.spec.ts', 'unavailable|denying|weight')]),
+    ],
+  },
+  {
+    id: 'GAP-72', title: 'Venue maintenance and incident status surface', commercialWeight: 4,
+    criteria: [
+      criterion('existing-maintenance-and-health-domains', [source('apps/api/src/modules/operations/maintenance-mode.service.ts', 'maintenance|status'), source('apps/api/src/modules/exchanges/exchange-health.service.ts', 'health|state')]),
+      criterion('normalized-venue-status-api', [source('apps/api/src/modules/exchanges/venue-status.controller.ts', 'venue|status|authTenantId')]),
+      criterion('customer-venue-status-banner', [source('apps/web/src/features/trading/venue-status-banner.tsx', 'UNKNOWN|degraded|maintenance')]),
+      criterion('admin-venue-status-console', [source('apps/admin-web/src/features/execution/venue-status-console.tsx', 'incident|venue|status')]),
+      criterion('status-failure-regression-assertions', [test('apps/api/src/modules/exchanges/venue-status.spec.ts', 'UNKNOWN|unavailable|maintenance')]),
+    ],
+  },
+  {
+    id: 'GAP-73', title: 'Exchange account permission/capability health', commercialWeight: 4,
+    criteria: [
+      criterion('persisted-account-capability-evidence', [source('apps/api/prisma/schema.prisma', 'canTrade|canReadData|canWithdraw', 'verifiedPermissions|permissionsVerifiedAt')]),
+      criterion('capability-discovery-api', [source('apps/api/src/modules/exchanges/exchange-connectivity.service.ts', 'permissions|canTrade|capability')]),
+      criterion('customer-account-health-surface', [source('apps/web/src/features/exchanges/account-capability-health.tsx', 'READ_ONLY|TRADE_ENABLED|UNKNOWN')]),
+      criterion('account-health-regression-assertions', [test('apps/api/src/modules/exchanges/account-capability-health.spec.ts', 'permission|stale|UNKNOWN')]),
+    ],
+  },
+  {
+    id: 'GAP-74', title: 'Exchange API-key rotation workflow', commercialWeight: 5,
+    criteria: [
+      criterion('existing-rotation-api-and-service', [source('apps/api/src/modules/exchanges/exchanges.controller.ts', 'rotate'), source('apps/api/src/modules/exchanges/exchange-account.service.ts', 'rotateCredentials')]),
+      criterion('customer-rotation-workflow', [source('apps/web/src/features/exchanges/api-key-rotation-page.tsx', 'rotate|credential|verify')]),
+      criterion('secret-readiness-and-audit', [source('apps/api/src/modules/exchanges/exchange-account.service.ts', 'audit|credential|verify|secret')]),
+      criterion('rotation-regression-assertions', [test('apps/api/src/modules/exchanges/api-key-rotation.spec.ts', 'rotate|credential|secret')]),
+    ],
+  },
+  {
+    id: 'GAP-75', title: 'Read-only versus trade permission verification', commercialWeight: 4,
+    criteria: [
+      criterion('persisted-verified-permission-state', [source('apps/api/prisma/schema.prisma', 'canTrade|canReadData|verifiedPermissions|permissionsVerifiedAt')]),
+      criterion('live-provider-permission-check', [source('apps/api/src/modules/exchanges/exchange-connectivity.service.ts', 'canTrade|permissions|verified')]),
+      criterion('customer-permission-badge', [source('apps/web/src/features/exchanges/permission-verification-badge.tsx', 'READ_ONLY|TRADE_ENABLED|UNKNOWN')]),
+      criterion('permission-regression-assertions', [test('apps/api/src/modules/exchanges/permission-verification.spec.ts', 'read.only|trade|UNKNOWN')]),
+    ],
+  },
+  {
+    id: 'GAP-76', title: 'Withdrawal destination whitelist and policy', commercialWeight: 5,
+    criteria: [
+      criterion('existing-withdrawal-safety-gates', [source('apps/api/src/modules/custody/withdrawal-policy.service.ts', 'allow|deny|hold|approval')]),
+      criterion('tenant-user-destination-allowlist', [source('apps/api/src/modules/custody/withdrawal-destination-policy.service.ts', 'tenantId', 'userId|ownerUserId', 'allowlist|destination')]),
+      criterion('customer-and-admin-destination-surfaces', [source('apps/web/src/features/funding/withdrawal-destination-manager.tsx', 'confirm|destination'), source('apps/admin-web/src/features/funding/withdrawal-destination-audit.tsx', 'audit|destination')]),
+      criterion('destination-policy-regression-assertions', [test('apps/api/src/modules/custody/withdrawal-destination-policy.spec.ts', 'unverified|tenant|destination')]),
+    ],
+  },
+  {
+    id: 'GAP-77', title: 'Step-up authentication for sensitive operations', commercialWeight: 5,
+    criteria: [
+      criterion('existing-mfa-and-totp-controls', [source('apps/api/src/modules/auth/services/two-factor.service.ts', 'TOTP|totp|recoveryCode|two.factor')]),
+      criterion('action-bound-step-up-service', [source('apps/api/src/modules/auth/step-up-auth.service.ts', 'action|challenge|consume|expiry')]),
+      criterion('step-up-api-and-dialog', [source('apps/api/src/modules/auth/step-up-auth.controller.ts', 'RequirePermissions|challenge'), source('apps/web/src/features/security/step-up-auth-dialog.tsx', 'challenge|verify|action')]),
+      criterion('step-up-replay-regression-assertions', [test('apps/api/src/modules/auth/step-up-auth.spec.ts', 'replay|expiry|action|TOTP')]),
+    ],
+  },
+  {
+    id: 'GAP-78', title: 'Session and device management', commercialWeight: 4,
+    criteria: [
+      criterion('session-list-and-revocation-service', [source('apps/api/src/modules/auth/services/session.service.ts', 'listForUser', 'revokeAll|revoke')]),
+      criterion('authenticated-session-controller', [source('apps/api/src/modules/auth/sessions.controller.ts', 'sessions|revoke|Permission')]),
+      criterion('customer-session-device-surface', [source('apps/web/src/features/security/sessions-page.tsx', 'revoke|device|session')]),
+      criterion('session-regression-assertions', [test('apps/api/src/modules/auth/services/session.service.spec.ts', 'revoke|session|owner')]),
+    ],
+  },
+  {
+    id: 'GAP-79', title: 'Suspicious-login and device-anomaly alerts', commercialWeight: 4,
+    criteria: [
+      criterion('existing-anomaly-detection-and-events', [source('apps/api/src/modules/security/suspicious-login.detector.ts', 'suspicious|anomaly|risk'), source('apps/api/src/modules/security/security-threat-detection.service.ts', 'login|event|threat')]),
+      criterion('customer-notification-dispatch', [source('apps/api/src/modules/notifications/processors/login-anomaly-notification.processor.ts', 'login|notification|anomaly')]),
+      criterion('customer-login-alert-surface', [source('apps/web/src/features/security/login-alerts.tsx', 'login|alert|device')]),
+      criterion('login-alert-regression-assertions', [test('apps/api/src/modules/auth/login-anomaly.spec.ts', 'login|anomaly|alert')]),
+    ],
+  },
+  {
+    id: 'GAP-80', title: 'Account recovery and backup security controls', commercialWeight: 5,
+    criteria: [
+      criterion('existing-recovery-verification-foundation', [source('apps/api/src/modules/auth/services/two-factor.service.ts', 'recoveryCode|verificationToken|passwordReset')]),
+      criterion('single-use-recovery-token-workflow', [source('apps/api/src/modules/auth/account-recovery.service.ts', 'token|consume|expires|single.use')]),
+      criterion('customer-recovery-surface-and-api', [source('apps/api/src/modules/auth/account-recovery.controller.ts', 'Controller|recovery'), source('apps/web/src/features/security/account-recovery-page.tsx', 'recovery|email|verify')]),
+      criterion('recovery-security-regression-assertions', [test('apps/api/src/modules/auth/account-recovery.spec.ts', 'replay|expired|consume|tenant')]),
+    ],
+  },
+  {
+    id: 'GAP-81', title: 'Full audit export with filters', commercialWeight: 5,
+    criteria: [
+      criterion('existing-governance-audit-export-service', [source('apps/api/src/modules/governance/governance-audit-export.service.ts', 'export|filter|tenantId')]),
+      criterion('authorized-filtered-export-route', [source('apps/api/src/modules/governance/governance.controller.ts', 'audit.*export|exportAudit|governance-audit')]),
+      criterion('operator-export-panel', [source('apps/admin-web/src/features/audit/audit-export-panel.tsx', 'filter|export|integrity')]),
+      criterion('export-authorization-and-integrity-tests', [test('apps/api/src/modules/audit/audit-export.spec.ts', 'tenant|permission|integrity')]),
+    ],
+  },
+  {
+    id: 'GAP-82', title: 'Data retention and privacy control center', commercialWeight: 5,
+    criteria: [
+      criterion('existing-retention-policy-and-engine', [source('apps/api/src/modules/governance/retention-policy.service.ts', 'retention|policy'), source('apps/api/src/modules/governance/retention-engine.service.ts', 'retention|legal|hold')]),
+      criterion('customer-privacy-surface', [source('apps/web/src/app/privacy/page.tsx', 'privacy|retention')]),
+      criterion('admin-retention-control-center', [source('apps/admin-web/src/features/privacy/data-retention-console.tsx', 'retention|legal.hold|policy')]),
+      criterion('retention-safety-tests', [test('apps/api/src/modules/governance/privacy-governance.contract.spec.ts', 'retention|legal.hold|delete')]),
+    ],
+  },
+  {
+    id: 'GAP-83', title: 'Customer data access and export request workflow', commercialWeight: 5,
+    criteria: [
+      criterion('existing-request-and-export-domain', [source('apps/api/src/modules/governance/privacy-request.service.ts', 'createRequest|tenantId|subjectUserId'), source('apps/api/src/modules/governance/privacy-export.service.ts', 'export|subjectUserId|tenantId')]),
+      criterion('authorized-customer-data-request-route', [source('apps/api/src/modules/governance/governance.controller.ts', 'privacy-requests|privacy-export|RequirePermissions')]),
+      criterion('actionable-customer-request-ui', [source('apps/web/src/features/security/data-export-page.tsx', 'request|export|status')]),
+      criterion('data-access-security-regression-assertions', [test('apps/api/src/modules/privacy/data-access-request.spec.ts', 'tenant|subject|authorization')]),
+    ],
+  },
+  {
+    id: 'GAP-84', title: 'Public fee schedule and pricing transparency', commercialWeight: 5,
+    criteria: [
+      criterion('existing-public-pricing-and-fee-policy', [source('apps/web/src/app/pricing/page.tsx', 'pricing|plan'), source('apps/api/src/modules/billing/fees/fee-policy.service.ts', 'effective|fee|basisPoints')]),
+      criterion('effective-public-fee-schedule-api', [source('apps/api/src/modules/billing/fee-schedule.service.ts', 'effective|fee|schedule'), source('apps/api/src/modules/billing/fee-schedule.controller.ts', 'Controller|schedule')]),
+      criterion('customer-fee-schedule-surface', [source('apps/web/src/features/billing/fee-schedule-page.tsx', 'fee|schedule|trading')]),
+      criterion('fee-schedule-regression-assertions', [test('apps/api/src/modules/billing/fee-schedule.spec.ts', 'fee|schedule|effective')]),
+    ],
+  },
+  {
+    id: 'GAP-85', title: 'Profit-share and fee statement calculation', commercialWeight: 5,
+    criteria: [
+      criterion('existing-fee-ledger-and-statement-storage', [source('apps/api/src/modules/billing/fees/fee-accrual.service.ts', 'ledger|accrual|posted'), source('apps/api/prisma/schema.prisma', 'model\\s+PortfolioStatement')]),
+      criterion('profit-share-from-posted-ledger', [source('apps/api/src/modules/billing/profit-share-statement.service.ts', 'posted|ledger|profit.share|BigInt|Decimal')]),
+      criterion('customer-profit-share-statement-surface', [source('apps/web/src/features/billing/profit-share-statement-page.tsx', 'statement|commission|fee')]),
+      criterion('statement-calculation-regression-assertions', [test('apps/api/src/modules/billing/profit-share-statement.spec.ts', 'posted|unrealized|decimal|statement')]),
+    ],
+  },
+  {
+    id: 'GAP-86', title: 'Subscription billing and invoice lifecycle', commercialWeight: 5,
+    criteria: [
+      criterion('backend-subscription-and-invoice-lifecycle', [source('apps/api/src/modules/billing/subscriptions.service.ts', 'subscription|status|invoice'), source('apps/api/src/modules/billing/finance/invoice.service.ts', 'invoice|tenantId')]),
+      criterion('customer-billing-and-invoice-pages', [source('apps/web/src/app/billing/invoices/page.tsx', 'Invoices'), source('apps/web/src/features/billing/invoices-page.tsx', 'invoice|status|download')]),
+      criterion('provider-success-not-fabricated', [source('apps/api/src/modules/billing/billing-no-fake-success.spec.ts', 'payment|success|provider|fake')]),
+      criterion('billing-api-regression-assertions', [test('apps/web/src/tests/billing-api.test.ts', 'invoice|subscription|status'), test('apps/api/src/modules/billing/portal/billing-portal-not-found.spec.ts', 'invoice|tenant|not found')]),
+    ],
+  },
+  {
+    id: 'GAP-87', title: 'Product plan and tenant entitlement enforcement', commercialWeight: 5,
+    criteria: [
+      criterion('canonical-entitlement-service-and-guard', [source('apps/api/src/modules/billing/entitlements/entitlement.service.ts', 'tenantId|entitlement'), source('apps/api/src/modules/billing/entitlements/entitlement.guard.ts', 'CanActivate|entitlement')]),
+      criterion('plan-catalogue-or-admin-surface', [source('apps/admin-web/src/modules/billing/entitlements/tenant-entitlements-panel.tsx', 'tenant|plan|feature')]),
+      criterion('authorization-and-denial-regression-tests', [test('apps/api/src/modules/billing/entitlements/entitlement.spec.ts', 'tenant|deny|plan')]),
+    ],
+  },
+  {
+    id: 'GAP-88', title: 'White-label tenant branding and theme configuration', commercialWeight: 5,
+    criteria: [
+      criterion('tenant-scoped-branding-api-and-persistence', [source('apps/api/src/modules/tenants/tenant-branding.service.ts', 'tenantId|branding|sanitize'), source('apps/api/src/modules/tenants/tenants.controller.ts', 'branding|tenantId')]),
+      criterion('admin-brand-editor', [source('apps/admin-web/src/features/branding/tenant-branding-editor.tsx', 'logo|theme|branding')]),
+      criterion('customer-runtime-theme-provider', [source('apps/web/src/features/branding/runtime-branding-provider.tsx', 'tenant|theme|logo')]),
+      criterion('tenant-isolation-regression-assertions', [test('apps/api/src/modules/tenants/tenant-branding.spec.ts', 'tenant|isolation|sanitize')]),
+    ],
+  },
+  {
+    id: 'GAP-89', title: 'Custom domain and hostname tenant routing', commercialWeight: 4,
+    criteria: [
+      criterion('domain-verification-and-tenant-resolution', [source('apps/api/src/modules/billing/saas-admin/custom-domain.service.ts', 'tenantId|domain|verification'), source('apps/api/src/modules/billing/saas-admin/custom-domain-verification.service.ts', 'DNS|verification|resolve')]),
+      criterion('admin-domain-settings-surface', [source('apps/admin-web/src/modules/billing/saas-admin/tenant-branding-domain.tsx', 'domain|verify|tenant')]),
+      criterion('domain-isolation-regression-assertions', [test('apps/api/src/modules/tenants/custom-domain.spec.ts', 'domain|tenant|verify')]),
+    ],
+  },
+  {
+    id: 'GAP-90', title: 'Tenant feature-flag and entitlement admin console', commercialWeight: 4,
+    criteria: [
+      criterion('existing-tenant-feature-flag-service', [source('apps/api/src/modules/feature-flags/feature-flags.service.ts', 'tenantId|flag|enabled'), source('apps/api/src/modules/feature-flags/feature-flags.controller.ts', 'tenantId|RequirePermissions')]),
+      criterion('dedicated-admin-flag-route-and-surface', [source('apps/admin-web/src/app/(console)/feature-flags/page.tsx', 'feature|flag|tenant'), source('apps/admin-web/src/features/settings/tenant-feature-flags.tsx', 'flag|enabled|tenant')]),
+      criterion('flag-authorization-regression-assertions', [test('apps/api/src/modules/tenants/tenant-feature-flag.spec.ts', 'tenant|permission|flag')]),
+    ],
+  },
+  {
+    id: 'GAP-91', title: 'Localization, currency, and date-time preferences', commercialWeight: 3,
+    criteria: [
+      criterion('existing-user-preference-storage', [source('apps/api/prisma/schema.prisma', 'model\\s+UserProfile', 'locale|timezone|preferredCurrency')]),
+      criterion('persisted-tenant-user-preferences-api', [source('apps/api/src/modules/users/user-preferences.service.ts', 'tenantId|userId|locale|timezone')]),
+      criterion('customer-locale-and-exact-financial-formatting', [source('apps/web/src/features/settings/localization-settings-page.tsx', 'locale|timezone|currency'), source('apps/web/src/lib/i18n/locale-number-format.ts', 'Intl.NumberFormat|decimal|string')]),
+      criterion('preference-isolation-regression-assertions', [test('apps/api/src/modules/users/user-preferences.spec.ts', 'tenant|user|locale')]),
+    ],
+  },
+  {
+    id: 'GAP-92', title: 'Accessibility compliance surface', commercialWeight: 4,
+    criteria: [
+      criterion('existing-accessibility-helpers', [source('apps/web/src/accessibility/accessibility-checks.ts', 'accessibility|contrast|label|focus')]),
+      criterion('route-and-focus-announcement-helper', [source('apps/web/src/components/ui/focus-announcer.tsx', 'aria-live|role|announcement')]),
+      criterion('web-and-admin-accessibility-smoke-tests', [test('apps/web/src/tests/accessibility-smoke.test.tsx', 'focus|aria|keyboard'), test('apps/admin-web/src/tests/accessibility-smoke.test.tsx', 'focus|aria|keyboard')]),
+    ],
+  },
+  {
+    id: 'GAP-93', title: 'Marketplace SEO metadata and indexing controls', commercialWeight: 4,
+    criteria: [
+      criterion('existing-public-marketplace-routes', [source('apps/web/src/app/traders/page.tsx', 'traders|marketplace'), source('apps/web/src/app/strategies/page.tsx', 'strategies|marketplace')]),
+      criterion('public-marketplace-route-metadata', [source('apps/web/src/app/traders/layout.tsx', 'metadata|title|description'), source('apps/web/src/app/strategies/layout.tsx', 'metadata|title|description')]),
+      criterion('crawler-policy-and-sitemap', [source('apps/web/src/app/robots.ts', 'robots|disallow'), source('apps/web/src/app/sitemap.ts', 'sitemap|traders|strategies')]),
+      criterion('seo-regression-assertions', [test('apps/web/src/tests/seo-public-marketplace.test.ts', 'robots|sitemap|metadata')]),
+    ],
+  },
+  {
+    id: 'GAP-94', title: 'Shareable public trader and strategy links', commercialWeight: 4,
+    criteria: [
+      criterion('existing-public-trader-and-strategy-surfaces', [source('apps/web/src/features/trading/trader-detail-page.tsx', 'TraderDetailPage|traderId'), source('apps/web/src/features/trading/strategy-detail-page.tsx', 'StrategyDetailPage|strategyId')]),
+      criterion('signed-expiring-public-share-token', [source('apps/api/src/modules/copy-trading/public-share.service.ts', 'sign|token|expires|read.only')]),
+      criterion('customer-share-and-metadata-surface', [source('apps/web/src/features/trading/share-trader-dialog.tsx', 'share|public'), source('apps/web/src/features/trading/public-share-metadata.ts', 'canonical|title|description')]),
+      criterion('share-security-regression-assertions', [test('apps/api/src/modules/copy-trading/public-share.spec.ts', 'expiry|signature|secret|tenant')]),
+    ],
+  },
+  {
+    id: 'GAP-95', title: 'Risk disclosure and consent versioning', commercialWeight: 5,
+    criteria: [
+      criterion('versioned-durable-consent-ledger-and-audit', [source('apps/api/src/modules/governance/consent.service.ts', 'tenantId', 'policyReference', 'version', 'consentModel\\.create', 'GovernanceActionType\\.CONSENT_CAPTURE')]),
+      criterion('persistence-failure-does-not-report-success', [source('apps/api/src/modules/governance/consent.service.ts', 'ServiceUnavailableException', 'Consent could not be durably recorded')]),
+      criterion('customer-risk-disclosure-consent-ui', [source('apps/web/src/features/compliance/risk-disclosure-consent.tsx', 'checkbox|consent|version|policyReference')]),
+      criterion('consent-persistence-regression-assertions', [test('apps/api/src/modules/governance/consent.service.spec.ts', 'persistence|withdraw|audit|version')]),
+    ],
+  },
+  {
+    id: 'GAP-96', title: 'Terms and policy acceptance versioning', commercialWeight: 5,
+    criteria: [
+      criterion('existing-versioned-consent-and-terms-route', [source('apps/api/src/modules/governance/consent.service.ts', 'version|policyReference'), source('apps/web/src/app/terms/page.tsx', 'terms|policy')]),
+      criterion('action-bound-policy-acceptance-service', [source('apps/api/src/modules/compliance/policy-acceptance.service.ts', 'version|acceptedAt|action')]),
+      criterion('explicit-customer-policy-acceptance-ui', [source('apps/web/src/features/legal/policy-acceptance-page.tsx', 'accept|version|consent')]),
+      criterion('policy-acceptance-regression-assertions', [test('apps/api/src/modules/compliance/policy-acceptance.spec.ts', 'version|accept|tenant|page.view')]),
+    ],
+  },
+  {
+    id: 'GAP-97', title: 'Affiliate attribution integrity', commercialWeight: 5,
+    criteria: [
+      criterion('durable-idempotent-attribution-engine', [source('apps/api/src/modules/partners/partner-attribution.service.ts', 'findFirst', 'tenantId:\\s*params\\.tenantId', 'idempotencyKey:\\s*params\\.idempotencyKey', 'attributionModel\\.create|partnerAttribution\\.create')]),
+      criterion('fail-closed-storage-and-conflict-check', [source('apps/api/src/modules/partners/partner-attribution.service.ts', 'ServiceUnavailableException', 'findMany', 'ConflictException')]),
+      criterion('partner-attribution-reporting-surface', [source('apps/web/src/features/partner/affiliate-attribution-panel.tsx', 'attribution|partner|tenant')]),
+      criterion('attribution-integrity-regression-assertions', [test('apps/api/src/modules/partners/partner-attribution.service.spec.ts', 'idempotent|persistence|conflict|lookup')]),
+    ],
+  },
+  {
+    id: 'GAP-98', title: 'Referral abuse and self-referral controls', commercialWeight: 5,
+    criteria: [
+      criterion('existing-self-referral-and-referral-validation', [source('apps/api/src/modules/partners/partner-attribution.service.ts', 'self.referral|referral evidence|referral code belongs')]),
+      criterion('deterministic-abuse-rules-and-review-queue', [source('apps/api/src/modules/partner/referral-abuse.service.ts', 'velocity|self.referral|score|review'), source('apps/admin-web/src/features/partners/referral-abuse-queue.tsx', 'review|flag|evidence')]),
+      criterion('abuse-rules-regression-assertions', [test('apps/api/src/modules/partner/referral-abuse.spec.ts', 'self.referral|velocity|review')]),
+    ],
+  },
+  {
+    id: 'GAP-99', title: 'Business and operator KPI dashboard', commercialWeight: 5,
+    criteria: [
+      criterion('existing-billing-analytics-evidence', [source('apps/api/src/modules/billing/analytics/revenue-analytics.service.ts', 'MRR|revenue|tenantId'), source('apps/api/src/modules/billing/analytics/churn-analytics.service.ts', 'churn|tenantId')]),
+      criterion('unified-copy-trading-business-kpi-service', [source('apps/api/src/modules/analytics/business-kpi.service.ts', 'AUM|copier|trader|revenue|currency')]),
+      criterion('authorized-admin-kpi-surface', [source('apps/api/src/modules/analytics/business-kpi.controller.ts', 'RequirePermissions|tenantId'), source('apps/admin-web/src/features/analytics/business-kpi-dashboard.tsx', 'AUM|copier|retention|revenue')]),
+      criterion('currency-and-freshness-regression-assertions', [test('apps/api/src/modules/analytics/business-kpi.spec.ts', 'currency|fresh|tenant|revenue')]),
+    ],
+  },
+  {
+    id: 'GAP-100', title: 'Commercial readiness and buyer handover evidence', commercialWeight: 5,
+    criteria: [
+      criterion('buyer-facing-commercial-readiness-report', [source('docs/COMMERCIAL_READINESS_GAP_51_100.md', 'commercial|limitations|prerequisites|benchmark')]),
+      criterion('evidence-based-parity-scanner', [source('ops/gap-parity-scanner-51-100.js', 'criteria|commercialWeight|weightedCommercialParityPct', 'fs\\.readFileSync')]),
+      criterion('readiness-admin-dashboard-and-api', [source('apps/api/src/modules/ops/commercial-readiness.service.ts', 'check|readiness|evidence'), source('apps/admin-web/src/features/analytics/commercial-readiness-dashboard.tsx', 'readiness|blocker|evidence')]),
+      criterion('scanner-regression-tests', [test('ops/gap-parity-scanner-51-100.test.js', 'missing|hard.code|weight|criteria')]),
+    ],
+  },
+];
+
+function validateManifest(gapChecks) {
+  if (!Array.isArray(gapChecks) || gapChecks.length !== 50) {
+    throw new Error(`Expected exactly 50 gap evidence rubrics, received ${Array.isArray(gapChecks) ? gapChecks.length : 'non-array'}`);
+  }
+  const ids = gapChecks.map((gap) => gap.id);
+  for (let id = 51; id <= 100; id += 1) {
+    const expected = `GAP-${id}`;
+    if (ids.filter((actual) => actual === expected).length !== 1) {
+      throw new Error(`Evidence rubric manifest must contain ${expected} exactly once`);
+    }
+  }
+  for (const gap of gapChecks) {
+    if (!Number.isInteger(gap.commercialWeight) || gap.commercialWeight < 1 || gap.commercialWeight > 5) {
+      throw new Error(`${gap.id} commercialWeight must be an integer from 1 through 5`);
+    }
+    if (!Array.isArray(gap.criteria) || gap.criteria.length === 0) {
+      throw new Error(`${gap.id} must declare at least one evidence criterion`);
+    }
+    for (const item of gap.criteria) {
+      if (!Array.isArray(item.evidence) || item.evidence.length === 0) {
+        throw new Error(`${gap.id}/${item.key} must declare at least one evidence probe`);
+      }
+      if (item.mode !== 'all' && item.mode !== 'any') {
+        throw new Error(`${gap.id}/${item.key} evidence mode must be all or any`);
+      }
+    }
+  }
+  return true;
+}
+
+function isTestProbe(probeItem) {
+  return probeItem.patterns.some((pattern) => String(pattern).includes('expect\\s*\\('));
+}
+
+function evaluateProbe(rootDir, probeItem) {
+  const absolutePath = path.resolve(rootDir, probeItem.file);
+  const relativePath = path.relative(rootDir, absolutePath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return { file: probeItem.file, matched: false, reason: 'Evidence path escapes repository root' };
+  }
+  if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+    return { file: probeItem.file, matched: false, reason: 'Evidence file is missing' };
+  }
+  const text = fs.readFileSync(absolutePath, 'utf8');
+  if (text.trim().length < 40) return { file: probeItem.file, matched: false, reason: 'Evidence file is too short to contain an implementation' };
+  const placeholder = FORBIDDEN_PLACEHOLDERS.find((value) => text.includes(value));
+  if (placeholder) return { file: probeItem.file, matched: false, reason: `Contains forbidden placeholder: ${placeholder}` };
+
+  const patterns = probeItem.patterns || [];
+  const missingPatterns = [];
+  for (const patternSource of patterns) {
+    let expression;
+    try {
+      expression = new RegExp(patternSource, 'i');
+    } catch (error) {
+      return { file: probeItem.file, matched: false, reason: `Invalid evidence expression: ${error.message}` };
+    }
+    if (!expression.test(text)) missingPatterns.push(patternSource);
+  }
+  if (isTestProbe(probeItem)) {
+    if (!/\b(?:test|it)\s*\(/i.test(text) || !/\bexpect\s*\(/i.test(text)) {
+      if (!missingPatterns.includes('assertive-test-structure')) missingPatterns.push('assertive-test-structure');
+    }
+  }
+  return missingPatterns.length === 0
+    ? { file: probeItem.file, matched: true, reason: null }
+    : { file: probeItem.file, matched: false, reason: 'Required behavior/assertion signal is absent', missingPatterns };
+}
+
+function evaluateCriterion(rootDir, criterionItem) {
+  const probes = criterionItem.evidence.map((item) => evaluateProbe(rootDir, item));
+  const matches = probes.filter((item) => item.matched);
+  const mode = criterionItem.mode === 'all' ? 'all' : 'any';
+  const satisfied = mode === 'all' ? matches.length === probes.length : matches.length > 0;
+  return {
+    key: criterionItem.key,
+    mode,
+    satisfied,
+    matchedFiles: matches.map((item) => item.file),
+    probeResults: probes,
+  };
+}
+
+function evaluateGap(gap, rootDir = ROOT) {
+  const criteria = gap.criteria.map((item) => evaluateCriterion(rootDir, item));
+  const satisfiedCriteria = criteria.filter((item) => item.satisfied).length;
+  const evidenceCoverage = satisfiedCriteria / criteria.length;
+  const status = satisfiedCriteria === 0
+    ? 'FAIL'
+    : satisfiedCriteria === criteria.length
+      ? 'EXISTING_VERIFIED'
+      : 'PARTIAL';
+  return {
+    id: gap.id,
+    title: gap.title,
+    status,
+    commercialWeight: gap.commercialWeight,
+    satisfiedCriteria,
+    totalCriteria: criteria.length,
+    evidenceCoverage,
+    criteria,
+    testExecutionVerified: false,
+  };
+}
+
+function calculateWeightedCommercialParity(results) {
+  const weightTotal = results.reduce((total, result) => total + result.commercialWeight, 0);
+  if (weightTotal === 0) return 0;
+  const weightedEvidence = results.reduce(
+    (total, result) => total + result.commercialWeight * result.evidenceCoverage,
+    0,
+  );
+  return Number(((weightedEvidence / weightTotal) * 100).toFixed(2));
+}
+
+function calculateProductionCriticalEvidencePct(results) {
+  const productionResults = results.filter((result) => PRODUCTION_CRITICAL_GAP_IDS.has(result.id));
+  if (productionResults.length === 0) return 0;
+  const coverage = productionResults.reduce((total, result) => total + result.evidenceCoverage, 0) / productionResults.length;
+  return Number((coverage * 100).toFixed(2));
+}
+
+function runGapParityScan(rootDir = ROOT, gapChecks = GAP_CHECKS) {
+  validateManifest(gapChecks);
+  const results = gapChecks.map((gap) => evaluateGap(gap, rootDir));
+  const fullyVerifiedCount = results.filter((result) => result.status === 'EXISTING_VERIFIED').length;
+  const partialCount = results.filter((result) => result.status === 'PARTIAL').length;
+  const failedCount = results.filter((result) => result.status === 'FAIL').length;
+  const criterionCount = results.reduce((total, result) => total + result.totalCriteria, 0);
+  const satisfiedCriterionCount = results.reduce((total, result) => total + result.satisfiedCriteria, 0);
+  const commercialWeightTotal = results.reduce((total, result) => total + result.commercialWeight, 0);
+  const batchProductEvidencePct = Number(((satisfiedCriterionCount / criterionCount) * 100).toFixed(2));
+  const batchCommercialEvidencePct = calculateWeightedCommercialParity(results);
+  const batchProductionCriticalEvidencePct = calculateProductionCriticalEvidencePct(results);
+  const cumulativeFromAcceptedBaseline = (batchPct) => Number((BASELINE_ACCEPTED_GAPS + batchPct / 2).toFixed(2));
+  return {
+    batch: 'GAP-51–GAP-100',
+    total: results.length,
+    fullyVerified: fullyVerifiedCount,
+    partial: partialCount,
+    failed: failedCount,
+    evidenceCriteriaSatisfied: satisfiedCriterionCount,
+    evidenceCriteriaTotal: criterionCount,
+    commercialWeightTotal,
+    weightedCommercialParityPct: batchCommercialEvidencePct,
+    productionCriticalGapCount: results.filter((result) => PRODUCTION_CRITICAL_GAP_IDS.has(result.id)).length,
+    productionCriticalEvidencePct: batchProductionCriticalEvidencePct,
+    batchProductEvidencePct,
+    cumulativeProductCompletenessPct: cumulativeFromAcceptedBaseline(batchProductEvidencePct),
+    cumulativeProductionReadinessPct: cumulativeFromAcceptedBaseline(batchProductionCriticalEvidencePct),
+    cumulativeCommercialReadinessPct: cumulativeFromAcceptedBaseline(batchCommercialEvidencePct),
+    baselineAssumedVerifiedGaps: BASELINE_ACCEPTED_GAPS,
+    staticEvidenceOnly: true,
+    testExecutionVerifiedByScanner: false,
+    results,
+  };
+}
+
+if (require.main === module) {
+  let report;
+  try {
+    report = runGapParityScan();
+  } catch (error) {
+    console.error(`GAP-51–GAP-100 parity scan configuration error: ${error.message}`);
+    process.exit(2);
+  }
+  for (const item of report.results) {
+    const icon = item.status === 'EXISTING_VERIFIED' ? '✓' : item.status === 'PARTIAL' ? '!' : '×';
+    console.log(`${icon} ${item.id}: ${item.status} (${item.satisfiedCriteria}/${item.totalCriteria} evidence criteria; weight ${item.commercialWeight}) — ${item.title}`);
+    for (const check of item.criteria.filter((candidate) => !candidate.satisfied)) {
+      const reasons = check.probeResults.map((candidate) => `${candidate.file}: ${candidate.reason}`).join('; ');
+      console.log(`   unresolved evidence [${check.key}]: ${reasons}`);
+    }
+  }
+  console.log(`\nGAP-51–GAP-100 static evidence: ${report.evidenceCriteriaSatisfied}/${report.evidenceCriteriaTotal} criteria; ${report.fullyVerified} fully evidenced, ${report.partial} partial, ${report.failed} no evidence`);
+  console.log(`Weighted commercial-parity evidence score: ${report.weightedCommercialParityPct}% (${report.commercialWeightTotal} total weight)`);
+  console.log(`Production-critical evidence score: ${report.productionCriticalEvidencePct}% (${report.productionCriticalGapCount} declared critical gaps)`);
+  console.log(`Cumulative evidence proxies (baseline assumed 50/50): product ${report.cumulativeProductCompletenessPct}%, production ${report.cumulativeProductionReadinessPct}%, commercial ${report.cumulativeCommercialReadinessPct}%`);
+  console.log('This scanner checks static repository evidence only; it does not run tests, validate live providers, or certify commercial parity.');
+  process.exit(report.failed === 0 ? 0 : 1);
+}
+
+module.exports = {
+  BASELINE_ACCEPTED_GAPS,
+  GAP_CHECKS,
+  PRODUCTION_CRITICAL_GAP_IDS,
+  calculateProductionCriticalEvidencePct,
+  calculateWeightedCommercialParity,
+  evaluateGap,
+  evaluateProbe,
+  runGapParityScan,
+  validateManifest,
+};
+```
+
+FILE: ops/gap-parity-scanner-51-100.test.js
+
+```javascript
+// # Responsibility: proves the GAP-51–GAP-100 parity scanner derives evidence from source and assertions instead of trusting names or fixed PASS values.
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {
+  GAP_CHECKS,
+  calculateProductionCriticalEvidencePct,
+  calculateWeightedCommercialParity,
+  evaluateGap,
+  evaluateProbe,
+  runGapParityScan,
+  validateManifest,
+} = require('./gap-parity-scanner-51-100');
+
+function withTempRoot(run) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gap-parity-51-100-'));
+  try {
+    return run(root);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function write(root, relativePath, content) {
+  const destination = path.join(root, relativePath);
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(destination, content, 'utf8');
+}
+
+function minimalGap(criteria) {
+  return {
+    id: 'GAP-51',
+    title: 'Scanner fixture behavior',
+    commercialWeight: 5,
+    criteria,
+  };
+}
+
+assert.equal(validateManifest(GAP_CHECKS), true, 'the production manifest must define exactly one evidence rubric for every gap');
+assert.equal(GAP_CHECKS.length, 50);
+assert.deepEqual(GAP_CHECKS.map((gap) => gap.id).sort(), Array.from({ length: 50 }, (_, index) => `GAP-${index + 51}`).sort());
+assert.ok(GAP_CHECKS.every((gap) => !Object.prototype.hasOwnProperty.call(gap, 'status')), 'the manifest must not store hard-coded statuses');
+assert.ok(GAP_CHECKS.every((gap) => gap.criteria.length >= 3), 'each gap must require multiple independent evidence criteria');
+
+withTempRoot((root) => {
+  write(root, 'apps/api/service.ts', 'export class PresentButEmptyFeature { value = true; }');
+  const result = evaluateGap(minimalGap([
+    { key: 'real-domain-method', evidence: [{ file: 'apps/api/service.ts', patterns: ['class\\s+RealFeatureService', 'async\\s+evaluate'] }] },
+    { key: 'assertive-test', evidence: [{ file: 'apps/api/service.spec.ts', patterns: ['\\b(?:test|it)\\s*\\(', '\\bexpect\\s*\\(', 'persisted'] }] },
+  ]), root);
+  assert.equal(result.status, 'FAIL', 'a present source filename without required behavior and tests must not pass');
+  assert.equal(result.satisfiedCriteria, 0);
+  assert.equal(result.testExecutionVerified, false);
+});
+
+withTempRoot((root) => {
+  write(root, 'src/service.ts', 'export class RealFeatureService { async evaluate() { return { persisted: true }; } }');
+  write(root, 'src/service.spec.ts', "describe('persisted behavior', () => { it('persists the result', async () => { await expect(service.evaluate()).resolves.toEqual({ persisted: true }); }); });");
+  const result = evaluateGap(minimalGap([
+    { key: 'domain', evidence: [{ file: 'src/service.ts', patterns: ['class\\s+RealFeatureService', 'async\\s+evaluate', 'persisted'] }] },
+    { key: 'test', evidence: [{ file: 'src/service.spec.ts', patterns: ['\\b(?:test|it)\\s*\\(', '\\bexpect\\s*\\(', 'persisted'] }] },
+  ]), root);
+  assert.equal(result.status, 'EXISTING_VERIFIED');
+  assert.equal(result.satisfiedCriteria, 2);
+  assert.equal(result.totalCriteria, 2);
+  assert.equal(result.testExecutionVerified, false, 'static assertion presence is not represented as an executed test');
+});
+
+withTempRoot((root) => {
+  write(root, 'src/service.spec.ts', "describe('persisted behavior', () => { it('mentions persisted', () => { const value = 'persisted'; }); });");
+  const result = evaluateProbe(root, {
+    file: 'src/service.spec.ts',
+    patterns: ['\\b(?:test|it)\\s*\\(', '\\bexpect\\s*\\(', 'persisted'],
+  });
+  assert.equal(result.matched, false, 'test names without an assertion are not test evidence');
+  assert.ok(result.missingPatterns.includes('\\bexpect\\s*\\('));
+});
+
+withTempRoot((root) => {
+  write(root, 'src/service.ts', 'export class RealFeatureService { async evaluate() { return true; } }');
+  const probeResult = evaluateProbe(root, { file: '../outside.ts', patterns: ['class'] });
+  assert.equal(probeResult.matched, false, 'evidence paths must not escape the scan root');
+  assert.match(probeResult.reason, /escapes repository root/);
+});
+
+withTempRoot((root) => {
+  write(root, 'src/service.ts', `export class RealFeatureService { async evaluate() { return true; } } ${['Rest of the code', 'here'].join(' ')}`);
+  const result = evaluateProbe(root, { file: 'src/service.ts', patterns: ['RealFeatureService'] });
+  assert.equal(result.matched, false, 'known omission placeholders invalidate otherwise matching source');
+  assert.match(result.reason, /forbidden placeholder/);
+});
+
+assert.throws(
+  () => validateManifest(GAP_CHECKS.slice(0, 49)),
+  /exactly 50/,
+  'missing gap rubrics must be rejected',
+);
+assert.throws(
+  () => validateManifest([...GAP_CHECKS.slice(0, 49), { ...GAP_CHECKS[0], id: 'GAP-99' }]),
+  /GAP-51 exactly once|GAP-99 exactly once|GAP-100 exactly once/,
+  'duplicate or missing identifiers must be rejected',
+);
+assert.throws(
+  () => validateManifest([{ ...minimalGap([{ key: 'x', evidence: [] }]), commercialWeight: 0 }, ...GAP_CHECKS.slice(1)]),
+  /commercialWeight/,
+  'invalid weighting must be rejected',
+);
+
+withTempRoot((root) => {
+  write(root, 'src/api.ts', 'export class ApiFeature { evaluate() { return true; } }');
+  const result = evaluateGap(minimalGap([
+    {
+      key: 'api-and-ui-required-together',
+      mode: 'all',
+      evidence: [
+        { file: 'src/api.ts', patterns: ['ApiFeature', 'evaluate'] },
+        { file: 'src/ui.tsx', patterns: ['FeaturePage', 'button'] },
+      ],
+    },
+  ]), root);
+  assert.equal(result.status, 'FAIL', 'a multi-layer criterion in all mode must require every layer');
+  assert.equal(result.criteria[0].mode, 'all');
+});
+
+const weighted = calculateWeightedCommercialParity([
+  { commercialWeight: 5, evidenceCoverage: 1 },
+  { commercialWeight: 1, evidenceCoverage: 0 },
+]);
+assert.equal(weighted, 83.33, 'weighted evidence score must use declared weights and observed criteria');
+assert.equal(calculateProductionCriticalEvidencePct([
+  { id: 'GAP-55', evidenceCoverage: 1 },
+  { id: 'GAP-57', evidenceCoverage: 0.5 },
+  { id: 'GAP-51', evidenceCoverage: 0 },
+]), 75, 'production evidence is averaged only over the declared production-critical set');
+
+const repositoryScan = runGapParityScan();
+assert.equal(repositoryScan.total, 50);
+assert.equal(repositoryScan.results.length, 50);
+assert.equal(repositoryScan.staticEvidenceOnly, true);
+assert.equal(repositoryScan.testExecutionVerifiedByScanner, false);
+assert.ok(repositoryScan.weightedCommercialParityPct >= 0 && repositoryScan.weightedCommercialParityPct <= 100);
+assert.ok(repositoryScan.productionCriticalEvidencePct >= 0 && repositoryScan.productionCriticalEvidencePct <= 100);
+assert.ok(repositoryScan.cumulativeProductCompletenessPct >= 50 && repositoryScan.cumulativeProductCompletenessPct <= 100);
+assert.ok(repositoryScan.cumulativeProductionReadinessPct >= 50 && repositoryScan.cumulativeProductionReadinessPct <= 100);
+assert.ok(repositoryScan.cumulativeCommercialReadinessPct >= 50 && repositoryScan.cumulativeCommercialReadinessPct <= 100);
+assert.ok(repositoryScan.results.some((gap) => gap.status === 'PARTIAL' || gap.status === 'FAIL'), 'the current repository contains acknowledged unresolved gaps; the scanner must not fabricate batch completion');
+assert.ok(repositoryScan.results.some((gap) => gap.criteria.some((item) => !item.satisfied)), 'at least one unresolved evidence criterion must remain visible');
+
+console.log(`PASS ops/gap-parity-scanner-51-100.test.js (${repositoryScan.total} gaps scanned; ${repositoryScan.evidenceCriteriaSatisfied}/${repositoryScan.evidenceCriteriaTotal} static evidence criteria present; weighted score ${repositoryScan.weightedCommercialParityPct}%)`);
+```
+
+FILE: ops/gap-parity-scanner.js
+
+```javascript
+#!/usr/bin/env node
+// # NEW — Scans repository to verify all 50 gaps (files, routes, tests, contracts, safety gates) remain closed
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+
+const GAP_CHECKS = [
+  { id: 'GAP-01', title: 'Trader Performance History & Equity/Drawdown Chart', files: ['apps/web/src/app/traders/[id]/performance/page.tsx', 'apps/web/src/features/trading/trader-performance-page.tsx', 'apps/web/src/features/trading/trader-performance-chart.tsx', 'apps/web/src/tests/trader-performance-page.test.tsx'] },
+  { id: 'GAP-02', title: 'Side-by-Side Trader Comparison Matrix', files: ['apps/web/src/app/traders/compare/page.tsx', 'apps/web/src/features/trading/trader-comparison-page.tsx', 'apps/web/src/tests/trader-comparison-page.test.tsx'] },
+  { id: 'GAP-03', title: 'Trader Verification Badges & Metric Definitions', files: ['apps/web/src/features/trading/trader-metric-definitions.ts', 'apps/web/src/features/trading/traders-page.tsx', 'apps/web/src/features/trading/trader-detail-page.tsx', 'apps/web/src/features/trading/leaderboard-page.tsx', 'apps/web/src/tests/traders-page.test.tsx'] },
+  { id: 'GAP-04', title: 'Strategy Marketplace Filters & Sorting', files: ['apps/web/src/features/trading/strategies-page.tsx', 'apps/web/src/api/trading-api.ts'] },
+  { id: 'GAP-05', title: 'Strategy Detail Backtest & Risk Disclosure View', files: ['apps/web/src/features/trading/strategy-detail-page.tsx', 'apps/web/src/tests/strategy-detail-page.test.tsx'] },
+  { id: 'GAP-06', title: 'Follow Trader & Copy Allocation Setup Wizard', files: ['apps/web/src/features/trading/copy-settings-page.tsx', 'apps/web/src/tests/copy-settings-page.test.tsx'] },
+  { id: 'GAP-07', title: 'Copy Allocation Sizing Modes', files: ['apps/api/src/modules/copy-trading/copy-order-mapper.service.ts', 'apps/api/src/modules/copy-trading/copy-trading.types.ts', 'apps/api/src/modules/copy-trading/copy-trading.spec.ts'] },
+  { id: 'GAP-08', title: 'Copy Subscription Lifecycle Controls', files: ['apps/api/src/modules/copy-trading/follower-subscription.service.ts', 'apps/api/src/modules/copy-trading/copy-trading.controller.ts', 'apps/web/src/features/trading/copy-subscription-detail-page.tsx', 'apps/web/src/tests/copy-subscription-detail-page.test.tsx'] },
+  { id: 'GAP-09', title: 'Stop-Copying Position Close Policy', files: ['apps/web/src/features/trading/copy-subscription-detail-page.tsx', 'apps/web/src/api/trading-api.ts', 'apps/web/src/tests/copy-stop-policy.test.ts'] },
+  { id: 'GAP-10', title: 'Copied Positions Dedicated View & Manual Close', files: ['apps/web/src/app/copy-trading/positions/page.tsx', 'apps/web/src/features/trading/copied-positions-page.tsx', 'apps/web/src/tests/copied-positions-page.test.tsx'] },
+  { id: 'GAP-11', title: 'Copied Orders History & Filter View', files: ['apps/web/src/app/copy-trading/orders/page.tsx', 'apps/web/src/features/trading/copied-orders-page.tsx', 'apps/web/src/tests/copied-orders-page.test.tsx'] },
+  { id: 'GAP-12', title: 'Copy Execution Audit Log & Slippage/Fee Breakdown', files: ['apps/web/src/features/trading/copy-execution-detail.tsx', 'apps/web/src/tests/copy-execution-detail.test.tsx'] },
+  { id: 'GAP-13', title: 'Follower Risk Guardrails UI', files: ['apps/web/src/features/trading/copy-risk-guardrails.tsx', 'apps/web/src/tests/copy-risk-guardrails.test.tsx'] },
+  { id: 'GAP-14', title: 'Copy Reconciliation Status & Mismatch Banner', files: ['apps/web/src/features/trading/copy-reconciliation-status.tsx', 'apps/web/src/tests/copy-reconciliation-status.test.tsx'] },
+  { id: 'GAP-15', title: 'Leader Signal Ingestion & Idempotent Fanout', files: ['apps/api/src/modules/copy-trading/leader-event-ingestion.service.ts', 'apps/api/src/modules/copy-trading/copy-execution.service.ts', 'apps/api/src/modules/copy-trading/copy-trading.contract.spec.ts'] },
+  { id: 'GAP-16', title: 'Follower Pre-Trade Risk & Drawdown Enforcement', files: ['apps/api/src/modules/copy-trading/follower-risk.service.ts', 'apps/api/src/modules/copy-trading/copy-policy.service.ts', 'apps/api/src/modules/copy-trading/copy-trading-safety.spec.ts'] },
+  { id: 'GAP-17', title: 'Real-Time Copy Execution WebSocket Push', files: ['apps/api/src/modules/copy-trading/copy-execution.service.ts', 'apps/web/src/api/realtime-api.ts', 'apps/web/src/features/trading/use-copy-execution-events.ts', 'apps/web/src/tests/use-copy-execution-events.test.ts'] },
+  { id: 'GAP-18', title: 'OMS Order Intent to Execution Engine Dispatch', files: ['apps/api/src/modules/oms/order-routing.service.ts', 'apps/api/src/modules/oms/order-submission.payload.ts', 'apps/api/src/modules/oms/order-submission.spec.ts'] },
+  { id: 'GAP-19', title: 'OMS Fill Ingestion, Partial Fill Accounting & Fee Attribution', files: ['apps/api/src/modules/oms/fill-management.service.ts', 'apps/api/src/modules/oms/trade-lifecycle.service.ts', 'apps/api/src/modules/oms/order-reconciliation.service.ts', 'apps/api/src/modules/oms/fill-reconciliation.service.ts', 'apps/api/src/modules/oms/position-reconciliation.service.ts'] },
+  { id: 'GAP-20', title: 'Customer Web Trading API Client Full Endpoint Parity', files: ['apps/web/src/api/trading-api.ts', 'apps/web/src/tests/trading-api.test.ts'] },
+  { id: 'GAP-21', title: 'Exchange Venue Capability Matrix', files: ['apps/api/src/modules/exchanges/exchange.types.ts', 'apps/api/src/modules/exchanges/exchange-provider.interface.ts', 'apps/web/src/features/exchanges/exchange-capabilities.tsx', 'apps/web/src/app/exchanges/[id]/page.tsx', 'apps/web/src/tests/exchange-capabilities.test.tsx'] },
+  { id: 'GAP-22', title: 'Live Exchange Adapter Parity across 5 Venues', files: ['apps/api/src/modules/exchanges/base-exchange-provider.ts', 'apps/api/src/modules/exchanges/providers/bybit.provider.ts', 'apps/api/src/modules/exchanges/providers/okx.provider.ts', 'apps/api/src/modules/exchanges/providers/kraken.provider.ts', 'apps/api/src/modules/exchanges/providers/coinbase.provider.ts', 'apps/api/src/modules/exchanges/exchange-provider.factory.ts', 'apps/api/src/modules/exchanges/venue-providers.spec.ts'] },
+  { id: 'GAP-23', title: 'Execution Gateway Service between NestJS API and Python Execution Engine', files: ['apps/api/src/modules/execution/execution-orders.service.ts', 'apps/api/src/modules/execution/execution-commands.service.ts', 'apps/api/src/modules/execution/execution.module.ts', 'services/execution-engine/app/orders/placement.py', 'services/execution-engine/app/orders/submission.py', 'services/execution-engine/tests/test_execution_engine.py'] },
+  { id: 'GAP-24', title: 'Pre-Trade Balance, Margin, Min-Notional & Step-Size Validation', files: ['apps/api/src/modules/risk/risk.service.ts', 'apps/api/src/modules/orders/order-intent.service.ts', 'apps/api/src/modules/oms/order-intent.service.ts'] },
+  { id: 'GAP-25', title: 'Unified Kill-Switch Enforcement Across Manual & Copy Paths', files: ['apps/api/src/modules/execution/execution-safety.service.ts', 'apps/api/src/modules/maintenance/maintenance-trading-gate.spec.ts', 'apps/api/src/modules/execution/execution-safety.spec.ts'] },
+  { id: 'GAP-26', title: 'Admin Kill-Switch & Execution Incident Console Wiring', files: ['apps/admin-web/src/app/(console)/risk/page.tsx', 'apps/admin-web/src/modules/risk/kill-switch-controls.tsx', 'apps/admin-web/src/app/(console)/execution-incidents/page.tsx', 'apps/admin-web/src/features/execution/execution-incident-table.tsx', 'apps/api/src/modules/execution/execution-admin.controller.ts', 'apps/api/src/modules/execution/execution-incidents.service.ts', 'apps/admin-web/src/tests/execution-incidents-page.test.tsx'] },
+  { id: 'GAP-27', title: 'Funding Deposit Address Generation & Confirmation Tracking', files: ['apps/api/src/modules/funding/funding-request.service.ts', 'apps/api/src/modules/custody/deposit-address.service.ts', 'apps/api/src/modules/custody/deposit-monitoring.service.ts', 'apps/api/src/modules/providers/provider-webhook.service.ts', 'apps/api/src/modules/providers/adapters/payment.adapter.ts', 'apps/api/src/modules/funding/funding-amount-validation.spec.ts'] },
+  { id: 'GAP-28', title: 'Withdrawal Multi-Gate Approval, Velocity Limits & Hold Windows', files: ['apps/api/src/modules/custody/withdrawal-orchestration.service.ts', 'apps/api/src/modules/custody/withdrawal-policy.service.ts', 'apps/api/src/modules/custody/custody.controller.ts', 'apps/api/src/modules/custody/dto/withdrawal-action.dto.ts'] },
+  { id: 'GAP-29', title: 'Custody Adapter Fail-Closed & Signer Verification', files: ['apps/api/src/modules/providers/adapters/custody.adapter.ts', 'apps/api/src/modules/custody/custody-adapter.contract.spec.ts', 'apps/api/src/modules/custody/custody-fail-closed.spec.ts'] },
+  { id: 'GAP-30', title: 'Funding & Custody Reconciliation Service & Admin View', files: ['apps/api/src/modules/custody/custody-reconciliation.service.ts', 'apps/api/src/modules/funding/funding-reconciliation.service.ts', 'apps/admin-web/src/app/(console)/funding-reconciliation/page.tsx', 'apps/admin-web/src/features/funding/funding-reconciliation-table.tsx'] },
+  { id: 'GAP-31', title: 'Compliance Case Management Admin Console', files: ['apps/admin-web/src/app/(console)/compliance/page.tsx', 'apps/admin-web/src/app/(console)/compliance/[caseId]/page.tsx', 'apps/admin-web/src/features/compliance/compliance-case-queue.tsx', 'apps/admin-web/src/features/compliance/compliance-case-detail.tsx', 'apps/admin-web/src/tests/compliance-case-queue.test.tsx'] },
+  { id: 'GAP-32', title: 'Compliance Case Backend Workflow & Persistence', files: ['apps/api/src/modules/compliance/compliance.controller.ts', 'apps/api/src/modules/compliance/compliance-case.service.ts', 'apps/api/src/modules/compliance/compliance-case.repository.ts', 'apps/api/src/modules/compliance/dto/compliance-review.dto.ts'] },
+  { id: 'GAP-33', title: 'AML/Sanctions Screening & Transaction Monitoring Triggers', files: ['apps/api/src/modules/compliance/aml-screening.service.ts', 'apps/api/src/modules/compliance/transaction-monitoring.service.ts', 'apps/admin-web/src/features/compliance/aml-screening-panel.tsx'] },
+  { id: 'GAP-34', title: 'Compliance Audit Trail & Regulatory Export', files: ['apps/api/src/modules/compliance/compliance-audit.service.ts', 'apps/admin-web/src/features/compliance/compliance-audit-timeline.tsx', 'apps/admin-web/src/tests/compliance-audit-timeline.test.tsx'] },
+  { id: 'GAP-35', title: 'Partner / IB Dashboard & Referral Link Management UI', files: ['apps/web/src/app/partner/page.tsx', 'apps/web/src/app/partner/referrals/page.tsx', 'apps/web/src/features/partner/partner-dashboard.tsx', 'apps/web/src/features/partner/referral-manager.tsx', 'apps/web/src/api/partner-api.ts', 'apps/web/src/tests/partner-dashboard.test.tsx'] },
+  { id: 'GAP-36', title: 'Partner Commission Ledger & Tiered Rebate Calculation UI', files: ['apps/web/src/app/partner/commissions/page.tsx', 'apps/web/src/features/partner/commission-ledger.tsx', 'apps/api/src/modules/partner/partner-commission-ledger.service.ts'] },
+  { id: 'GAP-37', title: 'Partner Payout Request & Settlement Tracking UI', files: ['apps/web/src/app/partner/payouts/page.tsx', 'apps/web/src/features/partner/partner-payouts.tsx', 'apps/api/src/modules/partner/partner-payout.service.ts', 'apps/web/src/tests/partner-payouts.test.tsx'] },
+  { id: 'GAP-38', title: 'Partner API Module Registration & Route Exposure', files: ['apps/api/src/modules/partner/partner.module.ts', 'apps/api/src/modules/partner/partner.controller.ts', 'apps/api/src/modules/partner/dto/partner-campaign.dto.ts', 'apps/web/src/config/feature-config.ts'] },
+  { id: 'GAP-39', title: 'Admin Partner & Affiliate Management Console', files: ['apps/admin-web/src/app/(console)/partners/page.tsx', 'apps/admin-web/src/app/(console)/partners/[partnerId]/page.tsx', 'apps/admin-web/src/features/partners/partner-admin-table.tsx', 'apps/api/src/modules/partner/partner-reconciliation.service.ts'] },
+  { id: 'GAP-40', title: 'Customer Support / Helpdesk Ticket UI', files: ['apps/web/src/app/support/page.tsx', 'apps/web/src/features/support/support-page.tsx', 'apps/web/src/config/routes.tsx'] },
+  { id: 'GAP-41', title: 'Copy-Trading Event Notification Templates & Dispatch', files: ['apps/api/src/modules/notifications/processors/copy-trading-notification.processor.ts', 'apps/api/src/modules/notifications/notifications.module.ts', 'apps/web/src/features/notifications/copy-trading-notifications.tsx', 'apps/web/src/app/notifications/page.tsx'] },
+  { id: 'GAP-42', title: 'Customer Activity & Audit Log View', files: ['apps/web/src/app/activity/page.tsx', 'apps/web/src/features/activity/customer-activity-page.tsx', 'apps/web/src/api/activity-api.ts', 'apps/api/src/modules/audit/audit.controller.ts', 'apps/web/src/tests/customer-activity-page.test.tsx'] },
+  { id: 'GAP-43', title: 'Unified Loading, Empty, Error & Degraded-Mode States', files: ['apps/web/src/components/trading-state.tsx'] },
+  { id: 'GAP-44', title: 'Vault / AWS Secrets Manager Workload Identity Credential Fetcher', files: ['services/execution-engine/app/security/secret_fetcher.py', 'services/execution-engine/app/exchanges/credentials.py', 'services/execution-engine/app/config.py', 'services/execution-engine/tests/test_part19_vault_fetcher.py'] },
+  // Paths are relative to the git repository root, one level above this monorepo: GitHub only reads
+  // `.github/workflows` there, so the workflows moved up and these entries moved with them.
+  { id: 'GAP-45', title: 'GitHub Actions CI/CD Workflows', files: ['../.github/workflows/ci.yml', '../.github/workflows/security.yml', '../.github/workflows/release.yml', '../.github/workflows/codeql.yml'] },
+  { id: 'GAP-46', title: 'Production Preflight & Environment Validation Hardening', files: ['scripts/preflight-production.ts', 'scripts/preflight-production.py', 'packages/config/src/index.ts'] },
+  { id: 'GAP-47', title: 'Database Migration & Schema Drift Verification Gate', files: ['scripts/verify-schema-consistency.js', 'infrastructure/database/README.md', 'scripts/verify-schema-consistency.test.js'] },
+  // Two layers, and the list names both because they are not interchangeable: `smoke/` renders a page to
+  // static markup in jest (no browser), `browser/` drives chromium against the running apps and a stub
+  // upstream through playwright.
+  { id: 'GAP-48', title: 'End-to-End Integration & Browser Smoke Test Suite', files: ['tests/e2e/smoke/copy-trading-lifecycle.spec.ts', 'tests/e2e/smoke/trader-discovery.spec.ts', 'tests/e2e/smoke/funding-compliance.spec.ts', 'tests/e2e/smoke/admin-operations.spec.ts', 'tests/e2e/browser/copy-trading-lifecycle.spec.ts', 'tests/e2e/browser/trader-discovery.spec.ts', 'tests/e2e/browser/admin-operations.spec.ts', 'tests/e2e/browser/support/stub-api.mjs', 'playwright.config.ts'] },
+  { id: 'GAP-49', title: 'Release Manifest & Handover Report Generator Sync', files: ['scripts/generate-release-manifest.ts', 'scripts/gen_part22_handover.py', 'apps/api/src/modules/ops/production/release-manifest.service.ts', 'docs/FINAL_RELEASE_HANDOVER.md'] },
+  { id: 'GAP-50', title: 'Automated 50-Gap Parity Scanner & Regression Gate', files: ['ops/gap-parity-scanner.js', 'ops/gap-parity-scanner.test.js', 'ops/production-validation-50-checks.js', 'ops/governance-validation-50-checks.js', 'ops/partner-validation-60-checks.js'] },
+];
+
+const FORBIDDEN_PLACEHOLDERS = [
+  'Rest of the code here',
+  'existing code omitted',
+  'same as before',
+];
+
+/**
+ * A re-export shim: a file whose entire body is import/export statements, aliasing a canonical
+ * implementation that lives somewhere else. F4 and F5 in the round-5 audit were this - four Python
+ * "modules" of 33-35 lines that re-exported code living at another path, and a dozen TypeScript
+ * files doing the same - and the scanner counted those gaps satisfied, because the files existed,
+ * were non-empty, and contained none of the three forbidden placeholder strings.
+ *
+ * Barrel files are excluded on purpose: an `index.ts` that re-exports a package's surface is a real
+ * pattern, not a substitute for an implementation. A file that *declares* something - a class, a
+ * function, an interface, a type, an enum, a const - is not a shim either, however short it is.
+ */
+const DECLARATION_PATTERN =
+  /^\s*(export\s+)?(default\s+)?(declare\s+)?(abstract\s+)?(class|function|async function|interface|type|enum|const|let|var|namespace|module)\b/;
+
+function looksLikeReExportShim(rel, text) {
+  if (!/\.(ts|tsx|js|mjs|cjs|py)$/.test(rel)) return false;
+  const base = rel.split('/').pop();
+  if (/^index\.(ts|tsx|js|mjs|cjs)$/.test(base)) return false;
+  if (/\.d\.ts$/.test(base)) return false;
+  if (/(\.spec|\.test)\./.test(base)) return false;
+
+  const docstrings = ['"""', "'''"];
+  const code = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        !line.startsWith('//') &&
+        !line.startsWith('#') &&
+        !line.startsWith('/*') &&
+        !line.startsWith('*') &&
+        !docstrings.includes(line) &&
+        !/^["']{3}/.test(line),
+    );
+
+  if (code.length === 0) return false;
+  if (code.some((line) => DECLARATION_PATTERN.test(line))) return false;
+
+  const onlyReExports = code.every(
+    (line) =>
+      /^import\b/.test(line) ||
+      /^from\b.+import\b/.test(line) ||
+      /^export\s*\{[^}]*\}\s*(from\s+['"][^'"]+['"])?;?$/.test(line) ||
+      /^export\s*\{/.test(line) ||
+      /^export\s*\*\s*from\s+['"][^'"]+['"];?$/.test(line) ||
+      /^export\s+\{?[^}]*\}?\s+from\s+['"][^'"]+['"];?$/.test(line) ||
+      /^__all__\s*=/.test(line) ||
+      /^[A-Za-z_$][\w.$]*(\s+as\s+[A-Za-z_$][\w.$]*)?,?$/.test(line) ||
+      /^export\s+default\s+[A-Za-z_$][\w.$]*;?$/.test(line) ||
+      /^};?$/.test(line) ||
+      /^\)$/.test(line) ||
+      /^\)\]$/.test(line) ||
+      /^\]$/.test(line) ||
+      /^['"][^'"]*['"],?$/.test(line),
+  );
+  return (
+    onlyReExports && code.some((line) => /^export\s*\{|^export\s*\*|^__all__|^from\b/.test(line))
+  );
+}
+
+/**
+ * The second half of F2: a unit that exists, compiles and is even tested, but that no production
+ * file imports. Two performance services existed in the API; only one was reachable from a
+ * controller, and nothing in the tree said which. The same shape turned up again in the OMS module,
+ * where four "services" were re-export shims nobody imported.
+ *
+ * The check is deliberately narrow - only files whose name marks them as an implementation unit
+ * (`.service.ts`, `.repository.ts`, `.adapter.ts`, `.guard.ts`, `.interceptor.ts`, `.strategy.ts`)
+ * and only against other *production* files, because a spec importing a module proves the module
+ * works and says nothing about whether anything runs it. Framework entry points (NestJS modules,
+ * controllers, Next.js pages and route handlers) are never flagged: the framework imports them.
+ */
+const WIRING_REQUIRED_PATTERN = /\.(service|repository|adapter|guard|interceptor|strategy)\.(ts|py)$/;
+
+const SKIPPED_DIRECTORIES = new Set([
+  'node_modules',
+  '.git',
+  '.next',
+  'dist',
+  'build',
+  'coverage',
+  '__pycache__',
+  '.venv',
+  'test-results',
+  'playwright-report',
+  '.pytest_cache',
+]);
+
+/** Every module specifier any production file imports, walked once per scan. */
+function collectImportSpecifiers(rootDir) {
+  const specifiers = new Set();
+
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
+        walk(abs);
+        continue;
+      }
+      if (!/\.(ts|tsx|py)$/.test(entry.name)) continue;
+      if (/(\.spec|\.test)\./.test(entry.name)) continue;
+      if (entry.name.endsWith('_test.py') || entry.name.startsWith('test_')) continue;
+
+      let text;
+      try {
+        text = fs.readFileSync(abs, 'utf8');
+      } catch {
+        continue;
+      }
+
+      for (const match of text.matchAll(/(?:from|require\()\s*['"]([^'"]+)['"]/g)) {
+        specifiers.add(path.posix.basename(match[1]));
+      }
+      for (const match of text.matchAll(/^from\s+([\w.]+)\s+import\b/gm)) {
+        specifiers.add(match[1].split('.').pop());
+      }
+      for (const match of text.matchAll(/^import\s+([\w.]+)/gm)) {
+        specifiers.add(match[1].split('.').pop());
+      }
+    }
+  };
+
+  walk(rootDir);
+  return specifiers;
+}
+
+function isUnwiredImplementation(rel, specifiers) {
+  if (!WIRING_REQUIRED_PATTERN.test(rel)) return false;
+  const base = rel.split('/').pop().replace(/\.(ts|py)$/, ''); // trader-risk-score.service
+  const stem = base.replace(/\.(service|repository|adapter|guard|interceptor|strategy)$/, '');
+  return !specifiers.has(base) && !specifiers.has(stem);
+}
+
+function runGapParityScan(rootDir = ROOT) {
+  const results = [];
+  let passedCount = 0;
+
+  // Collected once for the whole tree: every import specifier any production file uses.
+  const specifiers = collectImportSpecifiers(rootDir);
+
+  for (const gap of GAP_CHECKS) {
+    const missingFiles = [];
+    const placeholderFiles = [];
+    const shimFiles = [];
+    const unwiredFiles = [];
+
+    for (const rel of gap.files) {
+      const abs = path.join(rootDir, rel);
+      if (!fs.existsSync(abs)) {
+        missingFiles.push(rel);
+        continue;
+      }
+      const stat = fs.statSync(abs);
+      if (stat.size === 0) {
+        missingFiles.push(`${rel} (empty)`);
+        continue;
+      }
+      if (rel !== 'ops/gap-parity-scanner.js') {
+        const text = fs.readFileSync(abs, 'utf8');
+        for (const forbidden of FORBIDDEN_PLACEHOLDERS) {
+          if (text.includes(forbidden)) {
+            placeholderFiles.push(`${rel} (contains "${forbidden}")`);
+          }
+        }
+        if (looksLikeReExportShim(rel, text)) {
+          shimFiles.push(rel);
+        }
+        if (isUnwiredImplementation(rel, specifiers)) {
+          unwiredFiles.push(rel);
+        }
+      }
+    }
+
+    const ok =
+      missingFiles.length === 0 &&
+      placeholderFiles.length === 0 &&
+      shimFiles.length === 0 &&
+      unwiredFiles.length === 0;
+    if (ok) passedCount++;
+    results.push({
+      id: gap.id,
+      title: gap.title,
+      ok,
+      missingFiles,
+      placeholderFiles,
+      shimFiles,
+      unwiredFiles,
+    });
+  }
+
+  return {
+    total: GAP_CHECKS.length,
+    passed: passedCount,
+    failed: GAP_CHECKS.length - passedCount,
+    ok: passedCount === GAP_CHECKS.length,
+    results,
+  };
+}
+
+if (require.main === module) {
+  const report = runGapParityScan();
+  for (const item of report.results) {
+    const icon = item.ok ? '✅' : '❌';
+    console.log(`${icon} ${item.id}: ${item.title}`);
+    for (const m of item.missingFiles) {
+      console.error(`   missing: ${m}`);
+    }
+    for (const p of item.placeholderFiles) {
+      console.error(`   placeholder: ${p}`);
+    }
+    for (const shim of item.shimFiles) {
+      console.error(`   re-export shim (the implementation belongs at this path, not beside it): ${shim}`);
+    }
+    for (const unwired of item.unwiredFiles) {
+      console.error(`   not wired: no production file imports ${unwired}`);
+    }
+  }
+  console.log(`\n50-Gap Parity Scanner Result: ${report.passed}/${report.total} passed, ${report.failed} failed`);
+  process.exit(report.ok ? 0 : 1);
+}
+
+module.exports = { GAP_CHECKS, runGapParityScan, looksLikeReExportShim, isUnwiredImplementation };
+```
+
+FILE: ops/gap-parity-scanner.test.js
+
+```javascript
+// # NEW — Jest/Node test wrapper for the 50-gap parity scanner, including the shim and unwired-module analysers the round-5 audit asked for
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const {
+  GAP_CHECKS,
+  isUnwiredImplementation,
+  looksLikeReExportShim,
+  runGapParityScan,
+} = require('./gap-parity-scanner');
+
+function runParityScannerTest() {
+  const report = runGapParityScan();
+  assert.strictEqual(report.total, 50, 'Expected 50 total gap checks');
+  assert.strictEqual(
+    report.passed,
+    50,
+    `Expected 50/50 gaps to pass, failed: ${report.results
+      .filter((r) => !r.ok)
+      .map((r) => `${r.id} (${r.missingFiles.concat(r.shimFiles ?? [], r.unwiredFiles ?? []).join(', ')})`)
+      .join('; ')}`,
+  );
+  assert.strictEqual(report.ok, true);
+  console.log('PASS ops/gap-parity-scanner.test.js (50/50 gaps verified)');
+}
+
+/**
+ * Why the analysers have their own tests.
+ *
+ * The scanner's first three rules - file exists, file is non-empty, file contains none of three
+ * placeholder strings - are what F3 described: they cannot tell a wired implementation from a
+ * re-export shim with a dataclass bolted on, which is why F4's four Python modules and the
+ * TypeScript files beside them passed for two rounds. The two rules added here are the ones that
+ * catch that class, so they are pinned individually: each positive case is a shape found in this
+ * repository, and each negative case is a shape that must NOT be flagged (a barrel, a file that
+ * declares something, a service that is genuinely imported).
+ */
+function runAnalyserTests() {
+  const cases = [];
+
+  const check = (name, fn) => {
+    try {
+      fn();
+      cases.push({ name, ok: true });
+    } catch (error) {
+      cases.push({ name, ok: false, error });
+    }
+  };
+
+  check('a TypeScript re-export shim is detected (the OMS shape)', () => {
+    const text = [
+      '// # Bridges OMS order intents to execution service',
+      "import { OrderRoutingService } from './order-routing.service';",
+      'export {',
+      '  OrderRoutingService,',
+      '  OrderRoutingService as ExecutionHandoffService,',
+      '};',
+      'export default OrderRoutingService;',
+    ].join('\n');
+    assert.strictEqual(looksLikeReExportShim('apps/api/src/modules/oms/execution-handoff.service.ts', text), true);
+  });
+
+  check('a Python re-export shim is detected (the F4 shape)', () => {
+    const text = [
+      '# Validates and executes order placement against venue adapter',
+      '"""Orders placement module re-exporting canonical placement review and execution wiring."""',
+      'from __future__ import annotations',
+      'from dataclasses import dataclass',
+      'from app.orders_canonical import (',
+      '    PlacementWiring,',
+      '    build_placement_reviewer,',
+      ')',
+      '__all__ = ["PlacementWiring", "build_placement_reviewer"]',
+    ].join('\n');
+    assert.strictEqual(looksLikeReExportShim('services/execution-engine/app/orders/placement.py', text), true);
+  });
+
+  check('a barrel index is not a shim', () => {
+    const text = "export * from './thing';\nexport { other } from './other';\n";
+    assert.strictEqual(looksLikeReExportShim('apps/api/src/modules/providers/index.ts', text), false);
+  });
+
+  check('a file that declares something is not a shim', () => {
+    const text = [
+      "import { OrderRoutingService } from './order-routing.service';",
+      'export { OrderRoutingService };',
+      'export function resolveExecutionDispatchTarget(params: { liveTradingEnabled: boolean }): string {',
+      "  return params.liveTradingEnabled ? 'LIVE_ENGINE' : 'PAPER_SIMULATOR';",
+      '}',
+    ].join('\n');
+    assert.strictEqual(looksLikeReExportShim('apps/api/src/modules/oms/execution-handoff.service.ts', text), false);
+  });
+
+  check('a spec is never considered a shim', () => {
+    const text = "import x from './x';\nexport {};\n";
+    assert.strictEqual(looksLikeReExportShim('apps/api/src/modules/oms/thing.spec.ts', text), false);
+  });
+
+  check('an implementation unit nobody imports is reported as unwired', () => {
+    const specifiers = new Set(['order.service', 'order']);
+    assert.strictEqual(
+      isUnwiredImplementation('apps/api/src/modules/oms/fill-processing.service.ts', specifiers),
+      true,
+    );
+  });
+
+  check('an implementation unit with an importer is not reported', () => {
+    const specifiers = new Set(['fill-processing.service']);
+    assert.strictEqual(
+      isUnwiredImplementation('apps/api/src/modules/oms/fill-processing.service.ts', specifiers),
+      false,
+    );
+  });
+
+  check('an implementation unit imported by its bare stem is not reported', () => {
+    const specifiers = new Set(['fill-processing']);
+    assert.strictEqual(
+      isUnwiredImplementation('apps/api/src/modules/oms/fill-processing.service.ts', specifiers),
+      false,
+    );
+  });
+
+  check('non-implementation files are never checked for wiring', () => {
+    const specifiers = new Set();
+    assert.strictEqual(isUnwiredImplementation('apps/web/src/app/page.tsx', specifiers), false);
+    assert.strictEqual(isUnwiredImplementation('apps/api/src/modules/oms/oms.module.ts', specifiers), false);
+    assert.strictEqual(isUnwiredImplementation('apps/api/src/modules/oms/oms.types.ts', specifiers), false);
+  });
+
+  check('the scanner flags a planted shim and unwired service in a temporary tree', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gap-parity-'));
+    try {
+      const moduleDir = path.join(root, 'apps', 'api', 'src', 'modules', 'demo');
+      fs.mkdirSync(moduleDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(moduleDir, 'demo.service.ts'),
+        '// # Demo\nimport { RealService } from \'./real.service\';\nexport { RealService as DemoService };\n',
+      );
+      fs.writeFileSync(
+        path.join(moduleDir, 'orphan.service.ts'),
+        '// # Orphan\nexport class OrphanService {\n  run(): string {\n    return \'ok\';\n  }\n}\n',
+      );
+
+      // A one-gap check list over the temporary tree, using the same code path the real scan uses.
+      const rel = 'apps/api/src/modules/demo/demo.service.ts';
+      const relOrphan = 'apps/api/src/modules/demo/orphan.service.ts';
+      const original = GAP_CHECKS.splice(0, GAP_CHECKS.length, {
+        id: 'GAP-TEST',
+        title: 'Plant',
+        files: [rel, relOrphan],
+      });
+      const report = runGapParityScan(root);
+      GAP_CHECKS.push(...original);
+
+      assert.strictEqual(report.ok, false, 'the planted gap must not pass');
+      assert.deepStrictEqual(report.results[0].shimFiles, [rel]);
+      // The shim is unwired too, and reporting only one of the two would hide half the defect.
+      assert.deepStrictEqual(
+        report.results[0].unwiredFiles.sort(),
+        [rel, relOrphan].sort(),
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const item of cases) {
+    if (item.ok) {
+      console.log(`PASS  ${item.name}`);
+    } else {
+      console.error(`FAIL  ${item.name}\n      ${item.error && item.error.message}`);
+    }
+  }
+  const failed = cases.filter((item) => !item.ok);
+  if (failed.length > 0) {
+    throw new Error(`${failed.length} analyser test(s) failed`);
+  }
+}
+
+if (typeof describe === 'function' && typeof test === 'function') {
+  describe('50-Gap Parity Scanner (GAP-50)', () => {
+    test('verifies all 50 gaps (GAP-01..GAP-50) are implemented without placeholders', () => {
+      runParityScannerTest();
+    });
+
+    test('detects re-export shims and unwired implementation units', () => {
+      runAnalyserTests();
+    });
+  });
+} else if (require.main === module) {
+  runParityScannerTest();
+  runAnalyserTests();
+}
+
+module.exports = { runParityScannerTest, runAnalyserTests };
+```
+
 FILE: ops/governance-validation-50-checks.js
 
 ```javascript
 #!/usr/bin/env node
+// # Integrates compliance/custody/kill-switch parity checks
 /**
  * Governance Validation 50 Checks
  * PART 25 Regulatory Reporting, Privacy, Data Governance, Retention, Legal Hold
@@ -1456,6 +2815,7 @@ FILE: ops/partner-validation-60-checks.js
 
 ```javascript
 #!/usr/bin/env node
+// # Integrates partner portal and commission ledger parity checks
 /**
  * Partner Validation 60 Checks
  * PART 26 Enterprise Partner / Reseller / Agency / Affiliate & Commission Control Plane
@@ -6649,6 +8009,7 @@ export const CRITICAL_TABLES_FOR_RESTORE = [
 FILE: ops/production/release-manifest.service.ts
 
 ```typescript
+// # Serves verified release manifest metadata to admin ops console
 /**
  * Release Manifest Service
  * Builds deterministic release manifests containing git commit, package versions,
@@ -7802,6 +9163,7 @@ export class VulnerabilityGateService {
 FILE: ops/production-validation-50-checks.js
 
 ```javascript
+// # Integrates 50-gap parity check into production validation suite
 /**
  * Deterministic validation for 50 production infrastructure requirements
  * Run with: node ops/production-validation-50-checks.js
@@ -8292,6 +9654,970 @@ const passed = checks.filter(c => c.ok).length;
 const failed = checks.filter(c => !c.ok).length;
 console.log(`\nResult: ${passed}/50 passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
+```
+
+FILE: ops/security/dependency-audit-baseline.json
+
+```json
+{
+  "generatedAt": "2026-10-07T00:00:00Z",
+  "policy": {
+    "gate": "scripts/check-dependency-audit.mjs",
+    "rule": "Every reported advisory must appear here with a reason and an expiry. A new advisory, a severity increase, an expired exception, or an exception that no longer applies fails the gate.",
+    "expiryDays": {
+      "production": 7,
+      "development": 30
+    }
+  },
+  "entries": [
+    {
+      "id": "GHSA-7m27-7ghc-44w9",
+      "package": "next",
+      "severity": "critical",
+      "devOnly": false,
+      "title": "Next.js Allows a Denial of Service (DoS) with Server Actions",
+      "url": "https://github.com/advisories/GHSA-7m27-7ghc-44w9",
+      "reason": "next: Next.js Allows a Denial of Service (DoS) with Server Actions — production dependency: a request path can reach it; the fix is next@16.4.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@angular-devkit/core",
+      "package": "@angular-devkit/core",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @angular-devkit/core",
+      "url": null,
+      "reason": "@angular-devkit/core: advisory against @angular-devkit/core — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/console",
+      "package": "@jest/console",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/console",
+      "url": null,
+      "reason": "@jest/console: advisory against @jest/console — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/core",
+      "package": "@jest/core",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/core",
+      "url": null,
+      "reason": "@jest/core: advisory against @jest/core — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/environment",
+      "package": "@jest/environment",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/environment",
+      "url": null,
+      "reason": "@jest/environment: advisory against @jest/environment — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @jest/globals@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/expect",
+      "package": "@jest/expect",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/expect",
+      "url": null,
+      "reason": "@jest/expect: advisory against @jest/expect — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/fake-timers",
+      "package": "@jest/fake-timers",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/fake-timers",
+      "url": null,
+      "reason": "@jest/fake-timers: advisory against @jest/fake-timers — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/globals",
+      "package": "@jest/globals",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/globals",
+      "url": null,
+      "reason": "@jest/globals: advisory against @jest/globals — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @jest/globals@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/reporters",
+      "package": "@jest/reporters",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/reporters",
+      "url": null,
+      "reason": "@jest/reporters: advisory against @jest/reporters — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/test-result",
+      "package": "@jest/test-result",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/test-result",
+      "url": null,
+      "reason": "@jest/test-result: advisory against @jest/test-result — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/test-sequencer",
+      "package": "@jest/test-sequencer",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/test-sequencer",
+      "url": null,
+      "reason": "@jest/test-sequencer: advisory against @jest/test-sequencer — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@jest/transform",
+      "package": "@jest/transform",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @jest/transform",
+      "url": null,
+      "reason": "@jest/transform: advisory against @jest/transform — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/cli",
+      "package": "@nestjs/cli",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @nestjs/cli",
+      "url": null,
+      "reason": "@nestjs/cli: advisory against @nestjs/cli — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/platform-express",
+      "package": "@nestjs/platform-express",
+      "severity": "high",
+      "devOnly": false,
+      "title": "advisory against @nestjs/platform-express",
+      "url": null,
+      "reason": "@nestjs/platform-express: advisory against @nestjs/platform-express — production dependency: a request path can reach it; the fix is @nestjs/platform-express@12.1.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@next/eslint-plugin-next",
+      "package": "@next/eslint-plugin-next",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @next/eslint-plugin-next",
+      "url": null,
+      "reason": "@next/eslint-plugin-next: advisory against @next/eslint-plugin-next — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is eslint-config-next@16.4.0 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@types/jest",
+      "package": "@types/jest",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @types/jest",
+      "url": null,
+      "reason": "@types/jest: advisory against @types/jest — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @types/jest@30.0.0 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@typescript-eslint/eslint-plugin",
+      "package": "@typescript-eslint/eslint-plugin",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @typescript-eslint/eslint-plugin",
+      "url": null,
+      "reason": "@typescript-eslint/eslint-plugin: advisory against @typescript-eslint/eslint-plugin — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @typescript-eslint/eslint-plugin@8.71.1 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@typescript-eslint/parser",
+      "package": "@typescript-eslint/parser",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @typescript-eslint/parser",
+      "url": null,
+      "reason": "@typescript-eslint/parser: advisory against @typescript-eslint/parser — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @typescript-eslint/parser@8.71.1 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@typescript-eslint/type-utils",
+      "package": "@typescript-eslint/type-utils",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @typescript-eslint/type-utils",
+      "url": null,
+      "reason": "@typescript-eslint/type-utils: advisory against @typescript-eslint/type-utils — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @typescript-eslint/eslint-plugin@8.71.1 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@typescript-eslint/typescript-estree",
+      "package": "@typescript-eslint/typescript-estree",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @typescript-eslint/typescript-estree",
+      "url": null,
+      "reason": "@typescript-eslint/typescript-estree: advisory against @typescript-eslint/typescript-estree — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @typescript-eslint/parser@8.71.1 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@typescript-eslint/utils",
+      "package": "@typescript-eslint/utils",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against @typescript-eslint/utils",
+      "url": null,
+      "reason": "@typescript-eslint/utils: advisory against @typescript-eslint/utils — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @typescript-eslint/eslint-plugin@8.71.1 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-babel-jest",
+      "package": "babel-jest",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against babel-jest",
+      "url": null,
+      "reason": "babel-jest: advisory against babel-jest — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "severity": "high",
+      "devOnly": true,
+      "title": "braces vulnerable to stack-exhaustion denial of service through deeply nested patterns",
+      "url": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+      "reason": "braces: braces vulnerable to stack-exhaustion denial of service through deeply nested patterns — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-chokidar",
+      "package": "chokidar",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against chokidar",
+      "url": null,
+      "reason": "chokidar: advisory against chokidar — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-create-jest",
+      "package": "create-jest",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against create-jest",
+      "url": null,
+      "reason": "create-jest: advisory against create-jest — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-eslint-config-next",
+      "package": "eslint-config-next",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against eslint-config-next",
+      "url": null,
+      "reason": "eslint-config-next: advisory against eslint-config-next — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is eslint-config-next@16.4.0 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-expect",
+      "package": "expect",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against expect",
+      "url": null,
+      "reason": "expect: advisory against expect — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-fast-glob",
+      "package": "fast-glob",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against fast-glob",
+      "url": null,
+      "reason": "fast-glob: advisory against fast-glob — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @typescript-eslint/parser@8.71.1 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-fork-ts-checker-webpack-plugin",
+      "package": "fork-ts-checker-webpack-plugin",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against fork-ts-checker-webpack-plugin",
+      "url": null,
+      "reason": "fork-ts-checker-webpack-plugin: advisory against fork-ts-checker-webpack-plugin — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-5j98-mcp5-4vw2",
+      "package": "glob",
+      "severity": "high",
+      "devOnly": true,
+      "title": "glob CLI: Command injection via -c/--cmd executes matches with shell:true",
+      "url": "https://github.com/advisories/GHSA-5j98-mcp5-4vw2",
+      "reason": "glob: glob CLI: Command injection via -c/--cmd executes matches with shell:true — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-globby",
+      "package": "globby",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against globby",
+      "url": null,
+      "reason": "globby: advisory against globby — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @typescript-eslint/parser@8.71.1 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest",
+      "package": "jest",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest",
+      "url": null,
+      "reason": "jest: advisory against jest — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-circus",
+      "package": "jest-circus",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-circus",
+      "url": null,
+      "reason": "jest-circus: advisory against jest-circus — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-cli",
+      "package": "jest-cli",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-cli",
+      "url": null,
+      "reason": "jest-cli: advisory against jest-cli — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-config",
+      "package": "jest-config",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-config",
+      "url": null,
+      "reason": "jest-config: advisory against jest-config — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-environment-node",
+      "package": "jest-environment-node",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-environment-node",
+      "url": null,
+      "reason": "jest-environment-node: advisory against jest-environment-node — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-haste-map",
+      "package": "jest-haste-map",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-haste-map",
+      "url": null,
+      "reason": "jest-haste-map: advisory against jest-haste-map — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-message-util",
+      "package": "jest-message-util",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-message-util",
+      "url": null,
+      "reason": "jest-message-util: advisory against jest-message-util — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-resolve",
+      "package": "jest-resolve",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-resolve",
+      "url": null,
+      "reason": "jest-resolve: advisory against jest-resolve — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-resolve-dependencies",
+      "package": "jest-resolve-dependencies",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-resolve-dependencies",
+      "url": null,
+      "reason": "jest-resolve-dependencies: advisory against jest-resolve-dependencies — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-runner",
+      "package": "jest-runner",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-runner",
+      "url": null,
+      "reason": "jest-runner: advisory against jest-runner — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-runtime",
+      "package": "jest-runtime",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-runtime",
+      "url": null,
+      "reason": "jest-runtime: advisory against jest-runtime — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-snapshot",
+      "package": "jest-snapshot",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-snapshot",
+      "url": null,
+      "reason": "jest-snapshot: advisory against jest-snapshot — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-jest-watcher",
+      "package": "jest-watcher",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against jest-watcher",
+      "url": null,
+      "reason": "jest-watcher: advisory against jest-watcher — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-mh29-5h37-fv8m",
+      "package": "js-yaml",
+      "severity": "high",
+      "devOnly": true,
+      "title": "js-yaml has prototype pollution in merge (<<)",
+      "url": "https://github.com/advisories/GHSA-mh29-5h37-fv8m",
+      "reason": "js-yaml: js-yaml has prototype pollution in merge (<<) — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/swagger@12.0.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-r5fr-rjxr-66jc",
+      "package": "lodash",
+      "severity": "high",
+      "devOnly": false,
+      "title": "lodash vulnerable to Code Injection via `_.template` imports key names",
+      "url": "https://github.com/advisories/GHSA-r5fr-rjxr-66jc",
+      "reason": "lodash: lodash vulnerable to Code Injection via `_.template` imports key names — production dependency: a request path can reach it; the fix is @nestjs/swagger@12.0.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-micromatch",
+      "package": "micromatch",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against micromatch",
+      "url": null,
+      "reason": "micromatch: advisory against micromatch — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-xf7r-hgr6-v32p",
+      "package": "multer",
+      "severity": "high",
+      "devOnly": false,
+      "title": "Multer vulnerable to Denial of Service via incomplete cleanup",
+      "url": "https://github.com/advisories/GHSA-xf7r-hgr6-v32p",
+      "reason": "multer: Multer vulnerable to Denial of Service via incomplete cleanup — production dependency: a request path can reach it; the fix is @nestjs/platform-express@12.1.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-mm7p-fcc7-pg87",
+      "package": "nodemailer",
+      "severity": "high",
+      "devOnly": false,
+      "title": "Nodemailer: Email to an unintended domain can occur due to Interpretation Conflict",
+      "url": "https://github.com/advisories/GHSA-mm7p-fcc7-pg87",
+      "reason": "nodemailer: Nodemailer: Email to an unintended domain can occur due to Interpretation Conflict — production dependency: a request path can reach it; the fix is nodemailer@10.0.16 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-3v7f-55p6-f55p",
+      "package": "picomatch",
+      "severity": "high",
+      "devOnly": true,
+      "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+      "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p",
+      "reason": "picomatch: Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-qx2v-qp2m-jg93",
+      "package": "postcss",
+      "severity": "high",
+      "devOnly": false,
+      "title": "PostCSS has XSS via Unescaped </style> in its CSS Stringify Output",
+      "url": "https://github.com/advisories/GHSA-qx2v-qp2m-jg93",
+      "reason": "postcss: PostCSS has XSS via Unescaped </style> in its CSS Stringify Output — production dependency: a request path can reach it; the fix is next@16.4.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-52f5-9888-hmc6",
+      "package": "tmp",
+      "severity": "high",
+      "devOnly": true,
+      "title": "tmp allows arbitrary temporary file / directory write via symbolic link `dir` parameter",
+      "url": "https://github.com/advisories/GHSA-52f5-9888-hmc6",
+      "reason": "tmp: tmp allows arbitrary temporary file / directory write via symbolic link `dir` parameter — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-ts-node-dev",
+      "package": "ts-node-dev",
+      "severity": "high",
+      "devOnly": true,
+      "title": "advisory against ts-node-dev",
+      "url": null,
+      "reason": "ts-node-dev: advisory against ts-node-dev — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; no fix is published yet.",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@angular-devkit/schematics",
+      "package": "@angular-devkit/schematics",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "advisory against @angular-devkit/schematics",
+      "url": null,
+      "reason": "@angular-devkit/schematics: advisory against @angular-devkit/schematics — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@angular-devkit/schematics-cli",
+      "package": "@angular-devkit/schematics-cli",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "advisory against @angular-devkit/schematics-cli",
+      "url": null,
+      "reason": "@angular-devkit/schematics-cli: advisory against @angular-devkit/schematics-cli — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@google-cloud/firestore",
+      "package": "@google-cloud/firestore",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @google-cloud/firestore",
+      "url": null,
+      "reason": "@google-cloud/firestore: advisory against @google-cloud/firestore — production dependency: a request path can reach it; the fix is firebase-admin@10.3.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@google-cloud/storage",
+      "package": "@google-cloud/storage",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @google-cloud/storage",
+      "url": null,
+      "reason": "@google-cloud/storage: advisory against @google-cloud/storage — production dependency: a request path can reach it; the fix is firebase-admin@10.3.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@istanbuljs/load-nyc-config",
+      "package": "@istanbuljs/load-nyc-config",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "advisory against @istanbuljs/load-nyc-config",
+      "url": null,
+      "reason": "@istanbuljs/load-nyc-config: advisory against @istanbuljs/load-nyc-config — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/bull-shared",
+      "package": "@nestjs/bull-shared",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/bull-shared",
+      "url": null,
+      "reason": "@nestjs/bull-shared: advisory against @nestjs/bull-shared — production dependency: a request path can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/bullmq",
+      "package": "@nestjs/bullmq",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/bullmq",
+      "url": null,
+      "reason": "@nestjs/bullmq: advisory against @nestjs/bullmq — production dependency: a request path can reach it; the fix is @nestjs/bullmq@12.0.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/common",
+      "package": "@nestjs/common",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/common",
+      "url": null,
+      "reason": "@nestjs/common: advisory against @nestjs/common — production dependency: a request path can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/config",
+      "package": "@nestjs/config",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/config",
+      "url": null,
+      "reason": "@nestjs/config: advisory against @nestjs/config — production dependency: a request path can reach it; the fix is @nestjs/config@12.0.1 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-36xv-jgw5-4q75",
+      "package": "@nestjs/core",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "@nestjs/core Improperly Neutralizes Special Elements in Output Used by a Downstream Component ('Injection')",
+      "url": "https://github.com/advisories/GHSA-36xv-jgw5-4q75",
+      "reason": "@nestjs/core: @nestjs/core Improperly Neutralizes Special Elements in Output Used by a Downstream Component ('Injection') — production dependency: a request path can reach it; the fix is @nestjs/core@12.1.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/platform-socket.io",
+      "package": "@nestjs/platform-socket.io",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/platform-socket.io",
+      "url": null,
+      "reason": "@nestjs/platform-socket.io: advisory against @nestjs/platform-socket.io — production dependency: a request path can reach it; the fix is @nestjs/platform-socket.io@12.1.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/schedule",
+      "package": "@nestjs/schedule",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/schedule",
+      "url": null,
+      "reason": "@nestjs/schedule: advisory against @nestjs/schedule — production dependency: a request path can reach it; the fix is @nestjs/schedule@12.0.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/schematics",
+      "package": "@nestjs/schematics",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "advisory against @nestjs/schematics",
+      "url": null,
+      "reason": "@nestjs/schematics: advisory against @nestjs/schematics — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/schematics@11.1.0 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/swagger",
+      "package": "@nestjs/swagger",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/swagger",
+      "url": null,
+      "reason": "@nestjs/swagger: advisory against @nestjs/swagger — production dependency: a request path can reach it; the fix is @nestjs/swagger@12.0.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/terminus",
+      "package": "@nestjs/terminus",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/terminus",
+      "url": null,
+      "reason": "@nestjs/terminus: advisory against @nestjs/terminus — production dependency: a request path can reach it; the fix is @nestjs/terminus@12.1.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/testing",
+      "package": "@nestjs/testing",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "advisory against @nestjs/testing",
+      "url": null,
+      "reason": "@nestjs/testing: advisory against @nestjs/testing — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/testing@12.1.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-@nestjs/websockets",
+      "package": "@nestjs/websockets",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against @nestjs/websockets",
+      "url": null,
+      "reason": "@nestjs/websockets: advisory against @nestjs/websockets — production dependency: a request path can reach it; the fix is @nestjs/websockets@12.1.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-2g4f-4pwh-qvx6",
+      "package": "ajv",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "ajv has ReDoS when using `$data` option",
+      "url": "https://github.com/advisories/GHSA-2g4f-4pwh-qvx6",
+      "reason": "ajv: ajv has ReDoS when using `$data` option — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-argparse",
+      "package": "argparse",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "advisory against argparse",
+      "url": null,
+      "reason": "argparse: advisory against argparse — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/swagger@12.0.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-babel-plugin-istanbul",
+      "package": "babel-plugin-istanbul",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "advisory against babel-plugin-istanbul",
+      "url": null,
+      "reason": "babel-plugin-istanbul: advisory against babel-plugin-istanbul — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is jest@30.5.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-5v7r-6r5c-r473",
+      "package": "file-type",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "file-type affected by infinite loop in ASF parser on malformed input with zero-size sub-header",
+      "url": "https://github.com/advisories/GHSA-5v7r-6r5c-r473",
+      "reason": "file-type: file-type affected by infinite loop in ASF parser on malformed input with zero-size sub-header — production dependency: a request path can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-firebase-admin",
+      "package": "firebase-admin",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against firebase-admin",
+      "url": null,
+      "reason": "firebase-admin: advisory against firebase-admin — production dependency: a request path can reach it; the fix is firebase-admin@10.3.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-gaxios",
+      "package": "gaxios",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against gaxios",
+      "url": null,
+      "reason": "gaxios: advisory against gaxios — production dependency: a request path can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-google-gax",
+      "package": "google-gax",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against google-gax",
+      "url": null,
+      "reason": "google-gax: advisory against google-gax — production dependency: a request path can reach it; the fix is firebase-admin@10.3.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-q8mj-m7cp-5q26",
+      "package": "qs",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "qs has a remotely triggerable DoS: qs.stringify crashes with TypeError on null/undefined entries in comma-format arrays when encodeValuesOnly is set",
+      "url": "https://github.com/advisories/GHSA-q8mj-m7cp-5q26",
+      "reason": "qs: qs has a remotely triggerable DoS: qs.stringify crashes with TypeError on null/undefined entries in comma-format arrays when encodeValuesOnly is set — production dependency: a request path can reach it; a fix is available within the declared range.",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-retry-request",
+      "package": "retry-request",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against retry-request",
+      "url": null,
+      "reason": "retry-request: advisory against retry-request — production dependency: a request path can reach it; the fix is firebase-admin@10.3.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-hp3w-g68c-fv3c",
+      "package": "sprintf-js",
+      "severity": "moderate",
+      "devOnly": true,
+      "title": "sprintf-js vulnerable to denial of service through unbounded precision specifiers",
+      "url": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c",
+      "reason": "sprintf-js: sprintf-js vulnerable to denial of service through unbounded precision specifiers — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/swagger@12.0.2 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-teeny-request",
+      "package": "teeny-request",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "advisory against teeny-request",
+      "url": null,
+      "reason": "teeny-request: advisory against teeny-request — production dependency: a request path can reach it; the fix is firebase-admin@10.3.0 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-w5hq-g745-h8pq",
+      "package": "uuid",
+      "severity": "moderate",
+      "devOnly": false,
+      "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+      "url": "https://github.com/advisories/GHSA-w5hq-g745-h8pq",
+      "reason": "uuid: uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided — production dependency: a request path can reach it; the fix is @nestjs/schedule@12.0.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-v422-hmwv-36x6",
+      "package": "body-parser",
+      "severity": "low",
+      "devOnly": false,
+      "title": "body-parser vulnerable to denial of service when invalid limit value silently disables size enforcement",
+      "url": "https://github.com/advisories/GHSA-v422-hmwv-36x6",
+      "reason": "body-parser: body-parser vulnerable to denial of service when invalid limit value silently disables size enforcement — production dependency: a request path can reach it; the fix is @nestjs/platform-express@12.1.2 (semver-major upgrade).",
+      "expiresOn": "2026-10-14",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-external-editor",
+      "package": "external-editor",
+      "severity": "low",
+      "devOnly": true,
+      "title": "advisory against external-editor",
+      "url": null,
+      "reason": "external-editor: advisory against external-editor — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "npm-inquirer",
+      "package": "inquirer",
+      "severity": "low",
+      "devOnly": true,
+      "title": "advisory against inquirer",
+      "url": null,
+      "reason": "inquirer: advisory against inquirer — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    },
+    {
+      "id": "GHSA-8fgc-7cc6-rx7x",
+      "package": "webpack",
+      "severity": "low",
+      "devOnly": true,
+      "title": "webpack buildHttp: allowedUris allow-list bypass via URL userinfo (@) leading to build-time SSRF behavior",
+      "url": "https://github.com/advisories/GHSA-8fgc-7cc6-rx7x",
+      "reason": "webpack: webpack buildHttp: allowedUris allow-list bypass via URL userinfo (@) leading to build-time SSRF behavior — development-only dependency (package-lock.json marks it dev: true), so no customer request can reach it; the fix is @nestjs/cli@12.0.8 (semver-major upgrade).",
+      "expiresOn": "2026-11-06",
+      "owner": "platform"
+    }
+  ]
+}
 ```
 
 FILE: schemas/staging-deployment-evidence.schema.json

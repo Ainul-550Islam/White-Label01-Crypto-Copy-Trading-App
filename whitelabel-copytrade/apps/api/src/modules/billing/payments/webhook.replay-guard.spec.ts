@@ -156,6 +156,11 @@ describe('WebhookReplayGuard (durable replay protection)', () => {
     expect(check.shouldProcess).toBe(true);
   });
 
+  it('does not invent a provider timestamp when replay-age evidence is absent', async () => {
+    const check = await guard.checkReplay({ ...EVENT, providerCreatedAt: null });
+    expect(check).toMatchObject({ isDuplicate: false, isReplay: false, shouldProcess: true });
+  });
+
   it('short-circuits on the cache fast path', async () => {
     cache.get.mockResolvedValueOnce({ processedAt: 'x' } as never);
     const check = await guard.checkReplay(EVENT);

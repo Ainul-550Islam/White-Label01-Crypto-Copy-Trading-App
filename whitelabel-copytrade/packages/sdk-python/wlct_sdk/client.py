@@ -19,6 +19,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, cast
 
+from .generated.event_types import DEVELOPER_EVENT_TYPES
+
 try:  # stdlib only; httpx-style transports stay injectable
     from urllib import error as urllib_error
     from urllib import parse as urllib_parse
@@ -46,33 +48,6 @@ DEVELOPER_SCOPES: Tuple[str, ...] = (
     "webhooks:manage",
     "developer:manage",
 )
-
-DEVELOPER_EVENT_TYPES: Tuple[str, ...] = (
-    "customer.created",
-    "customer.updated",
-    "subscription.created",
-    "subscription.changed",
-    "subscription.cancelled",
-    "payment.succeeded",
-    "payment.failed",
-    "invoice.created",
-    "invoice.paid",
-    "funding.requested",
-    "funding.confirmed",
-    "withdrawal.requested",
-    "withdrawal.confirmed",
-    "copy.subscription.created",
-    "copy.subscription.cancelled",
-    "order.created",
-    "order.acknowledged",
-    "order.filled",
-    "order.rejected",
-    "portfolio.snapshot.created",
-    "statement.generated",
-    "compliance.review.required",
-    "security.event",
-)
-
 
 class DeveloperApiError(Exception):
     """Normalised API failure with backend error code and correlation id."""

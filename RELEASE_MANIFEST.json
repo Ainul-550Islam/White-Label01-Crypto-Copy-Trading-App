@@ -1,39 +1,57 @@
 {
   "release_name": "White-Label01-Crypto-Copy-Trading-App-FINAL-COMPLETE",
   "repository": "https://github.com/Ainul-550Islam/White-Label01-Crypto-Copy-Trading-App",
-  "generated_at_utc": "2026-10-04T03:50:54.118Z",
+  "generated_at_utc": "2026-10-07T23:37:56.000Z",
   "resolved_gaps": 50,
   "counts": {
-    "total_files_hashed": 2168,
-    "source_files": 1664,
-    "test_files": 290,
-    "doc_files": 93,
-    "config_or_asset_files": 121,
-    "total_size_bytes_hashed": 71501378
+    "total_files_hashed": 2296,
+    "source_files": 1710,
+    "test_files": 356,
+    "doc_files": 99,
+    "config_or_asset_files": 131,
+    "total_size_bytes_hashed": 74021088
   },
   "files": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "e398e0c8216cf5e12dd75ab5a2985eb2b6a68c1b3ee9bcc7678bd5b142020eb5",
-      "size_bytes": 1531,
+      "sha256": "312b62efa80091c1a8c31bdc57271e28ecb39f761ac8aeb416394f1d7db33da4",
+      "size_bytes": 16867,
+      "category": "config_or_asset"
+    },
+    {
+      "path": ".github/workflows/codeql.yml",
+      "sha256": "301e370f94f58763d823b1ac7e6127b21313a6ba7525453b7e435b4d5f98591e",
+      "size_bytes": 2700,
       "category": "config_or_asset"
     },
     {
       "path": ".github/workflows/production-release.yml",
-      "sha256": "8e9d9e3aaeb096c3904dc95302871ce3c639204e91482d7f191f75aa08b17fbc",
-      "size_bytes": 9958,
+      "sha256": "c67997b8b29a647e4d55d259e41b53b3cc0aa9218d7bfe1e35247ba27745c0fa",
+      "size_bytes": 10092,
       "category": "config_or_asset"
     },
     {
       "path": ".github/workflows/release.yml",
-      "sha256": "eb198200926dd81cb734f92012727a94e87b5a6643b4deaeca318ebcb380befc",
-      "size_bytes": 1031,
+      "sha256": "9a7c269a49286cb2e1b9fddd657058cbfb3ad6d0c2b280f3f9f058d8d6dd5607",
+      "size_bytes": 5178,
       "category": "config_or_asset"
     },
     {
       "path": ".github/workflows/security.yml",
-      "sha256": "2f4e4e22943d9c3fa54848de9d39de7b37790496cac27da1f3b697ceeb7d06a0",
-      "size_bytes": 998,
+      "sha256": "619908ad4cb9f0451ba7843edbb7f06621447bfc76c1b4a4054b92cc9f26de70",
+      "size_bytes": 6821,
+      "category": "config_or_asset"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "e0267610c4934f21d766386de5dc434f1228cf02ddc226599e039e8452ee4799",
+      "size_bytes": 99,
+      "category": "config_or_asset"
+    },
+    {
+      "path": ".gitleaks.toml",
+      "sha256": "4fda3e61c0cd039ec4050aca383aa67735dfd022926b0493e8561761bbb508e9",
+      "size_bytes": 5799,
       "category": "config_or_asset"
     },
     {
@@ -46,6 +64,12 @@
       "path": "README.md",
       "sha256": "c846753a1d984146beec3000d23020233429fc34d587958308c03f54c95d5ca9",
       "size_bytes": 18405,
+      "category": "doc"
+    },
+    {
+      "path": "RELEASE_PACKAGE_CHECK.md",
+      "sha256": "7fe4ef9bdb7169f8dc8ce1077cca4592caae7531a72a36263582924cf19e712b",
+      "size_bytes": 27316,
       "category": "doc"
     },
     {
@@ -62,38 +86,14 @@
     },
     {
       "path": "whitelabel-copytrade/.env.example",
-      "sha256": "2b0c10960b8068e4132ef4eb6d50da92158de959d87cb199f6ac93a3d70e3b41",
-      "size_bytes": 73617,
-      "category": "config_or_asset"
-    },
-    {
-      "path": "whitelabel-copytrade/.github/workflows/ci.yml",
-      "sha256": "e398e0c8216cf5e12dd75ab5a2985eb2b6a68c1b3ee9bcc7678bd5b142020eb5",
-      "size_bytes": 1531,
-      "category": "config_or_asset"
-    },
-    {
-      "path": "whitelabel-copytrade/.github/workflows/production-release.yml",
-      "sha256": "8e9d9e3aaeb096c3904dc95302871ce3c639204e91482d7f191f75aa08b17fbc",
-      "size_bytes": 9958,
-      "category": "config_or_asset"
-    },
-    {
-      "path": "whitelabel-copytrade/.github/workflows/release.yml",
-      "sha256": "eb198200926dd81cb734f92012727a94e87b5a6643b4deaeca318ebcb380befc",
-      "size_bytes": 1031,
-      "category": "config_or_asset"
-    },
-    {
-      "path": "whitelabel-copytrade/.github/workflows/security.yml",
-      "sha256": "2f4e4e22943d9c3fa54848de9d39de7b37790496cac27da1f3b697ceeb7d06a0",
-      "size_bytes": 998,
+      "sha256": "d8d27d9e8b1f875783a73f6c29cc46441819349aa3f9fde268cd2e2698439d0b",
+      "size_bytes": 73922,
       "category": "config_or_asset"
     },
     {
       "path": "whitelabel-copytrade/.gitignore",
-      "sha256": "cd07846391514630304211b3fc2d6a8fcb3ca6718a3e853ac4eab218ffe5c013",
-      "size_bytes": 869,
+      "sha256": "b5c573a1d73a3fbf663da7d579d79eebdb0f0404124a5a14da8a507c45b05bec",
+      "size_bytes": 988,
       "category": "config_or_asset"
     },
     {
@@ -101,6 +101,12 @@
       "sha256": "421b2bcb1c108b4ddd573a81037be93264436b591210abb41fa9ddedca2f79b5",
       "size_bytes": 8,
       "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/AUDIT_REPORT.md",
+      "sha256": "7631415400fbffdfe95b92fcf8b88ae697c2b2118a0d77348dd61e0325de73a7",
+      "size_bytes": 92491,
+      "category": "doc"
     },
     {
       "path": "whitelabel-copytrade/LICENSE",
@@ -119,12 +125,6 @@
       "sha256": "fc34bc27ecc2f67603af8f99bb287b0a740a808bc7202639e811234482833325",
       "size_bytes": 13050,
       "category": "doc"
-    },
-    {
-      "path": "whitelabel-copytrade/RELEASE_MANIFEST.json",
-      "sha256": "21b28cbcf3d239e1acc69510e0ba79820702100c9dbb502c9740b3c056bdeb4e",
-      "size_bytes": 523433,
-      "category": "config_or_asset"
     },
     {
       "path": "whitelabel-copytrade/apps/admin-web/.env.example",
@@ -152,8 +152,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/admin-web/package.json",
-      "sha256": "a340327dc9ceb395ecacefe02dae967a4b3a8c636812da7fa36911a4c06c0e3c",
-      "size_bytes": 1267,
+      "sha256": "311e8df29455a5a2b8003d44d499fa56330f5afb982093cf768aa752edea5923",
+      "size_bytes": 1315,
       "category": "config_or_asset"
     },
     {
@@ -212,8 +212,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/admin-web/src/app/(console)/compliance/page.tsx",
-      "sha256": "04134d20799962bc655255a6e5ae69f4baddab6bd10c9f2498971c855e000d8a",
-      "size_bytes": 3119,
+      "sha256": "ce258b404df56084d890ff50b458c3e9d9ad44fea583c34f5b550eff04d20a74",
+      "size_bytes": 3590,
       "category": "source"
     },
     {
@@ -244,6 +244,12 @@
       "path": "whitelabel-copytrade/apps/admin-web/src/app/(console)/layout.tsx",
       "sha256": "13048698461d3cf56a555d6db6aed4d5fda84bca7e73975ae2e00d0a78c0ccc6",
       "size_bytes": 2424,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/admin-web/src/app/(console)/lead-trader-applications/page.tsx",
+      "sha256": "0829461184e86df1712b97e66239730c2d896f0fc9ec4b4348305fcca8474d9d",
+      "size_bytes": 1950,
       "category": "source"
     },
     {
@@ -469,6 +475,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/admin-web/src/features/execution/exchange-rate-limit-health.tsx",
+      "sha256": "34b10ce2d21e55a930f1ba80c875bebedbff498f36f5551b8856656ce36a071f",
+      "size_bytes": 9758,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/admin-web/src/features/execution/execution-incident-table.tsx",
       "sha256": "2c7bfede3c14c459c7ec0094449a174a1d1be974cf6a3887a586a9ecba845c32",
       "size_bytes": 12910,
@@ -484,6 +496,12 @@
       "path": "whitelabel-copytrade/apps/admin-web/src/features/partners/partner-admin-table.tsx",
       "sha256": "309a7b1a76d85fb961f7ae8f11714f4d1e8827d29186146378ac0a88a29061ce",
       "size_bytes": 5822,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/admin-web/src/features/trading/lead-trader-application-queue.tsx",
+      "sha256": "e6dcd4d88cbc519b6b53f3dbf1412eec192ca144d978af6abd1dfc7743a98d01",
+      "size_bytes": 11784,
       "category": "source"
     },
     {
@@ -733,6 +751,18 @@
       "category": "test"
     },
     {
+      "path": "whitelabel-copytrade/apps/admin-web/src/tests/compliance-queue-envelope.test.tsx",
+      "sha256": "36fc43b55e8d0cd808b1c9fa67f3cc7570e252a190e8d78aa9ada226cbe45e85",
+      "size_bytes": 5153,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/admin-web/src/tests/exchange-rate-limit-health.test.tsx",
+      "sha256": "a83bfe2d6d8f16177ed18aa14b0d2eac19b19749d4b465ce7be5c49d999429db",
+      "size_bytes": 3776,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/admin-web/src/tests/execution-incidents-page.test.tsx",
       "sha256": "1239442a90839928b67b7a54a0a70cfb621e1a4972fcc2571a79bae0900d9094",
       "size_bytes": 1912,
@@ -746,8 +776,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/admin-web/tsconfig.tsbuildinfo",
-      "sha256": "68a635c2f676abef284da30ecec9e1bb84dd6e6401a29e31d1ed8cc30e48dfa3",
-      "size_bytes": 113770,
+      "sha256": "9f2db53e6320f36d2173f5448b2b2bde3165fc397482d11723bc9cb5b1355bcc",
+      "size_bytes": 114339,
       "category": "config_or_asset"
     },
     {
@@ -755,6 +785,60 @@
       "sha256": "8be509895f568b455a74a322b3b0d80c07559b5917371bdbb8e5ddbe49194807",
       "size_bytes": 1046,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/.wlct-generated-test-keys",
+      "sha256": "be9089307bd90634a192442aa6b6dae63bd7810e9c38e92151dcddff8f860bec",
+      "size_bytes": 105,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/attacker.cert.pem",
+      "sha256": "ce542e4ee71f9916469cb9b838fa140f91c44bf2c71adef5278e2ee8e0d0a360",
+      "size_bytes": 1208,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/attacker.key.pem",
+      "sha256": "c93ce99054b2e7d1b7006379f5255781be38274b69d687610b628657aa3f1189",
+      "size_bytes": 1708,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/expired.cert.pem",
+      "sha256": "db0c1c29890d802b5d67f23cdd46da9ea9f986fabbaf0fb7ccb5ea7d58da7279",
+      "size_bytes": 1135,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/expired.key.pem",
+      "sha256": "1b7d3e4a8418782b37cf9aa7693febc69846f6b33b509875638b65f414e33ee3",
+      "size_bytes": 1704,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/idp.cert.pem",
+      "sha256": "d0849d001e17155e38b2ef093b5014c5ada8fbf7c4b07f8ed5aff5b5fbde2dc7",
+      "size_bytes": 1196,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/idp.key.pem",
+      "sha256": "6d64507ee7aca6c2b50f6b216c39b9ef503dd2067138da500fb3ed6903b73435",
+      "size_bytes": 1704,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/spenc.cert.pem",
+      "sha256": "5d72d55afcc04d932b18e12112ccc0d84dc5566574e5f0e59dfcf3f1b1d00311",
+      "size_bytes": 1220,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/.generated/sso-test-keys/spenc.key.pem",
+      "sha256": "44890c70c362fb170fca7d880a522270be976a4ca7503c1a68fd5f1b378f211d",
+      "size_bytes": 1704,
+      "category": "config_or_asset"
     },
     {
       "path": "whitelabel-copytrade/apps/api/.prettierrc",
@@ -901,6 +985,48 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/prisma/migrations/20261004000000_partner_attribution_tenant_idempotency/migration.sql",
+      "sha256": "83fa293d7c4607f795747860ab31ca53d1938e0f43c0554e83f421a217dfb96b",
+      "size_bytes": 686,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/prisma/migrations/20261005000000_lead_trader_application/migration.sql",
+      "sha256": "b05c134e91a4f0e114d380e16a9743a5525644e1c8f3e50cab882e6ab7bf38d7",
+      "size_bytes": 2374,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/prisma/migrations/20261005120000_leader_trader_fee_policy/migration.sql",
+      "sha256": "a452f8c06bbedb4b1cbe488e5f383ac693658b1e0bb746ef8bf9327f851b657c",
+      "size_bytes": 2695,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/prisma/migrations/20261006120000_part11_row_level_security/migration.sql",
+      "sha256": "642fc7fee3812eeab5112d7cee79f5f73f557a4b8c15965485d83bdbf36ea122",
+      "size_bytes": 4054,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/prisma/migrations/20261007120000_user_position_limits/migration.sql",
+      "sha256": "110024a48d5264930b76ceaa1fc28d260827e8c5acd79f019925dd0b150f1b4f",
+      "size_bytes": 1293,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/prisma/migrations/20261007130000_part11_row_level_security/migration.sql",
+      "sha256": "3c032e3717563e09d5783b42a71ab9b9d5d7242c5f6763760fa0b918c8d3abfa",
+      "size_bytes": 3822,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/prisma/migrations/20261007140000_custom_domain_dns_challenge/migration.sql",
+      "sha256": "c1ad2fe88e5a94cb774acad515fd091d3b2c92d55e9939d51d3a3a2cfaa64c17",
+      "size_bytes": 420,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/prisma/migrations/migration_lock.toml",
       "sha256": "1a87768ca81682f16500f618caaab39c836e990dbcb15757721c1d044b91be0b",
       "size_bytes": 127,
@@ -932,8 +1058,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/prisma/schema.prisma",
-      "sha256": "6b63c95ad31219880c83f13127851a6bdc3e454c43c7dd69845b73ce4b712fbe",
-      "size_bytes": 468298,
+      "sha256": "aa6fde4db517ce3de5a3c3536de0188b971fa835207aeafcfbe36a1dbe95fda0",
+      "size_bytes": 476968,
       "category": "source"
     },
     {
@@ -1006,6 +1132,18 @@
       "path": "whitelabel-copytrade/apps/api/src/common/constants/request.constants.ts",
       "sha256": "a6458457c854e7c5ab344e60719a458feb7aa8f89aa17640c92afa193492c21f",
       "size_bytes": 435,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/common/decimal-string.spec.ts",
+      "sha256": "625dd6cf7db7407a3be2556bafbb69a4286f2e3021b28cce21effdd73c4fe7cb",
+      "size_bytes": 13479,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/common/decimal-string.ts",
+      "sha256": "26fcdb31cd8e2161673b633d2361cebbcb2f0abce0e2be893f14530181fb99b8",
+      "size_bytes": 23572,
       "category": "source"
     },
     {
@@ -1502,8 +1640,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/infrastructure/redis/cache.service.ts",
-      "sha256": "e8b9aae9440aff0e86edeea5a8a78c59c378c5115dbf804be4ff84f69300e22d",
-      "size_bytes": 3791,
+      "sha256": "d534304e9a178630677c4090ddc4df86bcaeefd9a670ed56269427486fafad8a",
+      "size_bytes": 4828,
       "category": "source"
     },
     {
@@ -1538,14 +1676,20 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/main.ts",
-      "sha256": "7c985d0f0ee4b767ea388817dc5d2efea4f3e305df9c10f6f8c0c1eeb0af2b47",
-      "size_bytes": 5434,
+      "sha256": "dd519c14b5446fcfd09fd99556cc49c5b556769753595cf77ba5e26106fd0bc8",
+      "size_bytes": 5810,
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/audit/audit.controller.spec.ts",
+      "sha256": "7650664a6fbadb4da0083745999388358b336bf3d66937c7cade18e9eca2f44c",
+      "size_bytes": 1495,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/audit/audit.controller.ts",
-      "sha256": "5d54f1f374dea734cc83221489e19346db5ecbc23b7b92f791df57a59a3b074c",
-      "size_bytes": 2514,
+      "sha256": "091639c96b756466429a37d1fb14ffaf8c928c84c181e25a5f5f12f14f216d37",
+      "size_bytes": 2518,
       "category": "source"
     },
     {
@@ -1673,6 +1817,12 @@
       "sha256": "7496af6b060e2c81fc1425e5f4628f5423da00b07cf5d88a25ec9822e1e907f8",
       "size_bytes": 5020,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/auth/services/session.service.spec.ts",
+      "sha256": "a82fe08f8d2a39268e6b400cc3aee86b07d2ac3140866c221027cf849067da51",
+      "size_bytes": 3504,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/auth/services/session.service.ts",
@@ -2042,8 +2192,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/billing/enforcement/plan-limit-counting.spec.ts",
-      "sha256": "9c5f858c50bf9261c6283f7c3d95733dfd0865349ecf9f1f5683c661067496bb",
-      "size_bytes": 7545,
+      "sha256": "26f5bcd14a0dd20e1738b25dfd472e830986e179299dc11275c9e743ba8440a0",
+      "size_bytes": 7865,
       "category": "test"
     },
     {
@@ -2141,6 +2291,12 @@
       "sha256": "934df60e8f96af4bc44d8217aa4bd33bbccf28be865f49bbcf3b262377ff1511",
       "size_bytes": 8263,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/billing/entitlements/entitlement.spec.ts",
+      "sha256": "632c5460af21c1464efe5a94347e7a77c0cd345aeecf94f38d742c322ba581fb",
+      "size_bytes": 14535,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/billing/entitlements/entitlement.types.ts",
@@ -2936,14 +3092,14 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/billing/saas-admin/custom-domain-verification.service.ts",
-      "sha256": "9c4d0fb395070fb5769ff2058efab82c910808f0c879ddfbb50872e67d72eb6e",
-      "size_bytes": 10821,
+      "sha256": "0de5001d8272cc6a3d7155ec4aa0011b4c620f399a8a1ff2cbd076ffce704a63",
+      "size_bytes": 18349,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/billing/saas-admin/custom-domain.service.ts",
-      "sha256": "2464af5d715e2a6d638179bb9363337bec4193471e6f70fe5e0eb0e23fd7455d",
-      "size_bytes": 8391,
+      "sha256": "013dd66f83eeb76192b25726410f7a91ceaeba8aa5a107159635e0f58a19e08e",
+      "size_bytes": 8877,
       "category": "source"
     },
     {
@@ -3511,9 +3667,51 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/allocation-rebalance.controller.spec.ts",
+      "sha256": "74501341e63f2607b653d8a361330f0560328b860c7065d3f31b98a95b28b378",
+      "size_bytes": 2524,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/allocation-rebalance.controller.ts",
+      "sha256": "5c320816a06febef502e0972ca5cb3130de919e24a27b0f4357d9eef08d45652",
+      "size_bytes": 6984,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/allocation-rebalance.service.ts",
+      "sha256": "431fe43dffb3f6b5dcbd87569962dfa782aa33ebe716a3b08ad8ea00bc38155b",
+      "size_bytes": 4547,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/allocation-rebalance.spec.ts",
+      "sha256": "aa97296e1745ea0d56d61f649823ee18f16ae385aeb1a0edc7257ccaf83c94a6",
+      "size_bytes": 4175,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/allocation-valuation.controller.ts",
+      "sha256": "881fb17270b3a5d61afc23dace90f8e62341f73e65f5c3b77fbb7c57d19d96ed",
+      "size_bytes": 3540,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/allocation-valuation.repository.ts",
+      "sha256": "4810e694d52ff858e7622acc72a91feb074b5960127386f8396f4f6a6e6ea99d",
+      "size_bytes": 10218,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/allocation-valuation.spec.ts",
+      "sha256": "029eebe6fa4aa30ac28caed1961ad52550ebf32e37b76087279c0945cb9a8b9d",
+      "size_bytes": 16782,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-execution.dispatch.spec.ts",
-      "sha256": "cfbcbe5b39b331abd534d289acdf8e21da424035b03fdd1f272e7728b6aa8907",
-      "size_bytes": 17544,
+      "sha256": "019368da4f02b02e8f62d7ac0dcfab04c9942986e4bfb2863a40cd17f2274e72",
+      "size_bytes": 17959,
       "category": "test"
     },
     {
@@ -3524,26 +3722,32 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-execution.service.ts",
-      "sha256": "c07cc222207e10b24278337364a1a6387d423d04fdbdf0c241baed28796775c4",
-      "size_bytes": 42128,
+      "sha256": "860d146d8ed95f6dc950ba6b3c361c02c145dba14df97242e312764cb189d78a",
+      "size_bytes": 45483,
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-order-mapper.service.spec.ts",
+      "sha256": "246e6f0c06e770545037e87486619342173cdf37b477d7502529a4e7ae5b5e67",
+      "size_bytes": 14364,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-order-mapper.service.ts",
-      "sha256": "4372772810929f4941657624ca33bf5e33631444bce1bd71e8c8d8c87dfb412c",
-      "size_bytes": 14910,
+      "sha256": "a9804bbb5126bb147f9c3518b13c2b7518be57dae7abdba838e6ddcc1754eb8f",
+      "size_bytes": 22645,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-policy.service.spec.ts",
-      "sha256": "99971ec0541eb874e96235ddcf3e60bca19dce0376112387f462852ad13dba6a",
-      "size_bytes": 8960,
+      "sha256": "da5923fefd2b9899ef7e26a73796f63a60b57a6521a9e401fcd9c4439cd9de76",
+      "size_bytes": 12017,
       "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-policy.service.ts",
-      "sha256": "2888c05cea4e00a35ca18c16a3af92c3300738be436007b113c8b67f45ec3fb8",
-      "size_bytes": 20766,
+      "sha256": "ca9c4b4f40526ed30a65425d3ddf9607811b1ba43586d9fe05903cd1a3111648",
+      "size_bytes": 29426,
       "category": "source"
     },
     {
@@ -3560,8 +3764,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-trading-authorization.spec.ts",
-      "sha256": "d8b9e476582a74a239707af99984bc2fc4af8bdb0e813b68b09b77ac4d96fd62",
-      "size_bytes": 12927,
+      "sha256": "fdec1261c0d30878334f4bfe7ecac72a35c85c3a30ff9b4ec3f6fc88d0de7209",
+      "size_bytes": 13705,
       "category": "test"
     },
     {
@@ -3584,14 +3788,14 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-trading.controller.ts",
-      "sha256": "b26c24a8040a764000579e94ad942e48a3f1a082a4a090fc8f6bee027a08ee51",
-      "size_bytes": 26560,
+      "sha256": "7c3a876ed736cbf955d445d13b1a978c054956e8e66ec7f53cceab4a9e934bda",
+      "size_bytes": 28014,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-trading.module.ts",
-      "sha256": "9023c145557589cecedb27d6c4e2ccc0db627f10d6a9d2690351ba1deff7e11a",
-      "size_bytes": 3517,
+      "sha256": "21ab7d26bcc88860c025d014754f9f6757432428512d81e8ff4e387054de1ac0",
+      "size_bytes": 5144,
       "category": "source"
     },
     {
@@ -3602,8 +3806,14 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/copy-trading.types.ts",
-      "sha256": "7f89bc23be47fe2b9a0c63c5143f112be567c4db4a5adfeb00af1d4283a4adb8",
-      "size_bytes": 9943,
+      "sha256": "0f11f719435b24394d7548a4ef4b75355d89434e8959af059b6acbadf9fb9398",
+      "size_bytes": 19075,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/dto/allocation-rebalance.dto.ts",
+      "sha256": "eed788ac932c83240a69cb2c258610b8b0e81a7317da258be61a66f2f8df715d",
+      "size_bytes": 2122,
       "category": "source"
     },
     {
@@ -3616,6 +3826,18 @@
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/dto/follower-subscription.dto.ts",
       "sha256": "527c9d0af98f82fbd846404715f9f459ab6f633c09081fd43123030b68c9701a",
       "size_bytes": 2531,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/dto/lead-trader-application.dto.ts",
+      "sha256": "db91bb69fe5502bff751ce6f23eb4bf87218bdd81e52750ea26923322415a1bf",
+      "size_bytes": 1645,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/dto/leader-fee.dto.ts",
+      "sha256": "c9f3455ef8122f1da0f10c424edd63fcf242ec72dce029eec100ca7828a7d358",
+      "size_bytes": 923,
       "category": "source"
     },
     {
@@ -3632,14 +3854,14 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/follower-risk.service.spec.ts",
-      "sha256": "396086dd10ac2cca2fda04efbbee1e29b70c7c575d337f75be133dffe7a5c86d",
-      "size_bytes": 8333,
+      "sha256": "cd85105364e0b084c51bf7b8b33085c29daa3ffbbd408950d0be6a96c50da2b3",
+      "size_bytes": 9988,
       "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/follower-risk.service.ts",
-      "sha256": "94457ac644fb18d6923de34e23cb5b29f0f1a058268f76c8f74b77f0a15ea866",
-      "size_bytes": 17248,
+      "sha256": "2bf2dcf3f38a3fc576dcfdfd41a90d31109943152fc5271344589ee9f8726426",
+      "size_bytes": 17254,
       "category": "source"
     },
     {
@@ -3653,6 +3875,24 @@
       "sha256": "1656324a2b47fb1ae51e384246601ebffe43c24a4e3c54ed89e05fbd6607d3fb",
       "size_bytes": 17182,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/lead-trader-application.controller.ts",
+      "sha256": "34c95a1b3089ec98f353451a609d77987815190345fc2ce3c8de088b2ab4c9d3",
+      "size_bytes": 4107,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/lead-trader-application.service.ts",
+      "sha256": "4372dedc947915a15bcfd99951e9db0cd24b2329e629fd9289e8a9b4ae98d4eb",
+      "size_bytes": 17181,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/lead-trader-application.spec.ts",
+      "sha256": "91df141ee416d4f362e5de07e4bae5d978c2ffa2a4a950d4b68689c05e6fa3df",
+      "size_bytes": 16100,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/leader-event-ingestion.service.ts",
@@ -3673,28 +3913,106 @@
       "category": "test"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/leader-fee.controller.ts",
+      "sha256": "9110081bc3fd3493ab5ab50e6c341d927038e790bc05d9f531e18bb51d5ccd0e",
+      "size_bytes": 2574,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/leader-fee.service.ts",
+      "sha256": "4cdc7809eea3dd22337de9364f60a59dcd7dac11b1e1a42bda4d3957a1410a94",
+      "size_bytes": 16262,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/leader-fee.spec.ts",
+      "sha256": "4019d5eedb844eb1378ab8092efed3f6b1d83818209ad151d87b5dd13a36f413",
+      "size_bytes": 11121,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/performance-benchmark.controller.ts",
+      "sha256": "4c9109d2040b612e5bfcaeb9eaaa97a162af433f56b1888ea360abe948927844",
+      "size_bytes": 1811,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/performance-benchmark.service.ts",
+      "sha256": "2a8e9b76dd8ba7b166c63e19e088a9f98cb62f78fcac5852bcf69c5dfe9f2e0c",
+      "size_bytes": 16131,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/performance-benchmark.spec.ts",
+      "sha256": "97ad06040367c809d6f31a8de207fc28b78e249b51171e2bbb885f54a0669110",
+      "size_bytes": 10951,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/performance-calculation.service.ts",
+      "sha256": "fba342fdc807c4509b1bba1434c8fc5aa818698ce7d9dd511faeefa571259c03",
+      "size_bytes": 15559,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/performance-calculation.spec.ts",
+      "sha256": "3a336e9a48a7f374220903ea60dcf7194e29061de62cf28688d63bf98493ff21",
+      "size_bytes": 9794,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/strategy-validation.service.ts",
       "sha256": "e0ac0e4b5e83875cd9f17d48ac40db33596978fc4e80ffb29864cfb6a1b8f1b8",
       "size_bytes": 10301,
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-performance.service.spec.ts",
+      "sha256": "068f2b03323f25ca37a9423622e8fa86e8e302040f2b6f97107aa20482a04d1c",
+      "size_bytes": 15017,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-performance.service.ts",
-      "sha256": "48ef036b6e3d91fb8ade712f7b91d13976c8430ae2fbe8d7c6a6a37bacf87e7c",
-      "size_bytes": 8363,
+      "sha256": "c19bda5cc2ad35e165f082cbee7bad931c0837a5966f7546bdd51158e2ad12b1",
+      "size_bytes": 11134,
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-profile-visibility.spec.ts",
+      "sha256": "39efc1ea3c50ff17ae4780d4e35af11c139030e3b9e8292348604a7d1759ba1a",
+      "size_bytes": 3374,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-profile.public-view.ts",
+      "sha256": "984cf61b4b7c241bee64637a0f9ddb2e4cec5a29240cc56964d4d5fe5d7697ca",
+      "size_bytes": 4186,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-profile.service.spec.ts",
+      "sha256": "5d24312687008bda1f64a8286b8ec94b6aad395e4653d87239ff813d9044a38a",
+      "size_bytes": 10987,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-profile.service.ts",
-      "sha256": "12563076c69e3473ee449911574f70171ace9bbccc696adf3cfcc5ba2402c346",
-      "size_bytes": 10496,
+      "sha256": "bbd974c9e79857c7594f93f84c145abcc99b82fd4302cd3f9537558732208a84",
+      "size_bytes": 21092,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-ranking.service.ts",
-      "sha256": "3b2a2395b0718d66acab4c4f07e55175ca649d3665e8ab855035d36b9f82ceb0",
-      "size_bytes": 7755,
+      "sha256": "4678fed8775a2d6c84d0d03a04f76b24be14a4ecb46066c9cf7db94ad61bf370",
+      "size_bytes": 19993,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-ranking.spec.ts",
+      "sha256": "6aec45949de69c4f93a8ff8664f9bbce8c4881be3561289099d1bc56ace8e4f0",
+      "size_bytes": 12144,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/copy-trading/trader-strategy.service.ts",
@@ -3734,8 +4052,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/custody/custody-adapter.contract.spec.ts",
-      "sha256": "7c5c119fc6c70681c4e68a35ff5fbbba3b6420a8fb780f5ad7d410a32439dcdc",
-      "size_bytes": 3064,
+      "sha256": "0266c292123ba2f28d1006d6db054e9025db97ed4103bf150c04cd0b875a84a0",
+      "size_bytes": 3072,
       "category": "test"
     },
     {
@@ -4201,9 +4519,15 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/exchange-order-sync.service.spec.ts",
+      "sha256": "9e412e95f0b7e4fddb571ca7787016ea8ab8c5834177e6143eae41bcdf79e605",
+      "size_bytes": 7669,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/exchange-order-sync.service.ts",
-      "sha256": "a7a39a03497b15715f69ee1c5bd2d422e8630d8feb8c2a033744a670441ed4fa",
-      "size_bytes": 15478,
+      "sha256": "03f5baac2cb64982b46b0135eb74e16e6fa6061e4b6f474b03ee5dd45c7fdb08",
+      "size_bytes": 19619,
       "category": "source"
     },
     {
@@ -4225,9 +4549,15 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/exchange-rate-limit.service.spec.ts",
+      "sha256": "2964ed628a57e2ef8bc36ecb9c7be7f825dd9ce06623400266407da8710afecd",
+      "size_bytes": 3646,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/exchange-rate-limit.service.ts",
-      "sha256": "4852d5b01a7a7595a06473bfd6ee435c3fcd96eee50a388c946ddd534ae220f0",
-      "size_bytes": 11187,
+      "sha256": "9c97a9448bed05a708cca191ef12966cf6af712a060fbfe8e9c2b210f474b16d",
+      "size_bytes": 14154,
       "category": "source"
     },
     {
@@ -4238,8 +4568,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/exchange-routing.service.ts",
-      "sha256": "e7e50d2ba7f362e1af660f1b06d7505f3beaa1901615f0e2f967661baaf61325",
-      "size_bytes": 15727,
+      "sha256": "0fa7bd7e74234746dc1151e7d97add9e1b6a3b282578e30ec0db962ac49095a5",
+      "size_bytes": 17228,
       "category": "source"
     },
     {
@@ -4256,56 +4586,14 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/exchanges.controller.ts",
-      "sha256": "db8d979cae5f88618d80d9e80a23a49bad99e974ee8842fcebb63f032d8ec2a0",
-      "size_bytes": 19334,
+      "sha256": "bcb2af4680c6cba9bb3f6e8711fb39a80d83135c30b714c081d92ad005e28704",
+      "size_bytes": 19350,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/exchanges.module.ts",
-      "sha256": "0c1ff7f7de19981735c1c2920321e4d45efd7a5362090b3adee70bf2570c5ee0",
-      "size_bytes": 2987,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/providers/base-exchange-provider.ts",
-      "sha256": "2f127fbb39fda0666f1cb8d47c7bc54b9c33ca22798e07f2ea090a5192d8ec11",
-      "size_bytes": 834,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/providers/bybit.provider.ts",
-      "sha256": "3b1392df49b8913f5ddcd48a11fad931f0d2e892936f7e1d131ad4ee63ed48d6",
-      "size_bytes": 651,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/providers/coinbase.provider.ts",
-      "sha256": "f06846add277c7c7fce01315754d495e7eef393e3d9762d3e4eae48c63393da8",
-      "size_bytes": 574,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/providers/exchange-provider.factory.ts",
-      "sha256": "62ef81aa82bbfadbc04187803f261a8906cf82ab3688791d438f04e01732ca0a",
-      "size_bytes": 751,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/providers/exchange-provider.interface.ts",
-      "sha256": "6014a07d99f7e08063c9261dc7b07b9fbfc50425014023704a50597312ac4782",
-      "size_bytes": 740,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/providers/kraken.provider.ts",
-      "sha256": "c96361973ad393ccee3200dffdc0a7fc187bd244810649b442a1fcc80921a2ce",
-      "size_bytes": 661,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/exchanges/providers/okx.provider.ts",
-      "sha256": "334286d0c1be4790207624e387e6b10e2dd02e205956fb6a755ba7912a6f33b3",
-      "size_bytes": 656,
+      "sha256": "bdff81f583c198a1daf52d661af1062cbff6277343db746e88a800141954af09",
+      "size_bytes": 3322,
       "category": "source"
     },
     {
@@ -4525,9 +4813,15 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/governance/consent.service.spec.ts",
+      "sha256": "0bdea8ae9cc48a2e6dcdc22e390ac9e9bd1803b801c86ff665c19931c64219cc",
+      "size_bytes": 5899,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/governance/consent.service.ts",
-      "sha256": "bde7ddebf03f7b41d600fbfaa0c09fc00d44d62e9ae49f859f4aa15d7df2b83c",
-      "size_bytes": 6383,
+      "sha256": "43b1bab67058237c3b803317d0b376f2422b42781a2e0d77e06e12c0a77c7167",
+      "size_bytes": 11840,
       "category": "source"
     },
     {
@@ -4640,8 +4934,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/governance/privacy-governance.contract.spec.ts",
-      "sha256": "933ce3c9c880979de1b7f867566344395e4590dccc968e29462e9733b03efa5d",
-      "size_bytes": 8372,
+      "sha256": "9f1f4edc312c275a695bee12e68cf34bd1dc94f36d4880e516b7f37dd0bb8c50",
+      "size_bytes": 8789,
       "category": "test"
     },
     {
@@ -4669,6 +4963,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/health/health-probe-alias.controller.ts",
+      "sha256": "ffdf07870b3008373003dbd58b4e189da2b5de4154ba42c7ada8b98ca9247056",
+      "size_bytes": 2792,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/health/health.controller.ts",
       "sha256": "88d28c5cd1a836325f5c09cad7efc364861b8cc8264e5e604b55b01aec88ab33",
       "size_bytes": 5475,
@@ -4676,8 +4976,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/health/health.module.ts",
-      "sha256": "a4c3562622ad9ba7f90dbfbff22f57d5980fb1d29bcbf8029f8247cb48c16009",
-      "size_bytes": 1428,
+      "sha256": "6541b4bc62f823853ba06b5b317483944b41b6ba7b63097350ae35ad3e146e8f",
+      "size_bytes": 1676,
       "category": "source"
     },
     {
@@ -5179,12 +5479,6 @@
       "category": "source"
     },
     {
-      "path": "whitelabel-copytrade/apps/api/src/modules/oms/execution-handoff.service.ts",
-      "sha256": "2ee54de0f7bc4dd6b6c2cbe2365894d26e4a93be33b227ef99f00bc40c23c819",
-      "size_bytes": 1787,
-      "category": "source"
-    },
-    {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/execution-latency.service.ts",
       "sha256": "3b4d2862ab803942f644729ccb2ae037570e9fe96380bf0e5a83e6e37fbb2755",
       "size_bytes": 8500,
@@ -5203,12 +5497,6 @@
       "category": "source"
     },
     {
-      "path": "whitelabel-copytrade/apps/api/src/modules/oms/fill-processing.service.ts",
-      "sha256": "2038e2ec15161175217048f082779981278dbd3fdb41e57384cab7d31a04b180",
-      "size_bytes": 1011,
-      "category": "source"
-    },
-    {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/fill-reconciliation.service.ts",
       "sha256": "99cd00eeac169e84e3ac694e034199c08238cf781685929728488299ae952933",
       "size_bytes": 10431,
@@ -5218,18 +5506,6 @@
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/oms-audit.service.ts",
       "sha256": "4d0c26c0dd0ebcc104cbea6d07dcaa86cf566d4fdcd43b2b83cc13ce5e62f356",
       "size_bytes": 6823,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/oms/oms-execution-handoff.spec.ts",
-      "sha256": "c89a0ed4612a71d9c95664131303310cf92385eef545a146681c1ec64063e32b",
-      "size_bytes": 1627,
-      "category": "test"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/oms/oms-reconciliation.service.ts",
-      "sha256": "b1c27facfdd2699ac620ccb0811845194fe9a485e81d7512a5fa090906b4c07a",
-      "size_bytes": 1128,
       "category": "source"
     },
     {
@@ -5246,8 +5522,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/oms.types.ts",
-      "sha256": "132c7ec4e0ad2bc69cdb6c2044d226f2c57bd4dcdccf1f134f2c1f974806b726",
-      "size_bytes": 17326,
+      "sha256": "daf37c00ef564e669104d72ecf57b4370f554e84a17cca175c67582b9a160b99",
+      "size_bytes": 18381,
       "category": "source"
     },
     {
@@ -5257,21 +5533,27 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-intent.service.spec.ts",
+      "sha256": "f48757f4083c4767374a1fd8ca9db82bda946148c793a5c9b14cbbe86408b689",
+      "size_bytes": 5148,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-intent.service.ts",
-      "sha256": "35149afa5f51d98be4431e18e437eaac1ba323b7ff1ec6a29642b59744b8e3f9",
-      "size_bytes": 15434,
+      "sha256": "ec762a97d163aaddac2c8d188f6fa6541210dd1b3a6bc45a0127009fd201bf62",
+      "size_bytes": 17332,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-lifecycle.service.ts",
-      "sha256": "8dc5a051d443a27a941f3b1f90f77d01c98692895fc9d185a7670bd6593cfdcc",
-      "size_bytes": 5791,
+      "sha256": "2ba40ff78c6a32924aac778cc126dbb8b1fd8730acf58fda8e94f23703b55c0c",
+      "size_bytes": 5787,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-reconciliation.service.ts",
-      "sha256": "0dcf4d11eaef0988a42dccbc82e6af7e13362b8f9556b471ec1303f5d4a38c5b",
-      "size_bytes": 11837,
+      "sha256": "5287fdd3bce1bcd9fca1e9d544fb7d4206bdc63921e639ca81c58bc48ca60eb5",
+      "size_bytes": 11802,
       "category": "source"
     },
     {
@@ -5282,8 +5564,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-replace.service.ts",
-      "sha256": "c9386d9b3fcaeb39b10df5232686d34022a6eff2a045ed6f3434ccd61bc53ca1",
-      "size_bytes": 7094,
+      "sha256": "c079cce6005078e7e8079d33d834e2a83cc4c930dc29ca780b11fa866d0c07bf",
+      "size_bytes": 6916,
       "category": "source"
     },
     {
@@ -5291,6 +5573,12 @@
       "sha256": "937889527bbc461043ab492ccf4a98bcab6323d0df7510402ba080f409805495",
       "size_bytes": 12961,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-state-machine.spec.ts",
+      "sha256": "c076c36e9853504bca9804ca375cc71280b99c4f20db85db0b3afb94491756e5",
+      "size_bytes": 9116,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-submission-result.service.ts",
@@ -5305,15 +5593,15 @@
       "category": "source"
     },
     {
-      "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-submission.service.ts",
-      "sha256": "1368a0c7b1e83d2a5da2c67039b6ad32e1052d84b7ad30b398bcb7d2ac191724",
-      "size_bytes": 1035,
-      "category": "source"
-    },
-    {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/order-submission.spec.ts",
       "sha256": "3ce2f79f7c8a2b0f4c47f3bc80d244bac5697014db03df01693ec4227a1c55ff",
       "size_bytes": 15195,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/oms/position-limit-enforcement.spec.ts",
+      "sha256": "9403e548053cf5c60f5b61f5fc4533b03a8d1d8c62bddcf5570d6ba4f6e71d25",
+      "size_bytes": 8701,
       "category": "test"
     },
     {
@@ -5341,9 +5629,15 @@
       "category": "test"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/oms/trade-lifecycle.service.spec.ts",
+      "sha256": "078370363bd0b984d18eac1ee18dbc351e55ca960b3cc156239ac75263de65c7",
+      "size_bytes": 3204,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/oms/trade-lifecycle.service.ts",
-      "sha256": "48dfdd57525fe0da516af142242413968b23437bea2fecb4c6f851881c6bcf12",
-      "size_bytes": 9156,
+      "sha256": "e0e082b7d14d11a39b9156f169c83f529763cb13fd92da57f7d3547174854921",
+      "size_bytes": 11853,
       "category": "source"
     },
     {
@@ -5605,9 +5899,15 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/partners/partner-attribution.service.spec.ts",
+      "sha256": "a3207de56b753c96baf50f3e3402dcfa15723d1b937f849a76c716fff7bcd548",
+      "size_bytes": 7399,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/partners/partner-attribution.service.ts",
-      "sha256": "be2363215dc1227675d7c6aa32551edbda34859fd4024aaac1feb158ed2fe9cc",
-      "size_bytes": 12223,
+      "sha256": "0aaf2a43f588d6c63ecd399863e5c6ad8684d4b8e8fc2e24836244883defb637",
+      "size_bytes": 20207,
       "category": "source"
     },
     {
@@ -5732,8 +6032,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/partners/partner.contract.spec.ts",
-      "sha256": "0e8f6cf12c441ec279f34766e8fb12ecfc3ec419f3448e54c4128fa877938ac1",
-      "size_bytes": 15075,
+      "sha256": "074881a708b2bb68000593d04b1cc8540497f1e20c9c64fb2edf55ec1f935db3",
+      "size_bytes": 15492,
       "category": "test"
     },
     {
@@ -5851,6 +6151,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/portfolio-accounting/performance.service.spec.ts",
+      "sha256": "f2df36849cb834ede277d56c32f0c2fbc06b8a98f63a54a9a0cdb731e69302c9",
+      "size_bytes": 10621,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/portfolio-accounting/performance.service.ts",
       "sha256": "4c370cd5a8f017e22095ed54a3304038643f1ec32a65bf896fdd4963bfd702a5",
       "size_bytes": 18975,
@@ -5888,8 +6194,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/portfolio-accounting/portfolio-accounting.types.ts",
-      "sha256": "285de445450cd050543627e63c9723e9ab47895de6e81b7ffc6b182b2f9f1e15",
-      "size_bytes": 9354,
+      "sha256": "59d29806c332ac52566e87fdd99221281efc8d6716399e6bf8fc145aab0ee7b8",
+      "size_bytes": 10425,
       "category": "source"
     },
     {
@@ -5953,12 +6259,6 @@
       "category": "test"
     },
     {
-      "path": "whitelabel-copytrade/apps/api/src/modules/providers/adapters/custody.adapter.ts",
-      "sha256": "6395071df8022dfd6da8e34dcc106867bb0ba19a6a8270077028bcd2eb9e9b34",
-      "size_bytes": 1091,
-      "category": "source"
-    },
-    {
       "path": "whitelabel-copytrade/apps/api/src/modules/providers/adapters/custody/custody-adapter.contract.spec.ts",
       "sha256": "3609fb8eef321efab61fb1f9f36e62068dfe363113c9cf18a51840fe64393362",
       "size_bytes": 4632,
@@ -6001,9 +6301,15 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/providers/adapters/exchange/okx.adapter.spec.ts",
+      "sha256": "a84112c08e594001434b83affe848c90c68d453263bdeeb4169224e358ed746f",
+      "size_bytes": 5676,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/providers/adapters/exchange/okx.adapter.ts",
-      "sha256": "29c1f9b0c7004e6dc35160424f579ae39a4e0f1a426540638f723d75de3d1c14",
-      "size_bytes": 8099,
+      "sha256": "0d787ecebaec47df32aa2a04cd35cd8b17dec3902995f2d039aad5ce15420abf",
+      "size_bytes": 11174,
       "category": "source"
     },
     {
@@ -6019,12 +6325,6 @@
       "category": "source"
     },
     {
-      "path": "whitelabel-copytrade/apps/api/src/modules/providers/adapters/payment.adapter.ts",
-      "sha256": "c5a6271dfc551a50dc415fa58e1e3f35980c17ab4fbe112dd823462cce8dcd13",
-      "size_bytes": 1679,
-      "category": "source"
-    },
-    {
       "path": "whitelabel-copytrade/apps/api/src/modules/providers/adapters/payment/nowpayments.adapter.ts",
       "sha256": "254b03c8c379e1beb8fa1c89c360e9fe2d7dbf225bcedf4d845fec2dd72a6428",
       "size_bytes": 9162,
@@ -6035,12 +6335,6 @@
       "sha256": "acbccba73cec1804af5b8b7a5920395530e7588e4ef71397a5715ff763a34720",
       "size_bytes": 4617,
       "category": "test"
-    },
-    {
-      "path": "whitelabel-copytrade/apps/api/src/modules/providers/adapters/payment/payment.adapter.ts",
-      "sha256": "94b9246fb07ce633ad5b7c68947bbf465239f620d0f2d099857846e2436491ad",
-      "size_bytes": 2553,
-      "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/providers/adapters/payment/stripe.adapter.ts",
@@ -6464,14 +6758,44 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/concentration-risk.service.ts",
-      "sha256": "0a653cf5883481c42f337cc88baad53f3037e396fb1628add7f9c78c84cca8a5",
-      "size_bytes": 9448,
+      "sha256": "2ef6fbd50c1ae29e50d324b3246d96b0d56159657003c5a829b0283d6dd8b77c",
+      "size_bytes": 22025,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/correlation-risk.service.ts",
-      "sha256": "e484df225862dcc1bd3ada37ebbcb6da3808d694d65af5f8f5328789f78e2d11",
-      "size_bytes": 8696,
+      "sha256": "5944f9d1d9f4537c490bd8f4159c8da4621c86e80b8dcf46cae0ef0da0c3a2a4",
+      "size_bytes": 27684,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/customer-exposure.controller.spec.ts",
+      "sha256": "64c6b1be72ed36ea7302fb1e70d5fa78bb5432fa150c2771e32181001d73e0a3",
+      "size_bytes": 5054,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/customer-exposure.service.spec.ts",
+      "sha256": "ce7fba228d98c91713ef1f45fda65e3e21f88e30137d57b8604d0af6a99a61ac",
+      "size_bytes": 15349,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/customer-exposure.service.ts",
+      "sha256": "d311a9b41d1937f942b54c71c7542d704f0032022870fd7275a58ced3d0ed1c1",
+      "size_bytes": 25555,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/customer-exposure.types.ts",
+      "sha256": "a36f61ca10a23df399b2e606946c9aff756978bbad68a8279cb6a686889dcfdf",
+      "size_bytes": 2351,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/customer-risk-analysis.types.ts",
+      "sha256": "72031f4dc7a44e9eb32fa8aa4a8c07cce8b0bbab224ffc69b95cde158b4fa897",
+      "size_bytes": 2106,
       "category": "source"
     },
     {
@@ -6511,10 +6835,22 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/dto/user-position-limit.dto.ts",
+      "sha256": "be0fc8606684abba3880cef31c24d6a77ffe3ec4af7fa5e1eb3def887196fb81",
+      "size_bytes": 641,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/kill-switch-orchestrator.service.ts",
       "sha256": "c9bd4dd1e5415801ec9490d4884c23395a2c6b6f4829845b32093b6f57eed06f",
       "size_bytes": 9165,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/leverage-policy-route.spec.ts",
+      "sha256": "214cf7e89abb75f020bd8c68464e05d185a6c4e83868e17b8bea648848cb0a7b",
+      "size_bytes": 7084,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/leverage-risk.service.ts",
@@ -6571,15 +6907,21 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/risk-management.module.spec.ts",
+      "sha256": "1c81f2d59bdc1e77fc04ad8a935ffdfb0eeabe354f3a9d7fc1f3a3a256fed64b",
+      "size_bytes": 3565,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/risk-management.module.ts",
-      "sha256": "062602f214b31e1f63c33a5650b16c284d2fdd98b722c52537aed89a329f0ce9",
-      "size_bytes": 3574,
+      "sha256": "ad503ba1007b03b8a532ce676713d5501c212c90afd4491a4cc1b9d881c9e6aa",
+      "size_bytes": 5040,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/risk-management.types.ts",
-      "sha256": "061eadc5fe90324182e4ca5f2cafed6f1c3b7b7677b1b1f60a3c58c6f077fc0a",
-      "size_bytes": 20005,
+      "sha256": "a6956dfa2bc61d920de2d7842c6b11498e599457d8da3ee87e74553701b224ed",
+      "size_bytes": 20787,
       "category": "source"
     },
     {
@@ -6602,8 +6944,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/risk.controller.ts",
-      "sha256": "66b8faabe4ed97b88e2f5a1edc3f9abceca16f5dd592814866d98581a4eeffc8",
-      "size_bytes": 21803,
+      "sha256": "f17a282c048d962b2c644036db342a1dbb7202b4ff18cea04c97e79d3f3da233",
+      "size_bytes": 28268,
       "category": "source"
     },
     {
@@ -6613,16 +6955,58 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/user-position-limit.controller.spec.ts",
+      "sha256": "592b6e2aa6c3722208806c655c57533a57bdfb66216169e5d640085cfc5a2e93",
+      "size_bytes": 4017,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/user-position-limit.controller.ts",
+      "sha256": "4622108387b4cd6940ccb95db0b8e5075f2638cad577e63f1ea856b1c0d014f6",
+      "size_bytes": 1924,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk-management/var-risk.service.ts",
       "sha256": "44b465d4bbe567f247746aed37d14ebd1135d7c1e8584e8fea3ef176aecccee8",
       "size_bytes": 8440,
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk/concentration-risk.spec.ts",
+      "sha256": "126b2f00bedfa7a294e3ac099bbc8def0ba37495f048c098ba19cb912f1e432c",
+      "size_bytes": 19637,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk/dto/risk.dto.ts",
       "sha256": "29959b42f347e9fa6c2afa767c3b4e02c3bf82527bcb9f69fd3b262e60b734bd",
       "size_bytes": 16442,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk/leverage-policy.service.ts",
+      "sha256": "3e1b4ecf15cbcffa05c7b3251b6604e4cc1aae45adbc13a5a2bbb25052a25a17",
+      "size_bytes": 1788,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk/leverage-policy.spec.ts",
+      "sha256": "aa2751605f192094d06176e01d71c0d4a5ef24ab244ddadc9e433d32a8a5f7cc",
+      "size_bytes": 1172,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk/position-limit.service.ts",
+      "sha256": "dc8da4d26e223affb2561d4d1296a391b39964ccef240f740caebcfda4ea5ca3",
+      "size_bytes": 17531,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk/position-limit.spec.ts",
+      "sha256": "280fa401ab44ec451064eec23acfceaa6e10f0a746e5570618d7cfd455f7f3f8",
+      "size_bytes": 17738,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk/risk-policy.service.ts",
@@ -6674,8 +7058,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/risk/risk.module.ts",
-      "sha256": "8d55c022e72b9e8f3dfdcac51d80420bcf7afbb88feb18938824fd2a6cc9df3c",
-      "size_bytes": 1952,
+      "sha256": "0390c706f389edb130c11471ab054c66cca64265995ec34ff855624a6be8af5a",
+      "size_bytes": 2421,
       "category": "source"
     },
     {
@@ -6689,6 +7073,18 @@
       "sha256": "abb185d3660bda9ba6146ccc68df1dcd22aae14d490a13c9da58babc9953ab99",
       "size_bytes": 6873,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk/trader-risk-score.service.ts",
+      "sha256": "94faca3c72a9a0eaf8f4e62af381d2e02e118eaaa36b99a13be7ce36de2bb3f2",
+      "size_bytes": 4992,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/api/src/modules/risk/trader-risk-score.spec.ts",
+      "sha256": "fab8bf2f4c536a6c5b017669bf063e9397568df35cbfd7652d7747a26ea8a195",
+      "size_bytes": 2906,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/security/__fixtures__/oidc-test-idp.fixture-spec.ts",
@@ -6979,6 +7375,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/api/src/modules/tenants/custom-domain.spec.ts",
+      "sha256": "f952fe4c56a2e50566f9ef7f5237ad3505a7b931540b37553ea8761cd0453c9e",
+      "size_bytes": 12247,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/api/src/modules/tenants/dto/create-tenant.dto.ts",
       "sha256": "3a0b01f1463f385c18716122af992fe777d61ba8e0b85fbd552ef7ea9a091d94",
       "size_bytes": 4120,
@@ -7094,8 +7496,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/api/src/modules/worker/engine-internal.client.ts",
-      "sha256": "78a2f16ab4fbdae8150303487f35bae5b2393ef0fbce70b64cacc02a7303947e",
-      "size_bytes": 18140,
+      "sha256": "3c04056df74a54142a5bad9ab3e26ac72f9fe7f77c95e659e53ca27128c442ec",
+      "size_bytes": 18154,
       "category": "source"
     },
     {
@@ -7718,8 +8120,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/web/package.json",
-      "sha256": "7859330bd1796840a690e5b26b316b024295b80da767bd49de12c927490a2694",
-      "size_bytes": 1441,
+      "sha256": "6b468d55951d0f84956a3f4af602b51f28b8a14a104fbc2b358ad35cab156511",
+      "size_bytes": 1489,
       "category": "config_or_asset"
     },
     {
@@ -7783,6 +8185,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/api/customer-exposure-api.ts",
+      "sha256": "ef7011be4e5374c82d1184f5bdf6b2d25d8178a0b93d83bc6729a7672a3df7da",
+      "size_bytes": 3242,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/api/exchange-api.ts",
       "sha256": "e4406706d16af1a69e27ec416bf56b0432d75f49ee3fc0a4f1b5eb57f3086bc0",
       "size_bytes": 8350,
@@ -7831,6 +8239,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/api/risk-analysis-api.ts",
+      "sha256": "c4aefdf6bb4f3071c880b0272e7d022049100887ff7bb98a9f8586dc78fbcea9",
+      "size_bytes": 2886,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/api/security-api.ts",
       "sha256": "6983cf0941019859b9fe98923e505f8ae99c40ea4c08b1a56b72c4dec1189292",
       "size_bytes": 7730,
@@ -7844,8 +8258,14 @@
     },
     {
       "path": "whitelabel-copytrade/apps/web/src/api/trading-api.ts",
-      "sha256": "6e09198df277e44800328ec7c993b4510e1ec7035c6341c007943525a9632945",
-      "size_bytes": 42064,
+      "sha256": "c29e4454f8b1946fdf202644e194ed99f586ca478b051835a1a0fbcf603c46d2",
+      "size_bytes": 44433,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/api/user-position-limits-api.ts",
+      "sha256": "a9a74497ded2a1b4dc50973cfd53244557a0175b6d3ca722890125e3f8f669b9",
+      "size_bytes": 1167,
       "category": "source"
     },
     {
@@ -7922,8 +8342,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/web/src/app/api/proxy/[...path]/route.ts",
-      "sha256": "a37b8317fee0d71eea33d5dd3a7e50872b223dfa693e040f144d568287313ff7",
-      "size_bytes": 4021,
+      "sha256": "36f03edc2f6643f4c68fd06a55d572b72bf4b2953996a239e410f6797602c0cd",
+      "size_bytes": 4075,
       "category": "source"
     },
     {
@@ -8173,6 +8593,24 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/app/risk/exposure/page.tsx",
+      "sha256": "f93a8e39511fb4c21d368de4d1d29e534f3bfebfab027e6a0f7239a2e89d6564",
+      "size_bytes": 1427,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/app/risk/position-limits/page.tsx",
+      "sha256": "8e5e378ef1edb4f917d99b942060a46594632fb9c521a58f154a5ae9f18c9d23",
+      "size_bytes": 757,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/app/robots.ts",
+      "sha256": "d072544628e1b01b5e50f6b368017cf9ca5c9166e1ab55c6dd8b347b4b5d3499",
+      "size_bytes": 1173,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/app/routes.tsx",
       "sha256": "fa062bb65576b87812449a8500ea0769c12d9c4b24edc39803bd224ee184c6d4",
       "size_bytes": 1700,
@@ -8206,6 +8644,12 @@
       "path": "whitelabel-copytrade/apps/web/src/app/security/sessions/page.tsx",
       "sha256": "9953d8849709a8d5d91d8fbddcc9a8967f1bc7c4184ed207316a44b56be33a66",
       "size_bytes": 398,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/app/sitemap.ts",
+      "sha256": "ec62fd06d37ceb6be4d46060c2244b3b6e8483f74e246914a1266ec6264fc03e",
+      "size_bytes": 1188,
       "category": "source"
     },
     {
@@ -8251,6 +8695,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/app/traders/[id]/fees/page.tsx",
+      "sha256": "fe29a66ed830da9fd2623dc8604aa1d3ff038cfc11e6fc3b89abab9034dd1644",
+      "size_bytes": 521,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/app/traders/[id]/page.tsx",
       "sha256": "f18bd3ffff8628572b4e41ce760c11bf4adb503ffcaa9e86820d3bec13b36751",
       "size_bytes": 358,
@@ -8260,6 +8710,12 @@
       "path": "whitelabel-copytrade/apps/web/src/app/traders/[id]/performance/page.tsx",
       "sha256": "15cfbffafb2677f14d01d2c47e656b4b5e2c809c4a76b6c942f912cffa09d5f4",
       "size_bytes": 2026,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/app/traders/apply/page.tsx",
+      "sha256": "ec31a69e1ba3f03fbfde547edaf5048bf06a564a7b9870f8ab5645177a291416",
+      "size_bytes": 485,
       "category": "source"
     },
     {
@@ -8384,8 +8840,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/web/src/config/runtime-config.ts",
-      "sha256": "41bb69ac7bfc94aab7364eb94d0ae577b40a23eed968749791b57306e818a744",
-      "size_bytes": 1015,
+      "sha256": "80fa1c5876f4e672d11955a94f6d9d56bfdff79e8ddc0301e50de28308ed1ba7",
+      "size_bytes": 1303,
       "category": "source"
     },
     {
@@ -8629,6 +9085,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/features/portfolio/customer-exposure-panel.tsx",
+      "sha256": "e5580af46d7d115ea3b39c87d129e6ded0bbe164b02973bd1afb42067f6c11cf",
+      "size_bytes": 11341,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/features/portfolio/holdings-table.tsx",
       "sha256": "9f60e8ac51c64ca9b691ee52a9dd24388e560174292d0d237a1f08364c867c87",
       "size_bytes": 2611,
@@ -8731,6 +9193,18 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/allocation-rebalance-page.tsx",
+      "sha256": "93f3684004049ec9029e743517c15220b62126ed6ac073bdc94157560ce2f2e6",
+      "size_bytes": 4497,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/concentration-risk-panel.tsx",
+      "sha256": "67261925c686e59526c3a9774ebbec39be618be6613c4550c36685e45c25e5b3",
+      "size_bytes": 13766,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/features/trading/copied-orders-page.tsx",
       "sha256": "4e9781b7f54179971db0311fd1b1a6d96c594b7e13c36f27b4d348ca4f695540",
       "size_bytes": 5423,
@@ -8762,8 +9236,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/web/src/features/trading/copy-settings-page.tsx",
-      "sha256": "0cf0ea6bac35ceb6ca7f3ba6849004c8e4b5f6c2d3775ba28f423183f76aa6d6",
-      "size_bytes": 20910,
+      "sha256": "c2b1a124b5cc5cda9200d6efbaf348595ee226bd863a7d001fe1f64041bd6e08",
+      "size_bytes": 21796,
       "category": "source"
     },
     {
@@ -8779,9 +9253,51 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/lead-trader-application-page.tsx",
+      "sha256": "be4c8e1d53e1360a475878a54af822636720d860bcb62a489cdd292b58496fc2",
+      "size_bytes": 13277,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/lead-trader-application-rules.ts",
+      "sha256": "38a646d47d5d45b4280fdbcd86be72c4bfed40b2aca4cefd3d8dc32d21afeae1",
+      "size_bytes": 395,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/leader-fee-settings-page.tsx",
+      "sha256": "0d7b6f9ba604928b4736abc379e337936b79d5dc22e9669db12a59c68cc34992",
+      "size_bytes": 5951,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/features/trading/leaderboard-page.tsx",
       "sha256": "5cb408e79dc28190bafed52d378b4bdb2ec298022a6baba52df059487182a47c",
       "size_bytes": 4609,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/leverage-policy-panel.tsx",
+      "sha256": "6e427698d02afab6a507420336225b3b14d02639912427b5b738b13418c75b9a",
+      "size_bytes": 1118,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/performance-benchmark-chart.tsx",
+      "sha256": "01fec004a5de14700d86001c4276dd1ecc831b6f42bf7da4d0f8e751dcc11f19",
+      "size_bytes": 5002,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/performance-methodology.tsx",
+      "sha256": "3b9611fc0fb3625a20b254b8d849bbca25fd528801e7de4dd25a892f65c919b4",
+      "size_bytes": 4966,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/position-limit-settings.tsx",
+      "sha256": "219646ac2edeabb083c1410cd0f713216e48d730238ab5d2d19fbb140536c448",
+      "size_bytes": 10416,
       "category": "source"
     },
     {
@@ -8809,6 +9325,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/trader-exposure-panel.tsx",
+      "sha256": "a3d065b1c933a20ff6abb3fac6ca04332f6be81e6089c18d5d92131c1a3955e6",
+      "size_bytes": 10564,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/features/trading/trader-metric-definitions.ts",
       "sha256": "4a861418644f40c56e239c5f23225c4c5047f1d9a54e939f54a6bea4b318754b",
       "size_bytes": 4289,
@@ -8827,9 +9349,21 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/trader-ranking-controls.tsx",
+      "sha256": "ec955993b24706ebe8f2220e5df584aa179f13e0fa86908bf232705c40080741",
+      "size_bytes": 2564,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/features/trading/trader-risk-score.tsx",
+      "sha256": "4b6fcc1cf3f419f186444035da843d4c37f493129ebd74bf047dc9470340a6da",
+      "size_bytes": 2217,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/features/trading/traders-page.tsx",
-      "sha256": "a53affdb01a7b445d29cb3532d29e994b2877cfce0382e57134a17216be0d1fa",
-      "size_bytes": 13277,
+      "sha256": "3dd428184b0d5d43d4fc172d25a17cf3674ccc5fe1479adab37d656ebbd9b953",
+      "size_bytes": 15506,
       "category": "source"
     },
     {
@@ -8899,9 +9433,15 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/lib/decimal-compare.ts",
+      "sha256": "ae3d668f3e5f80f7d91687e2bd57fd827c4d671172f4cce10600dfa179e53b14",
+      "size_bytes": 3613,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/lib/env.ts",
-      "sha256": "3d3aba51bd1d6e707918d47581c1c0dfa9112eef7ecf8bc861de97ddcaeadbbd",
-      "size_bytes": 1460,
+      "sha256": "502a3e42e5e01fd98ea04a6b54e2592801cb0691601a888995d9a6e0eb0c2483",
+      "size_bytes": 1331,
       "category": "source"
     },
     {
@@ -8917,6 +9457,12 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/lib/public-origin.ts",
+      "sha256": "01debc10b4b7b8ac4742415ec56f9f0f849c08a9c2951bb4c64e52617f0fe90f",
+      "size_bytes": 4598,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/lib/save-blob.ts",
       "sha256": "029f9f7bb324e0885b3cd487df56713bc6a5f305a7b36917b064d3a6d6e775f3",
       "size_bytes": 534,
@@ -8924,8 +9470,8 @@
     },
     {
       "path": "whitelabel-copytrade/apps/web/src/lib/server-api.ts",
-      "sha256": "204def11606dc6b6109796b799840322b7dc2afe61dc3234c114703effb60eb1",
-      "size_bytes": 2862,
+      "sha256": "3c47e870bf6dc97b4bdada992e19a5c6ca545cde68fa79e497227bdde873600a",
+      "size_bytes": 2916,
       "category": "source"
     },
     {
@@ -9019,9 +9565,21 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/tests/allocation-rebalance-page.test.tsx",
+      "sha256": "0956f970587edd01612ac56d2cc5cd7f1ff2c7b1c386658e9a3c6c971c83e03c",
+      "size_bytes": 1328,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/tests/billing-api.test.ts",
       "sha256": "733c52fee17a4d6b9663dfc7149fd1617f6560051a43507fc43c1622f935479e",
       "size_bytes": 5590,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/concentration-risk-panel.test.tsx",
+      "sha256": "bee67f61d431a0afb2ed46f8a2f66d4bfeafd57a4c815f24978c4f79800b9a38",
+      "size_bytes": 6693,
       "category": "test"
     },
     {
@@ -9079,6 +9637,18 @@
       "category": "test"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/tests/customer-exposure-api.test.ts",
+      "sha256": "fa2111646c7d6c6467cabcc3a4b8e0b59893919e98897284a848a2f4449c1fbe",
+      "size_bytes": 3376,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/customer-exposure-panel.test.tsx",
+      "sha256": "103f4bb77a854a8f76d95d594a16dabce5e5989a359338755c6bc78a8421e042",
+      "size_bytes": 6074,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/tests/exchange-capabilities.test.tsx",
       "sha256": "a694dbbfb4812e3dcd38abb64521b219776d29de3738ad0e2d19c78171fc39ee",
       "size_bytes": 1273,
@@ -9088,6 +9658,30 @@
       "path": "whitelabel-copytrade/apps/web/src/tests/funding-api.test.ts",
       "sha256": "be37567cc69768b0c04fc098a3fd563531b2da20ad7eb95a634b42bff522694b",
       "size_bytes": 3670,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/lead-trader-application-api.test.ts",
+      "sha256": "53f80d8d27b262d4f526f6529c3f84c16cdf248a3a4bc695130373df93efd062",
+      "size_bytes": 2170,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/lead-trader-application-rules.test.ts",
+      "sha256": "a820cf87afa81e819de2b22548b4af5ba383288fddfefaba10fab8acaa315da0",
+      "size_bytes": 828,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/leader-fee-settings-page.test.tsx",
+      "sha256": "34c34f7a800ff8e37cede73293d88d194e2d944c20c1f099236acb68cff10734",
+      "size_bytes": 2511,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/leaderboard-page.test.tsx",
+      "sha256": "c74e869058c2c1b28dc6ca8162ce6c2f46a7d53413c17cda4286b87abcf56259",
+      "size_bytes": 3932,
       "category": "test"
     },
     {
@@ -9106,6 +9700,24 @@
       "path": "whitelabel-copytrade/apps/web/src/tests/partner-payouts.test.tsx",
       "sha256": "b8924bb3303921f1fe542f4b63c1091f8a1f26e9940bac7b09ba32c0539045cd",
       "size_bytes": 1396,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/performance-benchmark-chart.test.tsx",
+      "sha256": "7246c1e39deb2bdc0f00074abe78adb3f646deee02e46770798af5b2a775514e",
+      "size_bytes": 2823,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/position-limit-settings.test.tsx",
+      "sha256": "30cb80a3d7408111cac5fe0977b7cd8fef1ec14553460c5addaa9c7172543d28",
+      "size_bytes": 2998,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/public-indexing.test.ts",
+      "sha256": "931c81992dd0a536da24eba43bcb9d765706fed9e0fc043ac055e8297729fe71",
+      "size_bytes": 6844,
       "category": "test"
     },
     {
@@ -9145,9 +9757,27 @@
       "category": "test"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/tests/trader-detail-page.test.tsx",
+      "sha256": "e74fc924767650ebfac52ffb434cab15b69977badad669d972be295a9f9959e5",
+      "size_bytes": 6717,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/trader-exposure-panel.test.tsx",
+      "sha256": "85b3a514496dc66d78ea491e6e5d16d2ffccffc961e4776a43b7138511fd7122",
+      "size_bytes": 5036,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/tests/trader-performance-page.test.tsx",
       "sha256": "86f48c5618aa65adf0cc4a2bbd652ab6ebc582c452fe900e5f780f0c64196e33",
       "size_bytes": 3289,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/trader-ranking-controls.test.tsx",
+      "sha256": "275ca1c43cc5d4b1cd226369e0597f21fb7e519d65dfcad3b63cf3d405807662",
+      "size_bytes": 1966,
       "category": "test"
     },
     {
@@ -9157,9 +9787,21 @@
       "category": "test"
     },
     {
+      "path": "whitelabel-copytrade/apps/web/src/tests/trading-api-account-scope.test.ts",
+      "sha256": "f3b21d7cbc65c3b67dc643423eca0455c5609f0d06fe00a53de82ee94043c435",
+      "size_bytes": 5920,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/src/tests/trading-api-allocation-rebalance.test.ts",
+      "sha256": "e166436b381a87c3a43a3ccd770c8180af4de97c48a63b303c96df0e490d48c2",
+      "size_bytes": 2387,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/apps/web/src/tests/trading-api.test.ts",
-      "sha256": "ecbff4bac83b2b860991b2c7b77e3404fc4aa660592f1edd7afea879a960c9d0",
-      "size_bytes": 11763,
+      "sha256": "a4a3881e89cd561ee3c032422d471d2ce26de18639c3aafb27336c684f891e82",
+      "size_bytes": 13875,
       "category": "test"
     },
     {
@@ -9178,6 +9820,12 @@
       "path": "whitelabel-copytrade/apps/web/tsconfig.json",
       "sha256": "41e8ed5d184ca0a319b2646d3ef1de29b163042cf359fd6fdf8594e4386937dd",
       "size_bytes": 805,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/apps/web/tsconfig.tsbuildinfo",
+      "sha256": "909cdbf1f404ed6031adf21d004725d6a02f4af048d2a5e756643927aa32dc3a",
+      "size_bytes": 162748,
       "category": "config_or_asset"
     },
     {
@@ -9200,8 +9848,8 @@
     },
     {
       "path": "whitelabel-copytrade/docker-compose.yml",
-      "sha256": "4a72eeb855973ec5f7735f0dd845cf1b311405a4df20d1f28ba0381b454c7037",
-      "size_bytes": 22306,
+      "sha256": "b185df0c01e3c96c6e909c360e2a3bc3e4a3ad1f8918e061840bb727a0775748",
+      "size_bytes": 22361,
       "category": "config_or_asset"
     },
     {
@@ -9211,9 +9859,21 @@
       "category": "doc"
     },
     {
+      "path": "whitelabel-copytrade/docs/API_BUILD_TYPECHECK_RETRY_REPORT.md",
+      "sha256": "95f0b36f363b4668ebc8f2583d9159e43a55b6b05931dd40f9d23f78c789df59",
+      "size_bytes": 36142,
+      "category": "doc"
+    },
+    {
       "path": "whitelabel-copytrade/docs/ARCHITECTURE.md",
       "sha256": "b21bdafafcc89a07c2f34a526061c7f8f4d2f7cdd2ca34aa64152a2ed771b556",
       "size_bytes": 23360,
+      "category": "doc"
+    },
+    {
+      "path": "whitelabel-copytrade/docs/COMMERCIAL_READINESS_GAP_51_100.md",
+      "sha256": "31f81dea743775254a19c72dcb16f0ed7b44bb7d04cbd32968311102edf8a369",
+      "size_bytes": 16074,
       "category": "doc"
     },
     {
@@ -9224,8 +9884,8 @@
     },
     {
       "path": "whitelabel-copytrade/docs/FINAL_RELEASE_HANDOVER.md",
-      "sha256": "3b11d2f1fdefc10614301f4214800bacabc211ced793fb07ed6178b1767f0985",
-      "size_bytes": 3728,
+      "sha256": "4d5dfadb055f5c71fc857ea6c5bf600c2f56f3e3b8bc98ca4f4aff65e1311b63",
+      "size_bytes": 3717,
       "category": "doc"
     },
     {
@@ -9238,6 +9898,18 @@
       "path": "whitelabel-copytrade/docs/MULTI_TENANCY.md",
       "sha256": "8ffa43ba14829cf57e4a25005a1c96fbaf16ca12b464d03f189fb79cb8a3cbf6",
       "size_bytes": 11288,
+      "category": "doc"
+    },
+    {
+      "path": "whitelabel-copytrade/docs/NEXT_51_100_FINAL_REPORT.md",
+      "sha256": "abfffdc024cbcacaba3ff448f41200e17593b39c5734d931d8a99107108b82e3",
+      "size_bytes": 82080,
+      "category": "doc"
+    },
+    {
+      "path": "whitelabel-copytrade/docs/NEXT_51_100_INITIAL_AUDIT.md",
+      "sha256": "583da4d6f9af6b2bb1b1dd59416a5416e143c6d9426b21e83ded4e61c6994b1d",
+      "size_bytes": 18931,
       "category": "doc"
     },
     {
@@ -9254,8 +9926,8 @@
     },
     {
       "path": "whitelabel-copytrade/docs/PART11_HANDOVER_FULL_SOURCE.md",
-      "sha256": "6fef8d3a4b424fd5836d41601ef0052b8f8b3503a84c106ddf4a2c830bd2e4de",
-      "size_bytes": 1044301,
+      "sha256": "813d26ac596c3b244ac5b7b3e351c1d0ee7bfce83e33baaf69f6b4dcc653ca45",
+      "size_bytes": 1044401,
       "category": "doc"
     },
     {
@@ -9272,8 +9944,8 @@
     },
     {
       "path": "whitelabel-copytrade/docs/PART12_HANDOVER_FULL_SOURCE.md",
-      "sha256": "b52359ed9782540bee81c875d5d8206cc38be0ea5993088dfeb1c1852f884143",
-      "size_bytes": 658009,
+      "sha256": "0576a33371773886e6601fd075dd5218fe1c7eb4b904a4f4fb06915b3620f542",
+      "size_bytes": 658018,
       "category": "doc"
     },
     {
@@ -9326,14 +9998,14 @@
     },
     {
       "path": "whitelabel-copytrade/docs/PART16_CORE_LAYER_GAP_AUDIT.md",
-      "sha256": "c6e4b592bc700d473703bda3620bfa954cda499f312675c45f9376a541b5f4b3",
-      "size_bytes": 16790,
+      "sha256": "9fdf9245cb666b940fe5b6b46a5a2731b58d8c6e842162969cdeaea0a019019f",
+      "size_bytes": 16799,
       "category": "doc"
     },
     {
       "path": "whitelabel-copytrade/docs/PART16_HANDOVER_FULL_SOURCE.md",
-      "sha256": "5dda46834f860cad7d8679fdddb1a0a2b700297a517acae66d3180e654b19493",
-      "size_bytes": 1125906,
+      "sha256": "a41207e1b87da08dfcae0cf9754adab370ab30e790777a069c9958d0d41cc84c",
+      "size_bytes": 1125984,
       "category": "doc"
     },
     {
@@ -9350,14 +10022,14 @@
     },
     {
       "path": "whitelabel-copytrade/docs/PART17_HANDOVER_FULL_SOURCE.md",
-      "sha256": "f74c975b8a51bf12198d0f4ac427c49f8f4310ceba90d69898674632de1953eb",
-      "size_bytes": 676820,
+      "sha256": "bc0f5c469f070a4241276f8137c2f698b94a7aecd83821c578e98a429baaa88a",
+      "size_bytes": 676829,
       "category": "doc"
     },
     {
       "path": "whitelabel-copytrade/docs/PART18_HANDOVER_FULL_SOURCE.md",
-      "sha256": "90b207d410d3d8ffb09baa1652bc1f00dbfe6b22a65f1f992605f87f4c8e8ebb",
-      "size_bytes": 704190,
+      "sha256": "c7c5061eddd9cadbc5a30afc239912049cb713fc958fac5fa431e575189d4dde",
+      "size_bytes": 704225,
       "category": "doc"
     },
     {
@@ -9368,14 +10040,14 @@
     },
     {
       "path": "whitelabel-copytrade/docs/PART19_HANDOVER_FULL_SOURCE.md",
-      "sha256": "d81617f08fdab8e4faff206533bbbfe32d4e32a159342d6fcb75c46800ecdd0f",
-      "size_bytes": 1038869,
+      "sha256": "1adb68141f51f149cf28ba33da85bbbcbbdb38bbfa7cf47090ee820114db143a",
+      "size_bytes": 1039026,
       "category": "doc"
     },
     {
       "path": "whitelabel-copytrade/docs/PART19_LIVE_ENABLEMENT.md",
-      "sha256": "6c399ac952bdcddf84862c13caafd65fed3b09ccb27b83fb61c5e38834319684",
-      "size_bytes": 39535,
+      "sha256": "8f58a6b48b06adea2f8ccbded7d933838c423a7576659f32009b0445f6bfa0c4",
+      "size_bytes": 39577,
       "category": "doc"
     },
     {
@@ -9386,8 +10058,8 @@
     },
     {
       "path": "whitelabel-copytrade/docs/PART20_HANDOVER_FULL_SOURCE.md",
-      "sha256": "2b8914996ff49947cf3f1fdf0f40bd0dbf4abe0f5d32f7805efd654060745023",
-      "size_bytes": 683408,
+      "sha256": "2778113675a5e03284643ea091a79c1efbe9429b7445f2a5a04216a3cb15181a",
+      "size_bytes": 683501,
       "category": "doc"
     },
     {
@@ -9398,14 +10070,14 @@
     },
     {
       "path": "whitelabel-copytrade/docs/PART21_HANDOVER_FULL_SOURCE.md",
-      "sha256": "9b6ed951f5f1a24d450352941476678eec8f93a227277c6c45d8072e0d16c442",
-      "size_bytes": 646294,
+      "sha256": "aa2fe8229c0addac389c8223088b439335dca088b8b69d2262bc909de0169856",
+      "size_bytes": 646303,
       "category": "doc"
     },
     {
       "path": "whitelabel-copytrade/docs/PART22_HANDOVER_FULL_SOURCE.md",
-      "sha256": "7b11a4ecc3b61d20de3d27d909d2ba837b97228eaabb152fcbf88159ad372428",
-      "size_bytes": 680183,
+      "sha256": "077f3a91ae252536730703682a452923ec2f26ca949ab54f7b1f33759ebb547d",
+      "size_bytes": 680243,
       "category": "doc"
     },
     {
@@ -9500,8 +10172,8 @@
     },
     {
       "path": "whitelabel-copytrade/docs/PHASE3_HANDOVER.md",
-      "sha256": "5125955f1589b3c31db0ca4460e2e5d7aab8fecee2737d1a2c1f62b9609998d3",
-      "size_bytes": 16003,
+      "sha256": "24b4b2b1fcfd6989f5c721525bbc81cdb8ca4fc8e2f5ab99353d8d4353fd69b9",
+      "size_bytes": 16010,
       "category": "doc"
     },
     {
@@ -9512,8 +10184,8 @@
     },
     {
       "path": "whitelabel-copytrade/docs/SECURITY.md",
-      "sha256": "b05bd42f429fca92b433c71b9d307e5d7d5633baa8124cc2073819b43a1ffe0c",
-      "size_bytes": 43334,
+      "sha256": "42d346371cacede87542fc11ad80344234f72d1c80f9d95764779868790bf53d",
+      "size_bytes": 43343,
       "category": "doc"
     },
     {
@@ -9590,14 +10262,14 @@
     },
     {
       "path": "whitelabel-copytrade/docs/source/06-api-modules.md",
-      "sha256": "0eee68d18f00c0aaef19e0eaa21da2c73f7844e02789f13765bd67a2e3aee09e",
-      "size_bytes": 8447234,
+      "sha256": "c4201c3f5f3a385880775aadd6db8cb7e6133bcce442bdebbd9a83ea586afcec",
+      "size_bytes": 8447248,
       "category": "doc"
     },
     {
       "path": "whitelabel-copytrade/docs/source/07-services.md",
-      "sha256": "70a4dc0fd8cb210fb5687593113280390b485f323c9f2962559abee4a7897828",
-      "size_bytes": 1461413,
+      "sha256": "530629cc2276488041fc63c885801084b8338fb1d6133fffc48b662b3077161e",
+      "size_bytes": 1461460,
       "category": "doc"
     },
     {
@@ -9620,8 +10292,8 @@
     },
     {
       "path": "whitelabel-copytrade/docs/source/11-infrastructure.md",
-      "sha256": "83fc69aff7f87edb6ea1e2ec429888b1cc788d59c06e45ce1a888daa393c9010",
-      "size_bytes": 17469165,
+      "sha256": "ab1cc405513a4acef3e7a4d2c758c4d3cf81d2447a54188d6ac2fae25333abb6",
+      "size_bytes": 17469427,
       "category": "doc"
     },
     {
@@ -9722,8 +10394,8 @@
     },
     {
       "path": "whitelabel-copytrade/infrastructure/docker/web.Dockerfile",
-      "sha256": "c09bcb478582ad48a44b6162430af9ac320f01d8e4f892142d4a65460494b115",
-      "size_bytes": 3360,
+      "sha256": "f624721926d2daa934b4610ef67bd62326cca8cfe1f4a32fa4c61dc720437b6d",
+      "size_bytes": 3437,
       "category": "config_or_asset"
     },
     {
@@ -10100,8 +10772,8 @@
     },
     {
       "path": "whitelabel-copytrade/libs/trading-core/tests/test_repo_reference_integrity.py",
-      "sha256": "31ab55e5b94c7cf6b6764650f1edcc69afefa2c0d882ce53c7e97dd30377f926",
-      "size_bytes": 15564,
+      "sha256": "0d15a259b2bad16665b10838705189fa254d89721ba45f8b0152f28474f17bd9",
+      "size_bytes": 17958,
       "category": "test"
     },
     {
@@ -11149,15 +11821,27 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/ops/gap-parity-scanner-51-100.js",
+      "sha256": "7aa02c2cc0b50b303f0a36bdff4079a1a21731ef1f4b68969d36f4a140823e76",
+      "size_bytes": 53391,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/ops/gap-parity-scanner-51-100.test.js",
+      "sha256": "d9477e4d1e315428fd2e9792576542a9beccfa403f535eaa19ae90fd4c9b6dbc",
+      "size_bytes": 7789,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/ops/gap-parity-scanner.js",
-      "sha256": "af2221222aa9a68c738209305895fd1b28e5a06dda1861523b215cea8bc54e28",
-      "size_bytes": 16421,
+      "sha256": "015b3f7fb87f8066763faa8711899678c272fac204aaedb0b9bcd95e18d705eb",
+      "size_bytes": 23444,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/ops/gap-parity-scanner.test.js",
-      "sha256": "6adddfffb777ef9895c225f29b275a7156cd7942d159ec05e295da1907dd2f2d",
-      "size_bytes": 1031,
+      "sha256": "53d63cbd02c381b2292c9fe6939d692c95f1f148302b94ab3db7d4fe8c784eb0",
+      "size_bytes": 7823,
       "category": "test"
     },
     {
@@ -11347,15 +12031,21 @@
       "category": "test"
     },
     {
+      "path": "whitelabel-copytrade/ops/security/dependency-audit-baseline.json",
+      "sha256": "948a9949599a659dcc3a54f3bbc29cd8eb175a828057cec59a544bfe450df4cb",
+      "size_bytes": 44264,
+      "category": "config_or_asset"
+    },
+    {
       "path": "whitelabel-copytrade/package-lock.json",
-      "sha256": "ee7361da8237721979a0dd0e23328700737d3efa7f5c0e2c118d3fa2154be3db",
-      "size_bytes": 639568,
+      "sha256": "4cc0ca5d0b3d68f241f2843db717b520ec0e740294ab7a532f3445a16563884b",
+      "size_bytes": 642744,
       "category": "config_or_asset"
     },
     {
       "path": "whitelabel-copytrade/package.json",
-      "sha256": "2858b7f1bdf9f488d3a0d9c80a0275189e678323f6dcfcb54dff12e53e1c30f8",
-      "size_bytes": 2991,
+      "sha256": "614ce5129ca24277427b2b7170243afae99e6ac3beb15f5019e847dfec32fb41",
+      "size_bytes": 3545,
       "category": "config_or_asset"
     },
     {
@@ -11672,8 +12362,8 @@
     },
     {
       "path": "whitelabel-copytrade/playwright.config.ts",
-      "sha256": "52222df37d80f6c9b83f38388f0b344058c3b41466d16dbcdfca170f216a9191",
-      "size_bytes": 948,
+      "sha256": "f018ab7cbb642dc20dd988fb293d058b085e9b292cd3dc5220e58a4848fd80bc",
+      "size_bytes": 3792,
       "category": "source"
     },
     {
@@ -11699,6 +12389,18 @@
       "sha256": "b26033ed2429abee7345570ffc5e8a41f0eabe5e54fb8f2672a8009db4d046e1",
       "size_bytes": 7976,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/scripts/check-dependency-audit.mjs",
+      "sha256": "f72f1068d7b25ca7309dbe19b37a2ee86e699dec0d9de8c8f12025d77ad1e675",
+      "size_bytes": 13606,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/scripts/check-dependency-audit.test.mjs",
+      "sha256": "420f5292f79661b687041619997b12a1f7f6a759bbbd6181c760791f8087c66a",
+      "size_bytes": 9880,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/scripts/check-terraform-api-env.mjs",
@@ -11750,8 +12452,8 @@
     },
     {
       "path": "whitelabel-copytrade/scripts/gen_part11_handover.py",
-      "sha256": "c682f8a7133327f636afd7e1689704b0d15937a26b8a91947391308cbf59e301",
-      "size_bytes": 24643,
+      "sha256": "3996124967b33efac7a5f3535ae8b3e73c9e2f2a8fe8c36af8df14e3a7936cd6",
+      "size_bytes": 24657,
       "category": "source"
     },
     {
@@ -11786,8 +12488,8 @@
     },
     {
       "path": "whitelabel-copytrade/scripts/gen_part16_handover.py",
-      "sha256": "193fe2ba442841afba2aa7644aa08aa813f5c934e8bf3576ed5cecc7643c3be9",
-      "size_bytes": 56413,
+      "sha256": "b8952c14a6868b31fbaa1369c8a8615ea6686613706aabfc5ba9980530c1bdff",
+      "size_bytes": 56430,
       "category": "source"
     },
     {
@@ -11804,14 +12506,14 @@
     },
     {
       "path": "whitelabel-copytrade/scripts/gen_part19_handover.py",
-      "sha256": "623be2b195ec67745e7f6e9a9d8eb63a010948754f729874fe4b808861be88dc",
-      "size_bytes": 51431,
+      "sha256": "7b7d07bdd07f190be5d0d551b4f23cd98b25bc3b3618ea6a8bae6155424dc26b",
+      "size_bytes": 51457,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/scripts/gen_part20_handover.py",
-      "sha256": "630cfde1c288cb87e8e2ddd243917381464a6e1630b315373ac0a488e14538bb",
-      "size_bytes": 52204,
+      "sha256": "a6a9fe9cc7cd1778e6b3f679b703aca3114fa9c9d3154564cd24c598aa000387",
+      "size_bytes": 52218,
       "category": "source"
     },
     {
@@ -11852,9 +12554,21 @@
     },
     {
       "path": "whitelabel-copytrade/scripts/generate-release-manifest.ts",
-      "sha256": "b831ce2e68af3d6da8ff66e49c64be2fad3a5c88af19f8d584735a9f868306bb",
-      "size_bytes": 4359,
+      "sha256": "67026cf5abf7ef70b7de6b88abc493c8a9ff6e393a15752f860164af28f8df19",
+      "size_bytes": 6453,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/scripts/generate-sbom.mjs",
+      "sha256": "daa4325187b4ba8121f8812e1352e1f525c12f3643339947226c7683e4e75670",
+      "size_bytes": 21567,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/scripts/generate-sbom.test.mjs",
+      "sha256": "e9b4e05a100ced9064e1cbd9d8aef1f68c1b98e8a6ea89175165707a0764d763",
+      "size_bytes": 12995,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/scripts/generate-source-dump.mjs",
@@ -11917,6 +12631,18 @@
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/scripts/release-gates.mjs",
+      "sha256": "1668bea0464ad4bf6954e89002f644fd854d034529862f8441d2c18d2cdce666",
+      "size_bytes": 13058,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/scripts/release-gates.test.mjs",
+      "sha256": "0c6e9dd7bb2b474d33688ddb96e35307e7aba93ade1f839ea74bbae9e800e589",
+      "size_bytes": 7351,
+      "category": "test"
+    },
+    {
       "path": "whitelabel-copytrade/scripts/retention-run.mjs",
       "sha256": "16fc5dc86781f9315469e03ad8489816efe69c623619bd11b2cf5e7ba516f5c0",
       "size_bytes": 7953,
@@ -11933,6 +12659,18 @@
       "sha256": "712154b72e9a016a595134b91393a84a281b647a8890506b6b078bc8a70a81e8",
       "size_bytes": 14589,
       "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/scripts/secret-scan.mjs",
+      "sha256": "85984625b231c870125ef0dfb1cd4ecdbd5a6b035c977afc131fd4c875dbe147",
+      "size_bytes": 7192,
+      "category": "source"
+    },
+    {
+      "path": "whitelabel-copytrade/scripts/secret-scan.test.mjs",
+      "sha256": "1fbe36e9e7a92e283e111f63b08ae9cbfbb7ab3c87f9c9c509b32f0ce0216c75",
+      "size_bytes": 8673,
+      "category": "test"
     },
     {
       "path": "whitelabel-copytrade/scripts/seed-password-policy.test.mjs",
@@ -11990,26 +12728,20 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/composition.py",
-      "sha256": "d7453edbde38f47f7b3cb76908b068b8d27d692cf40a06e2be976bb52f01aef7",
-      "size_bytes": 34651,
+      "sha256": "218d860c61773546e4ceec5cd79428060c9b967787bacd77abce0eb53595b1c0",
+      "size_bytes": 34678,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/config.py",
-      "sha256": "5524f8a00dd13a3eb49ff15c6a94034ee54a45fc3c939099c43593f60906318b",
-      "size_bytes": 47958,
+      "sha256": "078f217cb0c2c4786e9930c56e30e45d38c9f7b371d6f3c88914bacb9299d20d",
+      "size_bytes": 47993,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/credential_registry.py",
-      "sha256": "e544e67c104f19bfae805eb201aedf33a31953ad4380f2ca34f4e00529807c97",
-      "size_bytes": 3698,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/services/execution-engine/app/credentials.py",
-      "sha256": "ddfd91d10dbe33a0cacc304eab537f3297dac5fe9c9e5d8e3d58bed7260905b6",
-      "size_bytes": 16087,
+      "sha256": "dee79721d35d1c8cdc15d5fcdb4660f5fb5afe61bcd6ca914ae5a6e6714e3357",
+      "size_bytes": 3708,
       "category": "source"
     },
     {
@@ -12026,8 +12758,8 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/exchanges/credentials.py",
-      "sha256": "fe190b423e006970ac562915c140a49f8d191cfacbdb4ed9a03ef2c2806f73d5",
-      "size_bytes": 873,
+      "sha256": "bf1854cd85ce5dc8ba08e2babae28494c84ba8f84a68f879d657ad044ebaef2c",
+      "size_bytes": 16096,
       "category": "source"
     },
     {
@@ -12044,8 +12776,8 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/main.py",
-      "sha256": "c9fada1e006f66b6d24fde653d34b4b8ba3308edc90cbf0c7a5db54294f8fbbf",
-      "size_bytes": 9124,
+      "sha256": "11c12fabbc1aaab582f6530615c2ff6ec0686d0062bbfcceed488535ba6fb314",
+      "size_bytes": 9138,
       "category": "source"
     },
     {
@@ -12062,26 +12794,20 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/orders/placement.py",
-      "sha256": "54a56d872a5c727a90e2c45914cad4490aa3e801f029c637a22d66da35afdbf7",
-      "size_bytes": 837,
+      "sha256": "fa45ccfb9e604a89ab5823484dc9eca1c3ba40920bf48a2f7918583754d1d035",
+      "size_bytes": 14956,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/orders/submission.py",
-      "sha256": "e2b151a851745528e2532d9bad718131a34221acbdc292fa810f66ef5b95b956",
-      "size_bytes": 815,
+      "sha256": "7e1bafd33052dc46a3b68b80155c1a1e335bba5e2e6d1f9a77864dc01b5741b4",
+      "size_bytes": 8913,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/pg_store.py",
       "sha256": "3a946173db33e0d0b94fbfd64843b0ab80359391aac5144efd0b5f74d8dc1fdb",
       "size_bytes": 4443,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/services/execution-engine/app/placement.py",
-      "sha256": "80692c7defd8e8463e5aead65d4e287b132d38a7d11198bd7b746d009cf10812",
-      "size_bytes": 14946,
       "category": "source"
     },
     {
@@ -12104,8 +12830,8 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/routers/enablement.py",
-      "sha256": "dc84b12821819c126b52cfcfb96fafbb2aa4c0fba93f9a703bc18dbf31a6137f",
-      "size_bytes": 5936,
+      "sha256": "e847499e9945e0546806af9acb95b68cf19bd5afb4ab68f0d85767ad0df0f58f",
+      "size_bytes": 5950,
       "category": "source"
     },
     {
@@ -12116,14 +12842,14 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/routers/incidents.py",
-      "sha256": "7a9d2635e45aa81ce52eb18b7382ef41ef910b96e927e8abe201e221541c0ebe",
-      "size_bytes": 5068,
+      "sha256": "f5475e26c5040234afc33a486de9f5e23f38313d204f075c8bd7b6cd1ca64ce6",
+      "size_bytes": 5082,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/routers/internal.py",
-      "sha256": "7ab6c7225c9af43f3ecd32df94b06d916f5d8c1c5f1a2947f13e06a5b6588f9a",
-      "size_bytes": 15525,
+      "sha256": "8b22c5f55463d865c93171662f710eb734a1b3e178d91325974035b93e636dd7",
+      "size_bytes": 15553,
       "category": "source"
     },
     {
@@ -12134,14 +12860,14 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/routers/placement.py",
-      "sha256": "ccfc0357407f2c060d4fb4e22f0635bb02aed743c15c6b863794741a28458f0d",
-      "size_bytes": 6256,
+      "sha256": "536594415fedf0e5af251039b4532d0e6e893717e8890e7ff66c6331273c3307",
+      "size_bytes": 6277,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/routers/retention.py",
-      "sha256": "e484acabd6e23ace3d730b29fa60852d7930f9274327d1bdfef798f0cb5749e3",
-      "size_bytes": 6702,
+      "sha256": "52ea4ccf588fed5ab06ec8e50c2932bd85c63401a7841e94259cc1a8e4693b33",
+      "size_bytes": 6716,
       "category": "source"
     },
     {
@@ -12151,39 +12877,27 @@
       "category": "source"
     },
     {
-      "path": "whitelabel-copytrade/services/execution-engine/app/secret_fetcher.py",
-      "sha256": "af4e9fc41c791a98c381cc1506c0640219947b46c18552cfc88d6560b4dd907c",
-      "size_bytes": 24156,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/services/execution-engine/app/security.py",
-      "sha256": "1bafc1342a829d6fafd91252121237b5fd9c9356196d739cd18913958bd66c05",
-      "size_bytes": 8438,
-      "category": "source"
-    },
-    {
       "path": "whitelabel-copytrade/services/execution-engine/app/security/__init__.py",
       "sha256": "a147a633e7e44961d597bcbcce471688bf49b5ae04572b1bfc9de51e80da0c13",
       "size_bytes": 41,
       "category": "source"
     },
     {
+      "path": "whitelabel-copytrade/services/execution-engine/app/security/internal_auth.py",
+      "sha256": "1bafc1342a829d6fafd91252121237b5fd9c9356196d739cd18913958bd66c05",
+      "size_bytes": 8438,
+      "category": "source"
+    },
+    {
       "path": "whitelabel-copytrade/services/execution-engine/app/security/secret_fetcher.py",
-      "sha256": "f8dcc3543782f1eb4c798b0f2b74271279bc1f01933a72a851abfd76dd2dbdc7",
-      "size_bytes": 922,
+      "sha256": "800e206114cb9b5d1149dfa6a9a23c06457dd30d4e5d05f82baee88002592120",
+      "size_bytes": 24176,
       "category": "source"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/app/store_sql.py",
       "sha256": "b3033ebf1e4b6d1a2449936b41113ace9af284873e98fefcdf6e7e8cc3e73f22",
       "size_bytes": 33906,
-      "category": "source"
-    },
-    {
-      "path": "whitelabel-copytrade/services/execution-engine/app/submission.py",
-      "sha256": "7e1bafd33052dc46a3b68b80155c1a1e335bba5e2e6d1f9a77864dc01b5741b4",
-      "size_bytes": 8913,
       "category": "source"
     },
     {
@@ -12212,8 +12926,8 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/requirements.txt",
-      "sha256": "fb5d43b2a99cd33e4e6677ccccd022e050d310181e508aad884e614629abc0b5",
-      "size_bytes": 1489,
+      "sha256": "36f13760a08b382987cc50e052fd2dd4078f1cccb61e330f2431e15278515503",
+      "size_bytes": 1498,
       "category": "doc"
     },
     {
@@ -12230,8 +12944,8 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/tests/test_execution_engine.py",
-      "sha256": "9fa09d8bd658a35485da29320480a3d89d2f7fdf8d65a0a0f0a7a4509973aef5",
-      "size_bytes": 14866,
+      "sha256": "f46c797adabb44b93fdcea649c7df61d82854dd3716dc4e5909c403cb3716353",
+      "size_bytes": 14880,
       "category": "test"
     },
     {
@@ -12296,8 +13010,8 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/tests/test_part16_placement.py",
-      "sha256": "9ff4b7a94a54cdb424073d03be7716f534f96ec57e13276f6adeb212c021d411",
-      "size_bytes": 37185,
+      "sha256": "f40b1205cc5b7d40ed685d03bb24f76cf52336d6ca18ae277b9bb5b2d73fa36a",
+      "size_bytes": 37209,
       "category": "test"
     },
     {
@@ -12320,20 +13034,20 @@
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/tests/test_part19_live_wiring.py",
-      "sha256": "31cddfc5f4b1f9d2df922cdf9a99719fdee03b8b12589dcdbb2877fe4be11168",
-      "size_bytes": 30969,
+      "sha256": "efe90f31732523fee3dd241da577b5c2342557c3b71b14fb3677b1aeadba1d53",
+      "size_bytes": 30983,
       "category": "test"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/tests/test_part19_vault_fetcher.py",
-      "sha256": "9ce995b1c7242c021814c60665aadd5501518acadc8dd4c9aba75ea8f8dd1b45",
-      "size_bytes": 26900,
+      "sha256": "1e77ae32481d45b7af5f7d6f479b6abf2daa6df060b978e124cedf7e4db40e74",
+      "size_bytes": 26939,
       "category": "test"
     },
     {
       "path": "whitelabel-copytrade/services/execution-engine/tests/test_part20_status_read.py",
-      "sha256": "cf72194b6601cdcf0110a14e53d58ad5051fb7d9f08d788ccb67f87504e4354a",
-      "size_bytes": 15006,
+      "sha256": "995f9491191b1239b24af751c7c59e2d094f5afbbaa9d52f7356baaaef28bcb3",
+      "size_bytes": 15034,
       "category": "test"
     },
     {
@@ -12979,33 +13693,81 @@
       "category": "test"
     },
     {
-      "path": "whitelabel-copytrade/tests/e2e/admin-operations.spec.ts",
-      "sha256": "1416b290f512ff2ebc5881fcfce35ff7a069670d3bfc57edfca778d3df5f12c9",
-      "size_bytes": 2669,
+      "path": "whitelabel-copytrade/tests/e2e/browser/admin-operations.spec.ts",
+      "sha256": "a96a085ce4d0b3d0285b0648c5b00afee3424b79c97a2fff497780062c56b89c",
+      "size_bytes": 2196,
       "category": "test"
     },
     {
-      "path": "whitelabel-copytrade/tests/e2e/copy-trading-lifecycle.spec.ts",
-      "sha256": "8009e0f79cbb6c823f618f53a76fe9ca38acd7e50f24efc6dc96c393eb7e1b8d",
-      "size_bytes": 5608,
+      "path": "whitelabel-copytrade/tests/e2e/browser/copy-trading-lifecycle.spec.ts",
+      "sha256": "c98a77e01947c3beaf010eb651f667d2f0538ba64043cb856c27a8898969b177",
+      "size_bytes": 3547,
       "category": "test"
     },
     {
-      "path": "whitelabel-copytrade/tests/e2e/funding-compliance.spec.ts",
-      "sha256": "9227508fc2d62a110df4118b810e3184b1c7f88c029add3a088d7c53cf09c925",
-      "size_bytes": 2886,
+      "path": "whitelabel-copytrade/tests/e2e/browser/support/fixtures.mjs",
+      "sha256": "61a9b5501aeea31ae0bf29ca86c386eb9cfe9157287c4640d9c84036d43940db",
+      "size_bytes": 11109,
       "category": "test"
     },
     {
-      "path": "whitelabel-copytrade/tests/e2e/trader-discovery.spec.ts",
-      "sha256": "ccd3f0df6908f9a19cde81747e54f0da5e8bcd07acb4d649e0464a38eedf7829",
-      "size_bytes": 1670,
+      "path": "whitelabel-copytrade/tests/e2e/browser/support/session.ts",
+      "sha256": "a70537ca23269d2d71906c875d2bf0b2135a7819ac55cc457e8c31cf6394d281",
+      "size_bytes": 3389,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/tests/e2e/browser/support/stub-api.mjs",
+      "sha256": "ccd018e7ad98cf8abf7dfc5961bcf46d0bdbd20dbccf98cb93eb512afb31fa51",
+      "size_bytes": 13544,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/tests/e2e/browser/support/stub-api.test.mjs",
+      "sha256": "c63bf13adf3f9a502cc7f1e590c2d2bb43e4bbe3f1be857ef13ccb8fd3fdaf58",
+      "size_bytes": 7000,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/tests/e2e/browser/trader-discovery.spec.ts",
+      "sha256": "8b723ae687af3205ccc87799a944f94c7447642c5dc58b997c6f2e92edcd4699",
+      "size_bytes": 3756,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/tests/e2e/smoke/admin-operations.spec.ts",
+      "sha256": "02d994f349d2d57b347b162aabb5ab9995476407d338693e407bcce2aa005e1c",
+      "size_bytes": 2675,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/tests/e2e/smoke/copy-trading-lifecycle.spec.ts",
+      "sha256": "dd85350e6dbeb2cec3c4b937186b3fd414ccbe90dc687339edfd146d72b81f8d",
+      "size_bytes": 5617,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/tests/e2e/smoke/funding-compliance.spec.ts",
+      "sha256": "6b007c3187851c75f021e2acbcff17331e8a06fbeb69cc8481a1e2c46374727d",
+      "size_bytes": 2892,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/tests/e2e/smoke/jest.config.js",
+      "sha256": "45f976a3d0c531b9edf72234f00491e460adc2ed5429a37ad4fe6a1cb73de3cb",
+      "size_bytes": 2409,
+      "category": "test"
+    },
+    {
+      "path": "whitelabel-copytrade/tests/e2e/smoke/trader-discovery.spec.ts",
+      "sha256": "2de6e4f32bd6a6cc547193387c1a0f47e3d50f4c0cc9e485751264e014deaa7f",
+      "size_bytes": 1673,
       "category": "test"
     },
     {
       "path": "whitelabel-copytrade/tests/jest.config.js",
-      "sha256": "6e42c81591d9cbc9bd2dba322f136b183b0f9824c3c40598acda731ae5734fbc",
-      "size_bytes": 976,
+      "sha256": "15db65bc740e2341c2b12b9058325764dff66a24ddf919946e2dc116d1250b9e",
+      "size_bytes": 1909,
       "category": "test"
     },
     {
@@ -13018,6 +13780,12 @@
       "path": "whitelabel-copytrade/tsconfig.base.json",
       "sha256": "46a7143a55c978036a1f150a1ff9863d5434198c609fd30626abf44d91ce55b5",
       "size_bytes": 1540,
+      "category": "config_or_asset"
+    },
+    {
+      "path": "whitelabel-copytrade/whitelabel-sbom.spdx.json",
+      "sha256": "79dae285711209051de20911f62dd4c53b32e006a8c3784fe4c4c3dbfaa5a76b",
+      "size_bytes": 1432467,
       "category": "config_or_asset"
     }
   ]

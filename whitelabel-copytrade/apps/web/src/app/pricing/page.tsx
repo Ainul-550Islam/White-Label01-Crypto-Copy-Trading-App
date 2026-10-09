@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import Link from 'next/link';
 import { useAuth } from '@/auth/auth.store';

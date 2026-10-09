@@ -1,4 +1,5 @@
 // # NEW — Admin route for single compliance case review
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ErrorNotice, PageHeader } from '@/components/ui';
@@ -7,7 +8,7 @@ import { theme } from '@/lib/theme';
 import {
   ComplianceCaseDetail,
   type ComplianceCaseRecord,
-} from '@/modules/compliance/compliance-case-detail';
+} from '@/features/compliance/compliance-case-detail';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,9 +17,9 @@ export const metadata: Metadata = { title: 'Compliance Case Review' };
 export default async function ComplianceCaseDetailPage({
   params,
 }: {
-  params: { caseId: string };
+  params: Promise<{ caseId: string }>;
 }): Promise<JSX.Element> {
-  const { caseId } = params;
+  const { caseId } = await params;
   let caseRecord: ComplianceCaseRecord | null = null;
   let errorMsg: string | null = null;
 

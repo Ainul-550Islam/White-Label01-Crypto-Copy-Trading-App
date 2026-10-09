@@ -1,6 +1,7 @@
 // # Responsibility: presents the signed-in customer's measured concentration and aligned-candle correlation with explicit stale and unknown states.
 
 'use client';
+import type { JSX } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 import {

@@ -1,6 +1,7 @@
 // # Responsibility: sends user-supplied allocation values to a non-executable preview API; never submits orders or transfers.
 
-import React, { FormEvent, useEffect, useState } from 'react';
+import type { JSX } from 'react';
+import React, { FormEvent, useState } from 'react';
 import { tradingApi, type RebalancePreviewLine, type RebalancePreviewRequest } from '@/api/trading-api';
 
 export type RebalancePreviewRow = RebalancePreviewLine;
@@ -21,10 +22,6 @@ export function AllocationRebalancePage({
   const [rows, setRows] = useState<RebalancePreviewRow[]>([]);
   const preview = onPreview ?? tradingApi.previewAllocationRebalance;
 
-  useEffect(() => {
-    setTotalValue(initialTotalValue);
-    setAllocations(initialAllocations);
-  }, [initialTotalValue, initialAllocations]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

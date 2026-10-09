@@ -66,6 +66,51 @@ export class OkxProductionAdapter {
     return crypto.createHmac('sha256', secret).update(prehash).digest('base64');
   }
 
+  /**
+   * OKX addresses instruments as `BASE-QUOTE`, with a derivative carrying a third segment:
+   * `BTC-USDT-SWAP` for a perpetual, `BTC-USDT-260327` for a dated future. Internal symbols reach
+   * this adapter as `BTC-USDT`, `BTC/USDT` or `BTC:USDT`, so the separators are canonicalised and
+   * the shape is validated. A symbol that does not resolve to two or three alphanumeric segments
+   * is refused rather than sent: previous revisions shipped a `replace('-', '-')` here, which
+   * looked like normalisation and did nothing.
+   */
+  private toOkxInstrumentId(symbol: string): string | null {
+    const canonical = symbol.trim().toUpperCase().replace(/[/_:]/g, '-');
+    // Empty segments are refused rather than collapsed: `BTC--USDT` is not a venue instrument, and
+    // silently repairing it would hide the upstream bug that produced it.
+    const parts = canonical.split('-');
+    if (parts.length < 2 || parts.length > 3) return null;
+    if (parts.some((part) => !/^[A-Z0-9]+$/.test(part))) return null;
+    return parts.join('-');
+  }
+
+  /**
+   * `cash` is the spot account mode and the only correct value for a spot pair. A derivative must
+   * run in `cross` or `isolated`, and defaulting one to `cash` would submit a leveraged order under
+   * a mode the operator never chose - so a derivative requires an explicit `marginMode` and the
+   * request is refused without one. Throws, so the caller's catch reports it like any other
+   * refusal.
+   */
+  private resolveTdMode(instrumentId: string, marginMode?: string): string {
+    const isDerivative = instrumentId.split('-').length > 2;
+
+    if (marginMode !== undefined) {
+      const normalised = marginMode.trim().toLowerCase();
+      if (normalised !== 'cash' && normalised !== 'cross' && normalised !== 'isolated') {
+        throw new Error(`Unsupported OKX tdMode ${marginMode} for ${instrumentId}`);
+      }
+      if (normalised === 'cash' && isDerivative) {
+        throw new Error(`OKX derivative ${instrumentId} cannot trade in cash mode`);
+      }
+      return normalised;
+    }
+
+    if (isDerivative) {
+      throw new Error(`OKX derivative ${instrumentId} requires an explicit margin mode`);
+    }
+    return 'cash';
+  }
+
   async getBalances(context: OkxContext): Promise<ProviderResult<Array<{ asset: string; free: string; locked: string; total: string }>>> {
     const start = Date.now();
     const baseUrl = this.getBaseUrl(context.isSandbox);
@@ -126,7 +171,7 @@ export class OkxProductionAdapter {
 
   async createOrder(
     context: OkxContext,
-    order: { symbol: string; side: string; type: string; quantity: string; price?: string; clientOrderId: string; isSimulated: boolean },
+    order: { symbol: string; side: string; type: string; quantity: string; price?: string; clientOrderId: string; isSimulated: boolean; marginMode?: string },
   ): Promise<ProviderResult<NormalizedExchangeOrderResult>> {
     const start = Date.now();
 
@@ -135,7 +180,7 @@ export class OkxProductionAdapter {
         providerOrderId: null,
         clientOrderId: order.clientOrderId,
         symbol: order.symbol,
-        exchangeSymbol: order.symbol.replace('-', ''),
+        exchangeSymbol: this.toOkxInstrumentId(order.symbol) ?? order.symbol.trim().toUpperCase(),
         side: order.side,
         orderType: order.type,
         requestedQuantity: order.quantity,
@@ -163,19 +208,27 @@ export class OkxProductionAdapter {
     const baseUrl = this.getBaseUrl(context.isSandbox);
     const requestPath = '/api/v5/trade/order';
     const timestamp = new Date().toISOString();
-    const bodyObj = {
-      instId: order.symbol.replace('-', '-'),
-      tdMode: 'cash',
-      side: order.side.toLowerCase(),
-      ordType: order.type.toLowerCase(),
-      sz: order.quantity,
-      px: order.price,
-      clOrdId: order.clientOrderId,
-    };
-    const body = JSON.stringify(bodyObj);
-    const signature = this.signRequest(timestamp, 'POST', requestPath, body, context.apiSecret);
 
     try {
+      // Resolved inside the try so that a request this adapter refuses to send is reported
+      // through the same normalised error path as a venue rejection.
+      const instrumentId = this.toOkxInstrumentId(order.symbol);
+      if (instrumentId === null) {
+        throw new Error(`OKX instrument id cannot be derived from symbol ${order.symbol}`);
+      }
+
+      const bodyObj = {
+        instId: instrumentId,
+        tdMode: this.resolveTdMode(instrumentId, order.marginMode),
+        side: order.side.toLowerCase(),
+        ordType: order.type.toLowerCase(),
+        sz: order.quantity,
+        px: order.price,
+        clOrdId: order.clientOrderId,
+      };
+      const body = JSON.stringify(bodyObj);
+      const signature = this.signRequest(timestamp, 'POST', requestPath, body, context.apiSecret);
+
       const response = await this.requestService.request<any>({
         method: 'POST',
         url: `${baseUrl}${requestPath}`,
@@ -192,7 +245,11 @@ export class OkxProductionAdapter {
         provider: this.provider,
         operation: ProviderOperationType.CREATE,
         tenantId: context.tenantId,
-        isIdempotent: false,
+        // The body carries clOrdId, which OKX deduplicates on, so a retry of this request cannot
+        // place a second order. Reporting it as non-idempotent told the retry layer to treat an
+        // order it could safely repeat as one it must not - the opposite of the failure mode that
+        // matters, and inconsistent with the Binance adapter, which declares the same guarantee.
+        isIdempotent: true,
       });
 
       const data = response.data?.data?.[0] || {};

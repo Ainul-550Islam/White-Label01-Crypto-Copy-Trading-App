@@ -10,7 +10,7 @@
 # the family's own registered help asks for. Nothing here was decided here, and the file says
 # so by listing the rules it refused to write:
 
-#   rendered: 4 of 24 catalog rules
+#   rendered: 5 of 25 catalog rules
 #   not rendered  AMBIGUOUS_EXECUTION: no numeric threshold in the catalog (threshold: None)
 #   not rendered  DATASET_VALIDATION_FAILURES: no numeric threshold in the catalog (threshold: None)
 #   not rendered  EXCHANGE_DISCONNECTED: no numeric threshold in the catalog (threshold: None)
@@ -88,6 +88,21 @@ groups:
 
   - name: wlct-platform
     rules:
+      # Transactional outbox lag
+      # evidence: registered help: Age in seconds of the oldest unpublished outbox event; alert threshold 60 seconds; zero when none.
+      # evidence: apps/api/src/infrastructure/metrics/metrics.registry.ts defines wlct_outbox_lag_seconds as the age in seconds of the oldest unpublished event and names the 60-second alert threshold in its help text; apps/api/src/modules/observability/metrics.registry.provider.ts registers the family at API boot
+      # evidence: the catalog threshold and family are both seconds, so the expression uses 60 without unit conversion; any comparison change belongs in ALERT_RULES
+      - alert: WLCTOUTBOXLAGHIGH
+        expr: wlct_outbox_lag_seconds > 60
+        labels:
+          severity: warning
+          rule_id: OUTBOX_LAG_HIGH
+        annotations:
+          summary: Transactional outbox lag
+          description: >-
+            Derived from ALERT_RULES OUTBOX_LAG_HIGH. The durable record and the
+            blocks_trading hint live in the application; this is the scrape-side mirror,
+            which grants nothing and changes no verdict.
       # Telemetry export failing
       # evidence: registered help: Consecutive trace export failures (alert threshold at 3; reset by any success or deliberate skip).
       # evidence: apps/api/src/modules/observability/metrics.registry.provider.ts registers the family with the help text 'Consecutive trace export failures (alert threshold at 3; reset by any success or deliberate skip)'

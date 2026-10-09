@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 
 import { checkTenantFeature, getTenantFeatureAccess } from './entitlement-api';
 import type { FeatureCheckResult, TenantFeatureAccess } from './entitlement-types';
@@ -24,8 +24,6 @@ export default function TenantEntitlementsPanel({ tenantId }: { tenantId: string
   const [checkError, setCheckError] = useState<string | null>(null);
 
   const load = async () => {
-    setLoading(true);
-    setError(null);
     try {
       setAccess(await getTenantFeatureAccess(tenantId));
     } catch (e) {
@@ -35,8 +33,15 @@ export default function TenantEntitlementsPanel({ tenantId }: { tenantId: string
     }
   };
 
+  const refresh = async () => {
+    setLoading(true);
+    setError(null);
+    await load();
+  };
+
   useEffect(() => {
-    load();
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -60,7 +65,7 @@ export default function TenantEntitlementsPanel({ tenantId }: { tenantId: string
     <div className="bg-white border rounded-lg p-6 space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">Effective entitlements</h2>
-        <button onClick={load} className="text-sm text-gray-600 hover:text-gray-900">
+        <button onClick={refresh} className="text-sm text-gray-600 hover:text-gray-900">
           Refresh
         </button>
       </div>

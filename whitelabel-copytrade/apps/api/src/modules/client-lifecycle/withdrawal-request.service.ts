@@ -1,5 +1,6 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { ClientPolicyService } from './client-policy.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
 import { AccountRestrictionService } from './account-restriction.service';
@@ -19,6 +20,7 @@ export class WithdrawalRequestService {
     private readonly policyService: ClientPolicyService,
     private readonly auditService: LifecycleAuditService,
     private readonly restrictionService: AccountRestrictionService,
+    @Optional() private readonly outbox?: OutboxService,
   ) {}
 
   async createWithdrawalRequest(params: {
@@ -119,36 +121,50 @@ export class WithdrawalRequestService {
       externalRef: externalReference ?? `${requestedAmount}:${currency}:${destinationAddress ?? ''}:${Date.now()}`,
     });
 
-    try {
-      const existing = await (this.prisma as any).withdrawalRequest.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
-      if (existing) return existing;
-    } catch {}
-
-    if (externalReference) {
-      try {
-        const dup = await (this.prisma as any).withdrawalRequest.findFirst({ where: { tenantId, externalReference } });
-        if (dup) throw new BadRequestException(`Duplicate external withdrawal reference: ${externalReference}`);
-      } catch (e) {
-        if (e instanceof BadRequestException) throw e;
-      }
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing withdrawal request without its withdrawal.requested event');
     }
-
-    const withdrawalRequest = await (this.prisma as any).withdrawalRequest.create({
-      data: {
+    const withdrawalRequest = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const store = tx as any;
+      const existing = await store.withdrawalRequest.findFirst({ where: { tenantId, idempotencyKey } });
+      if (existing) return existing;
+      if (externalReference) {
+        const duplicate = await store.withdrawalRequest.findFirst({ where: { tenantId, externalReference } });
+        if (duplicate) throw new BadRequestException(`Duplicate external withdrawal reference: ${externalReference}`);
+      }
+      const created = await store.withdrawalRequest.create({
+        data: {
+          tenantId,
+          accountId,
+          clientProfileId: clientProfileId ?? account.clientProfileId ?? null,
+          state: 'REQUESTED',
+          requestedAmount,
+          currency,
+          destinationAddress: destinationAddress ?? null,
+          destinationType: destinationType ?? null,
+          externalReference: externalReference ?? null,
+          requestedBy: requestedBy ?? null,
+          idempotencyKey,
+          metadata,
+          requestedAt: new Date(),
+        },
+      });
+      await this.outbox!.append(tx, {
         tenantId,
-        accountId,
-        clientProfileId: clientProfileId ?? account.clientProfileId ?? null,
-        state: 'REQUESTED',
-        requestedAmount,
-        currency,
-        destinationAddress: destinationAddress ?? null,
-        destinationType: destinationType ?? null,
-        externalReference: externalReference ?? null,
-        requestedBy: requestedBy ?? null,
-        idempotencyKey,
-        metadata,
-        requestedAt: new Date(),
-      },
+        aggregateType: 'withdrawal_request',
+        aggregateId: created.id,
+        eventType: 'withdrawal.requested',
+        idempotencyKey: `withdrawal-request:${created.id}:requested`,
+        correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+        occurredAt: created.requestedAt,
+        payload: {
+          withdrawalRequestId: created.id,
+          amount: created.requestedAmount,
+          currency: created.currency,
+          status: created.state,
+        },
+      });
+      return created;
     });
 
     await this.auditService.log({
@@ -211,21 +227,49 @@ export class WithdrawalRequestService {
       this.logger.log({ event: 'client.withdrawal.confirmed_external', withdrawalRequestId, note: 'Settlement delegated to authoritative payment/custody/exchange integration, not direct transfer' });
     }
 
-    const updated = await (this.prisma as any).withdrawalRequest.update({
-      where: { id: withdrawalRequestId },
-      data: {
-        state: toState as any,
-        ...(approvedAmount ? { approvedAmount } : {}),
-        ...(submittedAmount ? { submittedAmount } : {}),
-        ...(confirmedAmount ? { confirmedAmount } : {}),
-        ...(settledAmount ? { settledAmount } : {}),
-        ...(externalReference ? { externalReference } : {}),
-        ...(toState === WithdrawalRequestState.APPROVED ? { approvedAt: new Date(), approvedBy: operatorId } : {}),
-        ...(toState === WithdrawalRequestState.SUBMITTED ? { submittedAt: new Date() } : {}),
-        ...(toState === WithdrawalRequestState.CONFIRMED ? { confirmedAt: new Date() } : {}),
-        ...(toState === WithdrawalRequestState.FAILED ? { failedAt: new Date(), failureReason: reason } : {}),
-        ...(toState === WithdrawalRequestState.REVERSED ? { reversalReason: reason } : {}),
-      },
+    if (toState === WithdrawalRequestState.CONFIRMED && !this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing withdrawal confirmation without its withdrawal.confirmed event');
+    }
+    const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const store = tx as any;
+      const current = await store.withdrawalRequest.findFirst({ where: { id: withdrawalRequestId, tenantId } });
+      if (!current || current.state !== currentState) {
+        throw new BadRequestException('Withdrawal request changed during transition; reload and retry');
+      }
+      const changed = await store.withdrawalRequest.update({
+        where: { id: withdrawalRequestId },
+        data: {
+          state: toState as any,
+          ...(approvedAmount ? { approvedAmount } : {}),
+          ...(submittedAmount ? { submittedAmount } : {}),
+          ...(confirmedAmount ? { confirmedAmount } : {}),
+          ...(settledAmount ? { settledAmount } : {}),
+          ...(externalReference ? { externalReference } : {}),
+          ...(toState === WithdrawalRequestState.APPROVED ? { approvedAt: new Date(), approvedBy: operatorId } : {}),
+          ...(toState === WithdrawalRequestState.SUBMITTED ? { submittedAt: new Date() } : {}),
+          ...(toState === WithdrawalRequestState.CONFIRMED ? { confirmedAt: new Date() } : {}),
+          ...(toState === WithdrawalRequestState.FAILED ? { failedAt: new Date(), failureReason: reason } : {}),
+          ...(toState === WithdrawalRequestState.REVERSED ? { reversalReason: reason } : {}),
+        },
+      });
+      if (toState === WithdrawalRequestState.CONFIRMED) {
+        await this.outbox!.append(tx, {
+          tenantId,
+          aggregateType: 'withdrawal_request',
+          aggregateId: changed.id,
+          eventType: 'withdrawal.confirmed',
+          idempotencyKey: `withdrawal-request:${changed.id}:confirmed`,
+          correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+          occurredAt: changed.confirmedAt ?? changed.updatedAt,
+          payload: {
+            withdrawalRequestId: changed.id,
+            amount: changed.confirmedAmount,
+            currency: changed.currency,
+            status: changed.state,
+          },
+        });
+      }
+      return changed;
     });
 
     await this.auditService.log({

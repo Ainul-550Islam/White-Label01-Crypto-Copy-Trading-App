@@ -39,8 +39,6 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
   const [verificationChallenge, setVerificationChallenge] = useState<any>(null);
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const [tenantRes, brandingRes, domainsRes, wlRes, faRes] = await Promise.all([
         getTenantDetail(tenantId),
@@ -72,8 +70,15 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
     }
   }, [tenantId]);
 
+  const refreshData = async () => {
+    setLoading(true);
+    setError(null);
+    await fetchData();
+  };
+
   useEffect(() => {
-    void fetchData();
+    const timer = window.setTimeout(() => void fetchData(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchData]);
 
   const handleBrandingUpdate = async () => {
@@ -90,7 +95,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
 
       const result = await updateBranding(tenantId, payload);
       setMessage(`Branding updated: ${result.message || 'success'}`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Branding update failed: ${e.message}`);
     } finally {
@@ -106,7 +111,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
       const result = await registerDomain(tenantId, domainInput, true);
       setMessage(`Domain registered: ${result.domain} - ${result.message}`);
       setDomainInput('');
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Domain registration failed: ${e.message}`);
     } finally {
@@ -134,7 +139,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
     try {
       const result = await verifyDomain(tenantId, domain);
       setMessage(`Verification: ${result.status} - verified: ${result.verified} ${result.failureReason || ''}`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Verification failed: ${e.message}`);
     } finally {
@@ -149,7 +154,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
     try {
       await removeDomain(tenantId, domain);
       setMessage(`Domain ${domain} removed`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Remove failed: ${e.message}`);
     } finally {
@@ -163,7 +168,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
     try {
       const result = await requestWhiteLabel(tenantId, { requestedAt: new Date().toISOString() });
       setMessage(`White-label requested: ${result.provisioningState}`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`White-label request failed: ${e.message}`);
     } finally {
@@ -177,7 +182,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
     try {
       const result = await enableWhiteLabel(tenantId);
       setMessage(`White-label enabled: ${result.provisioningState}`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`White-label enable failed: ${e.message}`);
     } finally {
@@ -191,7 +196,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
     try {
       const result = await disableWhiteLabel(tenantId, 'Admin disabled');
       setMessage(`White-label disabled: ${result.provisioningState}`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`White-label disable failed: ${e.message}`);
     } finally {
@@ -215,7 +220,7 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded p-4">
           <p className="text-red-800">{error}</p>
-          <button onClick={fetchData} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-sm">Retry</button>
+          <button onClick={() => void refreshData()} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-sm">Retry</button>
         </div>
       </div>
     );

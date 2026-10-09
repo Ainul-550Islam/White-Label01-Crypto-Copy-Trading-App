@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createCheckoutSession, getCheckoutStatus, getPaymentStatus } from './billing-portal-api';
 
 /**
@@ -9,6 +10,7 @@ import { createCheckoutSession, getCheckoutStatus, getPaymentStatus } from './bi
  * Never trusts ?success=true alone.
  */
 export default function CheckoutPage({ planId, onClose }: { planId: string; onClose?: () => void }) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkout, setCheckout] = useState<any>(null);
@@ -69,17 +71,14 @@ export default function CheckoutPage({ planId, onClose }: { planId: string; onCl
   // Check if returning from provider
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const checkoutId = params.get('checkout_id') || params.get('payment_id') || params.get('session_id');
-    const paymentIdParam = params.get('payment_id');
+    const id = params.get('checkout_id') || params.get('payment_id') || params.get('session_id');
+    if (!id) return;
 
-    if (checkoutId || paymentIdParam) {
-      const id = checkoutId || paymentIdParam;
-      if (id) {
-        setPaymentId(id);
-        setVerificationState('verifying');
-        void verifyPayment(id);
-      }
-    }
+    const timer = window.setTimeout(() => {
+      setPaymentId(id);
+      void verifyPayment(id);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [verifyPayment]);
 
   const handleCreateCheckout = async () => {
@@ -97,7 +96,7 @@ export default function CheckoutPage({ planId, onClose }: { planId: string; onCl
 
       // Redirect to provider checkout URL - backend decides provider/price
       if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl;
+        window.location.assign(result.checkoutUrl);
       } else {
         setError('No checkout URL returned');
       }
@@ -134,7 +133,7 @@ export default function CheckoutPage({ planId, onClose }: { planId: string; onCl
               <div className="h-8 w-8 bg-green-100 rounded-full mx-auto mb-4 flex items-center justify-center text-green-600">✓</div>
               <h3 className="font-semibold text-green-800">Payment successful!</h3>
               <p className="text-sm text-gray-600 mt-1">Your subscription has been updated. Verified from backend.</p>
-              <button onClick={() => (window.location.href = '/billing')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded text-sm">Go to Billing</button>
+              <button onClick={() => router.push('/billing')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded text-sm">Go to Billing</button>
             </>
           )}
           {verificationState === 'failed' && (
@@ -145,7 +144,7 @@ export default function CheckoutPage({ planId, onClose }: { planId: string; onCl
               {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
               <div className="mt-4 flex gap-2 justify-center">
                 <button onClick={() => setVerificationState('idle')} className="px-4 py-2 bg-blue-600 text-white rounded text-sm">Try Again</button>
-                <button onClick={() => (window.location.href = '/billing')} className="px-4 py-2 border rounded text-sm">Back to Billing</button>
+                <button onClick={() => router.push('/billing')} className="px-4 py-2 border rounded text-sm">Back to Billing</button>
               </div>
             </>
           )}
@@ -153,7 +152,7 @@ export default function CheckoutPage({ planId, onClose }: { planId: string; onCl
             <>
               <h3 className="font-semibold">Payment cancelled</h3>
               <p className="text-sm text-gray-500 mt-1">You cancelled the checkout</p>
-              <button onClick={() => (window.location.href = '/billing/plans')} className="mt-4 px-4 py-2 bg-gray-600 text-white rounded text-sm">Back to Plans</button>
+              <button onClick={() => router.push('/billing/plans')} className="mt-4 px-4 py-2 bg-gray-600 text-white rounded text-sm">Back to Plans</button>
             </>
           )}
           {verificationState === 'expired' && (

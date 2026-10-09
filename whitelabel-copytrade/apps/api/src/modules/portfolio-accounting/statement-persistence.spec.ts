@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { StatementService, sumLedgerAmounts } from './statement.service';
 import { ReportExportService } from './report-export.service';
+import { validateDeveloperEventPayload } from '../developer-platform/event-schemas/developer-event-schemas';
 
 /**
  * The statement is written with an untyped Prisma client, so nothing but this
@@ -16,7 +17,7 @@ const PERIOD = '44444444-4444-4444-8444-444444444444';
 const statementModel = Prisma.dmmf.datamodel.models.find((m) => m.name === 'PortfolioStatement');
 
 function buildService(created: { data?: any }) {
-  const prisma: any = {
+  const tx: any = {
     portfolioStatement: {
       findFirst: jest.fn(async () => null),
       create: jest.fn(async ({ data }: any) => {
@@ -24,6 +25,10 @@ function buildService(created: { data?: any }) {
         return { id: 'row-1', ...data };
       }),
     },
+  };
+  const prisma: any = {
+    withTenantRls: jest.fn(async (_tenantId: string, work: (transaction: unknown) => Promise<unknown>) => work(tx)),
+    portfolioStatement: tx.portfolioStatement,
     portfolioSnapshot: {
       findFirst: jest.fn(async () => ({ id: 'snap-1', nav: '1000.5', cash: '120.25', sourceReferences: ['ledger:1'], dataCompleteness: 'COMPLETE' })),
     },
@@ -66,6 +71,9 @@ function buildService(created: { data?: any }) {
     calculateMWR: jest.fn(async () => ({ returnPercent: '3.9', canCalculate: true, evidence: {} })),
   };
   const snapshotService: any = {};
+  const outbox = {
+    append: jest.fn(async (_transaction: unknown, _input: Record<string, unknown>) => undefined),
+  };
   const service = new StatementService(
     prisma,
     policyService,
@@ -75,13 +83,34 @@ function buildService(created: { data?: any }) {
     performanceService,
     cashLedger,
     positionAccounting,
+    outbox as never,
   );
-  return { service, prisma };
+  return { service, prisma, tx, outbox };
 }
 
 describe('Statement persistence matches the PortfolioStatement model', () => {
   it('finds the model in the generated client', () => {
     expect(statementModel).toBeDefined();
+  });
+
+  it('writes statement.generated in the same tenant transaction with the generated artifact identity', async () => {
+    const created: { data?: any } = {};
+    const { service, prisma, tx, outbox } = buildService(created);
+    const statement = await service.generateStatement({ tenantId: TENANT, profileId: PROFILE, periodId: PERIOD, operatorId: 'admin-1' });
+
+    expect(prisma.withTenantRls).toHaveBeenCalledTimes(1);
+    expect(outbox.append).toHaveBeenCalledWith(tx, expect.objectContaining({
+      tenantId: TENANT,
+      aggregateType: 'statement',
+      aggregateId: 'row-1',
+      eventType: 'statement.generated',
+      payload: expect.objectContaining({
+        statementId: statement.statementId,
+        generatedAt: expect.any(String),
+      }),
+    }));
+    const event = outbox.append.mock.calls[0]?.[1];
+    expect(validateDeveloperEventPayload('statement.generated', event?.payload)).toEqual({ valid: true, errors: [] });
   });
 
   it('writes only model columns, with every required column and the right scalar types', async () => {

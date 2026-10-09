@@ -9,16 +9,18 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const prodRoot = path.join(root, 'ops/production');
-// GitHub only runs workflows from the REPOSITORY root. When this project is
-// the repository root that is `<project>/.github/workflows`; when it is
-// nested one level down (as in the White-Label01 repository, where the
-// project lives in `whitelabel-copytrade/`), it is `<repo>/.github/workflows`.
-// Check the project-level location first, then the enclosing repository.
-const workflowsRoot = [
-  path.join(root, '.github/workflows'),
-  path.join(root, '..', '.github/workflows'),
-].find((candidate) => fs.existsSync(candidate)) ?? path.join(root, '.github/workflows');
+const parentRoot = path.resolve(root, '..');
+const rootHasGitMetadata = fs.existsSync(path.join(root, '.git'));
+const parentHasGitMetadata = fs.existsSync(path.join(parentRoot, '.git'));
+const repositoryRoot = rootHasGitMetadata ? root : parentHasGitMetadata ? parentRoot : root;
+const workflowsRoot = path.join(repositoryRoot, '.github/workflows');
+const nestedWorkflowsRoot = path.join(root, '.github/workflows');
 const terraformRoot = path.join(root, 'infra/production/terraform');
+
+function hasNestedWorkflowCopies() {
+  if (repositoryRoot === root || !fs.existsSync(nestedWorkflowsRoot)) return false;
+  return fs.readdirSync(nestedWorkflowsRoot).some((name) => name.endsWith('.yml') || name.endsWith('.yaml'));
+}
 
 function readFile(p) {
   try { return fs.readFileSync(p, 'utf8'); } catch { return ''; }
@@ -328,16 +330,80 @@ check(45, 'secret values are not embedded in Terraform', () => {
   return hasSecretRef && !content.match(/password\s*=\s*".*"/);
 });
 
-// 46. CI artifact comes from expected commit
-check(46, 'CI artifact comes from expected commit', () => {
-  const content = readFile(path.join(workflowsRoot, 'production-release.yml'));
-  return content.includes('commitSha') && content.includes('IMAGE_NAME');
+// 46. root release workflow builds digest-pinned images and publishes manifest + SBOM
+check(46, 'root release workflow publishes digest-pinned images, SBOM and manifest', () => {
+  const release = readFile(path.join(workflowsRoot, 'release.yml'));
+  const production = readFile(path.join(workflowsRoot, 'production-release.yml'));
+  const requiredRootWorkflows = ['ci.yml', 'release.yml', 'security.yml', 'codeql.yml', 'production-release.yml'];
+  const allRootWorkflowsExist = requiredRootWorkflows.every((name) => fileExists(path.join(workflowsRoot, name)));
+  const releaseBuildsAndPublishes =
+    release.includes('tags:') &&
+    release.includes('v*.*.*') &&
+    release.includes('docker/build-push-action@') &&
+    release.includes('steps.image-build.outputs.digest') &&
+    release.includes('sbom: true') &&
+    release.includes('release-sbom.spdx.json') &&
+    release.includes('release-manifest.json') &&
+    release.includes('softprops/action-gh-release@') &&
+    release.includes('./.github/workflows/production-release.yml');
+  const productionConsumesReleaseArtifact =
+    production.includes('workflow_call:') &&
+    production.includes('name: release-evidence') &&
+    production.includes('commitSha') &&
+    production.includes('@sha256:');
+  return allRootWorkflowsExist && !hasNestedWorkflowCopies() && releaseBuildsAndPublishes && productionConsumesReleaseArtifact;
 });
 
-// 47. production release uses approved artifact
-check(47, 'production release uses approved artifact', () => {
-  const content = readFile(path.join(workflowsRoot, 'production-release.yml'));
-  return content.includes('approval-gate') && content.includes('production');
+// 47. production approval and all required root-level security scans gate the release
+check(47, 'production deployment consumes its approved artifact and required scans run from root workflows', () => {
+  const production = readFile(path.join(workflowsRoot, 'production-release.yml'));
+  const security = readFile(path.join(workflowsRoot, 'security.yml'));
+  const codeql = readFile(path.join(workflowsRoot, 'codeql.yml'));
+  const productionConsumesApprovedArtifact =
+    production.includes('approval-gate') &&
+    production.includes('environment:') &&
+    production.includes('name: production') &&
+    production.includes('actions/download-artifact@v4') &&
+    production.includes('commitSha');
+  const requiredSecurityGates = [
+    'npm audit --omit=dev --audit-level=high',
+    'services/execution-engine/requirements.txt',
+    'services/market-data/requirements.txt',
+    'services/trading-engine/requirements.txt',
+    'libs/trading-core',
+    'services/low-latency-gateway',
+    'packages/sdk-rust',
+    'rustsec/audit-check@v2',
+    'aquasecurity/trivy-action@',
+    '0 4 * * 1',
+  ];
+  const gitleaksIgnorePath = path.join(repositoryRoot, '.gitleaksignore');
+  const gitleaksPolicy = readFile(path.join(repositoryRoot, '.gitleaks.toml'));
+  const forbiddenGitleaksBypasses = [
+    '--gitleaks-ignore-path',
+    '--log-opts',
+    '--baseline-path',
+    '--baseline',
+    '--no-git',
+  ];
+  const pinnedFullHistoryGitleaksGate =
+    security.includes('GITLEAKS_VERSION: 8.30.1') &&
+    security.includes('551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb') &&
+    security.includes('gitleaks git .') &&
+    security.includes('--config .gitleaks.toml') &&
+    security.includes('--redact') &&
+    security.includes('--no-banner') &&
+    security.includes('fetch-depth: 0') &&
+    !forbiddenGitleaksBypasses.some((flag) => security.includes(flag)) &&
+    !fileExists(gitleaksIgnorePath) &&
+    gitleaksPolicy.includes('useDefault = true');
+  const scans =
+    requiredSecurityGates.every((needle) => security.includes(needle)) && pinnedFullHistoryGitleaksGate;
+  const codeqlCoverage =
+    security.includes('./.github/workflows/codeql.yml') &&
+    codeql.includes('javascript-typescript') &&
+    codeql.includes('language: python');
+  return productionConsumesApprovedArtifact && scans && codeqlCoverage && !hasNestedWorkflowCopies();
 });
 
 // 48. duplicate deployment request is idempotent

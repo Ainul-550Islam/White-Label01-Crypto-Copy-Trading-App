@@ -2494,6 +2494,9 @@ custodyWallets CustodyWallet[]
   executionEngineIncidents   ExecutionEngineIncident[]
 
   developerApplications DeveloperApplication[]
+  leadTraderApplications LeadTraderApplication[]
+  leaderFeePolicies      LeaderFeePolicy[]
+  userPositionLimits     UserPositionLimit[]
   @@index([status])
   @@index([deletedAt])
   @@index([createdAt])
@@ -2561,6 +2564,14 @@ model TenantDomain {
   isPrimary         Boolean            @default(false) @map("is_primary")
   status            TenantDomainStatus @default(PENDING_DNS)
   verificationToken String             @map("verification_token") @db.VarChar(64)
+  /// Bounded by a CHECK (0..5) constraint added in
+  /// 20261007140000_custom_domain_dns_challenge. That migration shipped without matching
+  /// fields here, so the client could not read or write either column and the service kept the
+  /// attempt count in a metadata blob it never persisted.
+  verificationAttempts   Int       @default(0) @map("verification_attempts")
+  /// Absent for challenges issued before the migration. A null expiry is refused at verification
+  /// time rather than being treated as "no deadline".
+  verificationExpiresAt  DateTime? @map("verification_expires_at") @db.Timestamptz(6)
   verifiedAt        DateTime?          @map("verified_at") @db.Timestamptz(6)
   certificateExpiry DateTime?          @map("certificate_expiry") @db.Timestamptz(6)
 
@@ -2636,6 +2647,26 @@ model User {
   deviceTrusts       DeviceTrust[]
   traderProfile      TraderProfile?
   traderStrategies   TraderStrategy[]
+
+  /// Lead-trader applications this user submitted, and the ones they reviewed
+  /// as platform staff. Two relations to the same model, so both are named.
+  leadTraderApplicationsAsApplicant LeadTraderApplication[] @relation("LeadTraderApplicationApplicant")
+  leadTraderApplicationsAsReviewer  LeadTraderApplication[] @relation("LeadTraderApplicationReviewer")
+
+  /// Fee policies this user authored.
+  leaderFeePoliciesAuthored LeaderFeePolicy[] @relation("LeaderFeePolicyCreatedBy")
+
+  /// Concurrent-position / open-order ceilings for this user (null = unlimited).
+  ///
+  /// Declared as a list, not an optional 1:1, even though a user has at most one
+  /// row in practice. `UserPositionLimit` is keyed by a composite
+  /// `@@unique([tenantId, userId])` - uniqueness is per tenant, matching the
+  /// migration - and Prisma only permits a 1:1 when the foreign key itself is
+  /// single-column unique. The alternative, a bare `@unique` on `userId`, would
+  /// contradict the migration and report drift forever. Use
+  /// `userPositionLimit.findUnique({ where: { tenantId_userId } })` to read the
+  /// single row; nothing includes this relation.
+  positionLimits UserPositionLimit[]
 
   /// Part 2 - exchange connections this user owns. Non-custodial: the user
   /// supplies their own trade-enabled, withdrawal-disabled API key.
@@ -7732,6 +7763,23 @@ model SsoAuditEvent {
 
 // ==================== Part 14 Copy-Trading Core ====================
 
+/// Lead-trader application lifecycle. Mirrors the Postgres type created by
+/// migration `20261005000000_lead_trader_application`.
+enum LeadTraderApplicationStatus {
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+/// High-water-mark accounting boundary for lead-trader profit-share fees.
+/// Mirrors the Postgres type created by migration
+/// `20261005120000_leader_trader_fee_policy`.
+enum LeadTraderHighWaterMarkScope {
+  PER_TRADER_CURRENCY
+  PER_FOLLOWER_CURRENCY
+}
+
 enum TraderVerificationState {
   UNVERIFIED
   PENDING
@@ -7848,11 +7896,140 @@ model TraderProfile {
 
   strategies TraderStrategy[]
   subscriptions CopySubscription[] @relation("TraderSubscriptions")
+  leadTraderApplications LeadTraderApplication[]
+  leaderFeePolicies      LeaderFeePolicy[]
 
   @@index([tenantId, verificationState])
   @@index([tenantId, isPublic])
   @@index([tenantId, followerCount])
   @@map("trader_profiles")
+}
+
+/// A prospective lead trader's application to be verified and published.
+///
+/// DDL lives in migration `20261005000000_lead_trader_application`. The
+/// `activeApplicationKey` partial-uniqueness trick (NULL after a decision) is
+/// what enforces "at most one application awaiting review per trader" in the
+/// database rather than in application code.
+model LeadTraderApplication {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  traderId String @map("trader_id") @db.Uuid
+
+  applicantUserId String? @map("applicant_user_id") @db.Uuid
+  reviewerUserId  String? @map("reviewer_user_id") @db.Uuid
+
+  status  LeadTraderApplicationStatus @default(SUBMITTED) @map("status")
+  version Int                         @default(1) @map("version")
+
+  declaration Json @map("declaration")
+
+  requestFingerprint String @map("request_fingerprint") @db.VarChar(64)
+  idempotencyKey     String @map("idempotency_key") @db.VarChar(255)
+
+  /// Set to the trader id while the application awaits review and cleared when a
+  /// decision is recorded, so the composite unique index permits exactly one
+  /// open application per trader.
+  activeApplicationKey String? @map("active_application_key") @db.VarChar(128)
+
+  submittedAt    DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  reviewedAt     DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  decisionReason String?   @map("decision_reason") @db.VarChar(1000)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  trader    TraderProfile @relation(fields: [traderId], references: [id], onDelete: Restrict)
+  applicant User?         @relation("LeadTraderApplicationApplicant", fields: [applicantUserId], references: [id], onDelete: SetNull)
+  reviewer  User?         @relation("LeadTraderApplicationReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, traderId, version])
+  @@unique([tenantId, activeApplicationKey])
+  @@index([tenantId, status, submittedAt])
+  @@index([tenantId, traderId, submittedAt])
+  @@map("lead_trader_applications")
+}
+
+/// Immutable, versioned lead-trader profit-share disclosure.
+///
+/// DDL lives in migration `20261005120000_leader_trader_fee_policy`. The
+/// migration also installs CHECK constraints (profit share within 0..10000 bps,
+/// share at or below the ceiling recorded at creation, uppercase currency,
+/// `effective_to` after `effective_from`, `version >= 1`); Prisma cannot express
+/// CHECK constraints, so the database remains the authority for them.
+///
+/// A version is inserted and the previous version is closed in the same
+/// transaction, which is why `effectiveTo` is mutable while every rate field is
+/// write-once in practice.
+model LeaderFeePolicy {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  traderId String @map("trader_id") @db.Uuid
+
+  currency String @map("currency") @db.VarChar(4)
+
+  profitShareBps            Int @map("profit_share_bps")
+  /// The ceiling in force when this version was authored. Stored so that a
+  /// later reduction of the platform maximum cannot retroactively legitimise a
+  /// rate that was already above it.
+  maximumShareBpsAtCreation Int @map("maximum_share_bps_at_creation")
+
+  feePolicySource    String  @map("fee_policy_source") @db.VarChar(32)
+  feePolicyReference String? @map("fee_policy_reference") @db.VarChar(255)
+
+  highWaterMarkScope LeadTraderHighWaterMarkScope @default(PER_FOLLOWER_CURRENCY) @map("high_water_mark_scope")
+
+  version Int @default(1) @map("version")
+
+  effectiveFrom DateTime  @map("effective_from") @db.Timestamptz(6)
+  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz(6)
+
+  createdByUserId String @map("created_by_user_id") @db.Uuid
+
+  requestFingerprint String @map("request_fingerprint") @db.VarChar(64)
+  idempotencyKey     String @map("idempotency_key") @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  trader        TraderProfile @relation(fields: [traderId], references: [id], onDelete: Restrict)
+  createdByUser User          @relation("LeaderFeePolicyCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, traderId, currency, version])
+  // These two index names are non-default in the migration; map them so a
+  // `migrate diff` does not report the table as drifted.
+  @@index([tenantId, traderId, currency, effectiveFrom], map: "leader_fee_effective_from_idx")
+  @@index([tenantId, traderId, currency, effectiveTo], map: "leader_fee_effective_to_idx")
+  @@map("leader_fee_policies")
+}
+
+/// Per-user ceilings on concurrent positions and open orders.
+///
+/// DDL lives in migration `20261007120000_user_position_limits`. Both columns
+/// are nullable on purpose: NULL means "unlimited" and 0 means "block every new
+/// reservation", so the table expresses all three states without a sentinel.
+/// The migration additionally installs CHECK constraints rejecting negative
+/// values; Prisma cannot express CHECK constraints, so the database stays the
+/// authority for that rule. At most one row per (tenant, user).
+model UserPositionLimit {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  maxConcurrentPositions Int? @map("max_concurrent_positions")
+  maxOpenOrders          Int? @map("max_open_orders")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@map("user_position_limits")
 }
 
 model TraderStrategy {

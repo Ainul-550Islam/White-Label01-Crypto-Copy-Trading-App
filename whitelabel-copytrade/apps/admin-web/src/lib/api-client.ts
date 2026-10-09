@@ -1,6 +1,6 @@
 'use client';
 
-import { ApiError } from './api-error';
+import { ApiError } from '@wlct/utils/api-error';
 
 /**
  * Browser-side API client.

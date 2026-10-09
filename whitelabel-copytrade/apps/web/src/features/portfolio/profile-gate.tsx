@@ -1,4 +1,5 @@
 "use client";
+import type { JSX } from 'react';
 
 import type { ReactNode } from "react";
 import { LoadingState } from "@/components/loading-state";

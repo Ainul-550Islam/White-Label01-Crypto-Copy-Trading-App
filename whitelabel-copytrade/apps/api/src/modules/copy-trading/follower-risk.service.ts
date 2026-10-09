@@ -8,6 +8,7 @@ import {
   FollowerRiskPolicy,
   isDecimalString,
   compareDecimalStrings,
+  matchesAnySymbolRule,
 } from './copy-trading.types';
 
 export interface RiskCheckInput {
@@ -63,7 +64,7 @@ export class FollowerRiskService {
 
     // Copy policy symbol, side, and notional enforcement when provided
     if (copyPolicy) {
-      if (Array.isArray(copyPolicy.blockedSymbols) && copyPolicy.blockedSymbols.includes(input.symbol)) {
+      if (matchesAnySymbolRule(copyPolicy.blockedSymbols, input.symbol)) {
         return {
           decision: CopyRiskDecision.BLOCK,
           allowed: false,
@@ -71,7 +72,7 @@ export class FollowerRiskService {
           reason: `Symbol ${input.symbol} is blocked by copy policy`,
         };
       }
-      if (Array.isArray(copyPolicy.allowedSymbols) && copyPolicy.allowedSymbols.length > 0 && !copyPolicy.allowedSymbols.includes(input.symbol)) {
+      if (Array.isArray(copyPolicy.allowedSymbols) && copyPolicy.allowedSymbols.length > 0 && !matchesAnySymbolRule(copyPolicy.allowedSymbols, input.symbol)) {
         return {
           decision: CopyRiskDecision.BLOCK,
           allowed: false,

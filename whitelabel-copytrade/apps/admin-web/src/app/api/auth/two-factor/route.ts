@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
 
@@ -23,7 +23,7 @@ interface SessionPayload {
 
 /** Completes a two-factor challenge started by /api/auth/login. */
 export async function POST(request: Request): Promise<NextResponse> {
-  const store = cookies();
+  const store = await cookies();
   const challengeToken = store.get('wlct_2fa')?.value;
   const deviceId = store.get('wlct_2fa_did')?.value;
 
@@ -72,7 +72,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       },
     });
 
-    persistSession(result.tokens, deviceId, randomUUID());
+    await persistSession(result.tokens, deviceId, randomUUID());
 
     const response = NextResponse.json({ success: true, data: { redirectTo: '/dashboard' } });
     response.cookies.delete('wlct_2fa');

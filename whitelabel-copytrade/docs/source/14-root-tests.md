@@ -2,7 +2,7 @@
 
 The repository-level jest project (billing entitlement resolver and guard specs) and its configuration.
 
-13 files. Part of the complete source dump - see `docs/source/README.md`.
+25 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -2439,6 +2439,1709 @@ describe('Plan Validation', () => {
 });
 ```
 
+FILE: tests/e2e/browser/admin-operations.spec.ts
+
+```typescript
+// # Responsibility: drives the admin console in a real browser - the compliance case queue and the custody reconciliation view - which are server components whose data never passes through the browser.
+//
+// This is the spec that `page.route()` could never have written. The console's data path is
+// `serverFetch` inside a server component: the request is made by the Next.js server, not by the
+// browser, so browser-level interception would have tested nothing at all. The stub upstream is
+// therefore the only honest place to stand, and this test proves the console's server-side session
+// handling, its fetches and its rendering together.
+
+import { expect, test } from '@playwright/test';
+
+import { expectNoUnmatchedTraffic, readStubLog, resetStub, signIn } from './support/session';
+
+test.describe('admin console operations', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetStub(page);
+    await signIn(page);
+  });
+
+  test('the compliance queue renders the case and its signals', async ({ page }) => {
+    await page.goto('/compliance');
+
+    await expect(page.getByText('Identity document requires manual review.')).toBeVisible();
+    await expect(page.getByText('KYC_REVIEW')).toBeVisible();
+
+    const log = await readStubLog(page);
+    const paths = log.requests.map((entry) => `${entry.method} ${entry.path}`);
+    expect(paths).toContain('GET /v1/compliance/cases');
+    expect(paths).toContain('GET /v1/compliance/monitoring/signals');
+    expect(
+      log.requests.every((entry) => entry.authorized),
+      'server components must attach the console session token to every read',
+    ).toBeTruthy();
+
+    await expectNoUnmatchedTraffic(page);
+  });
+
+  test('the custody reconciliation view renders the finding it was given', async ({ page }) => {
+    await page.goto('/funding-reconciliation');
+
+    await expect(page.getByText('finding-e2e-1')).toBeVisible({ timeout: 15_000 });
+
+    const log = await readStubLog(page);
+    expect(
+      log.requests.some((entry) => entry.path === '/v1/custody/reconciliation/findings'),
+      'the reconciliation view must read the findings endpoint',
+    ).toBeTruthy();
+
+    await expectNoUnmatchedTraffic(page);
+  });
+});
+```
+
+FILE: tests/e2e/browser/copy-trading-lifecycle.spec.ts
+
+```typescript
+// # Responsibility: drives the copy-subscription detail view in a real browser - guardrails, execution history, and the pause/resume round trip through the proxy, the CSRF check and the upstream API.
+//
+// The mutation is the part that matters. Pausing a subscription is a POST that must carry the CSRF
+// token the login route issued and the session cookie the proxy reads; if either is missing the
+// proxy answers 403/401 and the button does nothing. The test asserts the state actually changed by
+// reading the page the application re-fetched, and asserts on the stub's request log that the POST
+// arrived with the session token attached.
+
+import { expect, test } from '@playwright/test';
+
+import { expectNoUnmatchedTraffic, readStubLog, resetStub, signIn } from './support/session';
+
+const SUBSCRIPTION_ID = 'sub-e2e-1';
+
+test.describe('copy-trading subscription lifecycle (customer web)', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetStub(page);
+    await signIn(page);
+  });
+
+  test('the detail view composes its three reads and shows the guardrails', async ({ page }) => {
+    await page.goto(`/copy-trading/${SUBSCRIPTION_ID}`);
+
+    await expect(page.getByTestId('copy-subscription-detail-page')).toBeVisible();
+    await expect(page.getByTestId('guardrail-max-daily-loss')).toBeVisible();
+    await expect(page.getByTestId('guardrail-max-drawdown')).toBeVisible();
+    await expect(page.getByTestId('pause-subscription-btn')).toBeVisible();
+
+    const log = await readStubLog(page);
+    const paths = log.requests.map((entry) => `${entry.method} ${entry.path}`);
+    expect(paths).toContain('GET /v1/copy-trading/subscriptions/sub-e2e-1');
+    expect(paths).toContain('GET /v1/copy-trading/policies/effective');
+    expect(paths).toContain('GET /v1/copy-trading/executions');
+    expect(
+      log.requests.every((entry) => entry.authorized),
+      'every API read behind the proxy must carry the session token',
+    ).toBeTruthy();
+
+    await expectNoUnmatchedTraffic(page);
+  });
+
+  test('pause moves the subscription and resume moves it back', async ({ page }) => {
+    await page.goto(`/copy-trading/${SUBSCRIPTION_ID}`);
+    await expect(page.getByTestId('pause-subscription-btn')).toBeVisible();
+
+    await page.getByTestId('pause-subscription-btn').click();
+
+    // The button swaps because the page re-fetched the subscription and the upstream now reports
+    // PAUSED. A UI that only flipped local state would pass a screenshot test and fail this one.
+    await expect(page.getByTestId('resume-subscription-btn')).toBeVisible();
+    await expect(page.getByTestId('pause-subscription-btn')).toHaveCount(0);
+
+    const afterPause = await readStubLog(page);
+    expect(
+      afterPause.requests.some(
+        (entry) =>
+          entry.method === 'POST' &&
+          entry.path === '/v1/copy-trading/subscriptions/sub-e2e-1/pause' &&
+          entry.authorized,
+      ),
+      'the pause must reach the upstream as an authenticated POST',
+    ).toBeTruthy();
+
+    await page.getByTestId('resume-subscription-btn').click();
+    await expect(page.getByTestId('pause-subscription-btn')).toBeVisible();
+
+    const afterResume = await readStubLog(page);
+    expect(
+      afterResume.requests.some(
+        (entry) =>
+          entry.method === 'POST' &&
+          entry.path === '/v1/copy-trading/subscriptions/sub-e2e-1/resume' &&
+          entry.authorized,
+      ),
+      'the resume must reach the upstream as an authenticated POST',
+    ).toBeTruthy();
+
+    await expectNoUnmatchedTraffic(page);
+  });
+});
+```
+
+FILE: tests/e2e/browser/support/fixtures.mjs
+
+```javascript
+// # Responsibility: the deterministic API fixtures the browser E2E suite serves from its stub upstream, kept apart from the server so a spec can name the data it expects to see.
+//
+// Every fixture here is a complete response body for one upstream route, in the platform's
+// `{ success: true, data: ... }` envelope. Values are exact decimal strings where the platform uses
+// them, so the web parsers (which never convert money in the browser) receive the shape they were
+// written against.
+//
+// The shapes are not invented: each one mirrors the parser the application runs on it -
+// `parseTrader`, `parseTraderPerformance`, `parseSubscription`, `parseCopyExecution`,
+// `parsePaged` - including the fields those parsers read for status and currentness. A field the
+// parser reads and this file omits would show up as a default the UI never promises, which is
+// exactly what these tests exist to catch.
+
+export const E2E_USER = { id: 'user-e2e-1', email: 'e2e-follower@example.test' };
+export const E2E_TENANT_ID = 'tenant-e2e';
+
+/**
+ * A structurally valid but unsigned JWT, because both applications decode the access token's
+ * claims server-side to build their navigation (`decodeAccessTokenClaims` reads `sub`, `tid`,
+ * `roles`, `perms`, `plat`, `exp`). A plain opaque string would send every page to `/login`,
+ * which is how the console guard looked when this suite was first run end to end.
+ *
+ * The signature is deliberately not a signature: neither layout verifies it, and both say so in
+ * their own comments - the token drives navigation only, and every page re-authorises through the
+ * API. The stub upstream accepts this exact string as its session token; nothing else does, and
+ * the string cannot authenticate against any real platform.
+ */
+function base64urlJson(value) {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+const E2E_TOKEN_PAYLOAD = {
+  sub: E2E_USER.id,
+  tid: E2E_TENANT_ID,
+  roles: ['SUPER_ADMIN'],
+  perms: ['*'],
+  plat: true,
+  // Rebuilt on every module load, so a long-lived checkout cannot expire its own fixtures.
+  iat: Math.floor(Date.now() / 1000),
+  exp: Math.floor(Date.now() / 1000) + 3600,
+};
+
+export const E2E_ACCESS_TOKEN = [
+  base64urlJson({ alg: 'none', typ: 'JWT' }),
+  base64urlJson(E2E_TOKEN_PAYLOAD),
+  'e2e-unsigned-signature-not-verified-anywhere',
+].join('.');
+
+export const E2E_REFRESH_TOKEN = ['e2e-refresh', 'token-not-a-credential'].join('-');
+
+export const traders = [
+  {
+    traderId: 'trader-alpha',
+    displayName: 'Alpha Quant Desk',
+    bio: 'Systematic BTC/ETH momentum',
+    avatarUrl: null,
+    verificationState: 'VERIFIED',
+    verifiedAt: '2026-08-01T00:00:00.000Z',
+    supportedVenues: ['BINANCE', 'BYBIT'],
+    supportedSymbols: ['BTC-USDT', 'ETH-USDT'],
+    isPublic: true,
+    isFeatured: true,
+    followerCount: 145,
+    totalVolume: '920000',
+    totalTrades: 84,
+    createdAt: '2026-06-01T00:00:00.000Z',
+  },
+  {
+    traderId: 'trader-beta',
+    displayName: 'Beta Carry Book',
+    bio: 'Funding-rate carry on majors',
+    avatarUrl: null,
+    verificationState: 'UNVERIFIED',
+    verifiedAt: null,
+    supportedVenues: ['OKX'],
+    supportedSymbols: ['BTC-USDT'],
+    isPublic: true,
+    isFeatured: false,
+    followerCount: 12,
+    totalVolume: '41000',
+    totalTrades: 9,
+    createdAt: '2026-07-15T00:00:00.000Z',
+  },
+];
+
+export const alphaPerformance = {
+  traderId: 'trader-alpha',
+  tenantId: E2E_TENANT_ID,
+  realizedPnl: '18250.75',
+  unrealizedPnl: '410.25',
+  totalReturn: '18250.75',
+  totalReturnPercent: '18.25',
+  maxDrawdown: '-2400.00',
+  maxDrawdownPercent: '-2.40',
+  winCount: 61,
+  lossCount: 23,
+  tradeCount: 84,
+  winRate: '72.62',
+  lossRate: '27.38',
+  totalVolume: '920000',
+  averageTrade: '217.27',
+  averageWin: '498.10',
+  averageLoss: '-547.32',
+  profitFactor: '2.41',
+  sharpeRatio: '1.85',
+  historyLengthDays: 120,
+  lastTradeAt: '2026-10-06T12:00:00.000Z',
+  isActual: true,
+  source: 'FILLS',
+};
+
+export const rankingsMethodology = {
+  status: 'AVAILABLE',
+  key: 'RECONCILED_CLOSED_PERIOD_TWR',
+  description: 'Time-weighted return over exactly contiguous reconciled periods.',
+  timeframe: '30D',
+  windowStart: '2026-09-07T00:00:00.000Z',
+  asOf: '2026-10-07T00:00:00.000Z',
+  boundaryRule: 'EXACT_CONTIGUOUS_PERIODS_ONLY',
+  orderingRule: 'RETURN_DESCENDING_UNAVAILABLE_LAST',
+  currentnessRule: 'A window is only ranked when every period inside it is reconciled.',
+  minimumPeriodCount: 5,
+  rankedCount: 1,
+  unrankedCount: 1,
+  reason: null,
+};
+
+export const rankings = [
+  {
+    traderId: 'trader-alpha',
+    tenantId: E2E_TENANT_ID,
+    displayName: 'Alpha Quant Desk',
+    verificationState: 'VERIFIED',
+    isPublic: true,
+    isFeatured: true,
+    followerCount: 145,
+    performance: alphaPerformance,
+    score: 78.5,
+    rank: 1,
+    metrics: {
+      riskAdjustedReturn: 1.85,
+      drawdownScore: 0.88,
+      consistencyScore: 0.71,
+      historyLengthScore: 0.6,
+      followerScore: 0.42,
+      activityScore: 0.84,
+      verifiedScore: 1,
+    },
+    weighting: { riskAdjustedReturn: 0.35, drawdownScore: 0.2 },
+  },
+  {
+    traderId: 'trader-beta',
+    tenantId: E2E_TENANT_ID,
+    displayName: 'Beta Carry Book',
+    verificationState: 'UNVERIFIED',
+    isPublic: true,
+    isFeatured: false,
+    followerCount: 12,
+    performance: null,
+    score: 0,
+    rank: 0,
+    metrics: {
+      riskAdjustedReturn: null,
+      drawdownScore: null,
+      consistencyScore: null,
+      historyLengthScore: null,
+      followerScore: null,
+      activityScore: null,
+      verifiedScore: null,
+    },
+    weighting: {},
+  },
+];
+
+/**
+ * The subscription resource, as served by
+ * `GET /v1/copy-trading/subscriptions/:subscriptionId` and read by `parseSubscription`.
+ */
+export const subscriptionResource = {
+  subscriptionId: 'sub-e2e-1',
+  traderId: 'trader-alpha',
+  strategyId: 'strategy-e2e-1',
+  state: 'ACTIVE',
+  allocationMode: 'FIXED',
+  allocationAmount: '500.00',
+  maxAllocation: '2000.00',
+  minAllocation: '50.00',
+  copyPolicy: null,
+  riskPolicy: {
+    maxDailyLoss: '300.00',
+    maxDrawdown: '800.00',
+    maxOpenExposure: '3000.00',
+    maxExposurePerTrader: null,
+    maxExposurePerSymbol: null,
+    maxDailyCopiedTrades: 10,
+    emergencyStopCopy: false,
+  },
+  followerAccountId: 'account-e2e-1',
+  totalCopies: 5,
+  failedCopies: 0,
+  totalCopiedVolume: '2500.00',
+  startedAt: '2026-09-01T00:00:00.000Z',
+  pausedAt: null,
+  stoppedAt: null,
+  stopReason: null,
+  closeOpenPositionsOnStop: true,
+  createdAt: '2026-09-01T00:00:00.000Z',
+};
+
+export function subscriptionResourcePaused() {
+  return {
+    ...subscriptionResource,
+    state: 'PAUSED',
+    pausedAt: '2026-10-07T00:00:00.000Z',
+  };
+}
+
+/**
+ * The effective policy, as served by `GET /v1/copy-trading/policies/effective?subscriptionId=...`
+ * and read by `parseCopyPolicy`.
+ */
+export const effectivePolicyResource = {
+  sizingMode: 'FIXED',
+  fixedQuantity: '0.2',
+  multiplier: null,
+  proportionalRatio: null,
+  maxPositionSize: '2000',
+  maxNotional: '5000',
+  maxOpenPositions: 5,
+  maxLeverage: '2',
+  allowedSymbols: ['BTC-USDT'],
+  blockedSymbols: [],
+  allowedVenues: ['BINANCE'],
+  orderTypePolicy: 'MARKET_AND_LIMIT',
+  slippageToleranceBps: 50,
+  executionDelayMs: 0,
+  takeProfitBps: 200,
+  stopLossBps: 100,
+  trailingStopBps: null,
+  emergencyStop: false,
+};
+
+/**
+ * One copied execution, as served by `GET /v1/copy-trading/executions` and read by
+ * `parseCopyExecution`. Every field that parser reads is present.
+ */
+export const copyExecutions = [
+  {
+    executionId: 'exec-e2e-1',
+    subscriptionId: 'sub-e2e-1',
+    leaderEventId: 'leader-event-1',
+    leaderOrderId: 'leader-order-1',
+    leaderFillId: 'leader-fill-1',
+    traderId: 'trader-alpha',
+    followerId: E2E_USER.id,
+    followerAccountId: 'account-e2e-1',
+    status: 'FILLED',
+    sizingMode: 'FIXED',
+    leaderQuantity: '0.2',
+    leaderPrice: '61250.50',
+    followerQuantity: '0.2',
+    followerPrice: '61278.10',
+    slippageTolerance: '0.005',
+    maxNotional: '5000',
+    followerOrderId: 'follower-order-1',
+    riskDecision: 'ALLOWED',
+    riskRuleId: null,
+    failureReason: null,
+    executionIntent: { symbol: 'BTC-USDT', side: 'BUY', orderType: 'MARKET' },
+    createdAt: '2026-10-06T10:00:00.000Z',
+    updatedAt: '2026-10-06T10:00:05.000Z',
+  },
+];
+
+export const executionsPage = { data: copyExecutions, total: copyExecutions.length };
+
+export const subscriptionsPage = { data: [subscriptionResource], total: 1 };
+
+/**
+ * Compliance cases, as `GET /v1/compliance/cases` really answers: the paged envelope
+ * `{ data, total, page, limit }` from `complianceCase.repository.listTenantCases`, whose rows are
+ * the Prisma `ComplianceCase` records. The first version of this fixture invented `caseId`,
+ * `status` and `summary`; the console then crashed with a 500 while reading `safeSummary`, which
+ * was the harness telling the truth about a bad fixture rather than a bad page.
+ */
+export const complianceCases = {
+  data: [
+    {
+      id: 'case-e2e-1',
+      tenantId: E2E_TENANT_ID,
+      userId: E2E_USER.id,
+      caseType: 'KYC_REVIEW',
+      state: 'OPEN',
+      severity: 'HIGH',
+      riskLevel: 'HIGH',
+      decision: null,
+      assignedTo: null,
+      assignedAt: null,
+      escalatedAt: null,
+      resolvedAt: null,
+      closedAt: null,
+      idempotencyKey: 'case-e2e-1-key',
+      safeSummary: 'Identity document requires manual review.',
+      jurisdiction: 'BD',
+      policyVersion: 'v1',
+      ruleIds: ['KYC_DOC_MISMATCH'],
+      sourceRefs: [],
+      metadata: {},
+      createdAt: '2026-10-01T09:00:00.000Z',
+      updatedAt: '2026-10-06T09:00:00.000Z',
+    },
+  ],
+  total: 1,
+  page: 1,
+  limit: 50,
+};
+
+/**
+ * Monitoring signals, as `GET /v1/compliance/monitoring/signals` really answers:
+ * `{ data, total }` from `transactionMonitoringService.listSignals`, over
+ * `TransactionMonitoringSignal` rows.
+ */
+export const monitoringSignals = {
+  data: [
+    {
+      id: 'signal-e2e-1',
+      tenantId: E2E_TENANT_ID,
+      userId: E2E_USER.id,
+      sourceType: 'DEPOSIT',
+      sourceId: 'deposit-e2e-1',
+      ruleId: 'VELOCITY_DEPOSIT',
+      riskLevel: 'MEDIUM',
+      decision: 'PENDING',
+      safeSummary: 'Deposit velocity above the tenant threshold.',
+      idempotencyKey: 'signal-e2e-1-key',
+      caseId: null,
+      resolved: false,
+      resolvedAt: null,
+      createdAt: '2026-10-05T09:00:00.000Z',
+    },
+  ],
+  total: 1,
+};
+
+export const custodyReconciliationFindings = {
+  items: [
+    {
+      findingId: 'finding-e2e-1',
+      accountId: 'account-e2e-1',
+      asset: 'USDT',
+      difference: '0',
+      state: 'MATCHED',
+      detectedAt: '2026-10-06T00:00:00.000Z',
+    },
+  ],
+  findings: [
+    {
+      findingId: 'finding-e2e-1',
+      accountId: 'account-e2e-1',
+      asset: 'USDT',
+      difference: '0',
+      state: 'MATCHED',
+      detectedAt: '2026-10-06T00:00:00.000Z',
+    },
+  ],
+};
+
+export const maintenanceCurrent = { active: false, blocksTrading: false, message: null };
+
+export const activeRestrictions = { data: [] };
+
+export const notificationsPage = { data: [], total: 0 };
+```
+
+FILE: tests/e2e/browser/support/session.ts
+
+```typescript
+// # Responsibility: the shared browser-session and stub-control helpers every E2E spec uses - sign in through the real login form, then read or steer the stub upstream.
+//
+// Signing in through the form is deliberate. The alternative - injecting the session cookie into the
+// browser context - would skip the login route handler, the upstream `/auth/login` call, the cookie
+// attributes and the CSRF cookie that every mutation later depends on. Every one of those is part
+// of what a buyer is paying for, and it is exactly the path that broke silently in the past
+// (`getTraderExposure` called a route no controller mounted, so both panels rendered "unavailable"
+// and nothing failed).
+
+import { expect, type Page } from '@playwright/test';
+
+export const STUB_BASE_URL = process.env.E2E_STUB_URL ?? 'http://127.0.0.1:4600';
+export const E2E_EMAIL = 'e2e-follower@example.test';
+export const E2E_PASSWORD = 'e2e-password-not-used-by-the-stub';
+
+export interface SignInOptions {
+  email?: string;
+  password?: string;
+}
+
+/** Signs in through `/login` and waits until the app leaves the login route. */
+export async function signIn(page: Page, options: SignInOptions = {}): Promise<void> {
+  await page.goto('/login');
+  await page.locator('input[type="email"]').fill(options.email ?? E2E_EMAIL);
+  await page.locator('input[type="password"]').fill(options.password ?? E2E_PASSWORD);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+}
+
+export interface StubRequestEntry {
+  method: string;
+  path: string;
+  query: Record<string, string>;
+  authorized: boolean;
+}
+
+export interface StubLog {
+  requests: StubRequestEntry[];
+  unmatched: StubRequestEntry[];
+  mode: Record<string, boolean>;
+}
+
+/** Reads the stub's request log. The spec asserts on traffic, not only on pixels. */
+export async function readStubLog(page: Page): Promise<StubLog> {
+  const response = await page.request.get(`${STUB_BASE_URL}/__stub/requests`);
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as { data: StubLog };
+  return payload.data;
+}
+
+/** Flips a stub mode switch (for example an unavailable ranking window). */
+export async function setStubMode(page: Page, mode: Record<string, boolean>): Promise<void> {
+  const response = await page.request.post(`${STUB_BASE_URL}/__stub/mode`, { data: mode });
+  expect(response.ok()).toBeTruthy();
+}
+
+/** Clears the stub's request log and mode. Called before each spec so logs do not leak across tests. */
+export async function resetStub(page: Page): Promise<void> {
+  const response = await page.request.post(`${STUB_BASE_URL}/__stub/reset`, { data: {} });
+  expect(response.ok()).toBeTruthy();
+}
+
+/**
+ * The invariant every spec ends with: the applications only talked to routes the suite declared.
+ *
+ * A page that starts calling a new endpoint - or an endpoint the suite forgot - fails here, with
+ * the path in the message, rather than rendering an empty state that a weaker assertion would
+ * accept as success.
+ */
+export async function expectNoUnmatchedTraffic(page: Page): Promise<void> {
+  const log = await readStubLog(page);
+  expect(
+    log.unmatched.map((entry) => `${entry.method} ${entry.path}`),
+    'every request must hit a route declared in tests/e2e/browser/support/stub-api.mjs',
+  ).toEqual([]);
+}
+```
+
+FILE: tests/e2e/browser/support/stub-api.mjs
+
+```javascript
+// # Responsibility: a dependency-free stub of the platform API for the browser E2E suite, which fails loudly on any route the suite has not declared instead of inventing a response.
+//
+// Why a stub upstream and not `page.route()`: the customer web app's data path is
+// browser -> `/api/proxy/*` (Next route handler) -> platform API, and the admin console's is
+// `serverFetch` inside a server component. Half of that traffic never passes through the browser,
+// so intercepting in the browser would silently test nothing for the admin console. The stub sits
+// where the real API sits, and both applications talk to it through their normal code paths
+// (`API_BASE_URL`), which is what makes the suite end-to-end.
+//
+// The behaviour that matters most is what happens on a route nobody stubbed: a 404 whose body names
+// the path, recorded in `unmatched`. The specs assert `unmatched` is empty, so a page that starts
+// calling a new endpoint fails the suite with the path in the report rather than rendering an empty
+// state and passing.
+//
+// It is also a small control surface for the suite:
+//   GET  /__stub/requests          every request the applications made (assertions about traffic)
+//   POST /__stub/mode              { rankingUnavailable: true }        (drive an unavailable state)
+//   POST /__stub/reset             clears the request log, the mode and any pause
+//
+// Authentication is enforced the way the platform enforces it: every route except login requires
+// `authorization: Bearer <access token>`, so a broken session path (cookie not set, token not
+// forwarded by the proxy) fails the suite with a 401 instead of passing with a rendered page.
+
+import { createServer } from 'node:http';
+
+import {
+  E2E_ACCESS_TOKEN,
+  E2E_REFRESH_TOKEN,
+  E2E_USER,
+  activeRestrictions,
+  complianceCases,
+  custodyReconciliationFindings,
+  maintenanceCurrent,
+  monitoringSignals,
+  notificationsPage,
+  effectivePolicyResource,
+  executionsPage,
+  rankings,
+  rankingsMethodology,
+  subscriptionResource,
+  subscriptionResourcePaused,
+  subscriptionsPage,
+  traders,
+} from './fixtures.mjs';
+
+export const API_VERSION = 'v1';
+export const DEFAULT_PORT = 4600;
+
+const SESSION_PAYLOAD = {
+  tokens: {
+    accessToken: E2E_ACCESS_TOKEN,
+    refreshToken: E2E_REFRESH_TOKEN,
+    expiresIn: 900,
+    refreshExpiresIn: 604800,
+  },
+  user: E2E_USER,
+  sessionId: 'session-e2e-1',
+};
+
+export function createStubApi({ port = DEFAULT_PORT, host = '127.0.0.1' } = {}) {
+  const state = {
+    requests: [],
+    unmatched: [],
+    mode: { rankingUnavailable: false },
+    pausedSubscriptions: new Set(),
+  };
+
+  const routes = [
+    // ---- session ---------------------------------------------------------------------------
+    {
+      method: 'POST',
+      path: `/${API_VERSION}/auth/login`,
+      authenticated: false,
+      handler: () => ok(SESSION_PAYLOAD),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/auth/me`,
+      handler: () => ok({ user: E2E_USER, permissions: ['*'], tenantId: 'tenant-e2e' }),
+    },
+    {
+      method: 'POST',
+      path: `/${API_VERSION}/auth/refresh`,
+      authenticated: false,
+      handler: () => ok(SESSION_PAYLOAD),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/tenants/public-config`,
+      authenticated: false,
+      handler: () =>
+        ok({
+          tenantId: 'tenant-e2e',
+          slug: 'platform',
+          displayName: 'E2E Platform',
+          branding: { primaryColor: '#111827' },
+          features: {},
+        }),
+    },
+
+    // ---- discovery -------------------------------------------------------------------------
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/traders`,
+      handler: (_req, url) => {
+        const search = (url.searchParams.get('search') ?? '').toLowerCase();
+        const verification = url.searchParams.get('verificationState') ?? '';
+        const featuredOnly = url.searchParams.get('isFeatured') === 'true';
+        const rows = traders.filter((trader) => {
+          if (search && !`${trader.displayName} ${trader.bio}`.toLowerCase().includes(search)) {
+            return false;
+          }
+          if (verification && trader.verificationState !== verification) return false;
+          if (featuredOnly && !trader.isFeatured) return false;
+          return true;
+        });
+        return ok({ data: rows, total: rows.length });
+      },
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/rankings`,
+      handler: () => {
+        if (state.mode.rankingUnavailable) {
+          return ok({
+            data: [],
+            total: 0,
+            methodology: {
+              ...rankingsMethodology,
+              status: 'UNAVAILABLE',
+              rankedCount: 0,
+              unrankedCount: traders.length,
+            },
+          });
+        }
+        return ok({ data: rankings, total: rankings.length, methodology: rankingsMethodology });
+      },
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/traders/:traderId/performance`,
+      handler: (_req, _url, params) => {
+        const ranking = rankings.find((row) => row.traderId === params.traderId);
+        return ok(ranking?.performance ?? null);
+      },
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/traders/:traderId`,
+      handler: (_req, _url, params) => {
+        const trader = traders.find((row) => row.traderId === params.traderId);
+        return trader ? ok(trader) : notFound(`no trader ${params.traderId}`);
+      },
+    },
+
+    // ---- subscriptions ---------------------------------------------------------------------
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/subscriptions/me`,
+      handler: () => ok(subscriptionsPage),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/subscriptions/:subscriptionId`,
+      handler: (_req, _url, params) =>
+        ok(
+          state.pausedSubscriptions.has(params.subscriptionId)
+            ? subscriptionResourcePaused()
+            : subscriptionResource,
+        ),
+    },
+    {
+      method: 'POST',
+      path: `/${API_VERSION}/copy-trading/subscriptions/:subscriptionId/pause`,
+      handler: (_req, _url, params) => {
+        state.pausedSubscriptions.add(params.subscriptionId);
+        return ok(subscriptionResourcePaused());
+      },
+    },
+    {
+      method: 'POST',
+      path: `/${API_VERSION}/copy-trading/subscriptions/:subscriptionId/resume`,
+      handler: (_req, _url, params) => {
+        state.pausedSubscriptions.delete(params.subscriptionId);
+        return ok(subscriptionResource);
+      },
+    },
+    // The subscription detail view composes three calls, not one: the subscription, the effective
+    // policy and the execution page. All three are declared here, because a 404 on any of them is a
+    // page the customer sees broken and a spec that must fail.
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/policies/effective`,
+      handler: () => ok(effectivePolicyResource),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/executions`,
+      handler: (_req, url) => {
+        const subscriptionId = url.searchParams.get('subscriptionId');
+        const rows = subscriptionId
+          ? executionsPage.data.filter((row) => row.subscriptionId === subscriptionId)
+          : executionsPage.data;
+        return ok({ data: rows, total: rows.length });
+      },
+    },
+
+    // ---- trading state the pages compose their banners from ---------------------------------
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/operations/maintenance/current`,
+      handler: () => ok(maintenanceCurrent),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/client-lifecycle/restrictions`,
+      handler: () => ok(activeRestrictions),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/notifications`,
+      handler: () => ok(notificationsPage),
+    },
+
+    // ---- admin console ---------------------------------------------------------------------
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/compliance/cases`,
+      handler: () => ok(complianceCases),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/compliance/monitoring/signals`,
+      handler: () => ok(monitoringSignals),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/custody/reconciliation/findings`,
+      handler: () => ok(custodyReconciliationFindings),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/operations/maintenance`,
+      handler: () => ok({ data: [], total: 0 }),
+    },
+
+    // ---- control surface -------------------------------------------------------------------
+    {
+      method: 'GET',
+      path: '/__stub/requests',
+      authenticated: false,
+      prefix: true,
+      handler: () => ok({ requests: state.requests, unmatched: state.unmatched, mode: state.mode }),
+    },
+    {
+      method: 'POST',
+      path: '/__stub/mode',
+      authenticated: false,
+      handler: (_req, _url, _params, body) => {
+        state.mode = { ...state.mode, ...(body ?? {}) };
+        return ok(state.mode);
+      },
+    },
+    {
+      method: 'POST',
+      path: '/__stub/reset',
+      authenticated: false,
+      handler: () => {
+        state.requests = [];
+        state.unmatched = [];
+        state.mode = { rankingUnavailable: false };
+        state.pausedSubscriptions.clear();
+        return ok({ reset: true });
+      },
+    },
+  ];
+
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://${host}:${port}`);
+    const authorization = req.headers.authorization ?? null;
+    const body = await readJsonBody(req);
+    const entry = {
+      method: req.method,
+      path: url.pathname,
+      query: Object.fromEntries(url.searchParams.entries()),
+      authorized: authorization === `Bearer ${E2E_ACCESS_TOKEN}`,
+    };
+    state.requests.push(entry);
+
+    const route = matchRoute(routes, req.method ?? 'GET', url.pathname);
+    if (!route) {
+      state.unmatched.push(entry);
+      return send(res, 404, {
+        success: false,
+        error: {
+          code: 'STUB_API_UNMATCHED_ROUTE',
+          message: `stub-api has no route for ${req.method} ${url.pathname}; declare it in tests/e2e/browser/support/stub-api.mjs`,
+        },
+      });
+    }
+
+    if (route.authenticated !== false && authorization !== `Bearer ${E2E_ACCESS_TOKEN}`) {
+      return send(res, 401, {
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'The stub requires the session token issued at login.',
+        },
+      });
+    }
+
+    let result;
+    try {
+      result = route.handler(req, url, route.params ?? {}, body);
+    } catch (error) {
+      return send(res, 500, {
+        success: false,
+        error: { code: 'STUB_API_ERROR', message: (error && error.message) || 'stub handler threw' },
+      });
+    }
+    return send(res, result.status, result.body);
+  });
+
+  return {
+    port,
+    host,
+    state,
+    server,
+    baseUrl: `http://${host}:${port}`,
+    listen: () =>
+      new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, host, () => resolve(server));
+      }),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+        if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+      }),
+  };
+}
+
+function matchRoute(routes, method, pathname) {
+  for (const route of routes) {
+    if (route.method !== method) continue;
+    if (route.prefix) {
+      if (pathname.startsWith(route.path)) return { ...route, params: {} };
+      continue;
+    }
+    const routeSegments = route.path.split('/');
+    const pathSegments = pathname.split('/');
+    if (routeSegments.length !== pathSegments.length) continue;
+    const params = {};
+    let matched = true;
+    for (let index = 0; index < routeSegments.length; index += 1) {
+      const expected = routeSegments[index];
+      const actual = pathSegments[index];
+      if (expected.startsWith(':')) {
+        params[expected.slice(1)] = decodeURIComponent(actual);
+        continue;
+      }
+      if (expected !== actual) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return { ...route, params };
+  }
+  return null;
+}
+
+async function readJsonBody(req) {
+  if (req.method === 'GET' || req.method === 'HEAD') return null;
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  if (chunks.length === 0) return null;
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function ok(data) {
+  return { status: 200, body: { success: true, data } };
+}
+
+function notFound(message) {
+  return { status: 404, body: { success: false, error: { code: 'NOT_FOUND', message } } };
+}
+
+function send(res, status, body) {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(payload),
+  });
+  res.end(payload);
+}
+
+// `node tests/e2e/browser/support/stub-api.mjs --port 4600` starts it for a manual session.
+const invokedDirectly = process.argv[1] && process.argv[1].endsWith('stub-api.mjs');
+if (invokedDirectly) {
+  const portFlag = process.argv.indexOf('--port');
+  const port = portFlag === -1 ? DEFAULT_PORT : Number(process.argv[portFlag + 1]);
+  const stub = createStubApi({ port });
+  await stub.listen();
+  console.log(`stub-api listening on ${stub.baseUrl}/${API_VERSION}`);
+}
+```
+
+FILE: tests/e2e/browser/support/stub-api.test.mjs
+
+```javascript
+// # Responsibility: proves the browser suite's stub upstream enforces its own contract - envelope, auth, parameter matching and the unmatched-route behaviour the specs rely on.
+//
+// The stub is test infrastructure, and infrastructure that silently fabricates a response is worse
+// than no infrastructure: it would make every browser spec pass against data the real API never
+// sends. These tests run without a browser (`node --test`), which is why they can be verified on a
+// machine where chromium cannot start.
+
+import assert from 'node:assert/strict';
+import { after, before, test } from 'node:test';
+
+import { createStubApi } from './stub-api.mjs';
+import { E2E_ACCESS_TOKEN } from './fixtures.mjs';
+
+const PORT = 4699;
+let stub;
+
+before(async () => {
+  stub = createStubApi({ port: PORT });
+  await stub.listen();
+});
+
+after(async () => {
+  if (stub) await stub.close();
+});
+
+async function call(path, { method = 'GET', token = E2E_ACCESS_TOKEN, body } = {}) {
+  const response = await fetch(`${stub.baseUrl}${path}`, {
+    method,
+    headers: {
+      accept: 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(body ? { 'content-type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const payload = await response.json().catch(() => null);
+  return { status: response.status, payload };
+}
+
+test('login answers the session envelope the web login route unwraps', async () => {
+  const { status, payload } = await call('/v1/auth/login', {
+    method: 'POST',
+    token: null,
+    body: { email: 'e2e-follower@example.test', password: 'irrelevant-to-the-stub' },
+  });
+  assert.equal(status, 200);
+  assert.equal(payload.success, true);
+  assert.equal(payload.data.tokens.accessToken, E2E_ACCESS_TOKEN);
+  assert.equal(payload.data.user.email, 'e2e-follower@example.test');
+});
+
+test('every route except login requires the session token', async () => {
+  const anonymous = await call('/v1/copy-trading/traders', { token: null });
+  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.payload.error.code, 'UNAUTHORIZED');
+
+  const withToken = await call('/v1/copy-trading/traders');
+  assert.equal(withToken.status, 200);
+  assert.equal(withToken.payload.success, true);
+});
+
+test('the paged discovery payload is the shape parsePaged expects', async () => {
+  const { payload } = await call('/v1/copy-trading/traders');
+  assert.ok(Array.isArray(payload.data.data), 'data.data must be an array');
+  assert.equal(typeof payload.data.total, 'number');
+  assert.equal(payload.data.total, payload.data.data.length);
+});
+
+test('query parameters filter the trader list the way the page asks', async () => {
+  const all = await call('/v1/copy-trading/traders');
+  assert.equal(all.payload.data.total, 2);
+
+  const search = await call('/v1/copy-trading/traders?search=Alpha');
+  assert.equal(search.payload.data.total, 1);
+  assert.equal(search.payload.data.data[0].traderId, 'trader-alpha');
+
+  const featured = await call('/v1/copy-trading/traders?isFeatured=true');
+  assert.equal(featured.payload.data.total, 1);
+  assert.equal(featured.payload.data.data[0].isFeatured, true);
+
+  const verified = await call('/v1/copy-trading/traders?verificationState=UNVERIFIED');
+  assert.equal(verified.payload.data.total, 1);
+  assert.equal(verified.payload.data.data[0].traderId, 'trader-beta');
+});
+
+test('path parameters reach the handler, and an unknown trader is a 404 rather than an empty object', async () => {
+  const known = await call('/v1/copy-trading/traders/trader-alpha');
+  assert.equal(known.status, 200);
+  assert.equal(known.payload.data.traderId, 'trader-alpha');
+
+  const unknown = await call('/v1/copy-trading/traders/trader-does-not-exist');
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.payload.error.code, 'NOT_FOUND');
+});
+
+test('pausing a subscription changes what the detail route returns', async () => {
+  const before = await call('/v1/copy-trading/subscriptions/sub-e2e-1');
+  assert.equal(before.payload.data.state, 'ACTIVE');
+
+  const paused = await call('/v1/copy-trading/subscriptions/sub-e2e-1/pause', { method: 'POST' });
+  assert.equal(paused.status, 200);
+
+  const afterPause = await call('/v1/copy-trading/subscriptions/sub-e2e-1');
+  assert.equal(afterPause.payload.data.state, 'PAUSED');
+  assert.equal(afterPause.payload.data.pausedAt !== null, true);
+});
+
+test('the three calls the subscription detail view composes are all declared', async () => {
+  const subscription = await call('/v1/copy-trading/subscriptions/sub-e2e-1');
+  const policy = await call('/v1/copy-trading/policies/effective?subscriptionId=sub-e2e-1');
+  const executions = await call('/v1/copy-trading/executions?subscriptionId=sub-e2e-1&page=1&limit=20');
+
+  assert.equal(subscription.payload.data.subscriptionId, 'sub-e2e-1');
+  assert.equal(policy.payload.data.sizingMode, 'FIXED');
+  assert.equal(executions.payload.data.data.length, 1);
+  assert.equal(executions.payload.data.data[0].executionId, 'exec-e2e-1');
+  assert.equal(executions.payload.data.data[0].followerOrderId, 'follower-order-1');
+
+  const log = await call('/__stub/requests');
+  assert.equal(log.payload.data.unmatched.length, 0);
+});
+
+test('mode toggles drive the unavailable-ranking state the fail-closed spec asserts', async () => {
+  await call('/__stub/mode', { method: 'POST', body: { rankingUnavailable: true } });
+  const unavailable = await call('/v1/copy-trading/rankings');
+  assert.equal(unavailable.payload.data.methodology.status, 'UNAVAILABLE');
+  assert.equal(unavailable.payload.data.data.length, 0);
+
+  await call('/__stub/mode', { method: 'POST', body: { rankingUnavailable: false } });
+  const available = await call('/v1/copy-trading/rankings');
+  assert.equal(available.payload.data.methodology.status, 'AVAILABLE');
+  assert.equal(available.payload.data.data.length, 2);
+});
+
+test('an undeclared route is a named 404 recorded for the specs to assert on', async () => {
+  const missing = await call('/v1/definitely/not/declared');
+  assert.equal(missing.status, 404);
+  assert.equal(missing.payload.error.code, 'STUB_API_UNMATCHED_ROUTE');
+  assert.match(missing.payload.error.message, /stub-api\.mjs/);
+
+  const log = await call('/__stub/requests');
+  assert.equal(log.status, 200);
+  assert.ok(
+    log.payload.data.unmatched.some((entry) => entry.path === '/v1/definitely/not/declared'),
+    'the unmatched request must be visible to the suite',
+  );
+});
+
+test('reset clears the request log, the mode and the pause', async () => {
+  await call('/__stub/reset', { method: 'POST' });
+  const log = await call('/__stub/requests');
+  const detail = await call('/v1/copy-trading/subscriptions/sub-e2e-1');
+  assert.equal(log.payload.data.requests.length >= 1, true, 'the log call itself is recorded after the reset');
+  assert.equal(log.payload.data.mode.rankingUnavailable, false);
+  assert.equal(log.payload.data.unmatched.length, 0);
+  assert.equal(detail.payload.data.state, 'ACTIVE');
+});
+```
+
+FILE: tests/e2e/browser/trader-discovery.spec.ts
+
+```typescript
+// # Responsibility: drives the customer web app in a real browser through trader discovery - sign in, browse, filter, open the comparison route and the performance view - against the stub upstream.
+//
+// This replaces the `renderToStaticMarkup` spec that used to sit in this directory and call itself
+// end-to-end. That spec primed a react-query cache by hand and asserted on an HTML string: it never
+// signed in, never issued a request, never rendered in a browser and could not have failed if the
+// proxy, the session or the routing were broken. This one fails when any of those are.
+
+import { expect, test } from '@playwright/test';
+
+import { expectNoUnmatchedTraffic, resetStub, setStubMode, signIn } from './support/session';
+
+test.describe('trader discovery (customer web)', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetStub(page);
+    await signIn(page);
+  });
+
+  test('browse, filter, compare and view performance', async ({ page }) => {
+    await page.goto('/traders');
+
+    await expect(page.getByTestId('trader-discovery-filters')).toBeVisible();
+    await expect(page.getByTestId('trader-card-trader-alpha')).toBeVisible();
+    await expect(page.getByTestId('trader-card-trader-beta')).toBeVisible();
+
+    // The comparison route is reachable from the directory, which is what the old smoke test
+    // asserted as a substring of static HTML.
+    await expect(page.locator('a[href="/traders/compare"]').first()).toBeVisible();
+
+    // Filtering goes through the API: the page asks the upstream with `search=` and renders what
+    // comes back. Asserting the narrowed page proves the request carried the parameter.
+    await page.getByLabel('Search traders').fill('Alpha');
+    await expect(page.getByTestId('trader-card-trader-alpha')).toBeVisible();
+    await expect(page.getByTestId('trader-card-trader-beta')).toHaveCount(0);
+
+    const afterFilter = await page.request.get(
+      `${process.env.E2E_STUB_URL ?? 'http://127.0.0.1:4600'}/__stub/requests`,
+    );
+    const log = (await afterFilter.json()) as {
+      data: { requests: { method: string; path: string; query: Record<string, string> }[] };
+    };
+    expect(
+      log.data.requests.some(
+        (entry) =>
+          entry.path === '/v1/copy-trading/traders' && entry.query.search === 'Alpha',
+      ),
+      'the search box must reach the API as a query parameter',
+    ).toBeTruthy();
+
+    // The performance view is a separate route and a separate endpoint.
+    await page.goto('/traders/trader-alpha/performance');
+    await expect(page.getByTestId('performance-methodology')).toBeVisible();
+
+    const performanceLog = await page.request.get(
+      `${process.env.E2E_STUB_URL ?? 'http://127.0.0.1:4600'}/__stub/requests`,
+    );
+    const performancePayload = (await performanceLog.json()) as {
+      data: { requests: { path: string }[] };
+    };
+    expect(
+      performancePayload.data.requests.some(
+        (entry) => entry.path === '/v1/copy-trading/traders/trader-alpha/performance',
+      ),
+      'the performance route must read the trader performance endpoint',
+    ).toBeTruthy();
+
+    await expectNoUnmatchedTraffic(page);
+  });
+
+  test('an unavailable ranking window is shown as unavailable rather than as an empty leaderboard', async ({
+    page,
+  }) => {
+    await setStubMode(page, { rankingUnavailable: true });
+    await page.goto('/traders');
+
+    // Fail-closed, in the browser: the API said the window cannot be ranked, so the page must say
+    // so. It must not render the traders as if they had simply not qualified.
+    await expect(page.getByTestId('ranking-unavailable')).toBeVisible();
+    await expect(page.getByTestId('trader-card-trader-alpha')).toBeVisible();
+
+    await expectNoUnmatchedTraffic(page);
+  });
+});
+```
+
+FILE: tests/e2e/smoke/admin-operations.spec.ts
+
+```typescript
+// # NEW — E2E test: admin kill-switch -> incident resolution -> reconciliation view
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ExecutionIncidentTable } from '../../../apps/admin-web/src/features/execution/execution-incident-table';
+import { FundingReconciliationTable } from '../../../apps/admin-web/src/features/funding/funding-reconciliation-table';
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
+}));
+
+describe('E2E Smoke: Admin Operations — Kill-Switch, Incidents & Reconciliation (GAP-48)', () => {
+  test('admin kill-switch -> incident resolution -> reconciliation view', () => {
+    const incidentHtml = renderToStaticMarkup(
+      React.createElement(ExecutionIncidentTable, {
+        incidents: [
+          {
+            id: 'inc-ops-1',
+            accountId: 'acct-1',
+            orderId: 'ord-1',
+            clientOrderId: 'oms-e2e-1',
+            incidentType: 'ORDER_STATE_MISMATCH',
+            severity: 'CRITICAL',
+            venue: 'BYBIT',
+            symbol: 'ETH-USDT',
+            errorCode: 'STATE_DRIFT',
+            summary: 'Venue reported FILLED while local order was SUBMITTED',
+            details: {},
+            occurredAtMicros: '1700000000000000',
+            resolvedAt: null,
+            resolvedBy: null,
+            resolutionNote: null,
+            createdAt: '2026-10-01T10:00:00.000Z',
+          },
+        ],
+        killSwitches: [
+          {
+            id: 'ks-global',
+            scope: 'GLOBAL',
+            target: null,
+            isEngaged: false,
+            reason: 'Normal operations',
+            engagedAt: null,
+            releasedAt: '2026-10-01T08:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    expect(incidentHtml).toContain('ORDER_STATE_MISMATCH');
+    expect(incidentHtml).toContain('Venue reported FILLED while local order was SUBMITTED');
+
+    const reconHtml = renderToStaticMarkup(
+      React.createElement(FundingReconciliationTable, {
+        findings: [
+          {
+            id: 'find-1',
+            type: 'CONFIRMATION_MISMATCH',
+            assetId: 'USDT',
+            networkId: 'ERC20',
+            description: 'Custody confirmation count ahead of internal deposit state',
+            severity: 'MEDIUM',
+            resolved: false,
+            resolutionNote: null,
+            correctiveAction: null,
+            createdAt: '2026-10-01T10:15:00.000Z',
+          },
+        ],
+      }),
+    );
+    expect(reconHtml).toContain('CONFIRMATION_MISMATCH');
+    expect(reconHtml).toContain('Custody confirmation count ahead of internal deposit state');
+  });
+});
+```
+
+FILE: tests/e2e/smoke/copy-trading-lifecycle.spec.ts
+
+```typescript
+// # NEW — E2E test: follow trader -> configure risk -> leader order -> follower fill -> stop/close
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { CopySubscriptionDetailPage } from '../../../apps/web/src/features/trading/copy-subscription-detail-page';
+import { CopyExecutionDetail } from '../../../apps/web/src/features/trading/copy-execution-detail';
+import { CopyRiskGuardrails } from '../../../apps/web/src/features/trading/copy-risk-guardrails';
+
+describe('E2E Smoke: Copy-Trading Lifecycle (GAP-48)', () => {
+  test('follow trader -> configure risk -> leader order -> follower fill -> stop/close', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(['copy-subscription-detail', 'sub-e2e-1'], {
+      subscription: {
+        subscriptionId: 'sub-e2e-1',
+        traderId: 'tr-9',
+        strategyId: 'st-9',
+        state: 'ACTIVE',
+        allocationMode: 'FIXED',
+        allocationAmount: '500.00',
+        maxAllocation: '2000.00',
+        minAllocation: '50.00',
+        copyPolicy: null,
+        riskPolicy: {
+          maxDailyLoss: '300.00',
+          maxDrawdown: '800.00',
+          maxOpenExposure: '3000.00',
+          maxExposurePerTrader: null,
+          maxExposurePerSymbol: null,
+          maxDailyCopiedTrades: 10,
+          emergencyStopCopy: false,
+        },
+        totalCopies: 5,
+        failedCopies: 0,
+        startedAt: '2026-09-01T00:00:00.000Z',
+        pausedAt: null,
+        stoppedAt: null,
+        stopReason: null,
+        closeOpenPositionsOnStop: true,
+      },
+      effectivePolicy: {
+        sizingMode: 'FIXED',
+        fixedQuantity: '0.2',
+        multiplier: null,
+        proportionalRatio: null,
+        maxPositionSize: '2000',
+        maxNotional: '5000',
+        maxOpenPositions: 5,
+        maxLeverage: '2',
+        allowedSymbols: ['BTC-USDT'],
+        blockedSymbols: [],
+        allowedVenues: ['BINANCE'],
+        orderTypePolicy: 'MARKET_AND_LIMIT',
+        slippageToleranceBps: 50,
+        executionDelayMs: 0,
+        takeProfitBps: 200,
+        stopLossBps: 100,
+        trailingStopBps: null,
+        emergencyStop: false,
+      },
+      recentExecutions: [
+        {
+          executionId: 'exec-e2e-1',
+          subscriptionId: 'sub-e2e-1',
+          traderId: 'tr-9',
+          followerId: 'user-1',
+          strategyId: 'st-9',
+          leaderEventId: 'fill:L901',
+          leaderOrderId: 'ord-L901',
+          followerOrderId: 'ord-F901',
+          status: 'COMPLETED',
+          failureReason: null,
+          leaderQuantity: '1.0',
+          followerQuantity: '0.2',
+          sizingMode: 'FIXED',
+          riskDecision: 'ALLOW',
+          riskReasons: [],
+          isSimulated: false,
+          createdAt: '2026-10-01T10:00:00.000Z',
+          updatedAt: '2026-10-01T10:00:05.000Z',
+        },
+      ],
+      reconciliation: {
+        subscriptionId: 'sub-e2e-1',
+        status: 'IN_SYNC',
+        lastCheckedAt: '2026-10-01T10:05:00.000Z',
+        totalExecutions: 5,
+        completedExecutions: 5,
+        failedExecutions: 0,
+        riskBlockedExecutions: 0,
+        discrepancyCount: 0,
+        discrepancies: [],
+      },
+    });
+
+    const subscriptionMarkup = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(CopySubscriptionDetailPage, { subscriptionId: 'sub-e2e-1' }),
+      ),
+    );
+    expect(subscriptionMarkup).toContain('sub-e2e-1');
+    expect(subscriptionMarkup).toContain('exec-e2e-1');
+
+    const executionMarkup = renderToStaticMarkup(
+      React.createElement(CopyExecutionDetail, {
+        execution: {
+          executionId: 'exec-e2e-1',
+          subscriptionId: 'sub-e2e-1',
+          traderId: 'tr-9',
+          followerId: 'user-1',
+          strategyId: 'st-9',
+          leaderEventId: 'fill:L901',
+          leaderOrderId: 'ldr-order-1',
+          followerOrderId: 'flw-order-1',
+          status: 'COMPLETED',
+          failureReason: null,
+          leaderQuantity: '1.0',
+          followerQuantity: '0.2',
+          sizingMode: 'FIXED',
+          riskDecision: 'ALLOW',
+          riskReasons: [],
+          isSimulated: false,
+          createdAt: '2026-10-01T09:10:00.000Z',
+          updatedAt: '2026-10-01T09:10:05.000Z',
+        },
+      }),
+    );
+    expect(executionMarkup).toContain('ldr-order-1');
+    expect(executionMarkup).toContain('flw-order-1');
+
+    const guardrailsMarkup = renderToStaticMarkup(
+      React.createElement(CopyRiskGuardrails, {
+        subscription: {
+          subscriptionId: 'sub-e2e-1',
+          traderId: 'tr-9',
+          strategyId: 'st-9',
+          state: 'ACTIVE',
+          allocationMode: 'FIXED',
+          allocationAmount: '500.00',
+          maxAllocation: '2000.00',
+          minAllocation: '50.00',
+          copyPolicy: null,
+          riskPolicy: {
+            maxDailyLoss: '250.00',
+            maxDrawdown: '800.00',
+            maxOpenExposure: '3000.00',
+            maxExposurePerTrader: '1500.00',
+            maxExposurePerSymbol: '1000.00',
+            maxDailyCopiedTrades: 10,
+            emergencyStopCopy: false,
+          },
+          totalCopies: 5,
+          failedCopies: 0,
+          startedAt: '2026-09-01T00:00:00.000Z',
+          pausedAt: null,
+          stoppedAt: null,
+          stopReason: null,
+          closeOpenPositionsOnStop: true,
+        },
+      }),
+    );
+    expect(guardrailsMarkup).toContain('250.00');
+  });
+});
+```
+
+FILE: tests/e2e/smoke/funding-compliance.spec.ts
+
+```typescript
+// # NEW — E2E test: deposit address -> confirmation -> withdrawal request -> compliance/admin review
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ComplianceCaseQueue } from '../../../apps/admin-web/src/features/compliance/compliance-case-queue';
+import { ComplianceCaseDetail } from '../../../apps/admin-web/src/features/compliance/compliance-case-detail';
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
+}));
+
+describe('E2E Smoke: Funding, Custody & Compliance Review (GAP-48)', () => {
+  test('deposit address -> confirmation -> withdrawal request -> compliance/admin review', () => {
+    const queueHtml = renderToStaticMarkup(
+      React.createElement(ComplianceCaseQueue, {
+        cases: [
+          {
+            id: 'case-aml-901',
+            tenantId: 'tenant-1',
+            userId: 'user-99',
+            caseType: 'WITHDRAWAL_SCREENING',
+            state: 'IN_REVIEW',
+            riskLevel: 'HIGH',
+            severity: 'HIGH',
+            safeSummary: 'High-value withdrawal address screening review',
+            assignedTo: 'mlro-ops',
+            jurisdiction: 'EU',
+            createdAt: '2026-10-01T10:00:00.000Z',
+            updatedAt: '2026-10-01T10:05:00.000Z',
+          },
+        ],
+      }),
+    );
+    expect(queueHtml).toContain('case-aml-9');
+    expect(queueHtml).toContain('High-value withdrawal address screening review');
+
+    const detailHtml = renderToStaticMarkup(
+      React.createElement(ComplianceCaseDetail, {
+        caseRecord: {
+          id: 'case-aml-901',
+          tenantId: 'tenant-1',
+          userId: 'user-99',
+          caseType: 'WITHDRAWAL_SCREENING',
+          state: 'IN_REVIEW',
+          riskLevel: 'HIGH',
+          severity: 'HIGH',
+          safeSummary: 'High-value withdrawal address screening review',
+          assignedTo: 'mlro-ops',
+          jurisdiction: 'EU',
+          screeningMatches: [
+            {
+              id: 'hit-1',
+              listName: 'EU Consolidated Sanctions',
+              matchCategory: 'WATCHLIST',
+              confidenceScore: 72,
+              matchedEntityLabel: 'Secondary Address Cluster',
+              disposition: 'PENDING_REVIEW',
+            },
+          ],
+          auditEvents: [
+            {
+              id: 'aud-1',
+              eventType: 'WITHDRAWAL_HOLD_APPLIED',
+              actorId: 'SYSTEM',
+              decision: 'HOLD',
+              rationale: 'Awaiting MLRO disposition on watchlist cluster hit',
+              createdAt: '2026-10-01T10:01:00.000Z',
+            },
+          ],
+          createdAt: '2026-10-01T10:00:00.000Z',
+          updatedAt: '2026-10-01T10:05:00.000Z',
+        },
+      }),
+    );
+    expect(detailHtml).toContain('EU Consolidated Sanctions');
+    expect(detailHtml).toContain('WITHDRAWAL_HOLD_APPLIED');
+  });
+});
+```
+
+FILE: tests/e2e/smoke/jest.config.js
+
+```javascript
+// # Responsibility: runs the cross-app component smoke specs (render-to-static-markup, no browser) for the web and admin JSX surfaces.
+//
+// These specs are NOT end-to-end tests and are no longer filed as such. They render a page
+// component to static markup with a primed react-query cache and assert on the HTML: a real
+// regression net for the page components, but it never issues a request, never runs a browser and
+// never clicks anything. The audit found them labelled `tests/e2e/*.spec.ts` - a claim the
+// directory could not support, and one that hid the absence of any browser test in the repository.
+//
+// The browser suite is `tests/e2e/browser/*.spec.ts`, run by Playwright
+// (`npm run test:e2e:browser`), and it is the layer that actually drives a chromium page against
+// the running web app.
+const path = require('node:path');
+
+const repositoryRoot = path.resolve(__dirname, '..', '..', '..');
+const adminSource = path.join(repositoryRoot, 'apps', 'admin-web', 'src');
+const webSource = path.join(repositoryRoot, 'apps', 'web', 'src');
+
+module.exports = {
+  rootDir: repositoryRoot,
+  roots: ['<rootDir>/tests/e2e/smoke'],
+  testMatch: ['<rootDir>/tests/e2e/smoke/**/*.spec.ts'],
+  testEnvironment: 'node',
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  transform: {
+    '^.+\\.[jt]sx?$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          target: 'ES2022',
+          module: 'CommonJS',
+          moduleResolution: 'Node',
+          jsx: 'react-jsx',
+          esModuleInterop: true,
+          allowSyntheticDefaultImports: true,
+          skipLibCheck: true,
+          strict: true,
+          isolatedModules: true,
+          types: ['node', 'jest'],
+        },
+        diagnostics: false,
+        isolatedModules: true,
+      },
+    ],
+  },
+  moduleNameMapper: {
+    '^@wlct/shared-types$': '<rootDir>/packages/shared-types/src/index.ts',
+    '^@wlct/validation$': '<rootDir>/packages/validation/src/index.ts',
+    '^@wlct/utils/api-error$': '<rootDir>/packages/utils/src/api-error.ts',
+    '^@/components/ui$': path.join(adminSource, 'components', 'ui.tsx'),
+    '^@/lib/(api-client|format|theme)$': path.join(adminSource, 'lib', '$1'),
+    '^@/lib/(.*)$': path.join(webSource, 'lib', '$1'),
+    '^@/api/(.*)$': path.join(webSource, 'api', '$1'),
+    '^@/layout/(.*)$': path.join(webSource, 'layout', '$1'),
+    '^@/components/(.*)$': path.join(webSource, 'components', '$1'),
+    '^@/(.*)$': path.join(webSource, '$1'),
+  },
+};
+```
+
+FILE: tests/e2e/smoke/trader-discovery.spec.ts
+
+```typescript
+// # NEW — E2E test: browse traders -> filter -> compare -> view performance
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TradersPage } from '../../../apps/web/src/features/trading/traders-page';
+
+describe('E2E Smoke: Trader Discovery, Comparison & Performance (GAP-48)', () => {
+  test('browse traders -> filter -> compare -> view performance', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(['traders', '', '', false], {
+      data: [
+        {
+          traderId: 'trader-alpha',
+          displayName: 'Alpha Quant Desk',
+          bio: 'Systematic BTC/ETH momentum',
+          avatarUrl: null,
+          verificationState: 'VERIFIED',
+          verifiedAt: '2026-08-01T00:00:00.000Z',
+          supportedVenues: ['BINANCE', 'BYBIT'],
+          supportedSymbols: ['BTC-USDT', 'ETH-USDT'],
+          isPublic: true,
+          isFeatured: true,
+          followerCount: 145,
+          totalVolume: '920000',
+          totalTrades: 84,
+          createdAt: '2026-06-01T00:00:00.000Z',
+        },
+      ],
+      total: 1,
+    });
+    queryClient.setQueryData(['trader-rankings-discovery', '', '', false], {
+      data: [],
+      total: 0,
+    });
+
+    const directoryHtml = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(TradersPage),
+      ),
+    );
+    expect(directoryHtml).toContain('Alpha Quant Desk');
+    expect(directoryHtml).toContain('/traders/compare');
+  });
+});
+```
+
 FILE: tests/jest.config.js
 
 ```javascript
@@ -2451,6 +4154,18 @@ FILE: tests/jest.config.js
  * change that breaks them fails here instead of silently rotting.
  *
  *   npm run test:billing-lib        (from whitelabel-copytrade/)
+ *
+ * WHY `testPathIgnorePatterns` EXISTS
+ * -----------------------------------
+ * `roots: ['<rootDir>/tests']` also reaches `tests/e2e/`, whose specs import the
+ * customer-web and admin-web React trees (`renderToStaticMarkup`, `.tsx`
+ * components, `@tanstack/react-query`). Those specs are covered by their own
+ * config - `tests/e2e/jest.config.js`, which sets `jsx: react-jsx` and maps the
+ * web/admin aliases - and are run by `npm run test:e2e`. Compiling them here
+ * failed on every `npm run test:billing-lib` with TS6142 ("'--jsx' is not set")
+ * and TS2593 ("Cannot find name 'describe'"), because this config's
+ * `tests/tsconfig.json` extends the API's and therefore has neither `jsx` nor
+ * the jest types. The two trees are one `roots` apart, so the gate is explicit.
  */
 const path = require('path');
 
@@ -2459,11 +4174,13 @@ const root = path.resolve(__dirname, '..');
 module.exports = {
   rootDir: root,
   roots: ['<rootDir>/tests'],
-  testRegex: '.*\\.spec\\.ts$',
-  moduleFileExtensions: ['ts', 'js', 'json'],
+  testRegex: '.*\\.spec\\.tsx?$',
+  // E2E specs own a separate config; see the note above.
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/tests/e2e/'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   testEnvironment: 'node',
   transform: {
-    '^.+\\.ts$': ['ts-jest', { tsconfig: path.join(__dirname, 'tsconfig.json') }],
+    '^.+\\.[jt]sx?$': ['ts-jest', { tsconfig: path.join(__dirname, 'tsconfig.json') }],
   },
   moduleNameMapper: {
     '^@wlct/(shared-types|config|utils|validation)$': '<rootDir>/packages/$1/src',

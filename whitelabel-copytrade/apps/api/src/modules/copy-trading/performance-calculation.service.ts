@@ -252,6 +252,93 @@ export class PerformanceCalculationService {
   }
 }
 
+/**
+ * The shape of a persisted `PortfolioPerformanceRecord` row as this module reads it. Declared
+ * structurally rather than imported from the generated client so the mapper below can be unit-tested
+ * and shared without a Prisma instance.
+ */
+export interface PersistedPerformancePeriodRow {
+  periodId: string | null;
+  periodStart: Date;
+  periodEnd: Date;
+  returnPercent: string | null;
+  baseCurrency: string;
+  methodology: string;
+  calculationVersion: string;
+  dataCompleteness: string;
+  sourceReferences: unknown;
+  evidence: unknown;
+  period: {
+    tenantId: string;
+    profileId: string;
+    state: string;
+    calculationVersion: string;
+    closes: Array<{
+      validationPassed: boolean;
+      reconciliationStatus: string | null;
+      calculationVersion: string;
+    }>;
+  } | null;
+}
+
+/**
+ * Maps one persisted record into evidence the engine can validate.
+ *
+ * Closure is re-derived from the row even when the query that produced it already filtered for it.
+ * The two checks are not redundant: the query guards how the rows were selected, and this guards what
+ * the rows say. A row that arrives through any other path - a different caller, a widened query, a
+ * fixture - still has to prove its own closure, and a closed-and-reconciled claim is accepted only
+ * when the period, a closing record, and the performance record all carry the same calculation
+ * version. Three services read this shape, so the mapping lives here rather than being copied into
+ * each of them.
+ */
+export function toPerformancePeriodEvidence(
+  row: PersistedPerformancePeriodRow,
+  tenantId: string,
+  profileId: string,
+): PerformancePeriodEvidence {
+  const period = row.period;
+  const reconciledClose = period?.closes.find(
+    (close) =>
+      close.validationPassed === true
+      && close.reconciliationStatus === 'OK'
+      && close.calculationVersion === row.calculationVersion,
+  );
+
+  return {
+    periodId: row.periodId,
+    periodStart: row.periodStart,
+    periodEnd: row.periodEnd,
+    returnPercent: row.returnPercent,
+    baseCurrency: row.baseCurrency,
+    methodology: row.methodology,
+    calculationVersion: row.calculationVersion,
+    flowBoundary: readFlowBoundary(row.evidence),
+    dataCompleteness: row.dataCompleteness,
+    sourceReferences: row.sourceReferences,
+    closedAndReconciled:
+      period !== null
+      && period.state === 'CLOSED'
+      && period.tenantId === tenantId
+      && period.profileId === profileId
+      && period.calculationVersion === row.calculationVersion
+      && reconciledClose !== undefined,
+  };
+}
+
+/**
+ * Reads the flow-boundary rule recorded on a performance record. Evidence is an untyped JSON column,
+ * so anything that is not a non-empty string is treated as absent - an unrecognised shape must not
+ * become a boundary claim.
+ */
+export function readFlowBoundary(evidence: unknown): string | null {
+  if (typeof evidence !== 'object' || evidence === null || Array.isArray(evidence)) return null;
+  const value = (evidence as Record<string, unknown>).flowBoundary;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function parseTimestamp(value: Date | string): number {
   return value instanceof Date ? value.getTime() : Date.parse(value);
 }

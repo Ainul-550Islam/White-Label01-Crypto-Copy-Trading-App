@@ -1,5 +1,6 @@
 // # Responsibility: lets customers select a 7D, 30D, or 90D ranking window and explains its measured-return methodology.
 
+import type { JSX } from 'react';
 import type { TraderRankingMethodology, TraderRankingTimeframe } from "@/api/trading-api";
 
 export function TraderRankingControls({

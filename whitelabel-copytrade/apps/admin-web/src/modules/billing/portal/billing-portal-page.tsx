@@ -20,8 +20,6 @@ export default function BillingPortalPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = async () => {
-    setLoading(true);
-    setError(null);
     try {
       const [ov, invRes, payRes] = await Promise.all([
         getBillingOverview(),
@@ -38,8 +36,15 @@ export default function BillingPortalPage() {
     }
   };
 
+  const refreshData = async () => {
+    setLoading(true);
+    setError(null);
+    await fetchData();
+  };
+
   useEffect(() => {
-    fetchData();
+    const timer = window.setTimeout(() => void fetchData(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   if (loading) {
@@ -60,7 +65,7 @@ export default function BillingPortalPage() {
         <div className="bg-red-50 border border-red-200 rounded p-4">
           <h3 className="text-red-800 font-medium">Error loading billing data</h3>
           <p className="text-red-600 text-sm mt-1">{error}</p>
-          <button onClick={fetchData} className="mt-3 px-4 py-2 bg-red-600 text-white rounded text-sm">Retry</button>
+          <button onClick={refreshData} className="mt-3 px-4 py-2 bg-red-600 text-white rounded text-sm">Retry</button>
         </div>
       </div>
     );
@@ -71,7 +76,7 @@ export default function BillingPortalPage() {
       <div className="p-6">
         <div className="text-center py-12">
           <p className="text-gray-500">No billing data available</p>
-          <button onClick={fetchData} className="mt-2 text-blue-600 text-sm">Refresh</button>
+          <button onClick={refreshData} className="mt-2 text-blue-600 text-sm">Refresh</button>
         </div>
       </div>
     );
@@ -86,7 +91,7 @@ export default function BillingPortalPage() {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Billing & Subscription</h1>
-        <button onClick={fetchData} className="text-sm text-gray-600 hover:text-gray-900">Refresh</button>
+        <button onClick={refreshData} className="text-sm text-gray-600 hover:text-gray-900">Refresh</button>
       </div>
 
       {/* Current Subscription */}

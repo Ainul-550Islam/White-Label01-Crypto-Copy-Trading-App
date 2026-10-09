@@ -1,6 +1,7 @@
 // # NEW — Displays open and closed copied positions, average entry, mark price, unrealized/realized PnL, and leader attribution
 // # Uses shared TradingState
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";

@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { ReactNode, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -38,9 +39,7 @@ function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshSession = async () => {
-    setIsLoading(true);
-    setError(null);
+  const loadSession = async () => {
     try {
       const res = await authApi.getSession();
       setSession({
@@ -70,6 +69,12 @@ function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
     }
   };
 
+  const refreshSession = async () => {
+    setIsLoading(true);
+    setError(null);
+    await loadSession();
+  };
+
   const logout = async () => {
     // The BFF returns /login, or the IdP's end-session URL for an OIDC SSO
     // session (RP-initiated logout); the local session is revoked either way.
@@ -87,7 +92,8 @@ function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   };
 
   useEffect(() => {
-    refreshSession();
+    const timer = window.setTimeout(() => void loadSession(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {

@@ -230,7 +230,13 @@ export class ExchangeRoutingService {
     }
 
     // 7. Rate-limit availability
+    //
+    // Two different refusals arrive here and they are not the same news. A budget that is spent says
+    // "wait"; a budget that could not be read says "we do not know", and the difference decides
+    // whether an operator should expect traffic to resume on its own. The reason is carried out in
+    // the routing decision instead of being flattened into "rate limited".
     const rateLimitEligible: { account: any; health: any }[] = [];
+    let rateLimitStateUnavailable = false;
     for (const { account, health } of healthyAccounts) {
       try {
         const rateLimitCheck = await this.rateLimitService.checkRateLimit({
@@ -242,13 +248,23 @@ export class ExchangeRoutingService {
         });
 
         if (!rateLimitCheck.allowed) {
-          this.logger.warn(`Rate limited for routing tenant=${input.tenantId} account=${account.id} pressure=${rateLimitCheck.pressure}`);
+          // `remaining === null` is the rate-limit service saying it could not establish the budget.
+          if (rateLimitCheck.remaining === null) {
+            rateLimitStateUnavailable = true;
+            this.logger.warn(`Rate limit state unavailable for routing tenant=${input.tenantId} account=${account.id} reason=${rateLimitCheck.reason}`);
+          } else {
+            this.logger.warn(`Rate limited for routing tenant=${input.tenantId} account=${account.id} pressure=${rateLimitCheck.pressure}`);
+          }
           continue;
         }
 
         rateLimitEligible.push({ account, health });
-      } catch {
-        rateLimitEligible.push({ account, health });
+      } catch (error: any) {
+        // Fail closed. An account whose exchange budget could not be established is not a safe target:
+        // routing to it risks the venue throttling or banning the API key, which stops every copy on
+        // that account rather than one request. It used to be pushed into the eligible list here.
+        rateLimitStateUnavailable = true;
+        this.logger.warn(`Rate-limit evaluation failed for routing tenant=${input.tenantId} account=${account.id} error=${error?.message} - account excluded`);
       }
     }
 
@@ -258,11 +274,15 @@ export class ExchangeRoutingService {
         selectedVenue: null,
         environment: input.environment,
         eligibleAccounts: healthyAccounts.map((h) => h.account.id),
-        routingReason: 'ALL_ACCOUNTS_RATE_LIMITED',
+        routingReason: rateLimitStateUnavailable ? 'RATE_LIMIT_STATE_UNAVAILABLE' : 'ALL_ACCOUNTS_RATE_LIMITED',
         capabilities: [],
         health: null,
         liveExecutionPermitted: false,
-        liveGateBlockingReasons: ['All accounts rate limited'],
+        liveGateBlockingReasons: [
+          rateLimitStateUnavailable
+            ? 'Exchange rate-limit state unavailable; refusing to route rather than risk a venue ban'
+            : 'All accounts rate limited',
+        ],
         complianceAllowed: true,
         riskAllowed: true,
       };

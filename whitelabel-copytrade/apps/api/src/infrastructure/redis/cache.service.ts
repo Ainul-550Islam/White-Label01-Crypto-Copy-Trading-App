@@ -117,8 +117,27 @@ export class CacheService {
 
   /** Atomic counter used for quota style checks. */
   async increment(key: string, ttlSeconds: number): Promise<number> {
+    return this.incrementBy(key, 1, ttlSeconds);
+  }
+
+  /**
+   * Adds `amount` to the key and returns the new value, in one round trip.
+   *
+   * INCRBY rather than read-modify-write: two callers reserving the same budget concurrently must see
+   * each other's reservations, and a read followed by a write cannot promise that. A negative amount
+   * is returned as charged, so a caller that reserved more than it is allowed to spend can hand the
+   * difference back. The expiry is set with NX inside the same MULTI, so it is applied once, on the
+   * first increment only, and never extends the window on later hits.
+   *
+   * This method does not swallow Redis errors. A caller that cannot reserve a budget has not
+   * reserved it, and only the caller knows whether that is a reason to proceed.
+   */
+  async incrementBy(key: string, amount: number, ttlSeconds: number): Promise<number> {
+    if (!Number.isInteger(amount)) {
+      throw new Error(`cache.incrementBy requires an integer amount, received ${amount}`);
+    }
     const pipeline = this.redis.client.multi();
-    pipeline.incr(key);
+    pipeline.incrby(key, amount);
     pipeline.expire(key, ttlSeconds, 'NX');
     const results = await pipeline.exec();
     return Number(results?.[0]?.[1] ?? 0);

@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 /**
  * Notification center with realtime handling
  * - duplicate event detection: ignore if notification id already exists
@@ -19,8 +21,6 @@ export function NotificationCenter(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   const fetchNotifications = async () => {
-    setLoading(true);
-    setError(null);
     try {
       const res = await notificationApi.list({ limit: 20 });
       setNotifications(res.data);
@@ -33,7 +33,8 @@ export function NotificationCenter(): JSX.Element {
   };
 
   useEffect(() => {
-    fetchNotifications();
+    const timer = window.setTimeout(() => void fetchNotifications(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const handleMarkAllRead = async () => {

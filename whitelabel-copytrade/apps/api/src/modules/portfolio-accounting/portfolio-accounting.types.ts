@@ -125,6 +125,27 @@ export const PERIOD_VALID_TRANSITIONS: Record<PortfolioPeriodState, PortfolioPer
 };
 
 // Calculation version identifiers — preserve methodology version for reproducibility
+/**
+ * Flow-boundary convention every time-weighted-return period must satisfy for
+ * its return to be usable as evidence.
+ *
+ * Interpretation: cash flows at the START of a period are included in the
+ * OPENING net asset value, and flows at the END are excluded from the CLOSING
+ * net asset value. Stating the boundary explicitly is what makes two TWR series
+ * comparable - a period computed under the opposite convention is arithmetically
+ * valid but measures a different thing, so the consumers in
+ * `copy-trading/performance-calculation.service.ts` and
+ * `copy-trading/performance-benchmark.service.ts` reject any period whose
+ * boundary does not equal this value rather than silently mixing the two.
+ *
+ * Spelled in full because it is persisted verbatim as evidence and compared as
+ * an opaque token, never parsed.
+ */
+export const TWR_FLOW_BOUNDARY_RULE = 'START_FLOWS_IN_OPENING_NAV_END_FLOWS_EXCLUDED_FROM_CLOSING_NAV' as const;
+
+/** The literal type of {@link TWR_FLOW_BOUNDARY_RULE}. */
+export type TWRFlowBoundaryRule = typeof TWR_FLOW_BOUNDARY_RULE;
+
 export const CALCULATION_VERSION = 'portfolio-acct-v1.0.0';
 export const POLICY_VERSION_DEFAULT = 'portfolio-policy-v1.0.0';
 

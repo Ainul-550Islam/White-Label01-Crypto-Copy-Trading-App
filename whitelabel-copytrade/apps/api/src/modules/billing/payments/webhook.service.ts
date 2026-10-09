@@ -5,9 +5,13 @@ import { PaymentService } from './payment.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
 import { PaymentSubscriptionSyncService } from './payment-subscription-sync.service';
 import { PaymentEventsAuditService } from './payment-events.audit';
-import { PaymentProvider } from './payment.types';
+import { PaymentProvider, PaymentStatus } from './payment.types';
+import { stripeMinorUnitsToDecimalString } from './stripe.adapter';
 import type { WebhookPayload, WebhookProcessingResult, NormalizedWebhookEvent } from './webhook.types';
-import { WebhookProcessingStatus } from './webhook.types';
+import { WebhookEventCategory, WebhookProcessingStatus } from './webhook.types';
+import { normalizePaymentWebhookPayload } from '../../providers/adapters/payment.adapter';
+import type { NormalizedPaymentWebhookEvent } from '../../providers/adapters/payment.adapter';
+import { Decimal } from '../../../common/decimal-string';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 
@@ -86,20 +90,28 @@ export class WebhookService {
         eventCategory: 'UNKNOWN' as any,
         paymentStatus: 'UNKNOWN' as any,
         receivedAt: new Date(),
-        providerCreatedAt: new Date(),
+        providerCreatedAt: null,
       } as NormalizedWebhookEvent,
       rawEvent,
       payload.signature,
     );
 
-    // Step 3: Normalize event via provider adapter
+    // Step 3: Normalize only after signature verification has succeeded.
     let normalizedEvent: NormalizedWebhookEvent;
+    let canonicalPaymentEvent: NormalizedPaymentWebhookEvent | undefined;
     try {
+      canonicalPaymentEvent = normalizeVerifiedPaymentEvent(provider, rawEvent);
+      if (canonicalPaymentEvent && canonicalPaymentEvent.occurredAtIso === null) {
+        throw new TypeError('Verified payment event is missing provider timestamp; state update withheld');
+      }
       const providerAdapter = this.providerFactory.getProvider(provider);
       normalizedEvent = await providerAdapter.normalizeWebhookEvent({
         rawEvent,
         provider,
       });
+      if (canonicalPaymentEvent) {
+        normalizedEvent = applyCanonicalPaymentEvent(normalizedEvent, canonicalPaymentEvent);
+      }
 
       await this.replayGuard.markEventVerified(provider, providerEventId);
     } catch (error) {
@@ -180,6 +192,14 @@ export class WebhookService {
     let tenantId: string | undefined = undefined;
 
     try {
+      if (canonicalPaymentEvent?.status === 'UNKNOWN') {
+        throw new AppException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'Unrecognized provider payment status; payment state update withheld',
+          context: { provider, providerEventId },
+        });
+      }
+
       const payment = await this.findInternalPayment(normalizedEvent);
 
       if (!payment) {
@@ -208,6 +228,19 @@ export class WebhookService {
 
       internalPaymentId = payment.id;
       tenantId = payment.tenantId;
+
+      // A provider-confirmed checkout must match the canonical internal amount and currency exactly.
+      // The provider amount is evidence only; the internal record remains the amount applied downstream.
+      if (
+        canonicalPaymentEvent?.status === 'CONFIRMED' &&
+        !matchesExpectedPaymentAmount(payment.amount, payment.currency, canonicalPaymentEvent)
+      ) {
+        throw new AppException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'Provider-confirmed payment amount or currency does not match the internal payment record',
+          context: { provider, providerEventId, paymentId: payment.id },
+        });
+      }
 
       // Step 7: Apply normalized payment state with valid transition check
       const updatedPayment = await this.paymentService.applyProviderResult(payment.id, {
@@ -356,5 +389,231 @@ export class WebhookService {
       default:
         return 'INITIALIZED';
     }
+  }
+}
+
+const STRIPE_PAYMENT_EVENT_TYPES = new Set([
+  'checkout.session.completed',
+  'checkout.session.expired',
+  'checkout.session.async_payment_succeeded',
+  'checkout.session.async_payment_failed',
+  'payment_intent.created',
+  'payment_intent.processing',
+  'payment_intent.requires_action',
+  'payment_intent.succeeded',
+  'payment_intent.payment_failed',
+  'payment_intent.canceled',
+  'charge.succeeded',
+  'charge.failed',
+  'charge.refunded',
+  'invoice.paid',
+  'invoice.payment_succeeded',
+  'invoice.payment_failed',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+function requireExternalPaymentId(value: unknown): string {
+  if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return String(value);
+  throw new TypeError('Verified payment event is missing a valid external payment id');
+}
+
+function readExternalReference(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'string') {
+    if (value.trim() === '') throw new TypeError('Stripe payment reference must not be empty');
+    return value.trim();
+  }
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new TypeError('Stripe numeric payment reference must be a positive safe integer');
+    }
+    return String(value);
+  }
+  if (isRecord(value)) return requireExternalPaymentId(value.id);
+  throw new TypeError('Stripe payment reference has an unsupported type');
+}
+
+function normalizeVerifiedPaymentEvent(
+  provider: PaymentProvider,
+  rawEvent: unknown,
+): NormalizedPaymentWebhookEvent | undefined {
+  if (provider === PaymentProvider.NOWPAYMENTS) {
+    if (!isRecord(rawEvent)) throw new TypeError('Verified NOWPayments event must be an object');
+    return normalizePaymentWebhookPayload({
+      provider: 'NOWPAYMENTS',
+      id: requireExternalPaymentId(rawEvent.payment_id ?? rawEvent.id),
+      status: rawEvent.payment_status as string,
+      amount: rawEvent.price_amount as string,
+      currency: rawEvent.price_currency as string,
+      confirmations: (rawEvent.confirmations ?? null) as number | null,
+      timestamp: (rawEvent.created_at ?? rawEvent.timestamp ?? null) as string | null,
+    });
+  }
+
+  if (provider !== PaymentProvider.STRIPE || !isRecord(rawEvent)) return undefined;
+  const eventType = readNonEmptyString(rawEvent.type);
+  if (!eventType || !STRIPE_PAYMENT_EVENT_TYPES.has(eventType)) return undefined;
+
+  const data = isRecord(rawEvent.data) ? rawEvent.data : undefined;
+  const object = data && isRecord(data.object) ? data.object : undefined;
+  if (!object) throw new TypeError('Verified Stripe payment event is missing its data object');
+
+  const paymentReference = readExternalReference(object.payment_intent) ?? readExternalReference(object.id);
+  if (!paymentReference) throw new TypeError('Verified Stripe payment event is missing its payment reference');
+  const currency = object.currency as string;
+  const amount = stripeMinorUnitsToDecimalString(stripeMinorAmount(eventType, object), currency);
+  const status = stripePaymentStatus(eventType, object);
+  const timestamp = stripeTimestamp(rawEvent.created);
+  const confirmations = object.confirmations ?? null;
+
+  return normalizePaymentWebhookPayload({
+    provider: 'STRIPE',
+    id: paymentReference,
+    status,
+    amount,
+    currency,
+    confirmations: confirmations as number | null,
+    timestamp,
+  });
+}
+
+function stripePaymentStatus(eventType: string, object: Record<string, unknown>): string {
+  if (eventType === 'checkout.session.completed') {
+    const paymentStatus = readNonEmptyString(object.payment_status);
+    if (!paymentStatus) throw new TypeError('Completed Stripe checkout event is missing payment_status');
+    return paymentStatus;
+  }
+
+  const eventStatuses: Record<string, string> = {
+    'checkout.session.expired': 'expired',
+    'checkout.session.async_payment_succeeded': 'succeeded',
+    'checkout.session.async_payment_failed': 'failed',
+    'payment_intent.succeeded': 'succeeded',
+    'payment_intent.payment_failed': 'failed',
+    'payment_intent.canceled': 'cancelled',
+    'charge.succeeded': 'succeeded',
+    'charge.failed': 'failed',
+    'charge.refunded': 'refunded',
+    'invoice.paid': 'paid',
+    'invoice.payment_succeeded': 'paid',
+    'invoice.payment_failed': 'failed',
+  };
+  const eventStatus = eventStatuses[eventType];
+  if (eventStatus) return eventStatus;
+
+  const objectStatus = readNonEmptyString(object.status) ?? readNonEmptyString(object.payment_status);
+  if (!objectStatus) throw new TypeError(`Stripe ${eventType} event is missing a payment status`);
+  return objectStatus;
+}
+
+function stripeMinorAmount(eventType: string, object: Record<string, unknown>): unknown {
+  if (eventType.startsWith('checkout.session.')) return object.amount_total;
+  if (eventType.startsWith('payment_intent.')) {
+    if (eventType === 'payment_intent.succeeded') return object.amount_received ?? object.amount;
+    return object.amount;
+  }
+  if (eventType === 'charge.refunded') return object.amount_refunded;
+  if (eventType.startsWith('charge.')) return object.amount;
+  if (eventType === 'invoice.paid' || eventType === 'invoice.payment_succeeded') {
+    return object.amount_paid ?? object.total;
+  }
+  if (eventType === 'invoice.payment_failed') return object.amount_due ?? object.total;
+  return undefined;
+}
+
+function stripeTimestamp(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError('Stripe event timestamp must be a non-negative safe integer in Unix seconds');
+  }
+  const milliseconds = value * 1000;
+  if (!Number.isSafeInteger(milliseconds)) throw new TypeError('Stripe event timestamp is outside the supported range');
+  const date = new Date(milliseconds);
+  if (!Number.isFinite(date.getTime())) throw new TypeError('Stripe event timestamp is invalid');
+  return date.toISOString();
+}
+
+function applyCanonicalPaymentEvent(
+  event: NormalizedWebhookEvent,
+  canonical: NormalizedPaymentWebhookEvent,
+): NormalizedWebhookEvent {
+  const paymentStatus = mapCanonicalPaymentStatus(canonical.status, event.paymentStatus);
+  const eventCategory = mapCanonicalEventCategory(canonical.status);
+  return {
+    ...event,
+    eventCategory,
+    paymentStatus,
+    providerPaymentId: canonical.externalPaymentId || event.providerPaymentId,
+    amount: { amount: canonical.amount, currency: canonical.currency },
+    metadata: {
+      ...event.metadata,
+      canonicalPaymentStatus: canonical.status,
+      paymentConfirmations: canonical.confirmations,
+      paymentOccurredAtIso: canonical.occurredAtIso,
+    },
+    providerCreatedAt: canonical.occurredAtIso === null ? null : new Date(canonical.occurredAtIso),
+  };
+}
+
+function mapCanonicalPaymentStatus(
+  canonicalStatus: NormalizedPaymentWebhookEvent['status'],
+  providerAdapterStatus: PaymentStatus,
+): PaymentStatus {
+  switch (canonicalStatus) {
+    case 'CONFIRMED':
+      return PaymentStatus.SUCCEEDED;
+    case 'PENDING':
+      return providerAdapterStatus === PaymentStatus.PROCESSING
+        ? PaymentStatus.PROCESSING
+        : PaymentStatus.PENDING;
+    case 'FAILED':
+      return providerAdapterStatus === PaymentStatus.CANCELLED || providerAdapterStatus === PaymentStatus.EXPIRED
+        ? providerAdapterStatus
+        : PaymentStatus.FAILED;
+    case 'REFUNDED':
+      return providerAdapterStatus === PaymentStatus.PARTIALLY_REFUNDED
+        ? PaymentStatus.PARTIALLY_REFUNDED
+        : PaymentStatus.REFUNDED;
+    case 'UNKNOWN':
+      return PaymentStatus.UNKNOWN;
+  }
+}
+
+function mapCanonicalEventCategory(
+  canonicalStatus: NormalizedPaymentWebhookEvent['status'],
+): WebhookEventCategory {
+  switch (canonicalStatus) {
+    case 'CONFIRMED':
+      return WebhookEventCategory.PAYMENT_SUCCEEDED;
+    case 'PENDING':
+      return WebhookEventCategory.PAYMENT_PENDING;
+    case 'FAILED':
+      return WebhookEventCategory.PAYMENT_FAILED;
+    case 'REFUNDED':
+      return WebhookEventCategory.PAYMENT_REFUNDED;
+    case 'UNKNOWN':
+      return WebhookEventCategory.UNKNOWN;
+  }
+}
+
+function matchesExpectedPaymentAmount(
+  expectedAmount: unknown,
+  expectedCurrency: unknown,
+  canonicalEvent: NormalizedPaymentWebhookEvent,
+): boolean {
+  if (typeof expectedAmount !== 'string' || typeof expectedCurrency !== 'string') return false;
+  try {
+    return Decimal.parse(expectedAmount).eq(Decimal.parse(canonicalEvent.amount)) &&
+      expectedCurrency.trim().toUpperCase() === canonicalEvent.currency;
+  } catch {
+    return false;
   }
 }

@@ -12,8 +12,10 @@
  */
 
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { validateDeveloperEventPayload } from './event-schemas/developer-event-schemas';
 import { idempotencyKey } from './developer.types';
 import { DeveloperAuditService, type DeveloperAuditActor } from './developer-audit.service';
 import { WebhookDeliveryService } from './webhook-delivery.service';
@@ -63,6 +65,19 @@ export class WebhookReplayService {
       return { deliveryId: existingReplay.id, eventId };
     }
 
+    if (original.payload === null || typeof original.payload !== 'object' || Array.isArray(original.payload)) {
+      throw new Error('Persisted webhook payload is not a JSON object; refusing replay');
+    }
+    const payloadJson = JSON.stringify(original.payload);
+    if (typeof payloadJson !== 'string') {
+      throw new Error('Persisted webhook payload is not JSON-serializable; refusing replay');
+    }
+    const payload = JSON.parse(payloadJson) as Prisma.InputJsonValue;
+    const validation = validateDeveloperEventPayload(original.eventType, payload);
+    if (!validation.valid) {
+      throw new Error('Persisted webhook payload no longer matches its versioned schema; refusing replay');
+    }
+
     const delivery = await this.prisma.developerWebhookDelivery.create({
       data: {
         tenantId: actor.tenantId,
@@ -71,6 +86,9 @@ export class WebhookReplayService {
         eventId, // ORIGINAL id preserved (consumer dedupe contract)
         eventType: original.eventType,
         eventVersion: original.eventVersion,
+        source: original.source,
+        occurredAt: original.occurredAt,
+        payload,
         attempt: 0,
         state: 'QUEUED',
         correlationId: original.correlationId,

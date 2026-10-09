@@ -1,9 +1,10 @@
 // # Responsibility: lets tenant-authorized operators inspect declarations, claim applications, and record auditable decisions.
 'use client';
+import type { JSX } from 'react';
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { apiClient } from '@/lib/api-client';
 import { theme } from '@/lib/theme';
 

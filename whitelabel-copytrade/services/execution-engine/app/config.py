@@ -38,7 +38,7 @@ from wlct_trading.execution.placement_review import (
 )
 from wlct_trading.retention import RetentionError, RetentionPolicy
 
-from app.secret_fetcher import VaultKvConfig
+from app.security.secret_fetcher import VaultKvConfig
 
 __all__ = ["Settings", "get_settings"]
 
@@ -259,7 +259,7 @@ class Settings(BaseSettings):
     #: Which fetcher backs ``EXECUTION_CREDENTIAL_SOURCE=secret-manager``. ``none`` is
     #: the default and keeps every existing deployment byte-identical: the source then
     #: has no reader, and the boot refusal says so. ``vault-kv2`` is this service's own
-    #: implementation over HashiCorp Vault's KV v2 API (see app/secret_fetcher.py); a
+    #: implementation over HashiCorp Vault's KV v2 API (see app/security/secret_fetcher.py); a
     #: deployment on a different KMS injects its own fetcher instead, which is the
     #: choice Part 16 left open and Part 19 deliberately did not close for anybody.
     EXECUTION_CREDENTIAL_FETCHER: Literal["none", "vault-kv2"] = "none"
@@ -299,7 +299,7 @@ class Settings(BaseSettings):
     EXECUTION_OPERATOR_CONFIRMATION_FILE: str | None = None
     #: NAME of the environment variable holding the HMAC key that verifies the record.
     #: Env-only, for the same reason as the Vault token, and checked for presence at
-    #: boot by app/placement.py, which is where the verifier is assembled.
+    #: boot by app/orders/placement.py, which is where the verifier is assembled.
     EXECUTION_CONFIRMATION_KEY_ENV: str = "EXECUTION_CONFIRMATION_HMAC_KEY"
 
     @model_validator(mode="after")
@@ -551,7 +551,7 @@ class Settings(BaseSettings):
         Deliberately NOT checked here, with the reasons:
 
         * **Presence of the Vault token.** That is the fetcher's boot check, in
-          ``app/credentials.py``, which is also where an injectable ``environ`` lets a
+          ``app/exchanges/credentials.py``, which is also where an injectable ``environ`` lets a
           test prove it. Two places reading the same variable means two opinions about
           whether it is set.
         * **Whether the confirmation has expired.** A deployment whose record lapsed

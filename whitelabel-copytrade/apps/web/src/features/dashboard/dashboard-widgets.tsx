@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { Money, MoneyWithState } from '@/components/money';
 import { Percentage } from '@/components/percentage';

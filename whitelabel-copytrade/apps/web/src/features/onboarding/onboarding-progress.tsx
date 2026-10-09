@@ -1,4 +1,5 @@
 "use client";
+import type { JSX } from 'react';
 
 import { LoadingState } from "@/components/loading-state";
 import { ErrorState } from "@/components/error-state";

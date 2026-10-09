@@ -1,5 +1,6 @@
 // # NEW — Renders cumulative PnL, drawdown, and win/loss distribution visualizations from canonical series
 "use client";
+import type { JSX } from 'react';
 
 import React from "react";
 import type { TraderPerformance } from "@/api/trading-api";

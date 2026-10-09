@@ -1,11 +1,12 @@
 // # Renders platform/tenant/venue/symbol kill-switch toggles with mandatory reason and confirmation
 'use client';
+import type { JSX } from 'react';
 
 import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { apiClient } from '@/lib/api-client';
 import { theme } from '@/lib/theme';
 

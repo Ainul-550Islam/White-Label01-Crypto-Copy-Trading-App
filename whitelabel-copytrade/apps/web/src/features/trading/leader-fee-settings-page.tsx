@@ -1,5 +1,6 @@
 // # Responsibility: discloses the effective lead-trader profit-share policy without inventing fees or realized profit.
 "use client";
+import type { JSX } from 'react';
 
 import Link from "next/link";
 import { useState } from "react";

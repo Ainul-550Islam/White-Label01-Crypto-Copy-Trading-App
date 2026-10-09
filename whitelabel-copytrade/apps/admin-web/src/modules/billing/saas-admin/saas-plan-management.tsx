@@ -25,8 +25,6 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
   const [atPeriodEnd, setAtPeriodEnd] = useState(false);
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const [tenantRes, plansRes] = await Promise.all([getTenantDetail(tenantId), getPlanCatalog()]);
       setTenant(tenantRes);
@@ -38,8 +36,15 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
     }
   }, [tenantId]);
 
+  const refreshData = async () => {
+    setLoading(true);
+    setError(null);
+    await fetchData();
+  };
+
   useEffect(() => {
-    void fetchData();
+    const timer = window.setTimeout(() => void fetchData(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchData]);
 
   const handleAssign = async () => {
@@ -49,7 +54,7 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
     try {
       const result = await assignPlan(tenantId, selectedPlanId);
       setMessage(`Plan assigned: ${result.message}`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Assign failed: ${e.message}`);
     } finally {
@@ -70,7 +75,7 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
       } else {
         setMessage(`Plan changed: ${result.message} Effective: ${result.effectiveAt ? new Date(result.effectiveAt).toLocaleDateString() : 'now'}`);
       }
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Change failed: ${e.message}`);
     } finally {
@@ -84,7 +89,7 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
     try {
       const result = await changeInterval(tenantId, newInterval, true);
       setMessage(`Interval change: ${result.message}`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Interval change failed: ${e.message}`);
     } finally {
@@ -108,7 +113,7 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded p-4">
           <p className="text-red-800">{error}</p>
-          <button onClick={fetchData} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-sm">Retry</button>
+          <button onClick={refreshData} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-sm">Retry</button>
         </div>
       </div>
     );

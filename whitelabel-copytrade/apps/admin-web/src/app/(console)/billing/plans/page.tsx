@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 
 import PlanComparisonPage from '@/modules/billing/portal/plan-comparison';

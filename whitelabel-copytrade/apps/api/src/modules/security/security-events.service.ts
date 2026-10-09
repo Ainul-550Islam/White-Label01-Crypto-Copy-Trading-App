@@ -9,6 +9,7 @@ import { buildPaginationMeta, normalisePagination, redact, sanitiseForLog } from
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { SecurityEventService } from './security-event.service';
 
 export interface SecurityEventInput {
   tenantId: string | null;
@@ -49,29 +50,23 @@ export class SecurityEventsService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectPinoLogger(SecurityEventsService.name) private readonly logger: PinoLogger,
+    private readonly eventWriter: SecurityEventService,
   ) {}
 
   async record(input: SecurityEventInput): Promise<void> {
-    const payload = {
+    const description = sanitiseForLog(input.description, 500);
+    const metadata = input.metadata ? (redact(input.metadata) as Record<string, unknown>) : undefined;
+    await this.eventWriter.record({
       tenantId: input.tenantId,
       userId: input.userId ?? null,
       type: input.type,
       severity: input.severity,
-      description: sanitiseForLog(input.description, 500),
-      metadata: input.metadata ? (redact(input.metadata) as object) : undefined,
+      description,
+      metadata,
       ipHash: input.ipHash ?? null,
       userAgent: input.userAgent ? sanitiseForLog(input.userAgent, 512) : null,
       requestId: input.requestId ?? null,
-    };
-
-    try {
-      await this.prisma.securityEvent.create({ data: payload });
-    } catch (error) {
-      this.logger.error(
-        { event: 'security.persist_failed', type: input.type, message: (error as Error).message },
-        'Failed to persist security event',
-      );
-    }
+    });
 
     const logPayload = {
       event: 'security.event',
@@ -83,11 +78,11 @@ export class SecurityEventsService {
     };
 
     if (input.severity === SecuritySeverity.CRITICAL) {
-      this.logger.error(logPayload, input.description);
+      this.logger.error(logPayload, description);
     } else if (input.severity === SecuritySeverity.HIGH) {
-      this.logger.warn(logPayload, input.description);
+      this.logger.warn(logPayload, description);
     } else {
-      this.logger.info(logPayload, input.description);
+      this.logger.info(logPayload, description);
     }
   }
 

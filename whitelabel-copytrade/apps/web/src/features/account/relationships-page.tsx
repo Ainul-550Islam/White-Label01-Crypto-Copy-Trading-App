@@ -1,4 +1,5 @@
 "use client";
+import type { JSX } from 'react';
 
 import { useQuery } from "@tanstack/react-query";
 import { clientLifecycleApi } from "@/api/client-lifecycle-api";

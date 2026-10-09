@@ -4,6 +4,7 @@
  * Never calculates balances, PnL, NAV solely in browser.
  */
 
+import type { JSX } from 'react';
 interface MoneyProps {
   value: string | number | null | undefined;
   currency?: string;

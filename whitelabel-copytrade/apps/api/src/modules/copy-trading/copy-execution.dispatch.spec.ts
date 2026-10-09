@@ -125,22 +125,30 @@ function harness(options: {
     }),
   };
   const policyService = { resolveEffectivePolicy: jest.fn(async () => ({ slippageToleranceBps: 50, maxOrderNotional: null })) };
+  // The dispatch tests cover the *gates* around mapping (kill switches, venue
+  // health, OMS wiring), not the sizing arithmetic - that now lives in
+  // copy-order-mapper.service.spec.ts. The mapper is therefore stubbed at its
+  // public entry point, which returns a tagged result so a refusal can be
+  // recorded with its reason.
   const orderMapper = {
-    mapLeaderToFollower: jest.fn(async () => ({
-      symbol: 'BTC-USDT',
-      exchangeSymbol: 'BTCUSDT',
-      side: 'BUY',
-      type: options.followerType ?? 'MARKET',
-      quantity: '0.02',
-      price: '50000',
-      stopPrice: null,
-      notional: '1000',
-      slippageUpper: null,
-      slippageLower: null,
-      isReduceOnly: false,
-      executionDelayMs: 0,
-      sizingMode: 'FIXED',
-      source: 'COPY',
+    planLeaderToFollower: jest.fn(async () => ({
+      ok: true as const,
+      intent: {
+        symbol: 'BTC-USDT',
+        exchangeSymbol: 'BTCUSDT',
+        side: 'BUY',
+        type: options.followerType ?? 'MARKET',
+        quantity: '0.02',
+        price: '50000',
+        stopPrice: null,
+        notional: '1000',
+        slippageUpper: null,
+        slippageLower: null,
+        isReduceOnly: false,
+        executionDelayMs: 0,
+        sizingMode: 'FIXED',
+        source: 'COPY',
+      },
     })),
   };
   const allocationService = {
@@ -175,6 +183,7 @@ function harness(options: {
     exchangeRouting as any,
     exchangeHealth as any,
     maintenance as any,
+    { append: jest.fn(async () => ({ id: 'outbox-1' })) } as any,
     wired ? ({ createIntent } as any) : undefined,
     wired ? ({ routeIntent } as any) : undefined,
   );

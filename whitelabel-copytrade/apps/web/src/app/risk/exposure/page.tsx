@@ -1,6 +1,8 @@
 // # Responsibility: shows the authenticated customer's own exposure and provenance-qualified concentration/correlation analysis.
 
 'use client';
+
+import type { JSX } from 'react';
 import { AuthGuard } from '@/auth/auth.guard';
 import { CustomerExposurePanel } from '@/features/portfolio/customer-exposure-panel';
 import { ConcentrationRiskPanel } from '@/features/trading/concentration-risk-panel';

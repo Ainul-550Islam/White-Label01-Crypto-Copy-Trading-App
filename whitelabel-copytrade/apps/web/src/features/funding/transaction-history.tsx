@@ -1,4 +1,6 @@
 "use client";
+
+import type { JSX } from 'react';
 import { useQuery } from "@tanstack/react-query";
 import { fundingApi } from "@/api/funding-api";
 import { Money } from "@/components/money";

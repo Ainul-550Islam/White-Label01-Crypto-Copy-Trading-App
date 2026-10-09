@@ -1,5 +1,6 @@
 // # NEW — Side-by-side trader comparison matrix for performance, risk, venues, and strategy stats
 "use client";
+import type { JSX } from 'react';
 
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";

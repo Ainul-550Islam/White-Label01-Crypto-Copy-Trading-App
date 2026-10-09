@@ -1,5 +1,6 @@
 // # NEW — Customer route for copied open/closed positions
 'use client';
+import type { JSX } from 'react';
 
 import React from 'react';
 import Link from 'next/link';

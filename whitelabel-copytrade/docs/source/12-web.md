@@ -2,7 +2,7 @@
 
 The tenant-branded web client: BFF auth routes (login, refresh, two-factor, SSO start/callback, logout), the API proxy, and the copy-trading, portfolio, funding, strategies, billing and account screens, with their tests.
 
-187 files. Part of the complete source dump - see `docs/source/README.md`.
+290 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -237,7 +237,8 @@ FILE: apps/web/package.json
     "start": "next start -p 3001 -H 0.0.0.0",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "dev:e2e": "next dev -p 3101 -H 127.0.0.1"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
@@ -249,7 +250,8 @@ FILE: apps/web/package.json
     "react-dom": "18.3.1",
     "server-only": "^0.0.1",
     "socket.io-client": "^4.8.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@wlct/utils": "1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
@@ -262,15 +264,21 @@ FILE: apps/web/package.json
   "jest": {
     "rootDir": "src",
     "testEnvironment": "node",
-    "testRegex": "\\.test\\.ts$",
+    "testRegex": "\\.test\\.tsx?$",
     "moduleNameMapper": {
-      "^@/(.*)$": "<rootDir>/$1"
+      "^@wlct/shared-types$": "<rootDir>/../../../packages/shared-types/src/index.ts",
+      "^@wlct/validation$": "<rootDir>/../../../packages/validation/src/index.ts",
+      "^@/(.*)$": "<rootDir>/$1",
+      "^@wlct/utils/api-error$": "<rootDir>/../../../packages/utils/src/api-error.ts"
     },
     "transform": {
       "^.+\\.tsx?$": [
         "ts-jest",
         {
-          "isolatedModules": true
+          "isolatedModules": true,
+          "tsconfig": {
+            "jsx": "react-jsx"
+          }
         }
       ]
     }
@@ -483,6 +491,90 @@ export const accountApi = {
       newPassword: data.newPassword,
       revokeOtherSessions: data.revokeOtherSessions ?? true,
     }),
+};
+```
+
+FILE: apps/web/src/api/activity-api.ts
+
+```typescript
+// # NEW — Client for customer-scoped audit and activity endpoints
+import { apiClient } from "./api-client";
+
+export interface CustomerActivityItem {
+  id: string;
+  action: string;
+  outcome: "SUCCESS" | "FAILURE" | "DENIED";
+  resourceType: string;
+  resourceId: string | null;
+  actorId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CustomerActivityPageResult {
+  items: CustomerActivityItem[];
+  total: number;
+}
+
+type Raw = Record<string, unknown>;
+const obj = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
+const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
+const strOrNull = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+
+export function parseCustomerActivityItem(input: unknown): CustomerActivityItem {
+  const r = obj(input);
+  const outcomeRaw = str(r.outcome, "SUCCESS").toUpperCase();
+  const outcome: CustomerActivityItem["outcome"] =
+    outcomeRaw === "FAILURE" || outcomeRaw === "DENIED" ? outcomeRaw : "SUCCESS";
+  return {
+    id: str(r.id),
+    action: str(r.action, "ACTIVITY"),
+    outcome,
+    resourceType: str(r.resourceType, "Account"),
+    resourceId: strOrNull(r.resourceId),
+    actorId: strOrNull(r.actorId),
+    metadata: obj(r.metadata),
+    createdAt: str(r.createdAt, new Date(0).toISOString()),
+  };
+}
+
+export const activityApi = {
+  listMyActivity: async (params?: {
+    action?: string;
+    resourceType?: string;
+    outcome?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<CustomerActivityPageResult> => {
+    const raw = await apiClient.get<unknown>("/v1/audit-logs/me/activity", {
+      searchParams: {
+        action: params?.action || undefined,
+        resourceType: params?.resourceType || undefined,
+        outcome: params?.outcome || undefined,
+        page: params?.page ?? 1,
+        limit: params?.limit ?? 50,
+      },
+    });
+    const root = obj(raw);
+    const list = Array.isArray(root.items)
+      ? root.items
+      : Array.isArray(root.data)
+        ? root.data
+        : Array.isArray(raw)
+          ? raw
+          : [];
+    const pagination = obj(root.pagination);
+    const total =
+      typeof pagination.totalItems === "number"
+        ? pagination.totalItems
+        : typeof root.total === "number"
+          ? root.total
+          : list.length;
+    return {
+      items: list.map(parseCustomerActivityItem),
+      total,
+    };
+  },
 };
 ```
 
@@ -1767,6 +1859,95 @@ export const clientLifecycleApi = {
 };
 ```
 
+FILE: apps/web/src/api/customer-exposure-api.ts
+
+```typescript
+// # Responsibility: reads caller- or trader-profile-owner-scoped exposure without constructing or converting financial values in the browser.
+
+import { apiClient } from './api-client';
+
+export type CustomerExposureValueState = 'CURRENT' | 'STALE' | 'UNKNOWN';
+export type CustomerExposureState = CustomerExposureValueState | 'EMPTY';
+export type CustomerExposureScope =
+  | 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS'
+  | 'TRADER_PROFILE_OWNER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS';
+
+export interface CustomerExposureLine {
+  symbol: string;
+  venue: string;
+  marketType: string | null;
+  baseAsset: string | null;
+  quoteAsset: string | null;
+  longQuantity: string | null;
+  shortQuantity: string | null;
+  netQuantity: string | null;
+  longPositionNotional: string | null;
+  shortPositionNotional: string | null;
+  grossPositionNotional: string | null;
+  netPositionNotional: string | null;
+  openOrderCommitment: string | null;
+  totalNotional: string | null;
+  openOrderCount: number;
+  openOrderCommitmentBasis: 'ORDER_PRICE' | 'MARKET_DATA_1M_CANDLE_CLOSE' | 'MIXED' | null;
+  price: string | null;
+  priceSource: 'MARKET_DATA_1M_CANDLE_CLOSE' | null;
+  priceTimestamp: string | null;
+  positionState: CustomerExposureValueState | 'NO_POSITION';
+  openOrderState: CustomerExposureValueState | 'NO_OPEN_ORDERS';
+  state: CustomerExposureValueState;
+}
+
+export interface CustomerExposureQuoteTotal {
+  quoteAsset: string;
+  longPositionNotional: string | null;
+  shortPositionNotional: string | null;
+  grossPositionNotional: string | null;
+  openOrderCommitment: string | null;
+  totalNotional: string | null;
+  state: CustomerExposureValueState;
+}
+
+export interface CustomerExposureView {
+  tenantId: string;
+  traderId: string | null;
+  asOf: string;
+  state: CustomerExposureState;
+  eligibleAccountCount: number;
+  lines: CustomerExposureLine[];
+  totalsByQuoteAsset: CustomerExposureQuoteTotal[];
+  staleSymbols: string[];
+  unknownSymbols: string[];
+  dataScope: CustomerExposureScope;
+  simulatedRecordsIncluded: false;
+  cashBalancesIncluded: false;
+  currencyTreatment: 'SEPARATE_QUOTE_ASSETS_NO_FX_CONVERSION';
+  priceMethodology: 'LATEST_1M_CANDLE_CLOSE_WITH_POLICY_FRESHNESS';
+  notice: string;
+}
+
+export interface TraderExposureView extends Omit<CustomerExposureView, 'traderId' | 'dataScope'> {
+  traderId: string;
+  dataScope: 'TRADER_PROFILE_OWNER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS';
+}
+
+export const customerExposureApi = {
+  getMyExposure(): Promise<CustomerExposureView> {
+    return apiClient.get<CustomerExposureView>('/v1/risk-management/my-exposure');
+  },
+  getTraderExposure(traderId: string): Promise<TraderExposureView> {
+    // The API mounts this read at `risk-management/trader-exposure/:traderId`
+    // (`apps/api/src/modules/risk-management/risk.controller.ts`). This client
+    // asked for `/traders/<id>/exposure`, a path no controller ever served, so
+    // every call was a 404 in production. The web path is the one that moves:
+    // the route is the published contract, is permission-decorated, and is
+    // covered by the route-authorization gate.
+    return apiClient.get<TraderExposureView>(
+      `/v1/risk-management/trader-exposure/${encodeURIComponent(traderId)}`,
+    );
+  },
+};
+```
+
 FILE: apps/web/src/api/exchange-api.ts
 
 ```typescript
@@ -2428,6 +2609,153 @@ export const operationsApi = {
 };
 ```
 
+FILE: apps/web/src/api/partner-api.ts
+
+```typescript
+// # NEW — Typed client for /v1/partner/* endpoints
+import { apiClient } from "./api-client";
+
+export interface PartnerProfileDto {
+  id: string;
+  code: string;
+  name: string;
+  legalName: string;
+  type: "AFFILIATE" | "INTRODUCING_BROKER" | "RESELLER" | "AGENCY";
+  state: string;
+  tier?: string;
+  contactEmail: string;
+  currency: string;
+  createdAt: string;
+}
+
+export interface PartnerPortalSummaryDto {
+  activeReferralsCount: number;
+  attributedTenantsCount: number;
+  referredTradingVolumeUsd: string;
+  accruedCommissionsAmount: string;
+  settledCommissionsAmount: string;
+  availablePayoutBalance: string;
+  tierName: string;
+  rebateRateBps: number;
+}
+
+export interface PartnerProfileResponse {
+  profile: PartnerProfileDto;
+  summary: PartnerPortalSummaryDto | null;
+}
+
+export interface PartnerReferralRecord {
+  id: string;
+  partnerId: string;
+  campaignId?: string | null;
+  code: string;
+  usesCount?: number;
+  maxUses?: number | null;
+  expiresAt?: string | null;
+  state: string;
+  createdAt: string;
+}
+
+export interface PartnerAttributionRecord {
+  id: string;
+  partnerId: string;
+  tenantId: string;
+  referralCode?: string | null;
+  attributionSource: string;
+  capturedAt: string;
+}
+
+export interface PartnerReferralsResponse {
+  partnerId: string;
+  referrals: PartnerReferralRecord[];
+  attributions: PartnerAttributionRecord[];
+}
+
+export interface PartnerCommissionRecord {
+  id: string;
+  partnerId: string;
+  tenantId: string;
+  sourceEventId: string;
+  sourceEventType: string;
+  grossRevenue: string;
+  commissionRateBps?: number;
+  commissionAmount: string;
+  currency: string;
+  state: "ACCRUED" | "APPROVED" | "SETTLED" | "PAID" | "REVERSED";
+  settlementId?: string | null;
+  createdAt: string;
+}
+
+export interface PartnerPayoutRecord {
+  id: string;
+  partnerId: string;
+  settlementId: string;
+  amount: string;
+  currency: string;
+  method: string;
+  state: "REQUESTED" | "APPROVED" | "PROCESSING" | "PAID" | "FAILED" | "REJECTED";
+  providerReference?: string | null;
+  failureReason?: string | null;
+  createdAt: string;
+}
+
+export const partnerApi = {
+  getProfile: (params?: { partnerId?: string; currency?: string }) =>
+    apiClient.get<PartnerProfileResponse>("/v1/partner/profile", {
+      searchParams: params,
+    }),
+
+  listReferrals: (params?: { partnerId?: string }) =>
+    apiClient.get<PartnerReferralsResponse>("/v1/partner/referrals", {
+      searchParams: params,
+    }),
+
+  createReferral: (payload: {
+    partnerId: string;
+    campaignId: string;
+    code: string;
+    maxUses?: number;
+    expiresAt?: string | null;
+    createdBy: string;
+    correlationId: string;
+    idempotencyKey?: string;
+  }) => apiClient.post<PartnerReferralRecord>("/v1/partner/referrals", payload),
+
+  listCommissions: (params?: {
+    partnerId?: string;
+    state?: string;
+    currency?: string;
+    settlementId?: string;
+  }) =>
+    apiClient.get<{ partnerId: string; items: PartnerCommissionRecord[] }>(
+      "/v1/partner/commissions",
+      {
+        searchParams: params,
+      },
+    ),
+
+  listPayouts: (params?: {
+    partnerId?: string;
+    state?: string;
+    settlementId?: string;
+  }) =>
+    apiClient.get<{ partnerId: string; items: PartnerPayoutRecord[] }>("/v1/partner/payouts", {
+      searchParams: params,
+    }),
+
+  requestPayout: (payload: {
+    partnerId: string;
+    settlementId: string;
+    amount: string;
+    currency: string;
+    method: string;
+    requestedBy: string;
+    correlationId: string;
+    idempotencyKey?: string;
+  }) => apiClient.post<PartnerPayoutRecord>("/v1/partner/payouts", payload),
+};
+```
+
 FILE: apps/web/src/api/portfolio-api.ts
 
 ```typescript
@@ -2931,6 +3259,98 @@ export const portfolioApi = {
 };
 ```
 
+FILE: apps/web/src/api/realtime-api.ts
+
+```typescript
+// # NEW — WebSocket/SSE client with polling fallback for copy execution and order lifecycle events
+import { tradingApi, type CopyExecutionItem } from "./trading-api";
+
+export type CopyRealtimeEventType =
+  | "COPY_EXECUTION_CREATED"
+  | "COPY_EXECUTION_UPDATED"
+  | "COPY_ORDER_FILLED"
+  | "COPY_RISK_BLOCKED";
+
+export interface CopyRealtimeEvent {
+  eventId: string;
+  type: CopyRealtimeEventType;
+  subscriptionId: string;
+  execution: CopyExecutionItem;
+  occurredAt: string;
+}
+
+export interface CopyRealtimeSubscriptionOptions {
+  subscriptionId?: string;
+  pollIntervalMs?: number;
+  onEvent: (event: CopyRealtimeEvent) => void;
+  onTransportChange?: (mode: "SSE" | "POLLING") => void;
+}
+
+export function classifyExecutionEventType(execution: CopyExecutionItem): CopyRealtimeEventType {
+  if (execution.status === "RISK_BLOCKED" || execution.riskDecision === "BLOCK") {
+    return "COPY_RISK_BLOCKED";
+  }
+  if (execution.status === "COMPLETED") {
+    return "COPY_ORDER_FILLED";
+  }
+  if (execution.status === "PENDING") {
+    return "COPY_EXECUTION_CREATED";
+  }
+  return "COPY_EXECUTION_UPDATED";
+}
+
+export const realtimeApi = {
+  subscribeToCopyExecutionEvents(options: CopyRealtimeSubscriptionOptions): () => void {
+    const { subscriptionId, pollIntervalMs = 5000, onEvent, onTransportChange } = options;
+    let disposed = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    const seenFingerprints = new Map<string, string>();
+
+    const pollOnce = async () => {
+      if (disposed) return;
+      try {
+        const res = await tradingApi.listExecutions({
+          subscriptionId,
+          page: 1,
+          limit: 20,
+        });
+        if (disposed) return;
+        for (const exec of res.data) {
+          const fingerprint = `${exec.status}:${exec.updatedAt}:${exec.followerOrderId ?? ""}`;
+          const prev = seenFingerprints.get(exec.executionId);
+          if (prev !== fingerprint) {
+            seenFingerprints.set(exec.executionId, fingerprint);
+            onEvent({
+              eventId: `${exec.executionId}:${exec.updatedAt}`,
+              type: classifyExecutionEventType(exec),
+              subscriptionId: exec.subscriptionId,
+              execution: exec,
+              occurredAt: exec.updatedAt || exec.createdAt,
+            });
+          }
+        }
+      } catch {
+        // Keep polling resilient on transient network errors
+      }
+    };
+
+    onTransportChange?.("POLLING");
+    void pollOnce();
+    pollTimer = setInterval(() => {
+      void pollOnce();
+    }, pollIntervalMs);
+
+    return () => {
+      disposed = true;
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+  },
+};
+```
+
 FILE: apps/web/src/api/reporting-api.ts
 
 ```typescript
@@ -3159,6 +3579,106 @@ export const reportingApi = {
       { searchParams: { format } },
     );
     return toExportFile(response, statementId, format);
+  },
+};
+```
+
+FILE: apps/web/src/api/risk-analysis-api.ts
+
+```typescript
+// # Responsibility: reads the authenticated customer's own concentration and measured correlation evidence without computing financial values in the browser.
+
+import { apiClient } from './api-client';
+
+export type CustomerRiskEvidenceState = 'CURRENT' | 'STALE' | 'UNKNOWN' | 'EMPTY';
+export type CustomerRiskValueState = Exclude<CustomerRiskEvidenceState, 'EMPTY'>;
+
+export interface CustomerConcentrationMetric {
+  dimension: 'ASSET' | 'SYMBOL' | 'VENUE' | 'UNCLASSIFIED';
+  key: string;
+  quoteAsset: string | null;
+  currentNotional: string | null;
+  currentPercent: string | null;
+  thresholdPercent: string | null;
+  isBreach: boolean | null;
+  state: CustomerRiskValueState;
+  source: 'MARKET_DATA_1M_CANDLE_CLOSE' | 'UNAVAILABLE';
+  observedAt: string | null;
+  evidenceSymbols: string[];
+  reason: string;
+}
+
+export interface CustomerConcentrationAssessment {
+  tenantId: string;
+  asOf: string;
+  state: CustomerRiskEvidenceState;
+  eligibleAccountCount: number;
+  dataScope: 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS';
+  methodology: 'GROSS_POSITION_NOTIONAL_WITHIN_QUOTE_ASSET_NO_FX';
+  marketDataMaxAgeMs: number;
+  metrics: CustomerConcentrationMetric[];
+  staleSymbols: string[];
+  unknownSymbols: string[];
+  notice: string;
+}
+
+export interface CustomerCorrelationPair {
+  tenantId: string;
+  method: string;
+  methodVersion: string;
+  lookbackDays: number;
+  minObservations: number;
+  observations: number;
+  pairKey: string;
+  correlation: string | null;
+  threshold: string | null;
+  isBreach: boolean;
+  state: string;
+  ruleId: string;
+  policyVersion: string;
+  reason: string;
+  severity: string;
+  isUnknown: boolean;
+  sourceInterval?: string | null;
+  sourceTimestamp?: string | null;
+  sourceMaxAgeMs?: number | null;
+  sourceSymbols?: string[];
+  sourceMethodology?: string | null;
+  isStale?: boolean;
+}
+
+export interface CustomerCorrelationAssessment {
+  tenantId: string;
+  asOf: string;
+  state: CustomerRiskEvidenceState;
+  dataScope: 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS';
+  method: string;
+  methodVersion: string;
+  interval: '1d';
+  lookbackDays: number;
+  minObservations: number;
+  maxSourceAgeMs: number;
+  activePositionCount: number | null;
+  instrumentCount: number | null;
+  omittedPositionCount: number | null;
+  candidatePairCount: number | null;
+  evaluatedPairCount: number;
+  truncatedPairCount: number | null;
+  pairs: CustomerCorrelationPair[];
+  notice: string;
+}
+
+export interface CustomerRiskAnalysisView {
+  tenantId: string;
+  requestedAt: string;
+  dataScope: 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS';
+  concentration: CustomerConcentrationAssessment;
+  correlation: CustomerCorrelationAssessment;
+}
+
+export const riskAnalysisApi = {
+  getMyRiskAnalysis(): Promise<CustomerRiskAnalysisView> {
+    return apiClient.get<CustomerRiskAnalysisView>('/v1/risk-management/my-risk-analysis');
   },
 };
 ```
@@ -3619,7 +4139,19 @@ export const tenantApi = {
 FILE: apps/web/src/api/trading-api.ts
 
 ```typescript
+// # Adds typed client methods and types for trader performance detail and trade history breakdown
+// # Adds trader comparison query helper
+// # Extends trader list and leaderboard filter parameters
+// # Adds strategy analytics and trade breakdown client helpers
+// # Adds subscription policy and risk settings update methods
+// # Adds subscription detail and summary client methods
+// # Adds subscription-scoped copied positions query helper
+// # Adds subscription-scoped copied order and execution history helpers
+// # Adds execution detail query helper with risk and OMS metadata
+// # Adds follower risk policy read/update helpers
+// # Adds customer-safe reconciliation status query helper
 import { Permission } from "@wlct/shared-types";
+import { compareDecimalStringsDescending } from "@/lib/decimal-compare";
 import { apiClient } from "./api-client";
 import { ApiError } from "./api-errors";
 import { newIdempotencyKey } from "@/lib/idempotency-key";
@@ -3628,15 +4160,8 @@ import { permissionsAllowAny } from "@/auth/permissions";
 /**
  * Copy-trading client for /v1/copy-trading.
  *
- * Every call in the previous version was broken: paths lacked /v1, trader
- * detail used traders/:id (the API route is traders/:id/profile), strategies
- * were fetched from a non-existent /strategies root, subscriptions were
- * listed from GET /subscriptions (the API has subscriptions/me) and updated
- * with a PATCH that does not exist, and trading-status had no API route at
- * all. The response types described fields the API never returns (`id`,
- * nested `performance`, `eligibility`, `traderName`, `health`). Types below
- * mirror the API records; parsers tolerate missing fields so a partial record
- * never crashes a page.
+ * Types mirror the API records; parsers tolerate missing fields so a partial
+ * record never crashes a page. Financial amounts stay decimal strings.
  */
 
 type Raw = Record<string, unknown>;
@@ -3651,6 +4176,19 @@ export type StrategyStatus =
   | "PAUSED"
   | "ARCHIVED"
   | "REJECTED";
+export type CopyExecutionStatus =
+  | "PENDING"
+  | "VALIDATED"
+  | "MAPPED"
+  | "RISK_CHECKED"
+  | "ROUTED"
+  | "SUBMITTED"
+  | "FILLED"
+  | "FAILED"
+  | "REJECTED"
+  | "SKIPPED"
+  | "BLOCKED";
+export type CopyRiskDecision = "ALLOW" | "REDUCE" | "BLOCK" | "PAUSE" | "STOP_COPY";
 
 export interface TraderProfile {
   traderId: string;
@@ -3669,6 +4207,124 @@ export interface TraderProfile {
   createdAt: string;
 }
 
+export interface TraderPerformance {
+  traderId: string;
+  tenantId: string;
+  realizedPnl: string;
+  unrealizedPnl: string | null;
+  totalReturn: string | null;
+  totalReturnPercent: string | null;
+  maxDrawdown: string | null;
+  maxDrawdownPercent: string | null;
+  winCount: number;
+  lossCount: number;
+  tradeCount: number;
+  winRate: string | null;
+  lossRate: string | null;
+  totalVolume: string;
+  averageTrade: string | null;
+  averageWin: string | null;
+  averageLoss: string | null;
+  profitFactor: string | null;
+  sharpeRatio: string | null;
+  historyLengthDays: number;
+  lastTradeAt: string | null;
+  isActual: boolean;
+  source: string;
+}
+
+export interface TraderPerformanceDetail {
+  profile: TraderProfile;
+  performance: TraderPerformance;
+  strategies: Strategy[];
+}
+
+/**
+ * Trader verification states, mirroring TraderVerificationState in the API. The page imported this
+ * name before it existed here, so the traders page did not typecheck and its verification filter was
+ * untyped.
+ */
+export type TraderVerificationState = "UNVERIFIED" | "PENDING" | "VERIFIED" | "REJECTED" | "SUSPENDED";
+
+export const TRADER_VERIFICATION_STATES: readonly TraderVerificationState[] = [
+  "UNVERIFIED",
+  "PENDING",
+  "VERIFIED",
+  "REJECTED",
+  "SUSPENDED",
+];
+
+/** The ranking windows the server accepts. Mirrors TraderRankingTimeframe in the API. */
+export type TraderRankingTimeframe = "7D" | "30D" | "90D";
+
+export const TRADER_RANKING_TIMEFRAMES: readonly TraderRankingTimeframe[] = ["7D", "30D", "90D"];
+
+/**
+ * How the ranking was produced, as reported by the server. `status` is UNAVAILABLE when no window
+ * satisfied the admission rule, and `asOf` / `windowStart` are then null: the page must show that
+ * the ranking is not available rather than an empty table that reads as "no traders".
+ */
+export interface TraderRankingMethodology {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  key: "RECONCILED_CLOSED_PERIOD_TWR";
+  description: string;
+  timeframe: TraderRankingTimeframe;
+  windowStart: string | null;
+  asOf: string | null;
+  boundaryRule: "EXACT_CONTIGUOUS_PERIODS_ONLY";
+  orderingRule: "RETURN_DESCENDING_UNAVAILABLE_LAST";
+  currentnessRule: string;
+  minimumPeriodCount: number;
+  rankedCount: number;
+  unrankedCount: number;
+  /** Why any row is unranked; null when every row was ranked. */
+  reason: string | null;
+}
+
+export interface TraderRanking {
+  traderId: string;
+  tenantId: string;
+  displayName: string;
+  verificationState: string;
+  isPublic: boolean;
+  isFeatured: boolean;
+  followerCount: number;
+  performance: TraderPerformance | null;
+  score: number;
+  rank: number;
+  metrics: {
+    riskAdjustedReturn: number | null;
+    drawdownScore: number | null;
+    consistencyScore: number | null;
+    historyLengthScore: number | null;
+    followerScore: number | null;
+    activityScore: number | null;
+    verifiedScore: number | null;
+  };
+  weighting: Record<string, number>;
+}
+
+export interface TraderComparisonEntry {
+  profile: TraderProfile;
+  performance: TraderPerformance;
+  strategies: Strategy[];
+}
+
+export interface TraderDiscoveryFilters {
+  verificationState?: string;
+  isFeatured?: boolean;
+  search?: string;
+  venue?: string;
+  symbol?: string;
+  minWinRate?: number;
+  maxDrawdown?: number;
+  minTrades?: number;
+  minFollowers?: number;
+  sortBy?: "score" | "performance" | "followers" | "volume" | "trades" | "pnl" | "winRate";
+  page?: number;
+  limit?: number;
+}
+
 export interface Strategy {
   strategyId: string;
   traderId: string;
@@ -3684,6 +4340,53 @@ export interface Strategy {
   createdAt: string;
 }
 
+export type TraderStrategy = Strategy;
+
+export interface CopyPolicy {
+  sizingMode: CopySizingMode;
+  proportionalRatio: string | null;
+  fixedQuantity: string | null;
+  fixedNotional: string | null;
+  maxOrderNotional: string | null;
+  maxDailyNotional: string | null;
+  maxConcurrentCopies: number | null;
+  slippageToleranceBps: number | null;
+  executionDelayMs: number | null;
+  allowedSymbols: string[] | null;
+  blockedSymbols: string[] | null;
+  allowedSides: string[] | null;
+  leveragePolicy: string | null;
+  maxLeverage?: string | null;
+  marginMode?: "SPOT" | "ISOLATED" | "CROSS" | null;
+  reduceOnly: boolean | null;
+  takeProfitBps?: number | null;
+  stopLossBps?: number | null;
+  trailingStopBps?: number | null;
+  stopCopyConditions: Record<string, unknown> | null;
+}
+
+export interface FollowerRiskPolicy {
+  maxDailyLoss: string | null;
+  maxTotalLoss: string | null;
+  maxDrawdown: string | null;
+  maxExposure: string | null;
+  maxPositionSize: string | null;
+  maxSymbolExposure: string | null;
+  maxCopyCount: number | null;
+  maxLeverage?: string | null;
+  minMarginRatio?: string | null;
+  allowedMarginModes?: string[] | null;
+  emergencyStopCopy: boolean;
+  dailyPauseEnabled: boolean;
+}
+
+export interface StrategyAnalyticsView {
+  strategy: Strategy;
+  trader: TraderProfile | null;
+  performance: TraderPerformance | null;
+  effectivePolicy: CopyPolicy | null;
+}
+
 export interface CopySubscription {
   subscriptionId: string;
   traderId: string;
@@ -3692,12 +4395,117 @@ export interface CopySubscription {
   allocationMode: string;
   allocationAmount: string;
   maxAllocation: string | null;
+  minAllocation?: string | null;
+  copyPolicy?: Partial<CopyPolicy>;
+  riskPolicy?: Partial<FollowerRiskPolicy>;
   followerAccountId: string | null;
   totalCopies: number;
   failedCopies: number;
   totalCopiedVolume: string;
   startedAt: string | null;
+  pausedAt?: string | null;
+  stoppedAt?: string | null;
+  stopReason?: string | null;
+  closeOpenPositionsOnStop?: boolean;
   createdAt: string;
+}
+
+export interface CopyExecution {
+  executionId: string;
+  subscriptionId: string;
+  leaderEventId: string;
+  leaderOrderId: string | null;
+  leaderFillId: string | null;
+  traderId: string;
+  followerId: string;
+  followerAccountId: string | null;
+  status: CopyExecutionStatus;
+  sizingMode: string;
+  leaderQuantity: string;
+  leaderPrice: string | null;
+  followerQuantity: string | null;
+  followerPrice: string | null;
+  slippageTolerance: string | null;
+  maxNotional: string | null;
+  followerOrderId: string | null;
+  riskDecision: CopyRiskDecision | null;
+  riskRuleId: string | null;
+  failureReason: string | null;
+  executionIntent: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionDetailSummary {
+  subscription: CopySubscription;
+  effectivePolicy: CopyPolicy;
+  recentExecutions: CopyExecution[];
+  totalExecutions: number;
+}
+
+export interface CopiedPositionItem {
+  id: string;
+  subscriptionId: string;
+  traderId: string;
+  strategyId: string;
+  symbol: string;
+  side: string;
+  quantity: string;
+  averageEntryPrice: string;
+  markPrice: string | null;
+  marketValue: string | null;
+  unrealizedPnl: string;
+  realizedPnl: string;
+  isOpen: boolean;
+  venue: string | null;
+  updatedAt: string;
+}
+
+export interface ExecutionOrderSummary {
+  id: string;
+  clientOrderId: string;
+  exchangeOrderId: string | null;
+  venue: string;
+  symbol: string;
+  side: string;
+  type: string;
+  status: string;
+  quantity: string;
+  filledQuantity: string;
+  remainingQuantity: string;
+  price: string | null;
+  averageFillPrice: string | null;
+  cumulativeFee: string;
+  feeCurrency: string | null;
+  isSimulated: boolean;
+  rejectionCode: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+}
+
+export interface CopiedOrderHistoryItem {
+  execution: CopyExecution;
+  order: ExecutionOrderSummary | null;
+}
+
+export interface CustomerReconciliationItem {
+  id: string;
+  category: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  resolved: boolean;
+  createdAt: string;
+  leaderEventId: string;
+  executionId: string | null;
+  customerMessage: string;
+}
+
+export interface CustomerReconciliationStatus {
+  subscriptionId: string;
+  status: "SYNCED" | "PENDING_REVIEW" | "ATTENTION_REQUIRED";
+  unresolvedCount: number;
+  resolvedCount: number;
+  lastCheckedAt: string;
+  items: CustomerReconciliationItem[];
 }
 
 export interface Paged<T> {
@@ -3715,11 +4523,6 @@ export interface TradingStatus {
   eligibility: "ELIGIBLE" | "RESTRICTED" | "MAINTENANCE" | "NOT_PERMITTED";
   canCopy: boolean;
   restrictions: TradingRestriction[];
-  /**
-   * The current notice, shown for any active window. Only `blocksTrading`
-   * windows (platform-wide, this tenant, or trading) disable copying - the
-   * API enforces the same rule and answers copy subscribe/resume with 503.
-   */
   maintenance: {
     active: boolean;
     message: string;
@@ -3735,9 +4538,12 @@ export interface CopyEligibility {
   reasons: string[];
 }
 
-const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : typeof v === "number" ? String(v) : fallback);
+const str = (v: unknown, fallback = ""): string =>
+  typeof v === "string" ? v : typeof v === "number" ? String(v) : fallback;
 const strOrNull = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : Number(v) || 0);
+const numOrNull = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const obj = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
 
@@ -3761,6 +4567,35 @@ export function parseTrader(input: unknown): TraderProfile {
   };
 }
 
+export function parseTraderPerformance(input: unknown): TraderPerformance {
+  const r = obj(input);
+  return {
+    traderId: str(r.traderId),
+    tenantId: str(r.tenantId),
+    realizedPnl: str(r.realizedPnl, "0"),
+    unrealizedPnl: strOrNull(r.unrealizedPnl),
+    totalReturn: strOrNull(r.totalReturn),
+    totalReturnPercent: strOrNull(r.totalReturnPercent),
+    maxDrawdown: strOrNull(r.maxDrawdown),
+    maxDrawdownPercent: strOrNull(r.maxDrawdownPercent),
+    winCount: num(r.winCount),
+    lossCount: num(r.lossCount),
+    tradeCount: num(r.tradeCount),
+    winRate: strOrNull(r.winRate),
+    lossRate: strOrNull(r.lossRate),
+    totalVolume: str(r.totalVolume, "0"),
+    averageTrade: strOrNull(r.averageTrade),
+    averageWin: strOrNull(r.averageWin),
+    averageLoss: strOrNull(r.averageLoss),
+    profitFactor: strOrNull(r.profitFactor),
+    sharpeRatio: strOrNull(r.sharpeRatio),
+    historyLengthDays: num(r.historyLengthDays),
+    lastTradeAt: strOrNull(r.lastTradeAt),
+    isActual: r.isActual !== false,
+    source: str(r.source, "FILLS"),
+  };
+}
+
 export function parseStrategy(input: unknown): Strategy {
   const r = obj(input);
   return {
@@ -3779,6 +4614,56 @@ export function parseStrategy(input: unknown): Strategy {
   };
 }
 
+export function parseCopyPolicy(input: unknown): CopyPolicy {
+  const r = obj(input);
+  const sizingModeRaw = str(r.sizingMode, "PROPORTIONAL");
+  const sizingMode: CopySizingMode =
+    sizingModeRaw === "FIXED" || sizingModeRaw === "PERCENTAGE_BALANCE" ? sizingModeRaw : "PROPORTIONAL";
+  const marginModeRaw = strOrNull(r.marginMode);
+  const marginMode =
+    marginModeRaw === "SPOT" || marginModeRaw === "ISOLATED" || marginModeRaw === "CROSS" ? marginModeRaw : null;
+  return {
+    sizingMode,
+    proportionalRatio: strOrNull(r.proportionalRatio),
+    fixedQuantity: strOrNull(r.fixedQuantity),
+    fixedNotional: strOrNull(r.fixedNotional),
+    maxOrderNotional: strOrNull(r.maxOrderNotional),
+    maxDailyNotional: strOrNull(r.maxDailyNotional),
+    maxConcurrentCopies: numOrNull(r.maxConcurrentCopies),
+    slippageToleranceBps: numOrNull(r.slippageToleranceBps),
+    executionDelayMs: numOrNull(r.executionDelayMs),
+    allowedSymbols: Array.isArray(r.allowedSymbols) ? strList(r.allowedSymbols) : null,
+    blockedSymbols: Array.isArray(r.blockedSymbols) ? strList(r.blockedSymbols) : null,
+    allowedSides: Array.isArray(r.allowedSides) ? strList(r.allowedSides) : null,
+    leveragePolicy: strOrNull(r.leveragePolicy),
+    maxLeverage: strOrNull(r.maxLeverage),
+    marginMode,
+    reduceOnly: typeof r.reduceOnly === "boolean" ? r.reduceOnly : null,
+    takeProfitBps: numOrNull(r.takeProfitBps),
+    stopLossBps: numOrNull(r.stopLossBps),
+    trailingStopBps: numOrNull(r.trailingStopBps),
+    stopCopyConditions: r.stopCopyConditions && typeof r.stopCopyConditions === "object" ? obj(r.stopCopyConditions) : null,
+  };
+}
+
+export function parseFollowerRiskPolicy(input: unknown): FollowerRiskPolicy {
+  const r = obj(input);
+  return {
+    maxDailyLoss: strOrNull(r.maxDailyLoss),
+    maxTotalLoss: strOrNull(r.maxTotalLoss),
+    maxDrawdown: strOrNull(r.maxDrawdown),
+    maxExposure: strOrNull(r.maxExposure),
+    maxPositionSize: strOrNull(r.maxPositionSize),
+    maxSymbolExposure: strOrNull(r.maxSymbolExposure),
+    maxCopyCount: numOrNull(r.maxCopyCount),
+    maxLeverage: strOrNull(r.maxLeverage),
+    minMarginRatio: strOrNull(r.minMarginRatio),
+    allowedMarginModes: Array.isArray(r.allowedMarginModes) ? strList(r.allowedMarginModes) : null,
+    emergencyStopCopy: r.emergencyStopCopy === true,
+    dailyPauseEnabled: r.dailyPauseEnabled === true,
+  };
+}
+
 export function parseSubscription(input: unknown): CopySubscription {
   const r = obj(input);
   return {
@@ -3789,12 +4674,48 @@ export function parseSubscription(input: unknown): CopySubscription {
     allocationMode: str(r.allocationMode, "FIXED"),
     allocationAmount: str(r.allocationAmount, "0"),
     maxAllocation: strOrNull(r.maxAllocation),
+    minAllocation: strOrNull(r.minAllocation),
+    copyPolicy: r.copyPolicy ? parseCopyPolicy(r.copyPolicy) : undefined,
+    riskPolicy: r.riskPolicy ? parseFollowerRiskPolicy(r.riskPolicy) : undefined,
     followerAccountId: strOrNull(r.followerAccountId),
     totalCopies: num(r.totalCopies),
     failedCopies: num(r.failedCopies),
     totalCopiedVolume: str(r.totalCopiedVolume, "0"),
     startedAt: strOrNull(r.startedAt),
+    pausedAt: strOrNull(r.pausedAt),
+    stoppedAt: strOrNull(r.stoppedAt),
+    stopReason: strOrNull(r.stopReason),
+    closeOpenPositionsOnStop: r.closeOpenPositionsOnStop === true || r.closeOpenPositions === true,
     createdAt: str(r.createdAt),
+  };
+}
+
+export function parseCopyExecution(input: unknown): CopyExecution {
+  const r = obj(input);
+  return {
+    executionId: str(r.executionId ?? r.id),
+    subscriptionId: str(r.subscriptionId),
+    leaderEventId: str(r.leaderEventId),
+    leaderOrderId: strOrNull(r.leaderOrderId),
+    leaderFillId: strOrNull(r.leaderFillId),
+    traderId: str(r.traderId),
+    followerId: str(r.followerId),
+    followerAccountId: strOrNull(r.followerAccountId),
+    status: str(r.status, "PENDING") as CopyExecutionStatus,
+    sizingMode: str(r.sizingMode, "FIXED"),
+    leaderQuantity: str(r.leaderQuantity, "0"),
+    leaderPrice: strOrNull(r.leaderPrice),
+    followerQuantity: strOrNull(r.followerQuantity),
+    followerPrice: strOrNull(r.followerPrice),
+    slippageTolerance: strOrNull(r.slippageTolerance),
+    maxNotional: strOrNull(r.maxNotional),
+    followerOrderId: strOrNull(r.followerOrderId),
+    riskDecision: (strOrNull(r.riskDecision) as CopyRiskDecision | null) ?? null,
+    riskRuleId: strOrNull(r.riskRuleId),
+    failureReason: strOrNull(r.failureReason),
+    executionIntent: obj(r.executionIntent),
+    createdAt: str(r.createdAt),
+    updatedAt: str(r.updatedAt),
   };
 }
 
@@ -3812,8 +4733,7 @@ export function permissionsAllowCopy(permissions: readonly string[]): boolean {
 /**
  * Display-side eligibility for one strategy, mirroring the API's subscribe()
  * preconditions (strategy PUBLISHED, account not restricted, no maintenance,
- * role allowed to copy). The API still decides: it re-checks all of this plus
- * compliance blocks, plan limits and the allocation against the balance.
+ * role allowed to copy).
  */
 export function copyEligibility(strategy: Pick<Strategy, "status">, status: TradingStatus | undefined): CopyEligibility {
   const reasons: string[] = [];
@@ -3840,7 +4760,6 @@ export function composeTradingStatus(
           scope: strOrNull(m.scope),
           endsAt: strOrNull(m.endsAt),
           isEmergency: m.isEmergency === true,
-          // An API without the flag predates the rule: treat every window as blocking.
           blocksTrading: typeof m.blocksTrading === "boolean" ? m.blocksTrading : true,
         }
       : null;
@@ -3858,6 +4777,98 @@ export function composeTradingStatus(
         ? "RESTRICTED"
         : "ELIGIBLE";
   return { eligibility, canCopy: eligibility === "ELIGIBLE", restrictions, maintenance };
+}
+
+/** Filter and sort traders on client-side discovery criteria. */
+export function filterTradersByDiscovery(
+  traders: TraderProfile[],
+  filters: TraderDiscoveryFilters,
+  performancesByTraderId?: Record<string, TraderPerformance | null>,
+): TraderProfile[] {
+  let result = [...traders];
+
+  if (filters.verificationState) {
+    result = result.filter((t) => t.verificationState === filters.verificationState);
+  }
+  if (filters.isFeatured !== undefined) {
+    result = result.filter((t) => Boolean(t.isFeatured) === filters.isFeatured);
+  }
+  if (filters.search && filters.search.trim()) {
+    const q = filters.search.trim().toLowerCase();
+    result = result.filter(
+      (t) =>
+        t.displayName.toLowerCase().includes(q) ||
+        (t.bio ?? "").toLowerCase().includes(q) ||
+        t.supportedSymbols.some((s) => s.toLowerCase().includes(q)) ||
+        t.supportedVenues.some((v) => v.toLowerCase().includes(q)),
+    );
+  }
+  if (filters.venue && filters.venue.trim()) {
+    const venueUpper = filters.venue.trim().toUpperCase();
+    result = result.filter((t) => t.supportedVenues.some((v) => v.toUpperCase() === venueUpper));
+  }
+  if (filters.symbol && filters.symbol.trim()) {
+    const symUpper = filters.symbol.trim().toUpperCase();
+    result = result.filter((t) => t.supportedSymbols.some((s) => s.toUpperCase().includes(symUpper)));
+  }
+  if (filters.minTrades !== undefined && filters.minTrades > 0) {
+    result = result.filter((t) => (t.totalTrades ?? 0) >= filters.minTrades!);
+  }
+  if (filters.minFollowers !== undefined && filters.minFollowers > 0) {
+    result = result.filter((t) => (t.followerCount ?? 0) >= filters.minFollowers!);
+  }
+  if (performancesByTraderId) {
+    if (filters.minWinRate !== undefined && filters.minWinRate > 0) {
+      result = result.filter((t) => {
+        const perf = performancesByTraderId[t.traderId];
+        if (!perf?.winRate) return false;
+        const wr = parseFloat(perf.winRate);
+        const normalizedPct = wr <= 1 ? wr * 100 : wr;
+        return !Number.isNaN(normalizedPct) && normalizedPct >= filters.minWinRate!;
+      });
+    }
+    if (filters.maxDrawdown !== undefined && filters.maxDrawdown >= 0) {
+      result = result.filter((t) => {
+        const perf = performancesByTraderId[t.traderId];
+        if (!perf?.maxDrawdown) return true;
+        const dd = parseFloat(perf.maxDrawdown);
+        return !Number.isNaN(dd) && dd <= filters.maxDrawdown!;
+      });
+    }
+  }
+
+  if (filters.sortBy === "pnl" && performancesByTraderId) {
+    // The page has always offered "Sort by Realized PnL"; this branch is what makes the option mean
+    // anything. Unknown performances sort last, not as zero.
+    result.sort((a, b) =>
+      compareDecimalStringsDescending(
+        performancesByTraderId[a.traderId]?.realizedPnl,
+        performancesByTraderId[b.traderId]?.realizedPnl,
+      ),
+    );
+  } else if (filters.sortBy === "winRate" && performancesByTraderId) {
+    result.sort((a, b) =>
+      compareDecimalStringsDescending(
+        performancesByTraderId[a.traderId]?.winRate,
+        performancesByTraderId[b.traderId]?.winRate,
+      ),
+    );
+  } else if (filters.sortBy === "volume") {
+    result.sort((a, b) => compareDecimalStringsDescending(a.totalVolume, b.totalVolume));
+  } else if (filters.sortBy === "trades") {
+    result.sort((a, b) => (b.totalTrades || 0) - (a.totalTrades || 0));
+  } else if (filters.sortBy === "performance" && performancesByTraderId) {
+    result.sort((a, b) =>
+      compareDecimalStringsDescending(
+        performancesByTraderId[a.traderId]?.realizedPnl,
+        performancesByTraderId[b.traderId]?.realizedPnl,
+      ),
+    );
+  } else {
+    result.sort((a, b) => (b.followerCount || 0) - (a.followerCount || 0));
+  }
+
+  return result;
 }
 
 /** A customer without a client profile has no restrictions record (403/404): that is "none", not an error. */
@@ -3879,8 +4890,24 @@ export interface CreateCopySubscriptionInput {
   followerAccountId?: string;
 }
 
+export interface UpdateSubscriptionSettingsInput {
+  allocationMode?: CopySizingMode;
+  allocationAmount?: string;
+  maxAllocation?: string | null;
+  minAllocation?: string | null;
+  copyPolicy?: Partial<CopyPolicy> | Record<string, unknown>;
+  riskPolicy?: Partial<FollowerRiskPolicy> | Record<string, unknown>;
+  followerAccountId?: string | null;
+}
+
 export const tradingApi = {
-  listTraders: async (params?: { search?: string; verificationState?: string; isFeatured?: boolean; page?: number; limit?: number }) =>
+  listTraders: async (params?: {
+    search?: string;
+    verificationState?: string;
+    isFeatured?: boolean;
+    page?: number;
+    limit?: number;
+  }) =>
     parsePaged(
       await apiClient.get<unknown>("/v1/copy-trading/traders", {
         searchParams: {
@@ -3894,8 +4921,96 @@ export const tradingApi = {
       parseTrader,
     ),
 
+  getLeaderboard: async (params?: {
+    verificationState?: string;
+    isFeatured?: boolean;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    timeframe?: TraderRankingTimeframe;
+  }): Promise<Paged<TraderRanking>> => {
+    const raw = await apiClient.get<unknown>("/v1/copy-trading/rankings", {
+      searchParams: {
+        verificationState: params?.verificationState,
+        isFeatured: params?.isFeatured,
+        search: params?.search || undefined,
+        page: params?.page,
+        limit: params?.limit,
+        sortBy: params?.sortBy,
+        timeframe: params?.timeframe,
+      },
+    });
+    return parsePaged(raw, (entry) => {
+      const r = obj(entry);
+      const m = obj(r.metrics);
+      return {
+        traderId: str(r.traderId ?? r.id),
+        tenantId: str(r.tenantId),
+        displayName: str(r.displayName, "Unnamed trader"),
+        verificationState: str(r.verificationState, "UNVERIFIED"),
+        isPublic: r.isPublic !== false,
+        isFeatured: r.isFeatured === true,
+        followerCount: num(r.followerCount),
+        performance: r.performance ? parseTraderPerformance(r.performance) : null,
+        score: num(r.score),
+        rank: num(r.rank),
+        metrics: {
+          riskAdjustedReturn: numOrNull(m.riskAdjustedReturn),
+          drawdownScore: numOrNull(m.drawdownScore),
+          consistencyScore: numOrNull(m.consistencyScore),
+          historyLengthScore: numOrNull(m.historyLengthScore),
+          followerScore: numOrNull(m.followerScore),
+          activityScore: numOrNull(m.activityScore),
+          verifiedScore: numOrNull(m.verifiedScore),
+        },
+        weighting: (obj(r.weighting) as Record<string, number>) ?? {},
+      };
+    });
+  },
+
   getTrader: async (traderId: string) =>
     parseTrader(await apiClient.get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(traderId)}/profile`)),
+
+  getTraderPerformance: async (traderId: string): Promise<TraderPerformance> =>
+    parseTraderPerformance(
+      await apiClient.get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(traderId)}/performance`),
+    ),
+
+  getTraderPerformanceDetail: async (traderId: string): Promise<TraderPerformanceDetail> => {
+    const [profileRaw, perfRaw, strategiesRaw] = await Promise.all([
+      apiClient.get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(traderId)}/profile`),
+      apiClient.get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(traderId)}/performance`),
+      apiClient.get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(traderId)}/strategies`, {
+        searchParams: { page: 1, limit: 20 },
+      }),
+    ]);
+    return {
+      profile: parseTrader(profileRaw),
+      performance: parseTraderPerformance(perfRaw),
+      strategies: parsePaged(strategiesRaw, parseStrategy).data,
+    };
+  },
+
+  compareTraders: async (traderIds: string[]): Promise<TraderComparisonEntry[]> => {
+    const uniqueIds = Array.from(new Set(traderIds.map((id) => id.trim()).filter(Boolean))).slice(0, 4);
+    return Promise.all(
+      uniqueIds.map(async (id) => {
+        const [profileRaw, perfRaw, strategiesRaw] = await Promise.all([
+          apiClient.get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(id)}/profile`),
+          apiClient.get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(id)}/performance`),
+          apiClient.get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(id)}/strategies`, {
+            searchParams: { page: 1, limit: 10 },
+          }),
+        ]);
+        return {
+          profile: parseTrader(profileRaw),
+          performance: parseTraderPerformance(perfRaw),
+          strategies: parsePaged(strategiesRaw, parseStrategy).data,
+        };
+      }),
+    );
+  },
 
   listTraderStrategies: async (traderId: string, params?: { page?: number; limit?: number }) =>
     parsePaged(
@@ -3917,6 +5032,29 @@ export const tradingApi = {
   getStrategy: async (strategyId: string) =>
     parseStrategy(await apiClient.get<unknown>(`/v1/copy-trading/strategies/${encodeURIComponent(strategyId)}`)),
 
+  getStrategyAnalytics: async (strategyId: string): Promise<StrategyAnalyticsView> => {
+    const strategy = parseStrategy(
+      await apiClient.get<unknown>(`/v1/copy-trading/strategies/${encodeURIComponent(strategyId)}`),
+    );
+    const [traderRaw, perfRaw, policyRaw] = await Promise.all([
+      apiClient
+        .get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(strategy.traderId)}/profile`)
+        .catch(() => null),
+      apiClient
+        .get<unknown>(`/v1/copy-trading/traders/${encodeURIComponent(strategy.traderId)}/performance`)
+        .catch(() => null),
+      apiClient
+        .get<unknown>("/v1/copy-trading/policies/effective", { searchParams: { strategyId: strategy.strategyId } })
+        .catch(() => null),
+    ]);
+    return {
+      strategy,
+      trader: traderRaw ? parseTrader(traderRaw) : null,
+      performance: perfRaw ? parseTraderPerformance(perfRaw) : null,
+      effectivePolicy: policyRaw ? parseCopyPolicy(policyRaw) : null,
+    };
+  },
+
   listCopySubscriptions: async (params?: { state?: CopySubscriptionState; page?: number; limit?: number }) =>
     parsePaged(
       await apiClient.get<unknown>("/v1/copy-trading/subscriptions/me", {
@@ -3924,6 +5062,232 @@ export const tradingApi = {
       }),
       parseSubscription,
     ),
+
+  getCopySubscription: async (subscriptionId: string): Promise<CopySubscription> =>
+    parseSubscription(
+      await apiClient.get<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`),
+    ),
+
+  updateCopySubscriptionSettings: async (
+    subscriptionId: string,
+    input: UpdateSubscriptionSettingsInput,
+  ): Promise<CopySubscription> =>
+    parseSubscription(
+      await apiClient.put<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`, input),
+    ),
+
+  getEffectivePolicy: async (params: { strategyId?: string; subscriptionId?: string }): Promise<CopyPolicy> =>
+    parseCopyPolicy(
+      await apiClient.get<unknown>("/v1/copy-trading/policies/effective", {
+        searchParams: { strategyId: params.strategyId, subscriptionId: params.subscriptionId },
+      }),
+    ),
+
+  getSubscriptionDetail: async (subscriptionId: string): Promise<SubscriptionDetailSummary> => {
+    const [subRaw, policyRaw, execsRaw] = await Promise.all([
+      apiClient.get<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`),
+      apiClient.get<unknown>("/v1/copy-trading/policies/effective", { searchParams: { subscriptionId } }),
+      apiClient.get<unknown>("/v1/copy-trading/executions", {
+        searchParams: { subscriptionId, page: 1, limit: 20 },
+      }),
+    ]);
+    const pagedExecs = parsePaged(execsRaw, parseCopyExecution);
+    return {
+      subscription: parseSubscription(subRaw),
+      effectivePolicy: parseCopyPolicy(policyRaw),
+      recentExecutions: pagedExecs.data,
+      totalExecutions: pagedExecs.total,
+    };
+  },
+
+  listSubscriptionPositions: async (
+    subscriptionId: string,
+    params?: { symbol?: string; onlyOpen?: boolean },
+  ): Promise<CopiedPositionItem[]> => {
+    const [subRaw, positionsRaw] = await Promise.all([
+      apiClient.get<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`),
+      apiClient.get<unknown>("/v1/portfolio-accounting/positions", {
+        searchParams: {
+          symbol: params?.symbol,
+          limit: 100,
+        },
+      }),
+    ]);
+    const sub = parseSubscription(subRaw);
+    const rows = Array.isArray(positionsRaw)
+      ? positionsRaw
+      : Array.isArray(obj(positionsRaw).data)
+        ? (obj(positionsRaw).data as unknown[])
+        : [];
+    const allowedSymbols = sub.copyPolicy?.allowedSymbols ?? null;
+    const onlyOpen = params?.onlyOpen ?? true;
+
+    return rows
+      .map(obj)
+      .filter((pos) => {
+        if (onlyOpen && pos.isOpen === false) return false;
+        const sym = str(pos.symbol);
+        if (params?.symbol && sym.toUpperCase() !== params.symbol.toUpperCase()) return false;
+        if (allowedSymbols && allowedSymbols.length > 0) {
+          return allowedSymbols.includes(sym);
+        }
+        return true;
+      })
+      .map((pos) => ({
+        id: str(pos.id),
+        subscriptionId: sub.subscriptionId,
+        traderId: sub.traderId,
+        strategyId: sub.strategyId,
+        symbol: str(pos.symbol),
+        side: str(pos.side, "LONG"),
+        quantity: str(pos.quantity, "0"),
+        averageEntryPrice: str(pos.averageEntryPrice, "0"),
+        markPrice: strOrNull(pos.markPrice),
+        marketValue: strOrNull(pos.marketValue),
+        unrealizedPnl: str(pos.unrealizedPnl, "0"),
+        realizedPnl: str(pos.realizedPnl, "0"),
+        isOpen: pos.isOpen !== false,
+        venue: strOrNull(pos.venue),
+        updatedAt: str(pos.updatedAt),
+      }));
+  },
+
+  listSubscriptionOrders: async (
+    subscriptionId: string,
+    params?: { status?: CopyExecutionStatus; symbol?: string; page?: number; limit?: number },
+  ): Promise<{ items: CopiedOrderHistoryItem[]; total: number }> => {
+    const [execsRaw, ordersRaw] = await Promise.all([
+      apiClient.get<unknown>("/v1/copy-trading/executions", {
+        searchParams: {
+          subscriptionId,
+          status: params?.status,
+          page: params?.page ?? 1,
+          limit: params?.limit ?? 20,
+        },
+      }),
+      apiClient
+        .get<unknown>("/v1/execution/orders", {
+          searchParams: {
+            symbol: params?.symbol,
+            limit: 50,
+          },
+        })
+        .catch(() => ({ items: [] })),
+    ]);
+
+    const pagedExecs = parsePaged(execsRaw, parseCopyExecution);
+    const rawOrderItems = Array.isArray(obj(ordersRaw).items)
+      ? (obj(ordersRaw).items as unknown[])
+      : Array.isArray(obj(ordersRaw).data)
+        ? (obj(ordersRaw).data as unknown[])
+        : [];
+    const ordersById = new Map<string, ExecutionOrderSummary>();
+    for (const item of rawOrderItems) {
+      const o = obj(item);
+      const id = str(o.id);
+      if (!id) continue;
+      ordersById.set(id, {
+        id,
+        clientOrderId: str(o.clientOrderId),
+        exchangeOrderId: strOrNull(o.exchangeOrderId),
+        venue: str(o.venue),
+        symbol: str(o.symbol),
+        side: str(o.side, "BUY"),
+        type: str(o.type, "MARKET"),
+        status: str(o.status, "SUBMITTED"),
+        quantity: str(o.quantity, "0"),
+        filledQuantity: str(o.filledQuantity, "0"),
+        remainingQuantity: str(o.remainingQuantity, "0"),
+        price: strOrNull(o.price),
+        averageFillPrice: strOrNull(o.averageFillPrice),
+        cumulativeFee: str(o.cumulativeFee, "0"),
+        feeCurrency: strOrNull(o.feeCurrency),
+        isSimulated: o.isSimulated === true,
+        rejectionCode: strOrNull(o.rejectionCode),
+        rejectionReason: strOrNull(o.rejectionReason),
+        createdAt: str(o.createdAt),
+      });
+    }
+
+    const items = pagedExecs.data
+      .filter((exec) => {
+        if (!params?.symbol) return true;
+        const intentSym = str(exec.executionIntent.symbol);
+        const orderSym = exec.followerOrderId ? ordersById.get(exec.followerOrderId)?.symbol ?? "" : "";
+        const target = params.symbol.toUpperCase();
+        return intentSym.toUpperCase().includes(target) || orderSym.toUpperCase().includes(target);
+      })
+      .map((exec) => ({
+        execution: exec,
+        order: exec.followerOrderId ? ordersById.get(exec.followerOrderId) ?? null : null,
+      }));
+
+    return { items, total: pagedExecs.total };
+  },
+
+  listExecutions: async (params?: {
+    status?: CopyExecutionStatus;
+    subscriptionId?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<Paged<CopyExecution>> =>
+    parsePaged(
+      await apiClient.get<unknown>("/v1/copy-trading/executions", {
+        searchParams: {
+          status: params?.status,
+          subscriptionId: params?.subscriptionId,
+          page: params?.page,
+          limit: params?.limit,
+        },
+      }),
+      parseCopyExecution,
+    ),
+
+  getExecution: async (executionId: string): Promise<CopyExecution> =>
+    parseCopyExecution(
+      await apiClient.get<unknown>(`/v1/copy-trading/executions/${encodeURIComponent(executionId)}`),
+    ),
+
+  getSubscriptionReconciliationStatus: async (
+    subscriptionId: string,
+  ): Promise<CustomerReconciliationStatus> => {
+    const raw = obj(
+      await apiClient.get<unknown>(
+        `/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/reconciliation-status`,
+      ),
+    );
+    const rawStatus = str(raw.status, "SYNCED");
+    const status: CustomerReconciliationStatus["status"] =
+      rawStatus === "ATTENTION_REQUIRED" || rawStatus === "PENDING_REVIEW" ? rawStatus : "SYNCED";
+    const items = Array.isArray(raw.items)
+      ? raw.items.map((item) => {
+          const r = obj(item);
+          const sev = str(r.severity, "LOW");
+          return {
+            id: str(r.id),
+            category: str(r.category, "ORDER_MISMATCH"),
+            severity: (sev === "CRITICAL" || sev === "HIGH" || sev === "MEDIUM" ? sev : "LOW") as
+              | "LOW"
+              | "MEDIUM"
+              | "HIGH"
+              | "CRITICAL",
+            resolved: r.resolved === true,
+            createdAt: str(r.createdAt),
+            leaderEventId: str(r.leaderEventId),
+            executionId: strOrNull(r.executionId),
+            customerMessage: str(r.customerMessage, "Reconciliation check recorded."),
+          };
+        })
+      : [];
+    return {
+      subscriptionId: str(raw.subscriptionId, subscriptionId),
+      status,
+      unresolvedCount: num(raw.unresolvedCount),
+      resolvedCount: num(raw.resolvedCount),
+      lastCheckedAt: str(raw.lastCheckedAt),
+      items,
+    };
+  },
 
   createCopySubscription: async (input: CreateCopySubscriptionInput) =>
     parseSubscription(
@@ -3938,29 +5302,108 @@ export const tradingApi = {
       }),
     ),
 
+  createSubscription: async (input: CreateCopySubscriptionInput & { minAllocation?: string; copyPolicy?: Partial<CopyPolicy> }) =>
+    parseSubscription(
+      await apiClient.post<unknown>("/v1/copy-trading/subscriptions", {
+        traderId: input.traderId,
+        strategyId: input.strategyId,
+        allocationMode: input.allocationMode,
+        allocationAmount: input.allocationAmount,
+        ...(input.maxAllocation ? { maxAllocation: input.maxAllocation } : {}),
+        ...(input.minAllocation ? { minAllocation: input.minAllocation } : {}),
+        ...(input.copyPolicy ? { copyPolicy: input.copyPolicy } : {}),
+        ...(input.followerAccountId ? { followerAccountId: input.followerAccountId } : {}),
+        idempotencyKey: newIdempotencyKey("copy-sub"),
+      }),
+    ),
+
   pauseCopySubscription: async (subscriptionId: string) =>
-    parseSubscription(await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/pause`)),
+    parseSubscription(
+      await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/pause`),
+    ),
+
+  pauseSubscription: async (subscriptionId: string) =>
+    parseSubscription(
+      await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/pause`),
+    ),
 
   resumeCopySubscription: async (subscriptionId: string) =>
-    parseSubscription(await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/resume`)),
+    parseSubscription(
+      await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/resume`),
+    ),
+
+  resumeSubscription: async (subscriptionId: string) =>
+    parseSubscription(
+      await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/resume`),
+    ),
 
   stopCopySubscription: async (subscriptionId: string) =>
-    parseSubscription(await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/stop`)),
+    parseSubscription(
+      await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/stop`),
+    ),
+
+  stopSubscription: async (subscriptionId: string, reason?: string, closeOpenPositions = false) =>
+    parseSubscription(
+      await apiClient.post<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/stop`, {
+        reason,
+        closeOpenPositions,
+      }),
+    ),
 
   cancelCopySubscription: async (subscriptionId: string) =>
-    parseSubscription(await apiClient.delete<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`)),
+    parseSubscription(
+      await apiClient.delete<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`),
+    ),
 
-  /**
-   * There is no trading-status route: the status is composed from the tenant
-   * maintenance notice, the caller's own active restrictions and whether the
-   * caller's role may copy at all.
-   */
-  getTradingStatus: async (permissions: readonly string[]): Promise<TradingStatus> => {
+  getTradingStatus: async (permissions: readonly string[] = ["*"]): Promise<TradingStatus> => {
     const [maintenance, restrictions] = await Promise.all([
       apiClient.get<unknown>("/v1/operations/maintenance/current"),
       ownRestrictions(),
     ]);
     return composeTradingStatus(permissions, maintenance, restrictions);
+  },
+};
+```
+
+FILE: apps/web/src/api/user-position-limits-api.ts
+
+```typescript
+// # Responsibility: typed customer API contract for authenticated user-wide position and open-order limits.
+
+import { apiClient } from './api-client';
+
+export type UserPositionLimitUsage = {
+  ownedAccountCount: number;
+  openPositionSlots: number;
+  openOrderCount: number;
+};
+
+export type UserPositionLimitsView = {
+  tenantId: string;
+  limits: {
+    maxConcurrentPositions: number | null;
+    maxOpenOrders: number | null;
+  };
+  configured: boolean;
+  updatedAt: string | null;
+  usage: UserPositionLimitUsage | null;
+  usageState: 'CURRENT' | 'UNKNOWN';
+  accountScope: 'USER_OWNED_NON_DELETED_ACCOUNTS_INCLUDING_PAPER_AND_LIVE';
+  asOf: string;
+};
+
+export type UpdateUserPositionLimitsInput = {
+  maxConcurrentPositions?: number | null;
+  maxOpenOrders?: number | null;
+};
+
+export const userPositionLimitsApi = {
+  getMyLimits(): Promise<UserPositionLimitsView> {
+    return apiClient.get<UserPositionLimitsView>('/v1/risk-management/my-position-limits');
+  },
+
+  updateMyLimits(input: UpdateUserPositionLimitsInput): Promise<UserPositionLimitsView> {
+    return apiClient.put<UserPositionLimitsView>('/v1/risk-management/my-position-limits', input);
   },
 };
 ```
@@ -4013,13 +5456,60 @@ export default function Page(): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/app/activity/page.tsx
+
+```tsx
+// # NEW — Customer activity & audit log route
+// # NEW — customer activity route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CustomerActivityPage } from '@/features/activity/customer-activity-page';
+import { AppShell } from '@/layout/app-shell';
+
+export default function Page(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="customer-activity-route" className="space-y-4">
+          <nav
+            aria-label="Customer activity breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/dashboard" className="hover:underline">
+                Dashboard
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">
+                Customer Activity & Audit Trail
+              </span>
+            </div>
+            <Link
+              href="/notifications"
+              className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+            >
+              View Notifications
+            </Link>
+          </nav>
+
+          <CustomerActivityPage />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
 FILE: apps/web/src/app/api/auth/login/route.ts
 
 ```typescript
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
 
@@ -4263,7 +5753,7 @@ FILE: apps/web/src/app/api/auth/register/route.ts
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
 
@@ -4492,7 +5982,7 @@ FILE: apps/web/src/app/api/auth/sso/start/route.ts
 ```typescript
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { ApiError } from "@/lib/api-error";
+import { ApiError } from "@wlct/utils/api-error";
 import { serverFetch } from "@/lib/server-api";
 import {
   SSO_BINDING_COOKIE,
@@ -4634,7 +6124,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { buildVerifyBody, twoFactorRequestSchema } from '@/lib/two-factor-verify';
 
 export const runtime = 'nodejs';
@@ -4713,7 +6203,8 @@ FILE: apps/web/src/app/api/proxy/[...path]/route.ts
 ```typescript
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { serverEnv, publicEnv } from '@/lib/env';
+import { serverEnv } from '@/lib/env';
+import { runtimeConfig } from '@/config/runtime-config';
 import { getAccessToken, getCsrfToken } from '@/lib/session';
 import { buildUpstreamPath, isAnonymousRoute, isUnsafeSegment } from '@/lib/proxy-path';
 
@@ -4739,7 +6230,7 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
     );
   }
 
-  const anonymous = isAnonymousRoute(request.method, segments, publicEnv.apiVersion);
+  const anonymous = isAnonymousRoute(request.method, segments, runtimeConfig.apiVersion);
 
   if (MUTATING_METHODS.has(request.method)) {
     const submitted = request.headers.get('x-csrf-token');
@@ -4762,7 +6253,7 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
 
   const incoming = new URL(request.url);
   const base = env.API_BASE_URL.replace(/\/+$/, '');
-  const target = new URL(`${base}/${buildUpstreamPath(segments, publicEnv.apiVersion)}`);
+  const target = new URL(`${base}/${buildUpstreamPath(segments, runtimeConfig.apiVersion)}`);
   target.search = incoming.search;
 
   const headers: Record<string, string> = {
@@ -5039,6 +6530,277 @@ export default function Page(): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/app/copy-trading/[subscriptionId]/orders/page.tsx
+
+```tsx
+// # NEW — copied order history route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CopiedOrdersPage } from '@/features/trading/copied-orders-page';
+import { AppShell } from '@/layout/app-shell';
+
+export interface CopySubscriptionOrdersRouteProps {
+  params: {
+    subscriptionId: string;
+  };
+}
+
+export default function Page({ params }: CopySubscriptionOrdersRouteProps): JSX.Element {
+  const { subscriptionId } = params;
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="copy-subscription-orders-route" className="space-y-4">
+          <nav
+            aria-label="Subscription orders breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/copy-trading" className="hover:underline">
+                Copy Subscriptions
+              </Link>
+              <span>/</span>
+              <Link
+                href={`/copy-trading/${encodeURIComponent(subscriptionId)}`}
+                className="hover:underline"
+              >
+                Subscription {subscriptionId}
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Copied Orders History</span>
+            </div>
+          </nav>
+
+          <CopiedOrdersPage subscriptionId={subscriptionId} />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/copy-trading/[subscriptionId]/page.tsx
+
+```tsx
+// # NEW — subscription detail route
+// # MODIFY — execution detail linkage
+// # MODIFY — reconciliation status integration
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CopySubscriptionDetailPage } from '@/features/trading/copy-subscription-detail-page';
+import { AppShell } from '@/layout/app-shell';
+
+export interface CopySubscriptionDetailRouteProps {
+  params: {
+    subscriptionId: string;
+  };
+}
+
+export default function Page({ params }: CopySubscriptionDetailRouteProps): JSX.Element {
+  const { subscriptionId } = params;
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="copy-subscription-detail-route" className="space-y-4">
+          <nav
+            aria-label="Subscription detail breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/copy-trading" className="hover:underline">
+                Copy Subscriptions
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Subscription {subscriptionId}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/copy-trading/${encodeURIComponent(subscriptionId)}/settings`}
+                className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Edit Allocation & Risk
+              </Link>
+              <Link
+                href={`/copy-trading/${encodeURIComponent(subscriptionId)}/positions`}
+                className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Copied Positions
+              </Link>
+              <Link
+                href={`/copy-trading/${encodeURIComponent(subscriptionId)}/orders`}
+                className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Copied Orders
+              </Link>
+            </div>
+          </nav>
+
+          <CopySubscriptionDetailPage subscriptionId={subscriptionId} />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/copy-trading/[subscriptionId]/positions/page.tsx
+
+```tsx
+// # NEW — copied positions route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CopiedPositionsPage } from '@/features/trading/copied-positions-page';
+import { AppShell } from '@/layout/app-shell';
+
+export interface CopySubscriptionPositionsRouteProps {
+  params: {
+    subscriptionId: string;
+  };
+}
+
+export default function Page({ params }: CopySubscriptionPositionsRouteProps): JSX.Element {
+  const { subscriptionId } = params;
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="copy-subscription-positions-route" className="space-y-4">
+          <nav
+            aria-label="Subscription positions breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/copy-trading" className="hover:underline">
+                Copy Subscriptions
+              </Link>
+              <span>/</span>
+              <Link
+                href={`/copy-trading/${encodeURIComponent(subscriptionId)}`}
+                className="hover:underline"
+              >
+                Subscription {subscriptionId}
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Copied Positions</span>
+            </div>
+          </nav>
+
+          <CopiedPositionsPage subscriptionId={subscriptionId} />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/copy-trading/[subscriptionId]/settings/page.tsx
+
+```tsx
+// # NEW — subscription settings route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CopySettingsPage } from '@/features/trading/copy-settings-page';
+import { AppShell } from '@/layout/app-shell';
+
+export interface CopySubscriptionSettingsRouteProps {
+  params: {
+    subscriptionId: string;
+  };
+}
+
+export default function Page({ params }: CopySubscriptionSettingsRouteProps): JSX.Element {
+  const { subscriptionId } = params;
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="copy-subscription-settings-route" className="space-y-4">
+          <nav
+            aria-label="Subscription settings breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/copy-trading" className="hover:underline">
+                Copy Subscriptions
+              </Link>
+              <span>/</span>
+              <Link
+                href={`/copy-trading/${encodeURIComponent(subscriptionId)}`}
+                className="hover:underline"
+              >
+                Subscription {subscriptionId}
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Allocation & Risk Settings</span>
+            </div>
+          </nav>
+
+          <CopySettingsPage subscriptionId={subscriptionId} />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/copy-trading/orders/page.tsx
+
+```tsx
+// # NEW — Customer route for copied order history
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CopiedOrdersPage } from '@/features/trading/copied-orders-page';
+import { AppShell } from '@/layout/app-shell';
+
+export default function CopyTradingOrdersRoute(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="copy-trading-orders-route" className="space-y-4">
+          <nav
+            aria-label="Copied orders navigation"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/copy-trading" className="hover:underline">
+                Copy Trading
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Copied Order History</span>
+            </div>
+            <Link
+              href="/copy-trading/positions"
+              className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+            >
+              View Copied Positions
+            </Link>
+          </nav>
+
+          <CopiedOrdersPage />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
 FILE: apps/web/src/app/copy-trading/page.tsx
 
 ```tsx
@@ -5120,9 +6882,33 @@ export default function Page(): JSX.Element {
                       {s.failedCopies > 0 ? `, ${s.failedCopies} failed` : ""}
                     </span>
                   </span>
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-2">
                     <Money value={s.allocationAmount} />
                     <StatusBadge status={s.state} />
+                    <Link
+                      href={`/copy-trading/${s.subscriptionId}`}
+                      className="rounded border px-2 py-1 text-xs font-medium hover:bg-slate-50"
+                    >
+                      Overview
+                    </Link>
+                    <Link
+                      href={`/copy-trading/${s.subscriptionId}/settings`}
+                      className="rounded border px-2 py-1 text-xs hover:bg-slate-50"
+                    >
+                      Settings
+                    </Link>
+                    <Link
+                      href={`/copy-trading/${s.subscriptionId}/positions`}
+                      className="rounded border px-2 py-1 text-xs hover:bg-slate-50"
+                    >
+                      Positions
+                    </Link>
+                    <Link
+                      href={`/copy-trading/${s.subscriptionId}/orders`}
+                      className="rounded border px-2 py-1 text-xs hover:bg-slate-50"
+                    >
+                      Orders
+                    </Link>
                     {actionsFor(s.state).map((action) => (
                       <button
                         key={action}
@@ -5140,6 +6926,50 @@ export default function Page(): JSX.Element {
             </ul>
           )}
         </PageContainer>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/copy-trading/positions/page.tsx
+
+```tsx
+// # NEW — Customer route for copied open/closed positions
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CopiedPositionsPage } from '@/features/trading/copied-positions-page';
+import { AppShell } from '@/layout/app-shell';
+
+export default function CopyTradingPositionsRoute(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="copy-trading-positions-route" className="space-y-4">
+          <nav
+            aria-label="Copied positions navigation"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/copy-trading" className="hover:underline">
+                Copy Trading
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Copied Open & Closed Positions</span>
+            </div>
+            <Link
+              href="/copy-trading/orders"
+              className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+            >
+              View Copied Orders History
+            </Link>
+          </nav>
+
+          <CopiedPositionsPage />
+        </div>
       </AppShell>
     </AuthGuard>
   );
@@ -5221,13 +7051,55 @@ export class ErrorBoundary extends Component<Props, State> {
 FILE: apps/web/src/app/exchanges/[id]/page.tsx
 
 ```tsx
+// # Displays venue capabilities on exchange detail page
+// # MODIFY — capability integration
 'use client';
+
+import React from 'react';
+import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { ExchangeAccountDetail } from '@/features/exchanges/exchange-account-detail';
+import { ExchangeCapabilities } from '@/features/exchanges/exchange-capabilities';
 import { AppShell } from '@/layout/app-shell';
 import { PageContainer } from '@/layout/page-container';
-export default function Page({ params }: { params: { id: string } }): JSX.Element {
-  return <AuthGuard><AppShell><PageContainer title="Exchange Account Detail"><ExchangeAccountDetail id={params.id} /></PageContainer></AppShell></AuthGuard>;
+
+export interface ExchangeDetailRouteProps {
+  params: {
+    id: string;
+  };
+}
+
+export default function Page({ params }: ExchangeDetailRouteProps): JSX.Element {
+  const accountId = params.id;
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <PageContainer title="Exchange Account & Venue Capability Detail">
+          <div data-testid="exchange-detail-route" className="space-y-6">
+            <nav
+              aria-label="Exchange account breadcrumb"
+              className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+            >
+              <div className="flex items-center gap-2">
+                <Link href="/exchanges" className="hover:underline">
+                  Connected Exchanges
+                </Link>
+                <span>/</span>
+                <span className="font-semibold text-slate-900">Account {accountId}</span>
+              </div>
+            </nav>
+
+            <ExchangeAccountDetail id={accountId} />
+
+            <section aria-label="Reference venue capability matrix">
+              <ExchangeCapabilities showAllVenues />
+            </section>
+          </div>
+        </PageContainer>
+      </AppShell>
+    </AuthGuard>
+  );
 }
 ```
 
@@ -5487,12 +7359,160 @@ export default function LoginPage(): JSX.Element {
 FILE: apps/web/src/app/notifications/page.tsx
 
 ```tsx
-'use client';
-import { AuthGuard } from '@/auth/auth.guard';
-import { NotificationsPage } from '@/features/notifications/notifications-page';
-import { AppShell } from '@/layout/app-shell';
+// # Integrates copy-trading notification filter and detail links
+"use client";
+
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import { AuthGuard } from "@/auth/auth.guard";
+import { AppShell } from "@/layout/app-shell";
+import { PageContainer } from "@/layout/page-container";
+import { notificationApi } from "@/api/notification-api";
+import { CopyTradingNotifications, isCopyTradingNotification } from "@/features/notifications/copy-trading-notifications";
+import { LoadingState } from "@/components/loading-state";
+import { ErrorState } from "@/components/error-state";
+import { EmptyState } from "@/components/empty-state";
+import { StatusBadge } from "@/components/status-badge";
+
 export default function Page(): JSX.Element {
-  return <AuthGuard><AppShell><NotificationsPage /></AppShell></AuthGuard>;
+  const qc = useQueryClient();
+  const [filterMode, setFilterMode] = useState<"ALL" | "COPY_TRADING" | "UNREAD">("ALL");
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => notificationApi.list(),
+  });
+
+  const markOne = useMutation({
+    mutationFn: (id: string) => notificationApi.markAsRead(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+
+  const markAll = useMutation({
+    mutationFn: () => notificationApi.markAllAsRead(),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+
+  const allItems = data?.data ?? [];
+  const filteredItems = allItems.filter((n) => {
+    if (filterMode === "UNREAD") return !n.read;
+    if (filterMode === "COPY_TRADING") return isCopyTradingNotification(n);
+    return true;
+  });
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <PageContainer
+          title="Notifications"
+          description={data ? `${data.unreadCount} unread` : undefined}
+          actions={
+            <div className="flex items-center gap-2">
+              <div className="flex rounded border p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setFilterMode("ALL")}
+                  className={`rounded px-2 py-1 ${filterMode === "ALL" ? "bg-slate-900 text-white" : ""}`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterMode("COPY_TRADING")}
+                  className={`rounded px-2 py-1 ${filterMode === "COPY_TRADING" ? "bg-slate-900 text-white" : ""}`}
+                >
+                  Copy Trading
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterMode("UNREAD")}
+                  className={`rounded px-2 py-1 ${filterMode === "UNREAD" ? "bg-slate-900 text-white" : ""}`}
+                >
+                  Unread
+                </button>
+              </div>
+              {allItems.some((n) => !n.read) && (
+                <button
+                  type="button"
+                  onClick={() => markAll.mutate()}
+                  disabled={markAll.isPending}
+                  className="rounded border px-3 py-1.5 text-xs"
+                >
+                  Mark all as read
+                </button>
+              )}
+              <Link href="/notifications/preferences" className="rounded border px-3 py-1.5 text-xs">
+                Preferences
+              </Link>
+            </div>
+          }
+        >
+          {isLoading ? (
+            <LoadingState />
+          ) : error ? (
+            <ErrorState error={error} onRetry={() => void refetch()} />
+          ) : (
+            <div className="space-y-6">
+              <CopyTradingNotifications
+                notifications={allItems}
+                onMarkAsRead={(id) => markOne.mutate(id)}
+              />
+
+              {filteredItems.length === 0 ? (
+                <EmptyState
+                  title="No notifications"
+                  description="You have no notifications matching the selected filter"
+                />
+              ) : (
+                <ul className="space-y-2">
+                  {filteredItems.map((n) => {
+                    const subscriptionId =
+                      typeof n.data?.subscriptionId === "string" ? n.data.subscriptionId : null;
+                    return (
+                      <li
+                        key={n.id}
+                        className={`flex items-start justify-between gap-3 rounded border bg-card p-3 text-sm ${
+                          n.read ? "opacity-60" : ""
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{n.title}</span>
+                            <StatusBadge status={n.priority} />
+                            <span className="text-xs text-muted">{n.channel}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-muted">{n.message}</p>
+                          {subscriptionId && (
+                            <Link
+                              href={`/copy-trading/${subscriptionId}`}
+                              className="mt-1 inline-block text-xs font-medium underline"
+                            >
+                              View Subscription {subscriptionId} →
+                            </Link>
+                          )}
+                        </div>
+                        {!n.read && (
+                          <button
+                            type="button"
+                            onClick={() => markOne.mutate(n.id)}
+                            disabled={markOne.isPending}
+                            className="shrink-0 rounded border px-2 py-1 text-xs"
+                          >
+                            Mark read
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </PageContainer>
+      </AppShell>
+    </AuthGuard>
+  );
 }
 ```
 
@@ -5542,6 +7562,184 @@ export default function IndexPage(): JSX.Element {
     redirect('/dashboard');
   }
   return <LandingPage />;
+}
+```
+
+FILE: apps/web/src/app/partner/commissions/page.tsx
+
+```tsx
+// # NEW — Partner commission ledger route
+// # NEW — commission ledger route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CommissionLedger } from '@/features/partner/commission-ledger';
+import { AppShell } from '@/layout/app-shell';
+
+export default function PartnerCommissionsPage(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="partner-commissions-route" className="space-y-4">
+          <nav
+            aria-label="Partner commissions navigation"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-3">
+              <Link href="/partner" className="hover:underline">
+                Partner & IB Overview
+              </Link>
+              <span>/</span>
+              <Link href="/partner/referrals" className="hover:underline">
+                Referrals & Campaigns
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Commission Ledger</span>
+              <Link href="/partner/payouts" className="hover:underline">
+                Payouts & Settlements
+              </Link>
+            </div>
+          </nav>
+
+          <CommissionLedger />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/partner/page.tsx
+
+```tsx
+// # NEW — Partner/IB portal dashboard route
+// # NEW — partner portal overview route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { PartnerDashboard } from '@/features/partner/partner-dashboard';
+import { AppShell } from '@/layout/app-shell';
+
+export default function PartnerPortalPage(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="partner-portal-route" className="space-y-4">
+          <nav
+            aria-label="Partner portal navigation"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-slate-900">Partner & IB Overview</span>
+              <Link href="/partner/referrals" className="hover:underline">
+                Referrals & Campaigns
+              </Link>
+              <Link href="/partner/commissions" className="hover:underline">
+                Commission Ledger
+              </Link>
+              <Link href="/partner/payouts" className="hover:underline">
+                Payouts & Settlements
+              </Link>
+            </div>
+          </nav>
+
+          <PartnerDashboard />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/partner/payouts/page.tsx
+
+```tsx
+// # NEW — Partner payout request and history route
+// # NEW — payout status/history route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { PartnerPayouts } from '@/features/partner/partner-payouts';
+import { AppShell } from '@/layout/app-shell';
+
+export default function PartnerPayoutsPage(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="partner-payouts-route" className="space-y-4">
+          <nav
+            aria-label="Partner payouts navigation"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-3">
+              <Link href="/partner" className="hover:underline">
+                Partner & IB Overview
+              </Link>
+              <span>/</span>
+              <Link href="/partner/commissions" className="hover:underline">
+                Commission Ledger
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Payouts & Settlements</span>
+            </div>
+          </nav>
+
+          <PartnerPayouts />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/partner/referrals/page.tsx
+
+```tsx
+// # NEW — Partner referral link and campaign management route
+// # NEW — referral/campaign route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { ReferralManager } from '@/features/partner/referral-manager';
+import { AppShell } from '@/layout/app-shell';
+
+export default function PartnerReferralsPage(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="partner-referrals-route" className="space-y-4">
+          <nav
+            aria-label="Partner referrals navigation"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-3">
+              <Link href="/partner" className="hover:underline">
+                Partner & IB Overview
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Referrals & Campaigns</span>
+              <Link href="/partner/commissions" className="hover:underline">
+                Commission Ledger
+              </Link>
+              <Link href="/partner/payouts" className="hover:underline">
+                Payouts & Settlements
+              </Link>
+            </div>
+          </nav>
+
+          <ReferralManager />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
 }
 ```
 
@@ -6181,6 +8379,111 @@ export default function RegisterPage(): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/app/risk/exposure/page.tsx
+
+```tsx
+// # Responsibility: shows the authenticated customer's own exposure and provenance-qualified concentration/correlation analysis.
+
+'use client';
+import { AuthGuard } from '@/auth/auth.guard';
+import { CustomerExposurePanel } from '@/features/portfolio/customer-exposure-panel';
+import { ConcentrationRiskPanel } from '@/features/trading/concentration-risk-panel';
+import { AppShell } from '@/layout/app-shell';
+import { PageContainer } from '@/layout/page-container';
+import Link from 'next/link';
+
+export default function Page(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <PageContainer
+          title="Exposure"
+          description="Your non-simulated positions and open-order commitments, with explicit price provenance and incomplete-data states."
+        >
+          <div className="space-y-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted">Configure account-owner-wide ceilings for concurrent positions and open OMS orders.</p>
+              <Link href="/risk/position-limits" className="rounded-md border px-3 py-2 text-sm font-medium">
+                Position and order limits
+              </Link>
+            </div>
+            <CustomerExposurePanel />
+            <ConcentrationRiskPanel />
+          </div>
+        </PageContainer>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/risk/position-limits/page.tsx
+
+```tsx
+// # Responsibility: authenticated customer page for per-user concurrent position and open-order limits.
+
+'use client';
+
+import { AuthGuard } from '@/auth/auth.guard';
+import { AppShell } from '@/layout/app-shell';
+import { PageContainer } from '@/layout/page-container';
+import { PositionLimitSettings } from '@/features/trading/position-limit-settings';
+
+export default function Page(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <PageContainer
+          title="Position and Order Limits"
+          description="Set optional user-wide count ceilings for new platform OMS submissions and inspect their canonical usage."
+        >
+          <PositionLimitSettings />
+        </PageContainer>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/robots.ts
+
+```typescript
+// # Serves /robots.txt: default-deny crawler policy that allowlists only the public routes
+import type { MetadataRoute } from 'next';
+import { PRIVATE_ROUTE_PREFIXES, PUBLIC_ROUTES, resolvePublicOrigin } from '@/lib/public-origin';
+
+/**
+ * Default-deny. An unrecognised route is not crawlable, so a new authenticated page is private
+ * the moment it is added rather than after someone remembers to list it here. The explicit
+ * `Disallow: /` plus per-route `Allow` entries rely on the rule that the most specific match
+ * wins, which is how every major crawler resolves an overlapping allow and disallow.
+ *
+ * When the deployment cannot name a public host, this returns the catch-all alone: no sitemap
+ * pointer, no allowlist, nothing indexable.
+ */
+export default function robots(): MetadataRoute.Robots {
+  const origin = resolvePublicOrigin();
+
+  if (origin === null) {
+    return {
+      rules: [{ userAgent: '*', disallow: '/' }],
+    };
+  }
+
+  return {
+    rules: [
+      {
+        userAgent: '*',
+        allow: [...PUBLIC_ROUTES],
+        disallow: ['/', ...PRIVATE_ROUTE_PREFIXES],
+      },
+    ],
+    sitemap: `${origin}/sitemap.xml`,
+    host: origin,
+  };
+}
+```
+
 FILE: apps/web/src/app/routes.tsx
 
 ```tsx
@@ -6302,6 +8605,40 @@ export default function Page(): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/app/sitemap.ts
+
+```typescript
+// # Serves /sitemap.xml: the public routes, and only those, on the deployment's own host
+import type { MetadataRoute } from 'next';
+import { PUBLIC_ROUTES, publicUrlFor } from '@/lib/public-origin';
+
+/**
+ * Lists the allowlisted public routes and nothing else. Two deliberate omissions:
+ *
+ * - No dynamic trader or strategy detail pages. They are not in the crawler allowlist yet (see
+ *   `lib/public-origin.ts`), and a sitemap entry for a URL `robots.txt` refuses is a contradiction
+ *   crawlers report as an error.
+ * - No `lastModified`. The one honest source for it would be a per-route build timestamp, and a
+ *   fabricated or process-start date is worse than the omitted field: crawlers that learn a
+ *   sitemap's dates are noise stop trusting its dates.
+ *
+ * With no public origin configured this returns an empty list, which serves a valid empty
+ * urlset: nothing is advertised, and nothing is guessed.
+ */
+export default function sitemap(): MetadataRoute.Sitemap {
+  const entries: MetadataRoute.Sitemap = [];
+
+  for (const route of PUBLIC_ROUTES) {
+    const url = publicUrlFor(route);
+    if (url !== null) {
+      entries.push({ url });
+    }
+  }
+
+  return entries;
+}
+```
+
 FILE: apps/web/src/app/statements/[id]/page.tsx
 
 ```tsx
@@ -6376,12 +8713,52 @@ export default function Page(): JSX.Element {
 FILE: apps/web/src/app/strategies/[id]/page.tsx
 
 ```tsx
+// # MODIFY — strategy detail integration
 'use client';
+
+import React from 'react';
+import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { StrategyDetailPage } from '@/features/trading/strategy-detail-page';
 import { AppShell } from '@/layout/app-shell';
-export default function Page({ params }: { params: { id: string } }): JSX.Element {
-  return <AuthGuard><AppShell><StrategyDetailPage id={params.id} /></AppShell></AuthGuard>;
+
+export interface StrategyDetailRouteProps {
+  params: {
+    id: string;
+  };
+}
+
+export default function Page({ params }: StrategyDetailRouteProps): JSX.Element {
+  const strategyId = params.id;
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="strategy-detail-route" className="space-y-4">
+          <nav
+            aria-label="Strategy detail breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/strategies" className="hover:underline">
+                Strategy Marketplace
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Strategy {strategyId}</span>
+            </div>
+            <Link
+              href="/copy-trading"
+              className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+            >
+              My Copy Subscriptions
+            </Link>
+          </nav>
+
+          <StrategyDetailPage id={strategyId} />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
 }
 ```
 
@@ -6394,6 +8771,51 @@ import { StrategiesPage } from '@/features/trading/strategies-page';
 import { AppShell } from '@/layout/app-shell';
 export default function Page(): JSX.Element {
   return <AuthGuard><AppShell><StrategiesPage /></AppShell></AuthGuard>;
+}
+```
+
+FILE: apps/web/src/app/support/page.tsx
+
+```tsx
+// # NEW — Customer support and helpdesk route
+// # NEW — customer support destination/page
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { SupportPage } from '@/features/support/support-page';
+import { AppShell } from '@/layout/app-shell';
+
+export default function Page(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="customer-support-route" className="space-y-4">
+          <nav
+            aria-label="Customer support breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/dashboard" className="hover:underline">
+                Dashboard
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Support & Helpdesk</span>
+            </div>
+            <Link
+              href="/activity"
+              className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+            >
+              View Account Activity Log
+            </Link>
+          </nav>
+
+          <SupportPage />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
 }
 ```
 
@@ -6556,6 +8978,27 @@ export default function TermsPage(): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/app/traders/[id]/fees/page.tsx
+
+```tsx
+// # Responsibility: authenticated customer route for viewing a lead trader's active fee disclosure.
+'use client';
+
+import { AuthGuard } from '@/auth/auth.guard';
+import { LeaderFeeSettingsPage } from '@/features/trading/leader-fee-settings-page';
+import { AppShell } from '@/layout/app-shell';
+
+export default function Page({ params }: { params: { id: string } }): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <LeaderFeeSettingsPage traderId={params.id} />
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
 FILE: apps/web/src/app/traders/[id]/page.tsx
 
 ```tsx
@@ -6568,15 +9011,192 @@ export default function Page({ params }: { params: { id: string } }): JSX.Elemen
 }
 ```
 
+FILE: apps/web/src/app/traders/[id]/performance/page.tsx
+
+```tsx
+// # NEW — Customer route for trader performance detail view
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { AuthGuard } from '@/auth/auth.guard';
+import { TraderPerformancePage } from '@/features/trading/trader-performance-page';
+import { AppShell } from '@/layout/app-shell';
+
+export interface TraderPerformanceRouteProps {
+  params: {
+    id: string;
+  };
+  searchParams?: {
+    window?: string;
+  };
+}
+
+export default function Page({
+  params,
+  searchParams,
+}: TraderPerformanceRouteProps): JSX.Element {
+  const traderId = params.id;
+  const initialWindow = searchParams?.window;
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div
+          data-testid="trader-performance-route"
+          className="space-y-4"
+        >
+          <nav
+            aria-label="Trader performance breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/traders" className="hover:underline">
+                Traders Directory
+              </Link>
+              <span>/</span>
+              <Link href={`/traders/${encodeURIComponent(traderId)}`} className="hover:underline">
+                Trader {traderId}
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">Historical Performance</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/traders/compare?ids=${encodeURIComponent(traderId)}`}
+                className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Compare Side-by-Side
+              </Link>
+            </div>
+          </nav>
+
+          <TraderPerformancePage id={traderId} traderId={traderId} initialWindow={initialWindow} />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/traders/apply/page.tsx
+
+```tsx
+// # Responsibility: mounts the authenticated applicant workflow inside the customer trading application shell.
+'use client';
+
+import { AuthGuard } from '@/auth/auth.guard';
+import { LeadTraderApplicationPage } from '@/features/trading/lead-trader-application-page';
+import { AppShell } from '@/layout/app-shell';
+
+export default function Page(): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <LeadTraderApplicationPage />
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
+FILE: apps/web/src/app/traders/compare/page.tsx
+
+```tsx
+// # NEW — side-by-side trader comparison route
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { AuthGuard } from '@/auth/auth.guard';
+import { TraderComparisonPage } from '@/features/trading/trader-comparison-page';
+import { AppShell } from '@/layout/app-shell';
+
+export default function Page(): JSX.Element {
+  const searchParams = useSearchParams();
+  const idsParam = searchParams?.get('ids') ?? '';
+  const initialTraderIds = idsParam
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  return (
+    <AuthGuard>
+      <AppShell>
+        <div data-testid="trader-comparison-route" className="space-y-4">
+          <nav
+            aria-label="Trader comparison breadcrumb"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 text-xs text-slate-600"
+          >
+            <div className="flex items-center gap-2">
+              <Link href="/traders" className="hover:underline">
+                Traders Directory
+              </Link>
+              <span>/</span>
+              <span className="font-semibold text-slate-900">
+                Side-by-Side Trader Comparison (Max 4)
+              </span>
+            </div>
+            <Link
+              href="/leaderboard"
+              className="rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-50"
+            >
+              View Leaderboard Rankings
+            </Link>
+          </nav>
+
+          <TraderComparisonPage initialTraderIds={initialTraderIds} />
+        </div>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+```
+
 FILE: apps/web/src/app/traders/page.tsx
 
 ```tsx
+// # Passes URL search params into TradersPage
 'use client';
+
 import { AuthGuard } from '@/auth/auth.guard';
 import { TradersPage } from '@/features/trading/traders-page';
 import { AppShell } from '@/layout/app-shell';
-export default function Page(): JSX.Element {
-  return <AuthGuard><AppShell><TradersPage /></AppShell></AuthGuard>;
+
+export default function Page({
+  searchParams,
+}: {
+  searchParams?: {
+    search?: string;
+    verificationState?: string;
+    isFeatured?: string;
+    venue?: string;
+    symbol?: string;
+    minWinRate?: string;
+    maxDrawdown?: string;
+    sortBy?: 'followers' | 'volume' | 'pnl' | 'winRate';
+  };
+}): JSX.Element {
+  return (
+    <AuthGuard>
+      <AppShell>
+        <TradersPage
+          initialFilters={{
+            search: searchParams?.search,
+            verificationState: searchParams?.verificationState,
+            isFeatured: searchParams?.isFeatured === 'true',
+            venue: searchParams?.venue,
+            symbol: searchParams?.symbol,
+            minWinRate: searchParams?.minWinRate ? Number(searchParams.minWinRate) : undefined,
+            maxDrawdown: searchParams?.maxDrawdown ? Number(searchParams.maxDrawdown) : undefined,
+            sortBy: searchParams?.sortBy,
+          }}
+        />
+      </AppShell>
+    </AuthGuard>
+  );
 }
 ```
 
@@ -7782,84 +10402,183 @@ export function FundingStatusBadge({ state }: { state: string }): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/components/trading-state.tsx
+
+```tsx
+// # NEW — Shared trading loading, empty, error, and degraded-venue banner states
+"use client";
+
+import React from "react";
+import { LoadingState } from "@/components/loading-state";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorState } from "@/components/error-state";
+
+export interface TradingDegradedBannerProps {
+  venue?: string | null;
+  reason?: string | null;
+  isMaintenance?: boolean;
+  blocksTrading?: boolean;
+}
+
+export function TradingDegradedBanner({
+  venue,
+  reason,
+  isMaintenance = false,
+  blocksTrading = false,
+}: TradingDegradedBannerProps): JSX.Element | null {
+  if (!venue && !reason && !isMaintenance) return null;
+
+  const toneClass = blocksTrading
+    ? "border-red-300 bg-red-50 text-red-900"
+    : "border-amber-300 bg-amber-50 text-amber-900";
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="trading-degraded-banner"
+      className={`mb-4 rounded-md border p-3 text-xs ${toneClass}`}
+    >
+      <div className="flex items-center justify-between gap-2 font-semibold">
+        <span>
+          {blocksTrading
+            ? "Trading Halted — Safety Gate Engaged"
+            : isMaintenance
+              ? "Scheduled Maintenance Notice"
+              : `Degraded Venue Telemetry${venue ? `: ${venue}` : ""}`}
+        </span>
+        <span className="rounded bg-white/80 px-2 py-0.5 text-[11px] font-medium uppercase">
+          {blocksTrading ? "FAIL-CLOSED" : "DEGRADED"}
+        </span>
+      </div>
+      {reason && <p className="mt-1">{reason}</p>}
+    </div>
+  );
+}
+
+export interface TradingStateProps {
+  isLoading: boolean;
+  error?: unknown;
+  isEmpty?: boolean;
+  emptyTitle?: string;
+  emptyDescription?: string;
+  emptyAction?: React.ReactNode;
+  loadingLabel?: string;
+  degradedReason?: string | null;
+  degradedVenue?: string | null;
+  blocksTrading?: boolean;
+  onRetry?: () => void;
+  children: React.ReactNode;
+}
+
+export function TradingStateBoundary({
+  isLoading,
+  error,
+  isEmpty = false,
+  emptyTitle = "No trading records available",
+  emptyDescription = "Canonical trading records will appear here once activity is recorded.",
+  emptyAction,
+  degradedReason,
+  degradedVenue,
+  blocksTrading = false,
+  onRetry,
+  children,
+}: TradingStateProps): JSX.Element {
+  return (
+    <div data-testid="trading-state-boundary">
+      {(degradedReason || degradedVenue || blocksTrading) && (
+        <TradingDegradedBanner
+          venue={degradedVenue}
+          reason={degradedReason}
+          blocksTrading={blocksTrading}
+        />
+      )}
+      {isLoading ? (
+        <LoadingState />
+      ) : error ? (
+        <ErrorState error={error} onRetry={onRetry} />
+      ) : isEmpty ? (
+        <div className="space-y-3">
+          <EmptyState title={emptyTitle} description={emptyDescription} />
+          {emptyAction ? <div className="flex justify-center">{emptyAction}</div> : null}
+        </div>
+      ) : (
+        <>{children}</>
+      )}
+    </div>
+  );
+}
+```
+
 FILE: apps/web/src/config/feature-config.ts
 
 ```typescript
-/**
- * Frontend capability presentation configuration.
- * Backend remains authoritative for entitlement/security enforcement.
- * Frontend feature hiding is UX only, never security boundary.
- */
+// # Enables partner portal navigation when tenant feature flag is active
+import { APP_ROUTES, type AppRouteDefinition } from "./routes";
 
-import { permissionsAllowAny } from '@/auth/permissions';
+export interface TenantFeatureFlags {
+  copyTradingEnabled: boolean;
+  partnerPortalEnabled: boolean;
+  fundingEnabled: boolean;
+  supportHelpdeskEnabled: boolean;
+}
 
-export type FeatureKey =
-  | 'dashboard'
-  | 'portfolio'
-  | 'traders'
-  | 'strategies'
-  | 'copy_trading'
-  | 'exchanges'
-  | 'funding'
-  | 'billing'
-  | 'statements'
-  | 'security'
-  | 'notifications'
-  | 'account'
-  | 'api_keys'
-  | 'onboarding';
+export const DEFAULT_TENANT_FEATURES: TenantFeatureFlags = {
+  copyTradingEnabled: true,
+  partnerPortalEnabled: true,
+  fundingEnabled: true,
+  supportHelpdeskEnabled: true,
+};
 
-export interface FeatureConfig {
-  key: FeatureKey;
+export function resolveActiveCustomerRoutes(
+  flags: Partial<TenantFeatureFlags> = DEFAULT_TENANT_FEATURES,
+): AppRouteDefinition[] {
+  const effective: TenantFeatureFlags = { ...DEFAULT_TENANT_FEATURES, ...flags };
+  return Object.values(APP_ROUTES).filter((route) => {
+    if (route.section === "partner" && !effective.partnerPortalEnabled) {
+      return false;
+    }
+    if (route.path === "/funding" && !effective.fundingEnabled) {
+      return false;
+    }
+    if (route.section === "support" && !effective.supportHelpdeskEnabled) {
+      return false;
+    }
+    return true;
+  });
+}
+```
+
+FILE: apps/web/src/config/routes.tsx
+
+```tsx
+// # Registers /traders/compare route
+// # Registers /support customer route
+export interface AppRouteDefinition {
+  path: string;
   label: string;
-  route: string;
-  /** Backend feature flag key from GET /v1/tenants/public-config `features`. */
-  requiresEntitlement?: string;
-  requiresRole?: string[];
-  /**
-   * Permission keys from GET /v1/auth/me; any one of them is enough. Mirrors
-   * the permission the backend routes behind this screen demand, so a menu
-   * entry is never shown to a user who would only get 403 responses.
-   */
-  requiresPermission?: string[];
-  beta?: boolean;
+  section: "trading" | "portfolio" | "partner" | "account" | "support";
+  requiresAuth: boolean;
 }
 
-export const featureCatalog: FeatureConfig[] = [
-  { key: 'dashboard', label: 'Dashboard', route: '/dashboard' },
-  { key: 'portfolio', label: 'Portfolio', route: '/portfolio' },
-  { key: 'traders', label: 'Traders', route: '/traders' },
-  { key: 'strategies', label: 'Strategies', route: '/strategies', requiresPermission: ['strategy:read'] },
-  { key: 'copy_trading', label: 'Copy Trading', route: '/copy-trading', requiresEntitlement: 'copy_trading' },
-  { key: 'exchanges', label: 'Exchanges', route: '/exchanges', requiresPermission: ['exchange_account:read'] },
-  { key: 'funding', label: 'Funding', route: '/funding' },
-  { key: 'billing', label: 'Billing', route: '/billing', requiresPermission: ['subscription:read', 'invoice:read'] },
-  { key: 'statements', label: 'Statements', route: '/statements' },
-  { key: 'security', label: 'Security', route: '/security' },
-  { key: 'notifications', label: 'Notifications', route: '/notifications' },
-  { key: 'account', label: 'Account', route: '/account' },
-  { key: 'onboarding', label: 'Onboarding', route: '/onboarding' },
-];
-
-export function isFeatureEnabled(
-  feature: FeatureKey,
-  entitlements: Record<string, boolean>,
-  roles: string[],
-  permissions: string[] = []
-): boolean {
-  const config = featureCatalog.find((f) => f.key === feature);
-  if (!config) return false;
-  if (config.requiresEntitlement && !entitlements[config.requiresEntitlement]) {
-    return false;
-  }
-  if (config.requiresPermission && !permissionsAllowAny(permissions, config.requiresPermission)) {
-    return false;
-  }
-  if (config.requiresRole && config.requiresRole.length > 0) {
-    return config.requiresRole.some((r) => roles.includes(r));
-  }
-  return true;
-}
+export const APP_ROUTES: Record<string, AppRouteDefinition> = {
+  dashboard: { path: "/dashboard", label: "Dashboard", section: "trading", requiresAuth: true },
+  traders: { path: "/traders", label: "Traders", section: "trading", requiresAuth: true },
+  traderCompare: { path: "/traders/compare", label: "Compare Traders", section: "trading", requiresAuth: true },
+  strategies: { path: "/strategies", label: "Strategies", section: "trading", requiresAuth: true },
+  copyTrading: { path: "/copy-trading", label: "Copy Trading", section: "trading", requiresAuth: true },
+  portfolio: { path: "/portfolio", label: "Portfolio", section: "portfolio", requiresAuth: true },
+  exchanges: { path: "/exchanges", label: "Exchanges", section: "trading", requiresAuth: true },
+  funding: { path: "/funding", label: "Funding", section: "portfolio", requiresAuth: true },
+  partner: { path: "/partner", label: "Partner Portal", section: "partner", requiresAuth: true },
+  partnerReferrals: { path: "/partner/referrals", label: "Referrals & Campaigns", section: "partner", requiresAuth: true },
+  partnerCommissions: { path: "/partner/commissions", label: "Commission Ledger", section: "partner", requiresAuth: true },
+  partnerPayouts: { path: "/partner/payouts", label: "Partner Payouts", section: "partner", requiresAuth: true },
+  activity: { path: "/activity", label: "Activity & Audit", section: "account", requiresAuth: true },
+  notifications: { path: "/notifications", label: "Notifications", section: "account", requiresAuth: true },
+  support: { path: "/support", label: "Support & Helpdesk", section: "support", requiresAuth: true },
+  account: { path: "/account", label: "Account", section: "account", requiresAuth: true },
+};
 ```
 
 FILE: apps/web/src/config/runtime-config.ts
@@ -7872,6 +10591,10 @@ FILE: apps/web/src/config/runtime-config.ts
 
 export const runtimeConfig = {
   appName: process.env.NEXT_PUBLIC_APP_NAME ?? 'Copy Trading',
+  // Absolute public origin of this deployment, used by robots.txt and sitemap.xml. Blank by
+  // default so the crawler policy resolves one from the platform domain - or refuses to be
+  // indexed when that domain names a bare machine.
+  siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? '',
   apiVersion: process.env.NEXT_PUBLIC_API_VERSION ?? 'v1',
   wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? '',
   wsPath: process.env.NEXT_PUBLIC_WS_PATH ?? '/socket.io',
@@ -8542,6 +11265,125 @@ export function RestrictionsPage(): JSX.Element {
           {restrictions.length === 0 && <p className="text-xs text-muted">No restrictions</p>}
         </div>
       )}
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/activity/customer-activity-page.tsx
+
+```tsx
+// # NEW — Renders customer audit trail for subscriptions, settings changes, orders, funding, and security events
+"use client";
+
+import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { activityApi } from "@/api/activity-api";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+import { TradingStateBoundary } from "@/components/trading-state";
+
+export function CustomerActivityPage(): JSX.Element {
+  const [resourceType, setResourceType] = useState<string>("");
+  const [outcome, setOutcome] = useState<string>("");
+  const [actionFilter, setActionFilter] = useState<string>("");
+
+  const activityQuery = useQuery({
+    queryKey: ["customer-activity", resourceType, outcome, actionFilter],
+    queryFn: () =>
+      activityApi.listMyActivity({
+        resourceType: resourceType || undefined,
+        outcome: outcome || undefined,
+        action: actionFilter.trim() || undefined,
+        page: 1,
+        limit: 50,
+      }),
+  });
+
+  const items = activityQuery.data?.items ?? [];
+
+  return (
+    <PageContainer
+      title="Account & Copy-Trading Activity Log"
+      description="Immutable customer-scoped audit trail across copy subscriptions, policy updates, orders, funding, and security events"
+    >
+      <div
+        className="mb-4 flex flex-wrap items-center gap-3 rounded border bg-card p-3 text-xs"
+        data-testid="customer-activity-filters"
+      >
+        <input
+          aria-label="Filter by action"
+          placeholder="Filter by action (e.g. SUBSCRIPTION_CREATED)"
+          value={actionFilter}
+          onChange={(e) => setActionFilter(e.target.value)}
+          className="w-64 rounded border px-2.5 py-1.5"
+        />
+        <select
+          aria-label="Filter by resource type"
+          value={resourceType}
+          onChange={(e) => setResourceType(e.target.value)}
+          className="rounded border px-2.5 py-1.5"
+        >
+          <option value="">All Resource Types</option>
+          <option value="CopySubscription">Copy Subscriptions</option>
+          <option value="Order">Orders & Fills</option>
+          <option value="Funding">Funding & Withdrawals</option>
+          <option value="ExchangeConnection">Exchange Connections</option>
+          <option value="User">Security & Account</option>
+        </select>
+        <select
+          aria-label="Filter by outcome"
+          value={outcome}
+          onChange={(e) => setOutcome(e.target.value)}
+          className="rounded border px-2.5 py-1.5"
+        >
+          <option value="">All Outcomes</option>
+          <option value="SUCCESS">SUCCESS</option>
+          <option value="FAILURE">FAILURE</option>
+          <option value="DENIED">DENIED</option>
+        </select>
+      </div>
+
+      <TradingStateBoundary
+        isLoading={activityQuery.isLoading}
+        error={activityQuery.error}
+        isEmpty={items.length === 0}
+        emptyTitle="No activity events found"
+        emptyDescription="No audit events matched the selected filters."
+        onRetry={() => void activityQuery.refetch()}
+      >
+        <div
+          className="overflow-x-auto rounded border bg-card"
+          data-testid="customer-activity-page"
+        >
+          <table className="w-full text-left text-xs" data-testid="customer-activity-table">
+            <thead>
+              <tr className="border-b bg-slate-50 text-muted">
+                <th className="p-3">Timestamp</th>
+                <th className="p-3">Action</th>
+                <th className="p-3">Resource</th>
+                <th className="p-3">Resource ID</th>
+                <th className="p-3">Outcome</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {items.map((item) => (
+                <tr key={item.id}>
+                  <td className="p-3 font-mono">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </td>
+                  <td className="p-3 font-mono font-semibold">{item.action}</td>
+                  <td className="p-3">{item.resourceType}</td>
+                  <td className="p-3 font-mono">{item.resourceId ?? "—"}</td>
+                  <td className="p-3">
+                    <StatusBadge status={item.outcome} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </TradingStateBoundary>
     </PageContainer>
   );
 }
@@ -9861,6 +12703,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { LoadingState } from '@/components/loading-state';
 import { ErrorState } from '@/components/error-state';
 import { ConfirmationDialog } from '@/components/confirmation-dialog';
+import { ExchangeCapabilities } from './exchange-capabilities';
 import { useState } from 'react';
 export function ExchangeAccountDetail({ id }: { id: string }): JSX.Element {
   const { data, isLoading, error, refetch } = useQuery({
@@ -9891,26 +12734,35 @@ export function ExchangeAccountDetail({ id }: { id: string }): JSX.Element {
     }
   };
   return (
-    <div className="space-y-4 rounded border bg-card p-4">
-      <div className="flex justify-between"><h3 className="font-semibold">{data.exchange} - {data.label ?? data.id}</h3><StatusBadge status={data.health} /></div>
-      <p className="text-xs text-muted">Status: {data.status} | Environment: {data.environment} | Key: {data.maskedApiKey ?? '-'} | Trading: {data.tradingEnabled ? 'Enabled' : 'Disabled'}</p>
-      <p className="text-xs">Capabilities: {data.capabilities.length > 0 ? data.capabilities.join(', ') : 'Not discovered yet'}</p>
-      {data.lastConnectedAt && <p className="text-xs text-muted">Last connected: {new Date(data.lastConnectedAt).toLocaleString()}</p>}
-      {data.errorMessage && <p className="text-xs text-red-600">{data.errorMessage}</p>}
-      {connectivity.data && (
-        <div className="rounded border p-2 text-xs">
-          <p>Connectivity: <StatusBadge status={connectivity.data.health} /></p>
-          {connectivity.data.issues.map((issue) => <p key={issue} className="text-muted">{issue}</p>)}
+    <div className="space-y-4">
+      <div className="space-y-4 rounded border bg-card p-4">
+        <div className="flex justify-between"><h3 className="font-semibold">{data.exchange} - {data.label ?? data.id}</h3><StatusBadge status={data.health} /></div>
+        <p className="text-xs text-muted">Status: {data.status} | Environment: {data.environment} | Key: {data.maskedApiKey ?? '-'} | Trading: {data.tradingEnabled ? 'Enabled' : 'Disabled'}</p>
+        <p className="text-xs">Capabilities: {data.capabilities.length > 0 ? data.capabilities.join(', ') : 'Not discovered yet'}</p>
+        {data.lastConnectedAt && <p className="text-xs text-muted">Last connected: {new Date(data.lastConnectedAt).toLocaleString()}</p>}
+        {data.errorMessage && <p className="text-xs text-red-600">{data.errorMessage}</p>}
+        {connectivity.data && (
+          <div className="rounded border p-2 text-xs">
+            <p>Connectivity: <StatusBadge status={connectivity.data.health} /></p>
+            {connectivity.data.issues.map((issue) => <p key={issue} className="text-muted">{issue}</p>)}
+          </div>
+        )}
+        {notice && <p className="text-xs text-muted">{notice}</p>}
+        <div className="flex gap-2">
+          <button onClick={() => act(async () => { const res = await exchangeApi.verifyAccount(id); setNotice(res.message ?? 'Verification queued.'); })} className="rounded border px-3 py-1 text-xs">Verify</button>
+          {data.status !== 'DISABLED' && <button onClick={() => setDisableOpen(true)} className="rounded border px-3 py-1 text-xs">Disable</button>}
+          <button onClick={() => setConfirmOpen(true)} className="rounded bg-red-600 px-3 py-1 text-xs text-white">Disconnect</button>
         </div>
-      )}
-      {notice && <p className="text-xs text-muted">{notice}</p>}
-      <div className="flex gap-2">
-        <button onClick={() => act(async () => { const res = await exchangeApi.verifyAccount(id); setNotice(res.message ?? 'Verification queued.'); })} className="rounded border px-3 py-1 text-xs">Verify</button>
-        {data.status !== 'DISABLED' && <button onClick={() => setDisableOpen(true)} className="rounded border px-3 py-1 text-xs">Disable</button>}
-        <button onClick={() => setConfirmOpen(true)} className="rounded bg-red-600 px-3 py-1 text-xs text-white">Disconnect</button>
+        <ConfirmationDialog open={disableOpen} title="Disable Exchange Account" description="Pause this exchange account? Copy trading on it stops until it is enabled again." variant="destructive" confirmLabel="Disable" onConfirm={async () => { setDisableOpen(false); await act(() => exchangeApi.disableAccount(id, 'Disabled by the account owner'), 'Account disabled.'); }} onCancel={() => setDisableOpen(false)} />
+        <ConfirmationDialog open={confirmOpen} title="Disconnect Exchange" description="Are you sure you want to disconnect this exchange account? This will stop trading." variant="destructive" confirmLabel="Disconnect" onConfirm={async () => { setConfirmOpen(false); try { await exchangeApi.disconnectAccount(id); window.location.href='/exchanges'; } catch (err) { setNotice(err instanceof ApiError ? err.getUserMessage() : 'Disconnect failed.'); } }} onCancel={() => setConfirmOpen(false)} />
       </div>
-      <ConfirmationDialog open={disableOpen} title="Disable Exchange Account" description="Pause this exchange account? Copy trading on it stops until it is enabled again." variant="destructive" confirmLabel="Disable" onConfirm={async () => { setDisableOpen(false); await act(() => exchangeApi.disableAccount(id, 'Disabled by the account owner'), 'Account disabled.'); }} onCancel={() => setDisableOpen(false)} />
-      <ConfirmationDialog open={confirmOpen} title="Disconnect Exchange" description="Are you sure you want to disconnect this exchange account? This will stop trading." variant="destructive" confirmLabel="Disconnect" onConfirm={async () => { setConfirmOpen(false); try { await exchangeApi.disconnectAccount(id); window.location.href='/exchanges'; } catch (err) { setNotice(err instanceof ApiError ? err.getUserMessage() : 'Disconnect failed.'); } }} onCancel={() => setConfirmOpen(false)} />
+
+      <ExchangeCapabilities
+        venue={data.exchange}
+        discoveredCapabilities={data.capabilities}
+        tradingEnabled={data.tradingEnabled}
+        environment={data.environment}
+      />
     </div>
   );
 }
@@ -10004,6 +12856,215 @@ export function ExchangeAccountsPage(): JSX.Element {
         )}
       </div>
     </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/exchanges/exchange-capabilities.tsx
+
+```tsx
+// # NEW — Renders venue capability matrix (Spot/Futures/Margin, order types, live vs paper readiness, IP whitelist requirements)
+"use client";
+
+import React from "react";
+import { StatusBadge } from "@/components/status-badge";
+
+export interface VenueCapabilityDefinition {
+  venue: string;
+  displayName: string;
+  spotSupported: boolean;
+  marginSupported: boolean;
+  futuresSupported: boolean;
+  perpetualsSupported: boolean;
+  supportedOrderTypes: string[];
+  liveReadSupported: boolean;
+  liveOrderExecutionGated: boolean;
+  paperSimulationSupported: boolean;
+  requiresPassphrase: boolean;
+  ipAllowlistRecommended: boolean;
+  withdrawalPermissionMustBeDisabled: boolean;
+  authenticationModel: string;
+}
+
+export const WEB_VENUE_CAPABILITIES: Record<string, VenueCapabilityDefinition> = {
+  BINANCE: {
+    venue: "BINANCE",
+    displayName: "Binance",
+    spotSupported: true,
+    marginSupported: true,
+    futuresSupported: true,
+    perpetualsSupported: true,
+    supportedOrderTypes: ["MARKET", "LIMIT", "STOP", "STOP_LIMIT", "TAKE_PROFIT", "LIMIT_MAKER"],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: "HMAC_SHA256",
+  },
+  BYBIT: {
+    venue: "BYBIT",
+    displayName: "Bybit V5",
+    spotSupported: true,
+    marginSupported: false,
+    futuresSupported: true,
+    perpetualsSupported: true,
+    supportedOrderTypes: ["MARKET", "LIMIT", "STOP", "STOP_LIMIT"],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: "HMAC_SHA256",
+  },
+  OKX: {
+    venue: "OKX",
+    displayName: "OKX V5",
+    spotSupported: true,
+    marginSupported: true,
+    futuresSupported: true,
+    perpetualsSupported: true,
+    supportedOrderTypes: ["MARKET", "LIMIT", "STOP", "STOP_LIMIT"],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: true,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: "HMAC_SHA256_PASSPHRASE",
+  },
+  KRAKEN: {
+    venue: "KRAKEN",
+    displayName: "Kraken",
+    spotSupported: true,
+    marginSupported: true,
+    futuresSupported: false,
+    perpetualsSupported: false,
+    supportedOrderTypes: ["MARKET", "LIMIT", "STOP", "STOP_LIMIT"],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: "HMAC_SHA512_NONCE",
+  },
+  COINBASE: {
+    venue: "COINBASE",
+    displayName: "Coinbase Advanced Trade",
+    spotSupported: true,
+    marginSupported: false,
+    futuresSupported: false,
+    perpetualsSupported: true,
+    supportedOrderTypes: ["MARKET", "LIMIT", "STOP_LIMIT"],
+    liveReadSupported: true,
+    liveOrderExecutionGated: true,
+    paperSimulationSupported: true,
+    requiresPassphrase: false,
+    ipAllowlistRecommended: true,
+    withdrawalPermissionMustBeDisabled: true,
+    authenticationModel: "CDP_JWT_ES256_ED25519",
+  },
+};
+
+export interface ExchangeCapabilitiesProps {
+  venue?: string;
+  discoveredCapabilities?: string[];
+  tradingEnabled?: boolean;
+  environment?: string;
+}
+
+export function ExchangeCapabilities({
+  venue,
+  discoveredCapabilities = [],
+  tradingEnabled = false,
+  environment = "SANDBOX",
+}: ExchangeCapabilitiesProps): JSX.Element {
+  const venueKey = (venue || "").toUpperCase();
+  const selectedVenueCap = WEB_VENUE_CAPABILITIES[venueKey];
+  const rows = selectedVenueCap
+    ? [selectedVenueCap]
+    : Object.values(WEB_VENUE_CAPABILITIES);
+
+  return (
+    <div
+      className="space-y-4 rounded border bg-card p-4 text-xs"
+      data-testid="exchange-capabilities-matrix"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold">
+            Exchange Venue Capability & Safety Matrix
+          </h3>
+          <p className="text-muted">
+            Authoritative market coverage, order types, IP allowlist policy, and live vs paper execution posture.
+          </p>
+        </div>
+        {venue && (
+          <div className="flex items-center gap-2">
+            <StatusBadge status={environment} />
+            <span
+              className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+                tradingEnabled && environment === "LIVE"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-amber-100 text-amber-800"
+              }`}
+            >
+              {tradingEnabled && environment === "LIVE"
+                ? "LIVE EXECUTION READY"
+                : "PAPER / READ-ONLY SAFE MODE"}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {discoveredCapabilities.length > 0 && (
+        <div className="rounded bg-slate-50 p-2.5">
+          <span className="font-semibold">Account Discovered Permissions: </span>
+          <span className="font-mono">{discoveredCapabilities.join(", ")}</span>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs" data-testid="venue-capability-table">
+          <thead>
+            <tr className="border-b bg-slate-50 text-muted">
+              <th className="p-2.5">Venue</th>
+              <th className="p-2.5">Markets (Spot / Margin / Perps)</th>
+              <th className="p-2.5">Order Types</th>
+              <th className="p-2.5">Auth & Passphrase</th>
+              <th className="p-2.5">IP Allowlist & Withdrawal Safety</th>
+              <th className="p-2.5">Execution Gate</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {rows.map((cap) => (
+              <tr key={cap.venue}>
+                <td className="p-2.5 font-semibold">{cap.displayName}</td>
+                <td className="p-2.5">
+                  <span className="mr-1.5">Spot: {cap.spotSupported ? "Yes" : "No"}</span>
+                  <span className="mr-1.5">| Margin: {cap.marginSupported ? "Yes" : "No"}</span>
+                  <span>| Perps: {cap.perpetualsSupported ? "Yes" : "No"}</span>
+                </td>
+                <td className="p-2.5 font-mono">{cap.supportedOrderTypes.join(", ")}</td>
+                <td className="p-2.5">
+                  {cap.authenticationModel}
+                  {cap.requiresPassphrase ? " (Passphrase Required)" : ""}
+                </td>
+                <td className="p-2.5">
+                  IP Allowlist Recommended | Withdrawals Must Be Disabled
+                </td>
+                <td className="p-2.5">
+                  Live Read + Paper Sim + Explicit Live Gate
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 ```
@@ -10916,6 +13977,125 @@ export function LandingPage(): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/features/notifications/copy-trading-notifications.tsx
+
+```tsx
+// # NEW — Renders copy-trading specific notification feed and alert preferences
+"use client";
+
+import React from "react";
+import Link from "next/link";
+import type { Notification } from "@/api/notification-api";
+import { StatusBadge } from "@/components/status-badge";
+
+export interface CopyTradingNotificationsProps {
+  notifications: Notification[];
+  onMarkAsRead?: (id: string) => void;
+}
+
+export function isCopyTradingNotification(notification: Notification): boolean {
+  const t = (notification.type || "").toUpperCase();
+  return (
+    t.startsWith("COPY_") ||
+    t.includes("SUBSCRIPTION") ||
+    t.includes("EXECUTION") ||
+    t.includes("TRADING") ||
+    Boolean(notification.data?.subscriptionId) ||
+    Boolean(notification.data?.executionId)
+  );
+}
+
+export function CopyTradingNotifications({
+  notifications,
+  onMarkAsRead,
+}: CopyTradingNotificationsProps): JSX.Element {
+  const copyNotifications = notifications.filter(isCopyTradingNotification);
+
+  return (
+    <div
+      className="space-y-3 rounded border bg-card p-4 text-xs"
+      data-testid="copy-trading-notifications"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">Copy-Trading Lifecycle Alerts</h2>
+          <p className="text-muted">
+            Execution fills, risk guardrail blocks, and subscription state changes with direct deep links.
+          </p>
+        </div>
+        <Link
+          href="/notifications/preferences"
+          className="rounded border px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+        >
+          Alert Preferences
+        </Link>
+      </div>
+
+      {copyNotifications.length === 0 ? (
+        <p className="text-muted">No copy-trading specific notifications yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {copyNotifications.map((n) => {
+            const subscriptionId =
+              typeof n.data?.subscriptionId === "string" ? n.data.subscriptionId : null;
+            return (
+              <li
+                key={n.id}
+                className={`flex flex-wrap items-start justify-between gap-3 rounded border p-3 ${
+                  n.read ? "opacity-70" : "border-slate-400 bg-slate-50/60"
+                }`}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{n.title}</span>
+                    <StatusBadge status={n.priority} />
+                    <span className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[10px]">
+                      {n.type}
+                    </span>
+                  </div>
+                  <p className="text-muted">{n.message}</p>
+                  {subscriptionId && (
+                    <div className="flex gap-3 pt-1">
+                      <Link
+                        href={`/copy-trading/${subscriptionId}`}
+                        className="font-medium underline"
+                      >
+                        Inspect Subscription ({subscriptionId})
+                      </Link>
+                      <Link
+                        href={`/copy-trading/${subscriptionId}/orders`}
+                        className="underline"
+                      >
+                        Copied Orders
+                      </Link>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted">
+                    {new Date(n.createdAt).toLocaleString()}
+                  </span>
+                  {!n.read && onMarkAsRead && (
+                    <button
+                      type="button"
+                      onClick={() => onMarkAsRead(n.id)}
+                      className="rounded border px-2 py-0.5 text-[11px] hover:bg-white"
+                    >
+                      Mark read
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+```
+
 FILE: apps/web/src/features/notifications/notification-preferences-page.tsx
 
 ```tsx
@@ -11367,6 +14547,622 @@ export function useOnboarding() {
 }
 ```
 
+FILE: apps/web/src/features/partner/commission-ledger.tsx
+
+```tsx
+// # NEW — Displays trade-level rebate calculations, tier rates, and settlement status
+"use client";
+
+import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { partnerApi, type PartnerCommissionRecord } from "../../api/partner-api";
+import { TradingStateBoundary } from "../../components/trading-state";
+
+export interface CommissionLedgerProps {
+  partnerId?: string;
+}
+
+export function CommissionLedger({ partnerId }: CommissionLedgerProps): JSX.Element {
+  const [stateFilter, setStateFilter] = useState<string>("");
+
+  const commissionsQuery = useQuery<{ partnerId: string; items: PartnerCommissionRecord[] }>({
+    queryKey: ["partner", "commissions", partnerId ?? "self", stateFilter],
+    queryFn: () =>
+      partnerApi.listCommissions({
+        ...(partnerId ? { partnerId } : {}),
+        ...(stateFilter ? { state: stateFilter } : {}),
+      }),
+  });
+
+  const items = commissionsQuery.data?.items ?? [];
+
+  return (
+    <div data-testid="partner-commission-ledger" className="space-y-6 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">
+            Partner Commission & Tiered Rebate Ledger
+          </h1>
+          <p className="text-sm text-slate-600">
+            Trade-level and subscription-level fee rebate calculations, tier rates, and settlement status.
+          </p>
+        </div>
+
+        <label className="text-xs font-medium text-slate-700">
+          Filter Status:{" "}
+          <select
+            aria-label="Filter commission status"
+            value={stateFilter}
+            onChange={(e) => setStateFilter(e.target.value)}
+            className="ml-2 rounded border border-slate-300 px-2.5 py-1.5 text-xs"
+          >
+            <option value="">All States</option>
+            <option value="ACCRUED">ACCRUED</option>
+            <option value="APPROVED">APPROVED</option>
+            <option value="SETTLED">SETTLED</option>
+            <option value="PAID">PAID</option>
+            <option value="REVERSED">REVERSED</option>
+          </select>
+        </label>
+      </div>
+
+      <TradingStateBoundary
+        isLoading={commissionsQuery.isLoading}
+        error={commissionsQuery.error}
+        isEmpty={items.length === 0}
+        emptyTitle="No commission ledger entries"
+        emptyDescription="Commissions accrue automatically as your attributed referrals generate eligible trading or platform fees."
+        onRetry={() => commissionsQuery.refetch()}
+      >
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <table className="min-w-full divide-y divide-slate-200 text-xs">
+            <thead className="bg-slate-50 text-left text-slate-600">
+              <tr>
+                <th className="px-4 py-3">Commission ID</th>
+                <th className="px-4 py-3">Source Event</th>
+                <th className="px-4 py-3">Gross Fee / Revenue</th>
+                <th className="px-4 py-3">Tier Rate</th>
+                <th className="px-4 py-3">Rebate Accrued</th>
+                <th className="px-4 py-3">Settlement Status</th>
+                <th className="px-4 py-3">Recorded At</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3 font-mono font-semibold text-slate-900">{row.id}</td>
+                  <td className="px-4 py-3">
+                    <code>{row.sourceEventType}</code> · <span>{row.sourceEventId}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.grossRevenue} {row.currency}
+                  </td>
+                  <td className="px-4 py-3">{row.commissionRateBps ?? 2000} bps</td>
+                  <td className="px-4 py-3 font-semibold text-emerald-700">
+                    +{row.commissionAmount} {row.currency}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-800">
+                      {row.state}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">{row.createdAt}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </TradingStateBoundary>
+    </div>
+  );
+}
+```
+
+FILE: apps/web/src/features/partner/partner-dashboard.tsx
+
+```tsx
+// # NEW — Displays partner tier, active referrals, volume, and accrued commissions
+"use client";
+
+import React from "react";
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import { partnerApi, type PartnerProfileResponse, type PartnerReferralsResponse } from "../../api/partner-api";
+import { TradingStateBoundary } from "../../components/trading-state";
+
+export interface PartnerDashboardProps {
+  partnerId?: string;
+}
+
+export function PartnerDashboard({ partnerId }: PartnerDashboardProps): JSX.Element {
+  const profileQuery = useQuery<PartnerProfileResponse>({
+    queryKey: ["partner", "profile", partnerId ?? "self"],
+    queryFn: () => partnerApi.getProfile(partnerId ? { partnerId } : undefined),
+  });
+
+  const referralsQuery = useQuery<PartnerReferralsResponse>({
+    queryKey: ["partner", "referrals", partnerId ?? "self"],
+    queryFn: () => partnerApi.listReferrals(partnerId ? { partnerId } : undefined),
+  });
+
+  const profile = profileQuery.data?.profile;
+  const summary = profileQuery.data?.summary;
+  const referrals = referralsQuery.data?.referrals ?? [];
+  const attributions = referralsQuery.data?.attributions ?? [];
+
+  return (
+    <div data-testid="partner-dashboard" className="space-y-6 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">
+            Partner & Introducing Broker Portal
+          </h1>
+          <p className="text-sm text-slate-600">
+            Track referral attribution, tiered trading fee rebates, commission ledger accruals, and settlements.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/partner/referrals"
+            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Manage Referral Links
+          </Link>
+          <Link
+            href="/partner/commissions"
+            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Commission Ledger
+          </Link>
+          <Link
+            href="/partner/payouts"
+            className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+          >
+            Request Payout
+          </Link>
+        </div>
+      </div>
+
+      <TradingStateBoundary
+        isLoading={profileQuery.isLoading}
+        error={profileQuery.error}
+        isEmpty={!profile}
+        emptyTitle="Partner profile not provisioned"
+        emptyDescription="Apply for an Introducing Broker or Affiliate agreement to unlock referral links and fee rebates."
+        onRetry={() => profileQuery.refetch()}
+      >
+        {profile && (
+          <>
+            <div
+              data-testid="partner-tier-summary"
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+            >
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="text-xs font-medium uppercase text-slate-500">Partner Tier</div>
+                <div className="mt-1 text-lg font-bold text-slate-900">
+                  {summary?.tierName ?? profile.tier ?? profile.type}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  Code: <code>{profile.code}</code> · Status: {profile.state}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="text-xs font-medium uppercase text-slate-500">Active Referrals</div>
+                <div className="mt-1 text-lg font-bold text-slate-900">
+                  {summary?.activeReferralsCount ?? attributions.length}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {referrals.length} active referral codes
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="text-xs font-medium uppercase text-slate-500">Referred Volume</div>
+                <div className="mt-1 text-lg font-bold text-slate-900">
+                  ${summary?.referredTradingVolumeUsd ?? "0.00"}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  Rebate Rate: {summary?.rebateRateBps ?? 2000} bps
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="text-xs font-medium uppercase text-slate-500">
+                  Accrued Commissions
+                </div>
+                <div className="mt-1 text-lg font-bold text-emerald-700">
+                  {summary?.accruedCommissionsAmount ?? "0.00"} {profile.currency}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  Available for Payout: {summary?.availablePayoutBalance ?? "0.00"} {profile.currency}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="text-sm font-semibold text-slate-900">
+                Recent Referral Codes & Attribution Funnel
+              </h2>
+              {referrals.length === 0 ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  No referral links generated yet. Visit Referral Manager to create your first code.
+                </p>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-200 text-xs">
+                    <thead>
+                      <tr className="text-left text-slate-500">
+                        <th className="py-2 pr-4">Referral Code</th>
+                        <th className="py-2 pr-4">Campaign</th>
+                        <th className="py-2 pr-4">Signups / Max Uses</th>
+                        <th className="py-2 pr-4">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {referrals.map((r) => (
+                        <tr key={r.id}>
+                          <td className="py-2 pr-4 font-mono font-semibold">{r.code}</td>
+                          <td className="py-2 pr-4">{r.campaignId ?? "DEFAULT"}</td>
+                          <td className="py-2 pr-4">
+                            {r.usesCount ?? 0} / {r.maxUses ?? "∞"}
+                          </td>
+                          <td className="py-2 pr-4">{r.state}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </TradingStateBoundary>
+    </div>
+  );
+}
+```
+
+FILE: apps/web/src/features/partner/partner-payouts.tsx
+
+```tsx
+// # NEW — Submits payout requests and displays approval/settlement timeline
+"use client";
+
+import React, { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { partnerApi, type PartnerPayoutRecord } from "../../api/partner-api";
+import { TradingStateBoundary } from "../../components/trading-state";
+
+export interface PartnerPayoutsProps {
+  partnerId?: string;
+}
+
+export function PartnerPayouts({ partnerId }: PartnerPayoutsProps): JSX.Element {
+  const queryClient = useQueryClient();
+  const [settlementId, setSettlementId] = useState<string>("stl-latest");
+  const [amount, setAmount] = useState<string>("250.00");
+  const [currency, setCurrency] = useState<string>("USDT");
+  const [method, setMethod] = useState<string>("USDT_ERC20");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const payoutsQuery = useQuery<{ partnerId: string; items: PartnerPayoutRecord[] }>({
+    queryKey: ["partner", "payouts", partnerId ?? "self"],
+    queryFn: () => partnerApi.listPayouts(partnerId ? { partnerId } : undefined),
+  });
+
+  const requestMutation = useMutation({
+    mutationFn: () =>
+      partnerApi.requestPayout({
+        partnerId: payoutsQuery.data?.partnerId ?? partnerId ?? "partner-default",
+        settlementId: settlementId.trim(),
+        amount: amount.trim(),
+        currency,
+        method,
+        requestedBy: "partner-portal",
+        correlationId: `corr_${Date.now()}`,
+        idempotencyKey: `payout_${settlementId.trim()}_${amount.trim()}`,
+      }),
+    onSuccess: (created) => {
+      setStatusMessage(`Payout request ${created.id} submitted (${created.state}).`);
+      queryClient.invalidateQueries({ queryKey: ["partner", "payouts"] });
+    },
+  });
+
+  const items = payoutsQuery.data?.items ?? [];
+
+  return (
+    <div data-testid="partner-payouts" className="space-y-6 p-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">
+          Partner Payout Requests & Settlement History
+        </h1>
+        <p className="text-sm text-slate-600">
+          Submit payout requests against approved commission settlements and track payout disbursement status.
+        </p>
+      </div>
+
+      <form
+        data-testid="partner-payout-request-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (Number(amount) > 0 && settlementId.trim()) {
+            requestMutation.mutate();
+          }
+        }}
+        className="grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-5"
+      >
+        <label className="text-xs font-medium text-slate-700">
+          Settlement ID
+          <input
+            aria-label="Settlement ID"
+            value={settlementId}
+            onChange={(e) => setSettlementId(e.target.value)}
+            className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs"
+          />
+        </label>
+        <label className="text-xs font-medium text-slate-700">
+          Amount
+          <input
+            aria-label="Payout amount"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs"
+          />
+        </label>
+        <label className="text-xs font-medium text-slate-700">
+          Currency
+          <select
+            aria-label="Payout currency"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs"
+          >
+            <option value="USDT">USDT</option>
+            <option value="USDC">USDC</option>
+            <option value="USD">USD</option>
+          </select>
+        </label>
+        <label className="text-xs font-medium text-slate-700">
+          Payout Method
+          <select
+            aria-label="Payout method"
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+            className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs"
+          >
+            <option value="USDT_ERC20">USDT (ERC-20)</option>
+            <option value="USDC_ERC20">USDC (ERC-20)</option>
+            <option value="BANK_WIRE">Bank Wire</option>
+          </select>
+        </label>
+        <div className="flex items-end">
+          <button
+            type="submit"
+            disabled={requestMutation.isPending || Number(amount) <= 0}
+            className="w-full rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {requestMutation.isPending ? "Submitting…" : "Submit Payout Request"}
+          </button>
+        </div>
+      </form>
+
+      {statusMessage && (
+        <div role="status" className="text-xs font-medium text-emerald-700">
+          {statusMessage}
+        </div>
+      )}
+
+      <TradingStateBoundary
+        isLoading={payoutsQuery.isLoading}
+        error={payoutsQuery.error}
+        isEmpty={items.length === 0}
+        emptyTitle="No partner payouts recorded"
+        emptyDescription="Submit a payout request above once your commission settlement period is approved."
+        onRetry={() => payoutsQuery.refetch()}
+      >
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <table className="min-w-full divide-y divide-slate-200 text-xs">
+            <thead className="bg-slate-50 text-left text-slate-600">
+              <tr>
+                <th className="px-4 py-3">Payout ID</th>
+                <th className="px-4 py-3">Settlement</th>
+                <th className="px-4 py-3">Amount</th>
+                <th className="px-4 py-3">Method</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Reference / Note</th>
+                <th className="px-4 py-3">Requested At</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3 font-mono font-semibold text-slate-900">{row.id}</td>
+                  <td className="px-4 py-3 font-mono">{row.settlementId}</td>
+                  <td className="px-4 py-3 font-semibold">
+                    {row.amount} {row.currency}
+                  </td>
+                  <td className="px-4 py-3">{row.method}</td>
+                  <td className="px-4 py-3">
+                    <span className="rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-800">
+                      {row.state}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.providerReference ?? row.failureReason ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">{row.createdAt}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </TradingStateBoundary>
+    </div>
+  );
+}
+```
+
+FILE: apps/web/src/features/partner/referral-manager.tsx
+
+```tsx
+// # NEW — Creates referral links/codes and displays attribution funnel
+"use client";
+
+import React, { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { partnerApi, type PartnerReferralsResponse } from "../../api/partner-api";
+import { TradingStateBoundary } from "../../components/trading-state";
+
+export interface ReferralManagerProps {
+  partnerId?: string;
+}
+
+export function ReferralManager({ partnerId }: ReferralManagerProps): JSX.Element {
+  const queryClient = useQueryClient();
+  const [code, setCode] = useState<string>("");
+  const [campaignId, setCampaignId] = useState<string>("camp-default");
+  const [maxUses, setMaxUses] = useState<string>("500");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const referralsQuery = useQuery<PartnerReferralsResponse>({
+    queryKey: ["partner", "referrals", partnerId ?? "self"],
+    queryFn: () => partnerApi.listReferrals(partnerId ? { partnerId } : undefined),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      partnerApi.createReferral({
+        partnerId: referralsQuery.data?.partnerId ?? partnerId ?? "partner-default",
+        campaignId,
+        code: code.trim().toUpperCase(),
+        maxUses: Number(maxUses) || 500,
+        createdBy: "partner-portal",
+        correlationId: `corr_${Date.now()}`,
+        idempotencyKey: `ref_${code.trim().toUpperCase()}`,
+      }),
+    onSuccess: (created) => {
+      setCode("");
+      setStatusMessage(`Referral code ${created.code} created.`);
+      queryClient.invalidateQueries({ queryKey: ["partner", "referrals"] });
+    },
+  });
+
+  const referrals = referralsQuery.data?.referrals ?? [];
+  const attributions = referralsQuery.data?.attributions ?? [];
+
+  return (
+    <div data-testid="referral-manager" className="space-y-6 p-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Referral Links & Campaign Funnel</h1>
+        <p className="text-sm text-slate-600">
+          Create tracked referral codes and monitor signup-to-active-follower attribution.
+        </p>
+      </div>
+
+      <form
+        data-testid="create-referral-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (code.trim().length >= 3) {
+            createMutation.mutate();
+          }
+        }}
+        className="grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-4"
+      >
+        <label className="text-xs font-medium text-slate-700">
+          Referral Code
+          <input
+            aria-label="Referral code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="e.g. ALPHA2026"
+            className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs"
+          />
+        </label>
+        <label className="text-xs font-medium text-slate-700">
+          Campaign ID
+          <input
+            aria-label="Campaign ID"
+            value={campaignId}
+            onChange={(e) => setCampaignId(e.target.value)}
+            className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs"
+          />
+        </label>
+        <label className="text-xs font-medium text-slate-700">
+          Max Uses
+          <input
+            aria-label="Max uses"
+            type="number"
+            value={maxUses}
+            onChange={(e) => setMaxUses(e.target.value)}
+            className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs"
+          />
+        </label>
+        <div className="flex items-end">
+          <button
+            type="submit"
+            disabled={createMutation.isPending || code.trim().length < 3}
+            className="w-full rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {createMutation.isPending ? "Creating…" : "Create Referral Link"}
+          </button>
+        </div>
+      </form>
+
+      {statusMessage && (
+        <div role="status" className="text-xs font-medium text-emerald-700">
+          {statusMessage}
+        </div>
+      )}
+
+      <TradingStateBoundary
+        isLoading={referralsQuery.isLoading}
+        error={referralsQuery.error}
+        isEmpty={referrals.length === 0 && attributions.length === 0}
+        emptyTitle="No referrals or attributions yet"
+        emptyDescription="Generate a referral code above and share the link to start earning tiered trading rebates."
+        onRetry={() => referralsQuery.refetch()}
+      >
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-slate-900">Active Referral Codes</h2>
+            <ul className="mt-3 divide-y divide-slate-100 text-xs">
+              {referrals.map((r) => (
+                <li key={r.id} className="flex items-center justify-between py-2">
+                  <div>
+                    <span className="font-mono font-semibold text-slate-900">{r.code}</span>
+                    <span className="ml-2 text-slate-500">({r.state})</span>
+                  </div>
+                  <div className="text-slate-600">
+                    Uses: {r.usesCount ?? 0} / {r.maxUses ?? "∞"}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-slate-900">Attributed Signups</h2>
+            <ul className="mt-3 divide-y divide-slate-100 text-xs">
+              {attributions.map((a) => (
+                <li key={a.id} className="flex items-center justify-between py-2">
+                  <div>
+                    <code className="font-semibold text-slate-800">{a.tenantId}</code>
+                    <span className="ml-2 text-slate-500">via {a.referralCode ?? a.attributionSource}</span>
+                  </div>
+                  <div className="text-slate-500">{a.capturedAt}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </TradingStateBoundary>
+    </div>
+  );
+}
+```
+
 FILE: apps/web/src/features/portfolio/attribution-table.tsx
 
 ```tsx
@@ -11458,6 +15254,230 @@ export function AttributionTable(): JSX.Element {
     <ProfileGate title="Attribution">
       {(profileId) => <AttributionTableBody profileId={profileId} />}
     </ProfileGate>
+  );
+}
+```
+
+FILE: apps/web/src/features/portfolio/customer-exposure-panel.tsx
+
+```tsx
+// # Responsibility: presents the signed-in user's own current exposure while withholding stale, unknown, and cross-currency totals.
+
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { customerExposureApi, type CustomerExposureLine, type CustomerExposureState, type CustomerExposureValueState } from '@/api/customer-exposure-api';
+import { ErrorState } from '@/components/error-state';
+import { LoadingState } from '@/components/loading-state';
+
+export const CUSTOMER_EXPOSURE_QUERY_KEY = ['customer-exposure', 'my'] as const;
+
+function stateClass(state: CustomerExposureState | CustomerExposureValueState): string {
+  if (state === 'CURRENT') return 'border-green-200 bg-green-50 text-green-800';
+  if (state === 'STALE') return 'border-amber-200 bg-amber-50 text-amber-800';
+  if (state === 'UNKNOWN') return 'border-red-200 bg-red-50 text-red-800';
+  return 'border-gray-200 bg-gray-50 text-gray-700';
+}
+
+function stateLabel(state: CustomerExposureState | CustomerExposureValueState): string {
+  if (state === 'CURRENT') return 'Current reference data';
+  if (state === 'STALE') return 'Stale price data';
+  if (state === 'UNKNOWN') return 'Valuation unavailable';
+  return 'No open exposure';
+}
+
+function amount(value: string | null, quoteAsset: string | null): string {
+  if (value === null || !quoteAsset) return 'Unavailable';
+  return `${value} ${quoteAsset}`;
+}
+
+function renderLineState(line: CustomerExposureLine): string {
+  if (line.state === 'CURRENT') return 'Current';
+  if (line.state === 'STALE') return 'Stale';
+  return 'Unknown';
+}
+
+function referenceTimestamp(value: string | null): string {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return '—';
+  return `${parsed.toISOString()} UTC`;
+}
+
+function ExposureLines({ lines }: { lines: CustomerExposureLine[] }): JSX.Element {
+  return (
+    <div className="overflow-x-auto rounded-lg border bg-card">
+      <table className="w-full min-w-[980px] text-sm">
+        <caption className="sr-only">Exposure by instrument and venue, with market-data provenance and quote asset shown</caption>
+        <thead className="border-b bg-gray-50 text-left text-xs uppercase text-muted">
+          <tr>
+            <th className="p-3">Instrument</th>
+            <th className="p-3">Venue / market</th>
+            <th className="p-3 text-right">Net quantity</th>
+            <th className="p-3 text-right">1-minute close reference</th>
+            <th className="p-3 text-right">Gross positions</th>
+            <th className="p-3 text-right">Open-order commitment</th>
+            <th className="p-3 text-right">Combined total</th>
+            <th className="p-3">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line) => (
+            <tr key={`${line.venue}:${line.symbol}:${line.marketType ?? 'unknown'}:${line.quoteAsset ?? 'unknown'}`} className="border-b last:border-0">
+              <td className="p-3">
+                <div className="font-medium">{line.symbol}</div>
+                <div className="text-xs text-muted">{line.baseAsset ?? 'Base asset unavailable'} / {line.quoteAsset ?? 'Quote asset unavailable'}</div>
+              </td>
+              <td className="p-3">
+                <div>{line.venue}</div>
+                <div className="text-xs text-muted">{line.marketType ?? 'Market type unavailable'}</div>
+              </td>
+              <td className="p-3 text-right font-mono">{line.netQuantity ?? 'Unavailable'}</td>
+              <td className="p-3 text-right">
+                {line.price === null ? 'Unavailable' : <span className="font-mono">{line.price} {line.quoteAsset ?? ''}</span>}
+                <div className="text-xs text-muted">{referenceTimestamp(line.priceTimestamp)}</div>
+              </td>
+              <td className="p-3 text-right font-mono">{amount(line.grossPositionNotional, line.quoteAsset)}</td>
+              <td className="p-3 text-right">
+                <div className="font-mono">{amount(line.openOrderCommitment, line.quoteAsset)}</div>
+                {line.openOrderCount > 0 && (
+                  <div className="text-xs text-muted">
+                    {line.openOrderCount} open · {line.openOrderCommitmentBasis === 'ORDER_PRICE'
+                      ? 'order price'
+                      : line.openOrderCommitmentBasis === 'MARKET_DATA_1M_CANDLE_CLOSE'
+                        ? '1-minute close reference'
+                        : line.openOrderCommitmentBasis === 'MIXED'
+                          ? 'mixed reference basis'
+                          : 'basis unavailable'}
+                  </div>
+                )}
+              </td>
+              <td className="p-3 text-right font-mono">{amount(line.totalNotional, line.quoteAsset)}</td>
+              <td className="p-3">
+                <span className={`rounded-full border px-2 py-1 text-xs ${stateClass(line.state)}`}>
+                  {renderLineState(line)}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function CustomerExposurePanel(): JSX.Element {
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: CUSTOMER_EXPOSURE_QUERY_KEY,
+    queryFn: () => customerExposureApi.getMyExposure(),
+    staleTime: 5_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+  });
+
+  if (isLoading) return <LoadingState message="Loading your exposure…" />;
+  if (error) return <ErrorState error={error} onRetry={() => void refetch()} title="Exposure unavailable" />;
+  if (!data) return <ErrorState error={new Error('No exposure response was returned.')} onRetry={() => void refetch()} />;
+
+  return (
+    <div className="space-y-6" data-testid="customer-exposure-panel">
+      <section className="rounded-lg border bg-card p-5" aria-labelledby="exposure-state-heading">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 id="exposure-state-heading" className="text-lg font-semibold">Exposure data status</h2>
+            <p className="mt-1 text-sm text-muted">As of {referenceTimestamp(data.asOf)}</p>
+          </div>
+          <div className={`rounded-full border px-3 py-1 text-sm font-medium ${stateClass(data.state)}`} role="status">
+            {stateLabel(data.state)}
+          </div>
+        </div>
+        <p className="mt-4 text-sm text-muted">{data.notice}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
+          <span>{data.eligibleAccountCount} eligible non-sandbox account{data.eligibleAccountCount === 1 ? '' : 's'}</span>
+          <span>Simulated records excluded</span>
+          <span>Cash balances excluded</span>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="rounded border px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-60"
+          >
+            {isFetching ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+      </section>
+
+      {data.state === 'EMPTY' ? (
+        <section className="rounded-lg border bg-card p-8 text-center" data-testid="exposure-empty-state">
+          <h3 className="font-semibold">No open exposure found</h3>
+          <p className="mt-2 text-sm text-muted">
+            {data.eligibleAccountCount === 0
+              ? 'There are no non-deleted non-sandbox exchange accounts linked to your profile.'
+              : 'No non-simulated open positions or working orders were found in your eligible accounts.'}
+          </p>
+        </section>
+      ) : (
+        <>
+          <section className="space-y-3" aria-labelledby="exposure-lines-heading">
+            <div>
+              <h2 id="exposure-lines-heading" className="text-lg font-semibold">Positions and open orders</h2>
+              <p className="text-sm text-muted">Position values are grouped by venue and instrument. Open orders are shown as separate commitments and are not netted against positions.</p>
+            </div>
+            {data.lines.length > 0 ? (
+              <ExposureLines lines={data.lines} />
+            ) : (
+              <p className="rounded border p-4 text-sm text-muted">Rows are unavailable because instrument metadata could not be verified.</p>
+            )}
+          </section>
+
+          <section className="rounded-lg border bg-card p-5" aria-labelledby="exposure-totals-heading">
+            <h2 id="exposure-totals-heading" className="text-lg font-semibold">Totals by quote asset</h2>
+            <p className="mt-1 text-sm text-muted">Different quote assets are not added together. No FX rate is assumed.</p>
+            {data.totalsByQuoteAsset.length === 0 ? (
+              <p className="mt-4 text-sm text-muted">No quote-currency total is available.</p>
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[620px] text-sm">
+                  <thead className="border-b text-left text-xs uppercase text-muted">
+                    <tr>
+                      <th className="py-2">Quote asset</th>
+                      <th className="py-2 text-right">Gross positions</th>
+                      <th className="py-2 text-right">Open-order commitments</th>
+                      <th className="py-2 text-right">Combined total</th>
+                      <th className="py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.totalsByQuoteAsset.map((total) => (
+                      <tr key={total.quoteAsset} className="border-b last:border-0">
+                        <td className="py-3 font-medium">{total.quoteAsset}</td>
+                        <td className="py-3 text-right font-mono">{amount(total.grossPositionNotional, total.quoteAsset)}</td>
+                        <td className="py-3 text-right font-mono">{amount(total.openOrderCommitment, total.quoteAsset)}</td>
+                        <td className="py-3 text-right font-mono">{amount(total.totalNotional, total.quoteAsset)}</td>
+                        <td className="py-3">
+                          <span className={`rounded-full border px-2 py-1 text-xs ${stateClass(total.state)}`}>
+                            {stateLabel(total.state)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {(data.staleSymbols.length > 0 || data.unknownSymbols.length > 0) && (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm" aria-label="Incomplete exposure symbols">
+          <h2 className="font-semibold">Some exposure values are withheld</h2>
+          {data.staleSymbols.length > 0 && <p className="mt-2">Stale prices: {data.staleSymbols.join(', ')}</p>}
+          {data.unknownSymbols.length > 0 && <p className="mt-2">Missing or invalid prices/data: {data.unknownSymbols.join(', ')}</p>}
+          <p className="mt-2 text-xs">Totals for affected quote assets are not shown until all required valuation inputs are current and valid.</p>
+        </section>
+      )}
+    </div>
   );
 }
 ```
@@ -12634,6 +16654,2074 @@ export function StatementsPage(): JSX.Element {
 }
 ```
 
+FILE: apps/web/src/features/support/support-page.tsx
+
+```tsx
+// # Ensures ticket creation, reply thread, and status tracking
+"use client";
+
+import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { operationsApi } from "@/api/operations-api";
+import { clientLifecycleApi } from "@/api/client-lifecycle-api";
+import { useTenant } from "@/tenant/tenant.context";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+
+export interface SupportTicketMessage {
+  id: string;
+  sender: "CUSTOMER" | "SUPPORT_DESK";
+  body: string;
+  createdAt: string;
+}
+
+export interface SupportTicketRecord {
+  ticketId: string;
+  subject: string;
+  category: "COPY_TRADING" | "FUNDING_CUSTODY" | "EXCHANGE_CONNECTIVITY" | "COMPLIANCE_KYC" | "GENERAL";
+  priority: "NORMAL" | "HIGH" | "URGENT";
+  status: "OPEN" | "IN_REVIEW" | "RESOLVED";
+  createdAt: string;
+  messages: SupportTicketMessage[];
+}
+
+export function SupportPage(): JSX.Element {
+  const { tenant } = useTenant();
+  const supportEmail = tenant?.branding?.supportEmail ?? "support@example.com";
+
+  const maintenanceQuery = useQuery({
+    queryKey: ["support-maintenance"],
+    queryFn: () => operationsApi.getCurrentMaintenance(),
+  });
+
+  const restrictionsQuery = useQuery({
+    queryKey: ["support-restrictions"],
+    queryFn: () => clientLifecycleApi.listRestrictions(),
+  });
+
+  const [tickets, setTickets] = useState<SupportTicketRecord[]>([]);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [subject, setSubject] = useState("");
+  const [category, setCategory] = useState<SupportTicketRecord["category"]>("COPY_TRADING");
+  const [priority, setPriority] = useState<SupportTicketRecord["priority"]>("NORMAL");
+  const [body, setBody] = useState("");
+  const [replyText, setReplyText] = useState("");
+
+  const activeTicket = tickets.find((t) => t.ticketId === selectedTicketId) ?? tickets[0] ?? null;
+
+  const handleCreateTicket = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subject.trim() || !body.trim()) return;
+    const now = new Date().toISOString();
+    const ticketId = `TKT-${1000 + tickets.length + 1}`;
+    const newTicket: SupportTicketRecord = {
+      ticketId,
+      subject: subject.trim(),
+      category,
+      priority,
+      status: "OPEN",
+      createdAt: now,
+      messages: [
+        {
+          id: `${ticketId}-msg-1`,
+          sender: "CUSTOMER",
+          body: body.trim(),
+          createdAt: now,
+        },
+      ],
+    };
+    setTickets((prev) => [newTicket, ...prev]);
+    setSelectedTicketId(ticketId);
+    setSubject("");
+    setBody("");
+  };
+
+  const handleAddReply = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeTicket || !replyText.trim()) return;
+    const now = new Date().toISOString();
+    setTickets((prev) =>
+      prev.map((t) =>
+        t.ticketId === activeTicket.ticketId
+          ? {
+              ...t,
+              messages: [
+                ...t.messages,
+                {
+                  id: `${t.ticketId}-msg-${t.messages.length + 1}`,
+                  sender: "CUSTOMER",
+                  body: replyText.trim(),
+                  createdAt: now,
+                },
+              ],
+            }
+          : t,
+      ),
+    );
+    setReplyText("");
+  };
+
+  return (
+    <PageContainer
+      title="Support & Helpdesk"
+      description="Create and track support tickets, inspect active account notices, and reach tenant operations"
+    >
+      <div className="space-y-6" data-testid="support-page">
+        {/* Operational & Account Diagnostics */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded border bg-card p-4 text-xs">
+            <h2 className="text-sm font-semibold">Platform & Maintenance Status</h2>
+            {maintenanceQuery.data?.active ? (
+              <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-3 text-amber-900">
+                <div className="font-semibold">{maintenanceQuery.data.title ?? "Maintenance Active"}</div>
+                <p className="mt-1">{maintenanceQuery.data.message}</p>
+              </div>
+            ) : (
+              <p className="mt-2 text-muted">
+                All copy-trading, OMS, and custody subsystems are operating normally.
+              </p>
+            )}
+            <div className="mt-3 border-t pt-2">
+              Direct Support Contact:{" "}
+              <a href={`mailto:${supportEmail}`} className="font-medium underline">
+                {supportEmail}
+              </a>
+            </div>
+          </div>
+
+          <div className="rounded border bg-card p-4 text-xs">
+            <h2 className="text-sm font-semibold">Account Restrictions & Quick Links</h2>
+            {(restrictionsQuery.data ?? []).filter((r) => r.status === "ACTIVE").length > 0 ? (
+              <ul className="mt-2 list-disc pl-4 text-rose-800">
+                {(restrictionsQuery.data ?? [])
+                  .filter((r) => r.status === "ACTIVE")
+                  .map((r) => (
+                    <li key={r.id}>
+                      <strong>{r.restrictionType}</strong>: {r.reason}
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-muted">No active restrictions on your account.</p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-3 border-t pt-2">
+              <Link href="/activity" className="underline">
+                View Activity & Audit Log
+              </Link>
+              <Link href="/notifications" className="underline">
+                Notification Preferences
+              </Link>
+              <Link href="/account/restrictions" className="underline">
+                Account Restrictions
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Create Ticket Form + Ticket Thread */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <form
+            onSubmit={handleCreateTicket}
+            className="space-y-3 rounded border bg-card p-4 text-xs"
+            data-testid="create-support-ticket-form"
+          >
+            <h2 className="text-sm font-semibold">Open a New Support Ticket</h2>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-muted">Category</span>
+                <select
+                  aria-label="Ticket Category"
+                  value={category}
+                  onChange={(e) =>
+                    setCategory(e.target.value as SupportTicketRecord["category"])
+                  }
+                  className="w-full rounded border px-2 py-1.5"
+                >
+                  <option value="COPY_TRADING">Copy Trading & Execution</option>
+                  <option value="FUNDING_CUSTODY">Funding, Deposits & Withdrawals</option>
+                  <option value="EXCHANGE_CONNECTIVITY">Exchange API Connectivity</option>
+                  <option value="COMPLIANCE_KYC">Compliance & Verification</option>
+                  <option value="GENERAL">General Inquiry</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-muted">Priority</span>
+                <select
+                  aria-label="Ticket Priority"
+                  value={priority}
+                  onChange={(e) =>
+                    setPriority(e.target.value as SupportTicketRecord["priority"])
+                  }
+                  className="w-full rounded border px-2 py-1.5"
+                >
+                  <option value="NORMAL">Normal</option>
+                  <option value="HIGH">High</option>
+                  <option value="URGENT">Urgent</option>
+                </select>
+              </label>
+            </div>
+            <label className="block space-y-1">
+              <span className="text-muted">Subject</span>
+              <input
+                aria-label="Ticket Subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Brief summary of the issue"
+                className="w-full rounded border px-2.5 py-1.5"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-muted">Description & Reference IDs</span>
+              <textarea
+                aria-label="Ticket Description"
+                rows={4}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="Include subscriptionId, executionId, or orderId if applicable..."
+                className="w-full rounded border px-2.5 py-1.5"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!subject.trim() || !body.trim()}
+              className="rounded bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            >
+              Submit Support Ticket
+            </button>
+          </form>
+
+          {/* Ticket List & Thread */}
+          <div className="space-y-4 rounded border bg-card p-4 text-xs">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Your Support Tickets ({tickets.length})</h2>
+            </div>
+
+            {tickets.length === 0 ? (
+              <p className="text-muted">
+                You have not submitted any support tickets in this session. Use the form on the left to open a ticket.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {tickets.map((t) => (
+                    <button
+                      key={t.ticketId}
+                      type="button"
+                      onClick={() => setSelectedTicketId(t.ticketId)}
+                      className={`rounded border px-2.5 py-1 text-left ${
+                        activeTicket?.ticketId === t.ticketId
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="font-mono font-semibold">{t.ticketId}</span>: {t.subject}
+                    </button>
+                  ))}
+                </div>
+
+                {activeTicket && (
+                  <div className="space-y-3 rounded border p-3" data-testid="support-ticket-thread">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+                      <div>
+                        <span className="font-semibold">{activeTicket.subject}</span>
+                        <span className="ml-2 text-muted">({activeTicket.category})</span>
+                      </div>
+                      <StatusBadge status={activeTicket.status} />
+                    </div>
+
+                    <ul className="space-y-2">
+                      {activeTicket.messages.map((msg) => (
+                        <li key={msg.id} className="rounded bg-slate-50 p-2">
+                          <div className="flex justify-between text-[11px] text-muted">
+                            <span className="font-semibold">{msg.sender}</span>
+                            <span>{new Date(msg.createdAt).toLocaleTimeString()}</span>
+                          </div>
+                          <p className="mt-1">{msg.body}</p>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <form onSubmit={handleAddReply} className="flex gap-2 pt-2">
+                      <input
+                        aria-label="Reply message"
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        placeholder="Add a reply to this ticket..."
+                        className="flex-1 rounded border px-2.5 py-1"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!replyText.trim()}
+                        className="rounded border px-3 py-1 font-medium hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        Reply
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/allocation-rebalance-page.tsx
+
+```tsx
+// # Responsibility: sends user-supplied allocation values to a non-executable preview API; never submits orders or transfers.
+
+import React, { FormEvent, useEffect, useState } from 'react';
+import { tradingApi, type RebalancePreviewLine, type RebalancePreviewRequest } from '@/api/trading-api';
+
+export type RebalancePreviewRow = RebalancePreviewLine;
+export type RebalanceAllocationInput = RebalancePreviewRequest['allocations'][number];
+
+export function AllocationRebalancePage({
+  initialTotalValue,
+  initialAllocations,
+  onPreview,
+}: {
+  initialTotalValue: string;
+  initialAllocations: RebalanceAllocationInput[];
+  onPreview?: (input: RebalancePreviewRequest) => Promise<RebalancePreviewRow[]>;
+}): JSX.Element {
+  const [totalValue, setTotalValue] = useState(initialTotalValue);
+  const [allocations, setAllocations] = useState(initialAllocations);
+  const [message, setMessage] = useState('');
+  const [rows, setRows] = useState<RebalancePreviewRow[]>([]);
+  const preview = onPreview ?? tradingApi.previewAllocationRebalance;
+
+  useEffect(() => {
+    setTotalValue(initialTotalValue);
+    setAllocations(initialAllocations);
+  }, [initialTotalValue, initialAllocations]);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMessage('');
+    try {
+      const next = await preview({ totalValue, allocations: allocations.map((allocation) => ({ ...allocation })) });
+      setRows(next);
+      setMessage('Preview refreshed. No orders or transfers were submitted.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Preview unavailable.');
+    }
+  };
+
+  return (
+    <section className="space-y-4" data-testid="allocation-rebalance-page">
+      <header><h2 className="text-lg font-semibold">Allocation rebalance planner</h2><p className="text-sm text-muted">Preview only. Values and price-availability flags are user supplied and are not checked against exchange balances or positions. This page never creates an order or transfers funds.</p></header>
+      <form onSubmit={submit} className="grid gap-4 rounded border p-4">
+        <label className="grid max-w-sm gap-1 text-sm">Preview portfolio value (unverified)<input aria-label="Preview portfolio value (unverified)" inputMode="decimal" value={totalValue} onChange={(event) => setTotalValue(event.target.value)} className="rounded border px-3 py-2" /></label>
+        <fieldset className="grid gap-2">
+          <legend className="text-sm font-medium">Target allocation (basis points)</legend>
+          {allocations.length === 0 && <p role="alert" className="text-sm">No allocation rows were supplied. A preview requires at least one allocation.</p>}
+          {allocations.map((allocation, index) => (
+            <div key={allocation.traderId} className="grid grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_8rem] items-center gap-3 rounded border p-3 text-sm">
+              <span>{allocation.traderId}</span>
+              <span>Provided current value: {allocation.currentValue}{allocation.priceAvailable ? '' : ' (valuation unavailable)'}</span>
+              <label className="grid gap-1">Weight bps<input
+                aria-label={`${allocation.traderId} target weight in basis points`}
+                type="number"
+                min="0"
+                max="10000"
+                step="1"
+                value={allocation.targetWeightBps}
+                onChange={(event) => {
+                  const nextWeight = event.target.value === '' ? 0 : Number(event.target.value);
+                  setAllocations((current) => current.map((item, itemIndex) => (
+                    itemIndex === index ? { ...item, targetWeightBps: nextWeight } : item
+                  )));
+                }}
+                className="rounded border px-2 py-1"
+              /></label>
+            </div>
+          ))}
+        </fieldset>
+        <button type="submit" disabled={allocations.length === 0} className="w-fit rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50">Preview rebalance</button>
+      </form>
+      {message && <p role="status" className="text-sm">{message}</p>}
+      <ul className="space-y-2">{rows.map((row) => <li key={row.traderId} className="rounded border p-3 text-sm">
+        <strong>{row.traderId}</strong>: {row.status === 'PREVIEW' ? `current ${row.currentValue}, target ${row.targetValue}, delta ${row.deltaValue}` : 'valuation unavailable; no target estimated'}
+      </li>)}</ul>
+    </section>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/concentration-risk-panel.tsx
+
+```tsx
+// # Responsibility: presents the signed-in customer's measured concentration and aligned-candle correlation with explicit stale and unknown states.
+
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import {
+  riskAnalysisApi,
+  type CustomerConcentrationMetric,
+  type CustomerRiskEvidenceState,
+  type CustomerRiskValueState,
+  type CustomerCorrelationPair,
+} from '@/api/risk-analysis-api';
+import { ErrorState } from '@/components/error-state';
+import { LoadingState } from '@/components/loading-state';
+
+export const CUSTOMER_RISK_ANALYSIS_QUERY_KEY = ['customer-risk-analysis', 'my'] as const;
+
+function stateClass(state: CustomerRiskEvidenceState | CustomerRiskValueState | string): string {
+  if (state === 'CURRENT' || state === 'NORMAL') return 'border-green-200 bg-green-50 text-green-800';
+  if (state === 'STALE') return 'border-amber-200 bg-amber-50 text-amber-800';
+  if (state === 'HIGH' || state === 'BLOCKED' || state === 'CRITICAL') return 'border-red-200 bg-red-50 text-red-800';
+  return 'border-gray-200 bg-gray-50 text-gray-700';
+}
+
+function stateLabel(state: CustomerRiskEvidenceState | CustomerRiskValueState | string): string {
+  if (state === 'CURRENT') return 'Measured with current evidence';
+  if (state === 'STALE') return 'Stale evidence — value withheld';
+  if (state === 'EMPTY') return 'No open positions to measure';
+  if (state === 'NORMAL') return 'Measured — within threshold';
+  if (state === 'HIGH') return 'Measured — threshold exceeded';
+  if (state === 'BLOCKED') return 'Threshold breached';
+  if (state === 'CRITICAL') return 'Critical';
+  return 'Unknown or incomplete — value withheld';
+}
+
+function utcTimestamp(value: string | null | undefined): string {
+  if (!value) return 'Unavailable';
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return 'Unavailable';
+  return `${parsed.toISOString()} UTC`;
+}
+
+function notional(value: string | null, quoteAsset: string | null): string {
+  if (value === null || !quoteAsset) return 'Unavailable';
+  return `${value} ${quoteAsset}`;
+}
+
+function concentrationValue(metric: CustomerConcentrationMetric): string {
+  if (metric.state !== 'CURRENT' || metric.currentPercent === null) return 'Unavailable';
+  return `${metric.currentPercent}%`;
+}
+
+function concentrationAmount(metric: CustomerConcentrationMetric): string {
+  if (metric.state !== 'CURRENT') return 'Unavailable';
+  return notional(metric.currentNotional, metric.quoteAsset);
+}
+
+function thresholdLabel(metric: CustomerConcentrationMetric): string {
+  if (metric.thresholdPercent === null) return 'Not configured';
+  return `${metric.thresholdPercent}%`;
+}
+
+function breachLabel(metric: CustomerConcentrationMetric): string {
+  if (metric.state !== 'CURRENT' || metric.isBreach === null) return 'Not classified';
+  return metric.isBreach ? 'Threshold exceeded' : 'Within threshold';
+}
+
+function CorrelationValue({ pair }: { pair: CustomerCorrelationPair }): JSX.Element {
+  if (pair.isUnknown || pair.correlation === null || pair.isStale || pair.state === 'UNKNOWN' || pair.state === 'STALE') {
+    return <span>Unavailable</span>;
+  }
+  return <span className="font-mono">{pair.correlation}</span>;
+}
+
+function ConcentrationTable({ metrics }: { metrics: CustomerConcentrationMetric[] }): JSX.Element {
+  return (
+    <div className="overflow-x-auto rounded-lg border bg-card">
+      <table className="w-full min-w-[1040px] text-sm">
+        <caption className="sr-only">Concentration measured within each quote asset, with freshness and source evidence</caption>
+        <thead className="border-b bg-gray-50 text-left text-xs uppercase text-muted">
+          <tr>
+            <th className="p-3">Dimension</th>
+            <th className="p-3">Exposure group</th>
+            <th className="p-3">Quote asset</th>
+            <th className="p-3 text-right">Gross position notional</th>
+            <th className="p-3 text-right">Share of quote-asset gross</th>
+            <th className="p-3 text-right">Threshold</th>
+            <th className="p-3">Assessment</th>
+            <th className="p-3">Evidence as of / state</th>
+          </tr>
+        </thead>
+        <tbody>
+          {metrics.map((metric, index) => (
+            <tr key={`${metric.quoteAsset ?? 'unassigned'}:${metric.dimension}:${metric.key}:${index}`} className="border-b align-top last:border-0">
+              <td className="p-3 font-medium">{metric.dimension}</td>
+              <td className="p-3">
+                <div>{metric.key}</div>
+                <div className="mt-1 text-xs text-muted">{metric.evidenceSymbols.join(', ') || 'Instrument identity unavailable'}</div>
+              </td>
+              <td className="p-3">{metric.quoteAsset ?? 'Unavailable'}</td>
+              <td className="p-3 text-right font-mono">{concentrationAmount(metric)}</td>
+              <td className="p-3 text-right font-mono">{concentrationValue(metric)}</td>
+              <td className="p-3 text-right font-mono">{thresholdLabel(metric)}</td>
+              <td className="p-3">
+                <div>{breachLabel(metric)}</div>
+                <span className={`mt-2 inline-flex rounded-full border px-2 py-1 text-xs ${stateClass(metric.state)}`}>
+                  {stateLabel(metric.state)}
+                </span>
+              </td>
+              <td className="p-3">
+                <div>{utcTimestamp(metric.observedAt)}</div>
+                <div className="mt-1 text-xs text-muted">{metric.source === 'MARKET_DATA_1M_CANDLE_CLOSE' ? '1-minute candle close' : 'Source unavailable'}</div>
+                <div className="mt-1 max-w-[360px] text-xs text-muted">{metric.reason}</div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CorrelationTable({ pairs }: { pairs: CustomerCorrelationPair[] }): JSX.Element {
+  return (
+    <div className="overflow-x-auto rounded-lg border bg-card">
+      <table className="w-full min-w-[900px] text-sm">
+        <caption className="sr-only">Correlation based on aligned, fresh daily candle-close returns</caption>
+        <thead className="border-b bg-gray-50 text-left text-xs uppercase text-muted">
+          <tr>
+            <th className="p-3">Instrument pair</th>
+            <th className="p-3 text-right">Pearson correlation</th>
+            <th className="p-3 text-right">Aligned returns</th>
+            <th className="p-3 text-right">Threshold</th>
+            <th className="p-3">State</th>
+            <th className="p-3">Daily candle evidence as of</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pairs.map((pair) => (
+            <tr key={pair.pairKey} className="border-b align-top last:border-0">
+              <td className="p-3">
+                <div className="font-medium">{pair.pairKey}</div>
+                <div className="mt-1 text-xs text-muted">{pair.sourceMethodology ?? 'Aligned daily close returns'}</div>
+              </td>
+              <td className="p-3 text-right"><CorrelationValue pair={pair} /></td>
+              <td className="p-3 text-right font-mono">{pair.observations}</td>
+              <td className="p-3 text-right font-mono">{pair.threshold === null ? 'Not configured' : pair.threshold}</td>
+              <td className="p-3">
+                <span className={`rounded-full border px-2 py-1 text-xs ${stateClass(pair.state)}`}>
+                  {stateLabel(pair.state)}
+                </span>
+                <div className="mt-2 max-w-[360px] text-xs text-muted">{pair.reason}</div>
+              </td>
+              <td className="p-3">
+                <div>{utcTimestamp(pair.sourceTimestamp)}</div>
+                <div className="mt-1 text-xs text-muted">Interval {pair.sourceInterval ?? 'unavailable'} · max age {pair.sourceMaxAgeMs === null || pair.sourceMaxAgeMs === undefined ? 'unavailable' : `${Math.round(pair.sourceMaxAgeMs / 3_600_000)} hours`}</div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ConcentrationRiskPanel(): JSX.Element {
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: CUSTOMER_RISK_ANALYSIS_QUERY_KEY,
+    queryFn: () => riskAnalysisApi.getMyRiskAnalysis(),
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  if (isLoading) return <LoadingState message="Loading your concentration and correlation evidence…" />;
+  if (error) return <ErrorState error={error} onRetry={() => void refetch()} title="Risk analysis unavailable" />;
+  if (!data) return <ErrorState error={new Error('No risk-analysis response was returned.')} onRetry={() => void refetch()} />;
+
+  const concentration = data.concentration;
+  const correlation = data.correlation;
+
+  return (
+    <section className="space-y-6" data-testid="concentration-risk-panel" aria-labelledby="customer-risk-analysis-heading">
+      <div className="rounded-lg border bg-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 id="customer-risk-analysis-heading" className="text-lg font-semibold">Concentration and correlation risk</h2>
+            <p className="mt-1 text-sm text-muted">Owner-scoped, non-sandbox, non-simulated open-position evidence. Calculated {utcTimestamp(data.requestedAt)}.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="rounded border px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-60"
+          >
+            {isFetching ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        <p className="mt-3 text-sm text-muted">Concentration is shown only within the same quote asset; different quote currencies are never added without an FX source. Correlation uses observed daily candle returns and is not a hedge guarantee, portfolio-PnL correlation, trading recommendation, or substitute for execution-risk checks.</p>
+      </div>
+
+      <section className="space-y-3" aria-labelledby="customer-concentration-heading">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 id="customer-concentration-heading" className="text-base font-semibold">Measured concentration</h3>
+            <p className="text-sm text-muted">Exact-decimal gross position notionals use fresh, instrument-linked 1-minute candle closes. Working orders are excluded from this concentration denominator.</p>
+          </div>
+          <span className={`rounded-full border px-3 py-1 text-xs ${stateClass(concentration.state)}`} role="status">
+            {stateLabel(concentration.state)}
+          </span>
+        </div>
+        {concentration.metrics.length > 0 ? (
+          <ConcentrationTable metrics={concentration.metrics} />
+        ) : (
+          <p className="rounded-lg border bg-card p-4 text-sm text-muted">{concentration.state === 'EMPTY' ? 'No open position is available for concentration measurement.' : 'Concentration values are unavailable because no complete measured groups were returned.'}</p>
+        )}
+        <p className="text-xs text-muted">{concentration.notice}</p>
+        {(concentration.staleSymbols.length > 0 || concentration.unknownSymbols.length > 0) && (
+          <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs" aria-label="Incomplete concentration source symbols">
+            {concentration.staleSymbols.length > 0 && <p>Stale sources: {concentration.staleSymbols.join(', ')}</p>}
+            {concentration.unknownSymbols.length > 0 && <p className="mt-1">Unknown sources: {concentration.unknownSymbols.join(', ')}</p>}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3" aria-labelledby="customer-correlation-heading">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 id="customer-correlation-heading" className="text-base font-semibold">Measured correlation</h3>
+            <p className="text-sm text-muted">{correlation.method} · {correlation.interval} candles · minimum {correlation.minObservations} aligned daily return observations · maximum source age {Math.round(correlation.maxSourceAgeMs / 3_600_000)} hours.</p>
+          </div>
+          <span className={`rounded-full border px-3 py-1 text-xs ${stateClass(correlation.state)}`} role="status">
+            {stateLabel(correlation.state)}
+          </span>
+        </div>
+        {correlation.pairs.length > 0 ? (
+          <CorrelationTable pairs={correlation.pairs} />
+        ) : (
+          <p className="rounded-lg border bg-card p-4 text-sm text-muted">
+            {correlation.state === 'EMPTY'
+              ? 'No eligible open positions were found for correlation analysis.'
+              : 'No eligible instrument pair has enough verified aligned daily candle evidence. Correlation is unavailable, not zero.'}
+          </p>
+        )}
+        {(correlation.omittedPositionCount ?? 0) > 0 && (
+          <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs">{correlation.omittedPositionCount} open position record(s) did not have verifiable tenant instrument identity or quantity; portfolio correlation coverage is incomplete.</p>
+        )}
+        {(correlation.truncatedPairCount ?? 0) > 0 && (
+          <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs">{correlation.truncatedPairCount} eligible pair(s) were not evaluated because the service caps each request at 20 pairs. The result is incomplete, not a complete correlation matrix.</p>
+        )}
+        <p className="text-xs text-muted">{correlation.notice}</p>
+      </section>
+    </section>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/copied-orders-page.tsx
+
+```tsx
+// # NEW — Displays copied order lifecycle states, fill breakdown, fees, slippage, and rejection reasons
+// # Uses shared TradingState
+"use client";
+
+import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { tradingApi } from "@/api/trading-api";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+import { Money } from "@/components/money";
+import { TradingStateBoundary } from "@/components/trading-state";
+
+export function CopiedOrdersPage({
+  subscriptionId,
+}: {
+  subscriptionId: string;
+}): JSX.Element {
+  const [statusFilter, setStatusFilter] = useState<string>("");
+
+  const ordersQuery = useQuery({
+    queryKey: ["copied-orders", subscriptionId, statusFilter],
+    queryFn: () =>
+      tradingApi.listSubscriptionOrders(subscriptionId, {
+        status: statusFilter || undefined,
+      }),
+  });
+
+  const rows = ordersQuery.data ?? [];
+
+  return (
+    <PageContainer
+      title={`Copied Orders & Fills — Subscription ${subscriptionId}`}
+      description="Child order lifecycle states, fill progress, execution fees, slippage, and risk/rejection diagnostics"
+    >
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border bg-card p-3 text-xs">
+        <div className="flex items-center gap-2">
+          <label htmlFor="copied-order-status" className="text-muted">
+            Execution Status:
+          </label>
+          <select
+            id="copied-order-status"
+            aria-label="Execution Status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="rounded border px-2.5 py-1"
+          >
+            <option value="">All States</option>
+            <option value="COMPLETED">COMPLETED</option>
+            <option value="ROUTED">ROUTED</option>
+            <option value="PENDING">PENDING</option>
+            <option value="RISK_BLOCKED">RISK_BLOCKED</option>
+            <option value="FAILED">FAILED</option>
+            <option value="SKIPPED">SKIPPED</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/copy-trading/${subscriptionId}/positions`}
+            className="font-medium underline"
+          >
+            View Copied Positions
+          </Link>
+          <Link
+            href={`/copy-trading/${subscriptionId}`}
+            className="font-medium underline"
+          >
+            ← Back to Subscription
+          </Link>
+        </div>
+      </div>
+
+      <TradingStateBoundary
+        isLoading={ordersQuery.isLoading}
+        error={ordersQuery.error}
+        isEmpty={rows.length === 0}
+        emptyTitle="No copied orders or executions found"
+        emptyDescription="No child orders or executions matched the selected status filter."
+        onRetry={() => void ordersQuery.refetch()}
+      >
+        <div className="overflow-x-auto rounded border bg-card" data-testid="copied-orders-page">
+          <table className="w-full text-left text-xs" data-testid="copied-orders-table">
+            <thead>
+              <tr className="border-b bg-slate-50 text-muted">
+                <th className="p-3">Execution ID</th>
+                <th className="p-3">Child Order ID</th>
+                <th className="p-3">Symbol / Side</th>
+                <th className="p-3">Exec State</th>
+                <th className="p-3">Order State</th>
+                <th className="p-3">Filled / Requested</th>
+                <th className="p-3">Avg Fill Price</th>
+                <th className="p-3">Fee</th>
+                <th className="p-3">Risk / Rejection Reason</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {rows.map((row) => (
+                <tr key={row.executionId}>
+                  <td className="p-3 font-mono">{row.executionId}</td>
+                  <td className="p-3 font-mono">{row.followerOrderId ?? "—"}</td>
+                  <td className="p-3">
+                    <span className="font-semibold">{row.symbol}</span>{" "}
+                    <span className="text-muted">({row.side}/{row.orderType})</span>
+                  </td>
+                  <td className="p-3">
+                    <StatusBadge status={row.status} />
+                  </td>
+                  <td className="p-3">
+                    <StatusBadge status={row.orderStatus} />
+                  </td>
+                  <td className="p-3 font-mono">
+                    {row.filledQuantity} / {row.followerQuantity}
+                  </td>
+                  <td className="p-3 font-mono">
+                    {row.averageFillPrice ? <Money value={row.averageFillPrice} /> : "—"}
+                  </td>
+                  <td className="p-3 font-mono">
+                    {row.fee ? (
+                      <>
+                        <Money value={row.fee} /> {row.feeAsset ?? ""}
+                      </>
+                    ) : (
+                      "0.00"
+                    )}
+                  </td>
+                  <td className="p-3">
+                    {row.failureReason || row.riskReasons.join("; ") || "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </TradingStateBoundary>
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/copied-positions-page.tsx
+
+```tsx
+// # NEW — Displays open and closed copied positions, average entry, mark price, unrealized/realized PnL, and leader attribution
+// # Uses shared TradingState
+"use client";
+
+import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { tradingApi } from "@/api/trading-api";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+import { Money } from "@/components/money";
+import { TradingStateBoundary } from "@/components/trading-state";
+
+export function CopiedPositionsPage({
+  subscriptionId,
+}: {
+  subscriptionId: string;
+}): JSX.Element {
+  const [onlyOpen, setOnlyOpen] = useState<boolean>(true);
+  const [symbolFilter, setSymbolFilter] = useState<string>("");
+
+  const positionsQuery = useQuery({
+    queryKey: ["copied-positions", subscriptionId, onlyOpen, symbolFilter],
+    queryFn: () =>
+      tradingApi.listSubscriptionPositions(subscriptionId, {
+        onlyOpen,
+        symbol: symbolFilter.trim() || undefined,
+      }),
+  });
+
+  const positions = positionsQuery.data ?? [];
+
+  return (
+    <PageContainer
+      title={`Copied Positions — Subscription ${subscriptionId}`}
+      description="Open and closed copied positions attributed to this subscription with canonical average entry, mark price, and PnL"
+    >
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border bg-card p-3 text-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            aria-label="Filter symbol"
+            placeholder="Filter by symbol (e.g. BTC-USDT)"
+            value={symbolFilter}
+            onChange={(e) => setSymbolFilter(e.target.value)}
+            className="rounded border px-2.5 py-1"
+          />
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={onlyOpen}
+              onChange={(e) => setOnlyOpen(e.target.checked)}
+            />
+            Open positions only
+          </label>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/copy-trading/${subscriptionId}/orders`}
+            className="font-medium underline"
+          >
+            View Copied Orders & Fills
+          </Link>
+          <Link
+            href={`/copy-trading/${subscriptionId}`}
+            className="font-medium underline"
+          >
+            ← Back to Subscription
+          </Link>
+        </div>
+      </div>
+
+      <TradingStateBoundary
+        isLoading={positionsQuery.isLoading}
+        error={positionsQuery.error}
+        isEmpty={positions.length === 0}
+        emptyTitle="No copied positions found"
+        emptyDescription="No canonical positions match the current subscription and filter criteria."
+        onRetry={() => void positionsQuery.refetch()}
+      >
+        <div className="overflow-x-auto rounded border bg-card" data-testid="copied-positions-page">
+          <table className="w-full text-left text-xs" data-testid="copied-positions-table">
+            <thead>
+              <tr className="border-b bg-slate-50 text-muted">
+                <th className="p-3">Symbol</th>
+                <th className="p-3">Side</th>
+                <th className="p-3">Quantity</th>
+                <th className="p-3">Avg Entry</th>
+                <th className="p-3">Mark Price</th>
+                <th className="p-3">Unrealized PnL</th>
+                <th className="p-3">Realized PnL</th>
+                <th className="p-3">Leader Attribution</th>
+                <th className="p-3">State</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {positions.map((pos) => (
+                <tr key={pos.positionId}>
+                  <td className="p-3 font-semibold">{pos.symbol}</td>
+                  <td className="p-3">
+                    <StatusBadge status={pos.side} />
+                  </td>
+                  <td className="p-3 font-mono">{pos.quantity}</td>
+                  <td className="p-3 font-mono">
+                    <Money value={pos.averageEntryPrice} />
+                  </td>
+                  <td className="p-3 font-mono">
+                    <Money value={pos.markPrice} />
+                  </td>
+                  <td className="p-3 font-mono font-semibold">
+                    <Money value={pos.unrealizedPnl} />
+                  </td>
+                  <td className="p-3 font-mono">
+                    <Money value={pos.realizedPnl} />
+                  </td>
+                  <td className="p-3">
+                    <Link href={`/traders/${pos.traderId}`} className="underline">
+                      {pos.traderId}
+                    </Link>{" "}
+                    /{" "}
+                    <Link href={`/strategies/${pos.strategyId}`} className="underline">
+                      {pos.strategyId}
+                    </Link>
+                  </td>
+                  <td className="p-3">
+                    <StatusBadge status={pos.isOpen ? "OPEN" : "CLOSED"} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </TradingStateBoundary>
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/copy-execution-detail.tsx
+
+```tsx
+// # NEW — Renders leader event details, sizing calculation, risk decision, child order linkage, and execution timeline
+"use client";
+
+import React from "react";
+import type { CopyExecutionItem } from "@/api/trading-api";
+import { StatusBadge } from "@/components/status-badge";
+
+export interface CopyExecutionDetailProps {
+  execution: CopyExecutionItem;
+  onClose?: () => void;
+}
+
+export function CopyExecutionDetail({ execution, onClose }: CopyExecutionDetailProps): JSX.Element {
+  const isBlockedOrFailed =
+    execution.status === "RISK_BLOCKED" ||
+    execution.status === "FAILED" ||
+    execution.status === "SKIPPED" ||
+    execution.riskDecision === "BLOCK";
+
+  return (
+    <div
+      className="space-y-4 rounded border bg-card p-4 text-xs"
+      data-testid="copy-execution-detail"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold">
+              Copy Execution Attribution — {execution.executionId}
+            </h3>
+            <StatusBadge status={execution.status} />
+            {execution.isSimulated && <StatusBadge status="SIMULATED" variant="info" />}
+          </div>
+          <p className="mt-0.5 text-muted">
+            Leader Event ID: <code className="font-mono">{execution.leaderEventId}</code>
+          </p>
+        </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border px-2.5 py-1 text-xs hover:bg-slate-50"
+          >
+            Close
+          </button>
+        )}
+      </div>
+
+      {/* Sizing & Order Linkage */}
+      <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div>
+          <dt className="text-muted">Sizing Mode</dt>
+          <dd className="font-semibold">{execution.sizingMode}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Leader Quantity</dt>
+          <dd className="font-mono font-semibold">{execution.leaderQuantity}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Follower Quantity</dt>
+          <dd className="font-mono font-semibold">{execution.followerQuantity}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Risk Decision</dt>
+          <dd className="font-semibold" data-testid="execution-risk-decision">
+            {execution.riskDecision ?? "ALLOW"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted">Leader Order ID</dt>
+          <dd className="font-mono">{execution.leaderOrderId ?? "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Follower Child Order ID</dt>
+          <dd className="font-mono" data-testid="follower-order-id">
+            {execution.followerOrderId ?? "Not dispatched"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted">Created At</dt>
+          <dd>{execution.createdAt ? new Date(execution.createdAt).toLocaleString() : "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Updated At</dt>
+          <dd>{execution.updatedAt ? new Date(execution.updatedAt).toLocaleString() : "—"}</dd>
+        </div>
+      </dl>
+
+      {/* Rejection / Risk Block / Failure Reasons */}
+      {isBlockedOrFailed && (
+        <div
+          role="alert"
+          data-testid="execution-block-reasons"
+          className="rounded border border-rose-300 bg-rose-50 p-3 text-rose-900"
+        >
+          <div className="font-semibold">
+            Execution Halted ({execution.status} / {execution.riskDecision ?? "BLOCK"})
+          </div>
+          {execution.failureReason && (
+            <p className="mt-1">Reason: {execution.failureReason}</p>
+          )}
+          {execution.riskReasons.length > 0 && (
+            <ul className="mt-1 list-disc pl-4">
+              {execution.riskReasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Execution Lifecycle Timeline */}
+      <div className="border-t pt-3">
+        <div className="font-semibold text-slate-800">Execution Lifecycle Progression</div>
+        <ol className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+          <li className="rounded bg-slate-100 px-2 py-1 font-medium text-slate-800">
+            1. Leader Event Ingested ({execution.leaderEventId})
+          </li>
+          <span>→</span>
+          <li className="rounded bg-slate-100 px-2 py-1 font-medium text-slate-800">
+            2. Policy & Risk Check ({execution.riskDecision ?? "ALLOW"})
+          </li>
+          <span>→</span>
+          <li className="rounded bg-slate-100 px-2 py-1 font-medium text-slate-800">
+            3. Order Sizing ({execution.sizingMode}: {execution.followerQuantity})
+          </li>
+          <span>→</span>
+          <li
+            className={`rounded px-2 py-1 font-semibold ${
+              execution.status === "COMPLETED" || execution.status === "ROUTED"
+                ? "bg-emerald-100 text-emerald-900"
+                : isBlockedOrFailed
+                  ? "bg-rose-100 text-rose-900"
+                  : "bg-amber-100 text-amber-900"
+            }`}
+          >
+            4. Terminal / Current State: {execution.status}
+          </li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/copy-reconciliation-status.tsx
+
+```tsx
+// # NEW — Renders reconciliation health status, last checked timestamp, and discrepancy notices
+"use client";
+
+import React from "react";
+import type { CopyReconciliationSummary } from "@/api/trading-api";
+
+export interface CopyReconciliationStatusProps {
+  summary: CopyReconciliationSummary;
+}
+
+export function CopyReconciliationStatus({
+  summary,
+}: CopyReconciliationStatusProps): JSX.Element {
+  const statusStyles: Record<CopyReconciliationSummary["status"], string> = {
+    IN_SYNC: "border-emerald-300 bg-emerald-50 text-emerald-900",
+    DEGRADED: "border-amber-300 bg-amber-50 text-amber-900",
+    DISCREPANCY_DETECTED: "border-rose-300 bg-rose-50 text-rose-900",
+  };
+
+  return (
+    <div
+      className={`rounded border p-4 text-xs ${statusStyles[summary.status]}`}
+      data-testid="copy-reconciliation-status"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">Copy Execution Reconciliation Status</span>
+          <span
+            data-testid="reconciliation-status-badge"
+            className="rounded bg-white/80 px-2 py-0.5 font-mono text-[11px] font-semibold"
+          >
+            {summary.status}
+          </span>
+        </div>
+        <span className="text-[11px] opacity-80">
+          Last Checked: {new Date(summary.lastCheckedAt).toLocaleString()}
+        </span>
+      </div>
+
+      <dl className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div>
+          <dt className="opacity-75">Total Executions</dt>
+          <dd className="font-mono font-semibold">{summary.totalExecutions}</dd>
+        </div>
+        <div>
+          <dt className="opacity-75">Completed / Routed</dt>
+          <dd className="font-mono font-semibold">{summary.completedExecutions}</dd>
+        </div>
+        <div>
+          <dt className="opacity-75">Risk Blocked</dt>
+          <dd className="font-mono font-semibold">{summary.riskBlockedExecutions}</dd>
+        </div>
+        <div>
+          <dt className="opacity-75">Failed / Unlinked</dt>
+          <dd className="font-mono font-semibold">
+            {summary.failedExecutions} ({summary.discrepancyCount} discrepancies)
+          </dd>
+        </div>
+      </dl>
+
+      {summary.discrepancies.length > 0 && (
+        <div
+          role="alert"
+          data-testid="reconciliation-discrepancy-warning"
+          className="mt-3 rounded border border-rose-300 bg-white/90 p-3 text-rose-900"
+        >
+          <div className="font-semibold">
+            Discrepancy Detected ({summary.discrepancies.length})
+          </div>
+          <ul className="mt-1 list-disc pl-4">
+            {summary.discrepancies.map((d) => (
+              <li key={d.executionId}>
+                <span className="font-mono">{d.executionId}</span> [{d.category}]: {d.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/copy-risk-guardrails.tsx
+
+```tsx
+// # NEW — Renders follower risk headroom, policy block reasons, and emergency stop controls
+"use client";
+
+import React from "react";
+import type { CopyExecutionItem, CopySubscriptionItem } from "@/api/trading-api";
+import { Money } from "@/components/money";
+
+export interface CopyRiskGuardrailsProps {
+  subscription: CopySubscriptionItem;
+  recentExecutions?: CopyExecutionItem[];
+  onEmergencyStop?: (closeOpenPositions: boolean) => void;
+  isStopping?: boolean;
+}
+
+export function CopyRiskGuardrails({
+  subscription,
+  recentExecutions = [],
+  onEmergencyStop,
+  isStopping = false,
+}: CopyRiskGuardrailsProps): JSX.Element {
+  const risk = subscription.riskPolicy;
+  const blockedExecutions = recentExecutions.filter(
+    (e) => e.status === "RISK_BLOCKED" || e.riskDecision === "BLOCK",
+  );
+  const emergencyActive = Boolean(
+    risk?.emergencyStopCopy || subscription.copyPolicy?.emergencyStop,
+  );
+
+  return (
+    <div
+      className="space-y-4 rounded border bg-card p-4 text-xs"
+      data-testid="copy-risk-guardrails"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold">Follower Risk Guardrails & Headroom</h3>
+          <p className="text-muted">
+            Pre-trade risk limits enforced automatically before routing any copied child order.
+          </p>
+        </div>
+        <span
+          data-testid="emergency-stop-badge"
+          className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+            emergencyActive
+              ? "bg-rose-100 text-rose-800"
+              : "bg-emerald-100 text-emerald-800"
+          }`}
+        >
+          {emergencyActive ? "EMERGENCY STOP ENGAGED" : "GUARDRAILS ACTIVE"}
+        </span>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-3 border-t pt-3 md:grid-cols-4">
+        <div>
+          <dt className="text-muted">Max Daily Loss</dt>
+          <dd className="font-mono font-semibold" data-testid="guardrail-max-daily-loss">
+            {risk?.maxDailyLoss ? <Money value={risk.maxDailyLoss} /> : "Platform Default"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted">Max Drawdown</dt>
+          <dd className="font-mono font-semibold" data-testid="guardrail-max-drawdown">
+            {risk?.maxDrawdown ? <Money value={risk.maxDrawdown} /> : "Platform Default"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted">Max Open Exposure</dt>
+          <dd className="font-mono font-semibold">
+            {risk?.maxOpenExposure ? <Money value={risk.maxOpenExposure} /> : "Platform Default"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted">Daily Copy Cap</dt>
+          <dd className="font-mono font-semibold">
+            {risk?.maxDailyCopiedTrades ?? "Unlimited"} trades/day
+          </dd>
+        </div>
+      </dl>
+
+      {blockedExecutions.length > 0 && (
+        <div
+          role="region"
+          aria-label="Recent risk block reasons"
+          data-testid="guardrail-block-reasons"
+          className="rounded border border-amber-300 bg-amber-50 p-3 text-amber-900"
+        >
+          <div className="font-semibold">
+            Recent Guardrail Interventions ({blockedExecutions.length})
+          </div>
+          <ul className="mt-1 list-disc pl-4">
+            {blockedExecutions.slice(0, 5).map((exec) => (
+              <li key={exec.executionId}>
+                <span className="font-mono">{exec.executionId}</span>:{" "}
+                {exec.riskReasons.join("; ") || exec.failureReason || "Blocked by risk policy"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {onEmergencyStop && subscription.state !== "STOPPED" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+          <span className="text-muted">
+            Emergency stop halts new copy orders immediately and can optionally close open copied positions.
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={isStopping}
+              onClick={() => onEmergencyStop(false)}
+              data-testid="emergency-stop-keep-btn"
+              className="rounded border border-rose-300 bg-white px-3 py-1.5 font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+            >
+              Stop Copying (Keep Positions)
+            </button>
+            <button
+              type="button"
+              disabled={isStopping}
+              onClick={() => onEmergencyStop(true)}
+              data-testid="emergency-stop-close-btn"
+              className="rounded bg-rose-700 px-3 py-1.5 font-medium text-white hover:bg-rose-800 disabled:opacity-40"
+            >
+              Emergency Stop & Close Positions
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/copy-settings-page.tsx
+
+```tsx
+// # NEW — Form for sizing mode, allocation limits, symbol/venue allowlists, order type policy, slippage, execution delay, TP/SL, and follower risk policy
+// # Adds TP/SL/trailing stop configuration inputs and effective policy preview
+"use client";
+
+import React, { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import { tradingApi, type AllocationMode } from "@/api/trading-api";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+import { Money } from "@/components/money";
+import { TradingStateBoundary } from "@/components/trading-state";
+
+export function CopySettingsPage({ subscriptionId }: { subscriptionId: string }): JSX.Element {
+  const qc = useQueryClient();
+
+  const detailQuery = useQuery({
+    queryKey: ["copy-subscription-detail", subscriptionId],
+    queryFn: () => tradingApi.getSubscriptionDetail(subscriptionId),
+  });
+
+  const sub = detailQuery.data?.subscription;
+  const effectivePolicy = detailQuery.data?.effectivePolicy;
+
+  const [allocationMode, setAllocationMode] = useState<AllocationMode>("FIXED");
+  const [allocationAmount, setAllocationAmount] = useState("100");
+  const [minAllocation, setMinAllocation] = useState("");
+  const [maxAllocation, setMaxAllocation] = useState("");
+  const [maxPositionSize, setMaxPositionSize] = useState("");
+  const [maxNotional, setMaxNotional] = useState("");
+  const [maxLeverage, setMaxLeverage] = useState("1");
+  const [allowedSymbolsText, setAllowedSymbolsText] = useState("");
+  const [blockedSymbolsText, setBlockedSymbolsText] = useState("");
+  const [allowedVenuesText, setAllowedVenuesText] = useState("");
+  const [orderTypePolicy, setOrderTypePolicy] = useState("MARKET_AND_LIMIT");
+  const [slippageToleranceBps, setSlippageToleranceBps] = useState("50");
+  const [executionDelayMs, setExecutionDelayMs] = useState("0");
+  const [takeProfitBps, setTakeProfitBps] = useState("");
+  const [stopLossBps, setStopLossBps] = useState("");
+  const [trailingStopBps, setTrailingStopBps] = useState("");
+  const [maxDailyLoss, setMaxDailyLoss] = useState("");
+  const [maxDrawdown, setMaxDrawdown] = useState("");
+  const [maxOpenExposure, setMaxOpenExposure] = useState("");
+  const [maxDailyCopiedTrades, setMaxDailyCopiedTrades] = useState("");
+  const [emergencyStopCopy, setEmergencyStopCopy] = useState(false);
+
+  useEffect(() => {
+    if (!sub) return;
+    setAllocationMode(sub.allocationMode);
+    setAllocationAmount(sub.allocationAmount || "100");
+    setMinAllocation(sub.minAllocation ?? "");
+    setMaxAllocation(sub.maxAllocation ?? "");
+    const cp = sub.copyPolicy ?? effectivePolicy;
+    if (cp) {
+      setMaxPositionSize(cp.maxPositionSize ?? "");
+      setMaxNotional(cp.maxNotional ?? "");
+      setMaxLeverage(cp.maxLeverage ?? "1");
+      setAllowedSymbolsText(cp.allowedSymbols?.join(", ") ?? "");
+      setBlockedSymbolsText(cp.blockedSymbols?.join(", ") ?? "");
+      setAllowedVenuesText(cp.allowedVenues?.join(", ") ?? "");
+      setOrderTypePolicy(cp.orderTypePolicy || "MARKET_AND_LIMIT");
+      setSlippageToleranceBps(
+        cp.slippageToleranceBps !== null ? String(cp.slippageToleranceBps) : "50",
+      );
+      setExecutionDelayMs(cp.executionDelayMs !== null ? String(cp.executionDelayMs) : "0");
+      setTakeProfitBps(cp.takeProfitBps !== null ? String(cp.takeProfitBps) : "");
+      setStopLossBps(cp.stopLossBps !== null ? String(cp.stopLossBps) : "");
+      setTrailingStopBps(cp.trailingStopBps !== null ? String(cp.trailingStopBps) : "");
+    }
+    if (sub.riskPolicy) {
+      setMaxDailyLoss(sub.riskPolicy.maxDailyLoss ?? "");
+      setMaxDrawdown(sub.riskPolicy.maxDrawdown ?? "");
+      setMaxOpenExposure(sub.riskPolicy.maxOpenExposure ?? "");
+      setMaxDailyCopiedTrades(
+        sub.riskPolicy.maxDailyCopiedTrades !== null
+          ? String(sub.riskPolicy.maxDailyCopiedTrades)
+          : "",
+      );
+      setEmergencyStopCopy(sub.riskPolicy.emergencyStopCopy);
+    }
+  }, [sub, effectivePolicy]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const allowedSymbols = allowedSymbolsText
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const blockedSymbols = blockedSymbolsText
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const allowedVenues = allowedVenuesText
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return tradingApi.updateCopySubscriptionSettings(subscriptionId, {
+        allocationMode,
+        allocationAmount,
+        minAllocation: minAllocation.trim() || null,
+        maxAllocation: maxAllocation.trim() || null,
+        copyPolicy: {
+          sizingMode: allocationMode,
+          maxPositionSize: maxPositionSize.trim() || null,
+          maxNotional: maxNotional.trim() || null,
+          maxLeverage: maxLeverage.trim() || null,
+          allowedSymbols: allowedSymbols.length > 0 ? allowedSymbols : null,
+          blockedSymbols: blockedSymbols.length > 0 ? blockedSymbols : null,
+          allowedVenues: allowedVenues.length > 0 ? allowedVenues : null,
+          orderTypePolicy,
+          slippageToleranceBps: slippageToleranceBps.trim() ? Number(slippageToleranceBps) : null,
+          executionDelayMs: executionDelayMs.trim() ? Number(executionDelayMs) : 0,
+          takeProfitBps: takeProfitBps.trim() ? Number(takeProfitBps) : null,
+          stopLossBps: stopLossBps.trim() ? Number(stopLossBps) : null,
+          trailingStopBps: trailingStopBps.trim() ? Number(trailingStopBps) : null,
+          emergencyStop: emergencyStopCopy,
+        },
+        riskPolicy: {
+          maxDailyLoss: maxDailyLoss.trim() || null,
+          maxDrawdown: maxDrawdown.trim() || null,
+          maxOpenExposure: maxOpenExposure.trim() || null,
+          maxDailyCopiedTrades: maxDailyCopiedTrades.trim()
+            ? Number(maxDailyCopiedTrades)
+            : null,
+          emergencyStopCopy,
+        },
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["copy-subscription-detail", subscriptionId] });
+      void qc.invalidateQueries({ queryKey: ["copy-subscriptions"] });
+    },
+  });
+
+  return (
+    <PageContainer
+      title="Copy Subscription Settings & Risk Policy"
+      description="Configure order sizing, slippage tolerance, execution delay, TP/SL/trailing stops, and follower risk guardrails"
+    >
+      <TradingStateBoundary
+        isLoading={detailQuery.isLoading}
+        error={detailQuery.error}
+        isEmpty={!sub}
+        emptyTitle="Subscription not found"
+        emptyDescription="Could not load settings for this copy subscription."
+        onRetry={() => void detailQuery.refetch()}
+      >
+        {sub && (
+          <div className="space-y-6" data-testid="copy-settings-page">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded border bg-card p-4 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Subscription {sub.subscriptionId}</span>
+                <StatusBadge status={sub.state} />
+              </div>
+              <div className="flex gap-3">
+                <Link
+                  href={`/copy-trading/${sub.subscriptionId}`}
+                  className="font-medium underline"
+                >
+                  ← Back to Subscription Overview
+                </Link>
+              </div>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveMutation.mutate();
+              }}
+              className="space-y-6"
+              data-testid="copy-settings-form"
+            >
+              {/* Sizing & Allocation Limits */}
+              <div className="rounded border bg-card p-4">
+                <h2 className="text-sm font-semibold">1. Order Sizing & Allocation Limits</h2>
+                <div className="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-4">
+                  <label className="space-y-1">
+                    <span className="text-muted">Sizing Mode</span>
+                    <select
+                      aria-label="Sizing Mode"
+                      value={allocationMode}
+                      onChange={(e) => setAllocationMode(e.target.value as AllocationMode)}
+                      className="w-full rounded border px-2 py-1.5"
+                    >
+                      <option value="FIXED">FIXED</option>
+                      <option value="PROPORTIONAL">PROPORTIONAL</option>
+                      <option value="MULTIPLIER">MULTIPLIER</option>
+                      <option value="EQUITY_RATIO">EQUITY_RATIO</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Allocation Amount</span>
+                    <input
+                      aria-label="Allocation Amount"
+                      value={allocationAmount}
+                      onChange={(e) => setAllocationAmount(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Min Allocation</span>
+                    <input
+                      aria-label="Min Allocation"
+                      value={minAllocation}
+                      onChange={(e) => setMinAllocation(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Max Allocation</span>
+                    <input
+                      aria-label="Max Allocation"
+                      value={maxAllocation}
+                      onChange={(e) => setMaxAllocation(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Max Position Size</span>
+                    <input
+                      aria-label="Max Position Size"
+                      value={maxPositionSize}
+                      onChange={(e) => setMaxPositionSize(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Max Notional per Order</span>
+                    <input
+                      aria-label="Max Notional per Order"
+                      value={maxNotional}
+                      onChange={(e) => setMaxNotional(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Max Leverage</span>
+                    <input
+                      aria-label="Max Leverage"
+                      value={maxLeverage}
+                      onChange={(e) => setMaxLeverage(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Order Type Policy</span>
+                    <select
+                      aria-label="Order Type Policy"
+                      value={orderTypePolicy}
+                      onChange={(e) => setOrderTypePolicy(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    >
+                      <option value="MARKET_AND_LIMIT">MARKET_AND_LIMIT</option>
+                      <option value="MARKET_ONLY">MARKET_ONLY</option>
+                      <option value="LIMIT_ONLY">LIMIT_ONLY</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              {/* Execution Controls & TP/SL/Trailing Stop (GAP-06 & GAP-07) */}
+              <div className="rounded border bg-card p-4">
+                <h2 className="text-sm font-semibold">
+                  2. Execution Controls, Slippage & Protective TP/SL/Trailing Stop
+                </h2>
+                <div className="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+                  <label className="space-y-1">
+                    <span className="text-muted">Slippage Tolerance (bps)</span>
+                    <input
+                      aria-label="Slippage Tolerance (bps)"
+                      value={slippageToleranceBps}
+                      onChange={(e) => setSlippageToleranceBps(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Execution Delay (ms)</span>
+                    <input
+                      aria-label="Execution Delay (ms)"
+                      value={executionDelayMs}
+                      onChange={(e) => setExecutionDelayMs(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Take-Profit (bps)</span>
+                    <input
+                      aria-label="Take-Profit (bps)"
+                      value={takeProfitBps}
+                      onChange={(e) => setTakeProfitBps(e.target.value)}
+                      placeholder="e.g. 300"
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Stop-Loss (bps)</span>
+                    <input
+                      aria-label="Stop-Loss (bps)"
+                      value={stopLossBps}
+                      onChange={(e) => setStopLossBps(e.target.value)}
+                      placeholder="e.g. 150"
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Trailing Stop (bps)</span>
+                    <input
+                      aria-label="Trailing Stop (bps)"
+                      value={trailingStopBps}
+                      onChange={(e) => setTrailingStopBps(e.target.value)}
+                      placeholder="e.g. 75"
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Allowed Symbols (comma-separated)</span>
+                    <input
+                      aria-label="Allowed Symbols"
+                      value={allowedSymbolsText}
+                      onChange={(e) => setAllowedSymbolsText(e.target.value)}
+                      placeholder="BTC-USDT, ETH-USDT"
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Blocked Symbols (comma-separated, * allowed as a wildcard)</span>
+                    <input
+                      aria-label="Blocked Symbols"
+                      value={blockedSymbolsText}
+                      onChange={(e) => setBlockedSymbolsText(e.target.value)}
+                      placeholder="e.g. *WITHDRAWAL*, DOGE-USDT"
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Allowed Venues (comma-separated)</span>
+                    <input
+                      aria-label="Allowed Venues"
+                      value={allowedVenuesText}
+                      onChange={(e) => setAllowedVenuesText(e.target.value)}
+                      placeholder="BINANCE, BYBIT"
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Follower Risk Policy */}
+              <div className="rounded border bg-card p-4">
+                <h2 className="text-sm font-semibold">3. Follower Risk Policy Guardrails</h2>
+                <div className="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-4">
+                  <label className="space-y-1">
+                    <span className="text-muted">Max Daily Loss</span>
+                    <input
+                      aria-label="Max Daily Loss"
+                      value={maxDailyLoss}
+                      onChange={(e) => setMaxDailyLoss(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Max Drawdown</span>
+                    <input
+                      aria-label="Max Drawdown"
+                      value={maxDrawdown}
+                      onChange={(e) => setMaxDrawdown(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Max Open Exposure</span>
+                    <input
+                      aria-label="Max Open Exposure"
+                      value={maxOpenExposure}
+                      onChange={(e) => setMaxOpenExposure(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-muted">Max Daily Copied Trades</span>
+                    <input
+                      aria-label="Max Daily Copied Trades"
+                      value={maxDailyCopiedTrades}
+                      onChange={(e) => setMaxDailyCopiedTrades(e.target.value)}
+                      className="w-full rounded border px-2 py-1.5"
+                    />
+                  </label>
+                </div>
+                <label className="mt-3 flex items-center gap-2 text-xs font-medium text-rose-800">
+                  <input
+                    type="checkbox"
+                    checked={emergencyStopCopy}
+                    onChange={(e) => setEmergencyStopCopy(e.target.checked)}
+                  />
+                  Engage Emergency Copy Stop (blocks all new copied child orders immediately)
+                </label>
+              </div>
+
+              {/* Effective Policy Preview */}
+              {effectivePolicy && (
+                <div
+                  className="rounded border border-slate-200 bg-slate-50 p-4 text-xs"
+                  data-testid="effective-policy-preview"
+                >
+                  <h3 className="font-semibold">Effective Policy Preview (Platform ∩ Strategy ∩ Follower)</h3>
+                  <dl className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+                    <div>
+                      <dt className="text-muted">Effective Sizing</dt>
+                      <dd className="font-semibold">{effectivePolicy.sizingMode}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Effective Max Notional</dt>
+                      <dd className="font-mono">
+                        {effectivePolicy.maxNotional ? (
+                          <Money value={effectivePolicy.maxNotional} />
+                        ) : (
+                          "Default"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Slippage Cap</dt>
+                      <dd className="font-mono">{effectivePolicy.slippageToleranceBps ?? 50} bps</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">TP / SL / Trailing</dt>
+                      <dd className="font-mono">
+                        {effectivePolicy.takeProfitBps ?? "—"} / {effectivePolicy.stopLossBps ?? "—"} /{" "}
+                        {effectivePolicy.trailingStopBps ?? "—"} bps
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              )}
+
+              {saveMutation.isError && (
+                <div role="alert" className="text-xs text-red-700">
+                  {(saveMutation.error as Error).message}
+                </div>
+              )}
+              {saveMutation.isSuccess && (
+                <div role="status" data-testid="settings-saved-banner" className="text-xs text-green-700">
+                  Copy subscription settings and risk policy saved.
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={saveMutation.isPending}
+                data-testid="save-copy-settings-btn"
+                className="rounded bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+              >
+                {saveMutation.isPending ? "Saving…" : "Save Copy Policy & Risk Settings"}
+              </button>
+            </form>
+          </div>
+        )}
+      </TradingStateBoundary>
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/copy-subscription-detail-page.tsx
+
+```tsx
+// # NEW — Displays subscription status, effective policy, risk headroom, recent executions, and lifecycle actions
+"use client";
+
+import React, { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import { tradingApi, type CopyExecutionItem } from "@/api/trading-api";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+import { Money } from "@/components/money";
+import { TradingStateBoundary } from "@/components/trading-state";
+import { CopyExecutionDetail } from "./copy-execution-detail";
+import { CopyRiskGuardrails } from "./copy-risk-guardrails";
+import { CopyReconciliationStatus } from "./copy-reconciliation-status";
+import { useCopyExecutionEvents } from "./use-copy-execution-events";
+
+export function CopySubscriptionDetailPage({
+  subscriptionId,
+}: {
+  subscriptionId: string;
+}): JSX.Element {
+  const qc = useQueryClient();
+  const [selectedExecution, setSelectedExecution] = useState<CopyExecutionItem | null>(null);
+  const [closePositionsOnStop, setClosePositionsOnStop] = useState<boolean>(false);
+
+  const detailQuery = useQuery({
+    queryKey: ["copy-subscription-detail", subscriptionId],
+    queryFn: () => tradingApi.getSubscriptionDetail(subscriptionId),
+  });
+
+  const { transportMode, lastEventAt } = useCopyExecutionEvents({
+    subscriptionId,
+    enabled: Boolean(detailQuery.data),
+    pollIntervalMs: 15000,
+  });
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["copy-subscription-detail", subscriptionId] });
+    void qc.invalidateQueries({ queryKey: ["copy-subscriptions"] });
+  };
+
+  const pauseMutation = useMutation({
+    mutationFn: () => tradingApi.pauseSubscription(subscriptionId),
+    onSuccess: invalidate,
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: () => tradingApi.resumeSubscription(subscriptionId),
+    onSuccess: invalidate,
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: (closeOpen: boolean) =>
+      tradingApi.stopSubscription(
+        subscriptionId,
+        closeOpen ? "Follower requested stop and close open positions" : "Follower requested stop",
+        closeOpen,
+      ),
+    onSuccess: invalidate,
+  });
+
+  const sub = detailQuery.data?.subscription;
+  const effectivePolicy = detailQuery.data?.effectivePolicy;
+  const recentExecutions = detailQuery.data?.recentExecutions ?? [];
+  const reconciliation = detailQuery.data?.reconciliation;
+
+  return (
+    <PageContainer
+      title={sub ? `Subscription ${sub.subscriptionId}` : "Copy Subscription Detail"}
+      description="Live copy subscription status, effective policy, risk guardrails, reconciliation health, and execution history"
+    >
+      <TradingStateBoundary
+        isLoading={detailQuery.isLoading}
+        error={detailQuery.error}
+        isEmpty={!sub}
+        emptyTitle="Subscription not found"
+        emptyDescription="The requested copy subscription does not exist or belongs to another follower."
+        onRetry={() => void detailQuery.refetch()}
+      >
+        {sub && (
+          <div className="space-y-6" data-testid="copy-subscription-detail-page">
+            {/* Top Navigation & Lifecycle Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded border bg-card p-4">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-base font-semibold">
+                    Strategy{" "}
+                    <Link href={`/strategies/${sub.strategyId}`} className="underline">
+                      {sub.strategyId}
+                    </Link>
+                  </span>
+                  <StatusBadge status={sub.state} />
+                  <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-700">
+                    Stream: {transportMode}
+                    {lastEventAt ? ` (${new Date(lastEventAt).toLocaleTimeString()})` : ""}
+                  </span>
+                </div>
+                <p className="text-xs text-muted">
+                  Lead Trader:{" "}
+                  <Link href={`/traders/${sub.traderId}`} className="underline">
+                    {sub.traderId}
+                  </Link>{" "}
+                  | Allocation: {sub.allocationMode} (<Money value={sub.allocationAmount} />)
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Link
+                  href={`/copy-trading/${sub.subscriptionId}/settings`}
+                  className="rounded border px-3 py-1.5 font-medium hover:bg-slate-50"
+                >
+                  Copy Settings
+                </Link>
+                <Link
+                  href={`/copy-trading/${sub.subscriptionId}/positions`}
+                  className="rounded border px-3 py-1.5 font-medium hover:bg-slate-50"
+                >
+                  Copied Positions
+                </Link>
+                <Link
+                  href={`/copy-trading/${sub.subscriptionId}/orders`}
+                  className="rounded border px-3 py-1.5 font-medium hover:bg-slate-50"
+                >
+                  Copied Orders & Fills
+                </Link>
+
+                {sub.state === "ACTIVE" && (
+                  <button
+                    type="button"
+                    data-testid="pause-subscription-btn"
+                    disabled={pauseMutation.isPending}
+                    onClick={() => pauseMutation.mutate()}
+                    className="rounded border px-3 py-1.5 font-medium hover:bg-slate-50"
+                  >
+                    Pause
+                  </button>
+                )}
+                {sub.state === "PAUSED" && (
+                  <button
+                    type="button"
+                    data-testid="resume-subscription-btn"
+                    disabled={resumeMutation.isPending}
+                    onClick={() => resumeMutation.mutate()}
+                    className="rounded border px-3 py-1.5 font-medium hover:bg-slate-50"
+                  >
+                    Resume
+                  </button>
+                )}
+                {sub.state !== "STOPPED" && (
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1 text-[11px] text-muted">
+                      <input
+                        type="checkbox"
+                        checked={closePositionsOnStop}
+                        onChange={(e) => setClosePositionsOnStop(e.target.checked)}
+                      />
+                      Close positions on stop
+                    </label>
+                    <button
+                      type="button"
+                      data-testid="stop-subscription-btn"
+                      disabled={stopMutation.isPending}
+                      onClick={() => stopMutation.mutate(closePositionsOnStop)}
+                      className="rounded border border-rose-300 px-3 py-1.5 font-medium text-rose-700 hover:bg-rose-50"
+                    >
+                      Stop
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Reconciliation Health */}
+            {reconciliation && <CopyReconciliationStatus summary={reconciliation} />}
+
+            {/* Risk Guardrails */}
+            <CopyRiskGuardrails
+              subscription={sub}
+              recentExecutions={recentExecutions}
+              onEmergencyStop={(closeOpen) => stopMutation.mutate(closeOpen)}
+              isStopping={stopMutation.isPending}
+            />
+
+            {/* Effective Copy Policy Summary */}
+            {effectivePolicy && (
+              <div className="rounded border bg-card p-4 text-xs">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">Effective Copy Policy</h2>
+                  <Link
+                    href={`/copy-trading/${sub.subscriptionId}/settings`}
+                    className="underline"
+                  >
+                    Edit Policy →
+                  </Link>
+                </div>
+                <dl className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div>
+                    <dt className="text-muted">Sizing Mode</dt>
+                    <dd className="font-semibold">{effectivePolicy.sizingMode}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted">Slippage Tolerance</dt>
+                    <dd className="font-mono">
+                      {effectivePolicy.slippageToleranceBps ?? 50} bps
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted">Execution Delay</dt>
+                    <dd className="font-mono">{effectivePolicy.executionDelayMs ?? 0} ms</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted">Protective TP / SL</dt>
+                    <dd className="font-mono">
+                      {effectivePolicy.takeProfitBps ?? "—"} / {effectivePolicy.stopLossBps ?? "—"}{" "}
+                      bps
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            )}
+
+            {/* Selected Execution Drilldown */}
+            {selectedExecution && (
+              <CopyExecutionDetail
+                execution={selectedExecution}
+                onClose={() => setSelectedExecution(null)}
+              />
+            )}
+
+            {/* Recent Copy Executions Table */}
+            <div className="rounded border bg-card p-4 text-xs">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold">Recent Copy Executions</h2>
+                <span className="text-muted">
+                  Total Copies: {sub.totalCopies} | Failed: {sub.failedCopies}
+                </span>
+              </div>
+              {recentExecutions.length === 0 ? (
+                <p className="mt-2 text-muted">No copy executions recorded yet for this subscription.</p>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-left text-xs" data-testid="subscription-executions-table">
+                    <thead>
+                      <tr className="border-b text-muted">
+                        <th className="py-2 pr-3">Execution ID</th>
+                        <th className="py-2 pr-3">Leader Event</th>
+                        <th className="py-2 pr-3">Status</th>
+                        <th className="py-2 pr-3">Sizing</th>
+                        <th className="py-2 pr-3">Follower Qty</th>
+                        <th className="py-2 pr-3">Child Order</th>
+                        <th className="py-2">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {recentExecutions.map((exec) => (
+                        <tr key={exec.executionId}>
+                          <td className="py-2 pr-3 font-mono">{exec.executionId}</td>
+                          <td className="py-2 pr-3 font-mono">{exec.leaderEventId}</td>
+                          <td className="py-2 pr-3">
+                            <StatusBadge status={exec.status} />
+                          </td>
+                          <td className="py-2 pr-3">{exec.sizingMode}</td>
+                          <td className="py-2 pr-3 font-mono">{exec.followerQuantity}</td>
+                          <td className="py-2 pr-3 font-mono">{exec.followerOrderId ?? "—"}</td>
+                          <td className="py-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedExecution(exec)}
+                              className="underline"
+                            >
+                              Inspect
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </TradingStateBoundary>
+    </PageContainer>
+  );
+}
+```
+
 FILE: apps/web/src/features/trading/copy-subscription-flow.tsx
 
 ```tsx
@@ -12738,57 +18826,1047 @@ export function CopySubscriptionFlow({ strategyId, traderId }: { strategyId: str
 }
 ```
 
+FILE: apps/web/src/features/trading/lead-trader-application-page.tsx
+
+```tsx
+// # Responsibility: provides authenticated lead-trader application submission, status history, rejection feedback, and risk disclosure.
+'use client';
+
+import React, { useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError } from '@/api/api-errors';
+import {
+  tradingApi,
+  type LeadTraderApplication,
+  type SubmitLeadTraderApplicationInput,
+} from '@/api/trading-api';
+import { newIdempotencyKey } from '@/lib/idempotency-key';
+import { PageContainer, Section } from '@/layout/page-container';
+import { canSubmitLeadTraderApplication } from './lead-trader-application-rules';
+
+const MARKET_OPTIONS: Array<{ value: SubmitLeadTraderApplicationInput['markets'][number]; label: string }> = [
+  { value: 'SPOT', label: 'Spot markets' },
+  { value: 'USDT_PERPETUAL', label: 'USDT perpetuals' },
+  { value: 'COIN_PERPETUAL', label: 'Coin-margined perpetuals' },
+];
+
+function readableStatus(status: LeadTraderApplication['status']): string {
+  switch (status) {
+    case 'SUBMITTED': return 'Submitted';
+    case 'IN_REVIEW': return 'In review';
+    case 'APPROVED': return 'Approved';
+    case 'REJECTED': return 'Rejected';
+  }
+}
+
+export function LeadTraderApplicationPage(): JSX.Element {
+  const queryClient = useQueryClient();
+  const idempotencyKey = useRef<string | null>(null);
+  const [yearsExperience, setYearsExperience] = useState('');
+  const [markets, setMarkets] = useState<SubmitLeadTraderApplicationInput['markets']>([]);
+  const [strategySummary, setStrategySummary] = useState('');
+  const [evidenceReferences, setEvidenceReferences] = useState('');
+  const [riskAcknowledged, setRiskAcknowledged] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const applicationsQuery = useQuery({
+    queryKey: ['lead-trader-applications', 'mine'],
+    queryFn: () => tradingApi.listMyLeadTraderApplications(),
+    retry: 1,
+  });
+  const applications = applicationsQuery.data ?? [];
+  const latestApplication = applications[0];
+  const canResubmit = canSubmitLeadTraderApplication(latestApplication?.status);
+
+  const submitMutation = useMutation({
+    mutationFn: () => {
+      const parsedYears = Number(yearsExperience);
+      const references = evidenceReferences
+        .split(',')
+        .map((reference) => reference.trim())
+        .filter(Boolean);
+      const payload: SubmitLeadTraderApplicationInput = {
+        idempotencyKey: idempotencyKey.current ?? (idempotencyKey.current = newIdempotencyKey('lead-app')),
+        yearsExperience: parsedYears,
+        markets,
+        strategySummary: strategySummary.trim(),
+        evidenceReferences: references,
+        riskAcknowledged,
+      };
+      return tradingApi.submitLeadTraderApplication(payload);
+    },
+    onSuccess: async (application) => {
+      idempotencyKey.current = null;
+      setSuccessMessage(`Application version ${application.version} was submitted for review.`);
+      await queryClient.invalidateQueries({ queryKey: ['lead-trader-applications', 'mine'] });
+    },
+    onError: () => setSuccessMessage(null),
+  });
+
+  const toggleMarket = (value: SubmitLeadTraderApplicationInput['markets'][number]) => {
+    setMarkets((current) => current.includes(value)
+      ? current.filter((market) => market !== value)
+      : [...current, value]);
+  };
+
+  const formReady = yearsExperience !== ''
+    && Number.isInteger(Number(yearsExperience))
+    && Number(yearsExperience) >= 0
+    && Number(yearsExperience) <= 50
+    && markets.length > 0
+    && strategySummary.trim().length >= 50
+    && strategySummary.trim().length <= 1000
+    && evidenceReferences.split(',').map((reference) => reference.trim()).filter(Boolean).length <= 20
+    && riskAcknowledged;
+  const canSubmit = applicationsQuery.isSuccess && !applicationsQuery.isFetching && canResubmit && formReady && !submitMutation.isPending;
+
+  return (
+    <PageContainer
+      title="Apply to become a lead trader"
+      description="Submit your experience and strategy declaration for tenant review. Application details are not verified performance results."
+    >
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.8fr)]">
+        <Section title="Application declaration" description="Provide truthful information. Do not include passwords, API keys, identity documents, or exchange credentials.">
+          {applicationsQuery.isPending && <p role="status" className="text-sm text-muted">Loading your application history…</p>}
+          {applicationsQuery.isError && (
+            <div role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+              {applicationsQuery.error instanceof ApiError ? applicationsQuery.error.message : 'Your application history could not be loaded. Retry before submitting.'}
+              <button type="button" className="ml-3 underline" onClick={() => void applicationsQuery.refetch()}>Retry</button>
+            </div>
+          )}
+          {applicationsQuery.isSuccess && latestApplication && (
+            <div className="mb-5 rounded border p-4" data-testid="latest-application-status">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <strong>Latest application · version {latestApplication.version}</strong>
+                <span className="rounded-full border px-3 py-1 text-xs font-semibold" aria-label={`Status: ${readableStatus(latestApplication.status)}`}>
+                  {readableStatus(latestApplication.status)}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-muted">Submitted {new Date(latestApplication.submittedAt).toLocaleString()}</p>
+              {latestApplication.status === 'REJECTED' && latestApplication.decisionReason && (
+                <div className="mt-3 rounded bg-red-50 p-3 text-sm text-red-800">
+                  <strong>Reviewer feedback</strong>
+                  <p className="mb-0 mt-1">{latestApplication.decisionReason}</p>
+                  <p className="mb-0 mt-2 text-xs">You may submit a new version that addresses this feedback.</p>
+                </div>
+              )}
+              {latestApplication.status === 'APPROVED' && (
+                <p className="mb-0 mt-3 text-sm">Your profile is approved. Further applications are disabled; trading access remains subject to separate platform, account, risk, and live-execution controls.</p>
+              )}
+              {(latestApplication.status === 'SUBMITTED' || latestApplication.status === 'IN_REVIEW') && (
+                <p className="mb-0 mt-3 text-sm">A review is active. You cannot submit another application until a decision is recorded.</p>
+              )}
+            </div>
+          )}
+
+          {applicationsQuery.isSuccess && canResubmit ? (
+            <form
+              className="grid gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setSuccessMessage(null);
+                submitMutation.mutate();
+              }}
+            >
+              <label className="grid gap-1 text-sm font-medium">
+                Trading experience (years)
+                <input
+                  aria-label="Trading experience in years"
+                  type="number"
+                  min="0"
+                  max="50"
+                  step="1"
+                  required
+                  value={yearsExperience}
+                  onChange={(event) => setYearsExperience(event.target.value)}
+                  className="rounded border px-3 py-2 font-normal"
+                />
+              </label>
+
+              <fieldset className="grid gap-2">
+                <legend className="text-sm font-medium">Markets you intend to lead</legend>
+                {MARKET_OPTIONS.map((option) => (
+                  <label key={option.value} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={markets.includes(option.value)} onChange={() => toggleMarket(option.value)} />
+                    {option.label}
+                  </label>
+                ))}
+              </fieldset>
+
+              <label className="grid gap-1 text-sm font-medium">
+                Strategy and risk-management summary
+                <textarea
+                  aria-label="Strategy and risk-management summary"
+                  required
+                  minLength={50}
+                  maxLength={1000}
+                  rows={6}
+                  value={strategySummary}
+                  onChange={(event) => setStrategySummary(event.target.value)}
+                  className="rounded border px-3 py-2 font-normal"
+                  placeholder="Describe your approach, intended markets, risk limits, and how you manage drawdowns. Do not make unsupported performance claims."
+                />
+                <span className="font-normal text-xs text-muted">{strategySummary.trim().length}/1000 characters · at least 50 required</span>
+              </label>
+
+              <label className="grid gap-1 text-sm font-medium">
+                Evidence reference IDs (optional, comma-separated)
+                <input
+                  aria-label="Evidence reference IDs"
+                  value={evidenceReferences}
+                  onChange={(event) => setEvidenceReferences(event.target.value)}
+                  maxLength={2600}
+                  className="rounded border px-3 py-2 font-normal"
+                  placeholder="For example: review-2026-01, statement-ref-42"
+                />
+                <span className="font-normal text-xs text-muted">Use identifiers already issued by the platform. Do not paste URLs, secrets, or documents; the references themselves do not prove performance.</span>
+              </label>
+
+              <label className="flex items-start gap-2 rounded border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  required
+                  checked={riskAcknowledged}
+                  onChange={(event) => setRiskAcknowledged(event.target.checked)}
+                  className="mt-1"
+                />
+                <span>I understand that digital-asset trading and copy trading involve substantial risk, losses can exceed expectations, past results do not guarantee future results, and approval is not a promise of returns or live trading access.</span>
+              </label>
+
+              {submitMutation.isError && (
+                <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                  {submitMutation.error instanceof ApiError ? submitMutation.error.message : 'The application could not be submitted. Your request key will be reused if you retry.'}
+                </p>
+              )}
+              {successMessage && <p role="status" className="text-sm text-green-700">{successMessage}</p>}
+              <button type="submit" disabled={!canSubmit} className="w-fit rounded bg-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                {submitMutation.isPending ? 'Submitting…' : latestApplication?.status === 'REJECTED' ? 'Submit new application version' : 'Submit application'}
+              </button>
+            </form>
+          ) : applicationsQuery.isSuccess ? (
+            <p className="text-sm text-muted">No new application can be submitted in the current state.</p>
+          ) : null}
+        </Section>
+
+        <Section title="Review and trading safeguards" description="Approval is a qualification decision, not an execution authorization.">
+          <ul className="grid gap-3 pl-5 text-sm text-muted">
+            <li>Applications are scoped to your authenticated tenant and trader profile.</li>
+            <li>Only a tenant-authorized reviewer can claim and decide an application; decisions are audited.</li>
+            <li>Rejected applications remain in history. A corrected submission creates a new version.</li>
+            <li>Approval does not bypass subscription, exchange-account, market, risk, maintenance, kill-switch, credential, or live-trading gates.</li>
+            <li>Evidence references are identifiers only. No performance, profitability, or compliance verification is inferred from the declaration.</li>
+          </ul>
+        </Section>
+      </div>
+
+      {applications.length > 1 && (
+        <Section title="Application history" description="Each submitted version remains visible, including reviewer feedback.">
+          <ol className="grid gap-3">
+            {applications.map((application) => (
+              <li key={application.id} className="rounded border p-3 text-sm">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <strong>Version {application.version} · {readableStatus(application.status)}</strong>
+                  <time dateTime={application.submittedAt} className="text-xs text-muted">{new Date(application.submittedAt).toLocaleString()}</time>
+                </div>
+                {application.decisionReason && <p className="mb-0 mt-2 text-muted">{application.decisionReason}</p>}
+              </li>
+            ))}
+          </ol>
+        </Section>
+      )}
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/lead-trader-application-rules.ts
+
+```typescript
+// # Responsibility: keeps applicant-side resubmission eligibility aligned with the API state machine.
+
+import type { LeadTraderApplicationStatus } from '@/api/trading-api';
+
+export function canSubmitLeadTraderApplication(
+  latestStatus: LeadTraderApplicationStatus | null | undefined,
+): boolean {
+  return latestStatus === null || latestStatus === undefined || latestStatus === 'REJECTED';
+}
+```
+
+FILE: apps/web/src/features/trading/leader-fee-settings-page.tsx
+
+```tsx
+// # Responsibility: discloses the effective lead-trader profit-share policy without inventing fees or realized profit.
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { tradingApi } from "@/api/trading-api";
+import { ErrorState } from "@/components/error-state";
+import { LoadingState } from "@/components/loading-state";
+import { PageContainer } from "@/layout/page-container";
+
+export function LeaderFeeSettingsPage({ traderId, currency = "USD" }: { traderId: string; currency?: string }): JSX.Element {
+  const [selectedCurrency, setSelectedCurrency] = useState(currency);
+  const query = useQuery({
+    queryKey: ["leader-fee-policy", traderId, selectedCurrency],
+    queryFn: () => tradingApi.getLeaderFeePolicy(traderId, selectedCurrency),
+    staleTime: 30_000,
+  });
+
+  return (
+    <PageContainer
+      title="Lead trader fee disclosure"
+      description="Review the published profit-share rate and its effective period before copying a trader."
+    >
+      <div className="space-y-4" data-testid="leader-fee-settings-page">
+        <nav aria-label="Fee disclosure breadcrumb" className="text-xs text-muted">
+          <Link href={`/traders/${encodeURIComponent(traderId)}`} className="underline">Back to trader profile</Link>
+        </nav>
+
+        {query.isLoading ? <LoadingState /> : null}
+        {query.error ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : null}
+        {!query.isLoading && !query.error && query.data ? (
+          <section className="space-y-3 rounded border bg-card p-4" aria-labelledby="leader-fee-policy-heading">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 id="leader-fee-policy-heading" className="font-semibold">Published fee policy</h2>
+                <p className="mt-1 text-xs text-muted">Currency: {query.data.currency}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="leader-fee-currency" className="text-xs text-muted">Fee currency</label>
+                <select
+                  id="leader-fee-currency"
+                  aria-label="Fee currency"
+                  value={selectedCurrency}
+                  onChange={(event) => setSelectedCurrency(event.target.value)}
+                  className="rounded border px-2 py-1 text-xs"
+                >
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="JPY">JPY</option>
+                  <option value="CAD">CAD</option>
+                  <option value="AUD">AUD</option>
+                  <option value="BTC">BTC</option>
+                  <option value="ETH">ETH</option>
+                  <option value="USDT">USDT</option>
+                  <option value="USDC">USDC</option>
+                </select>
+                <span className="rounded border px-2 py-1 text-xs" data-testid="leader-fee-policy-status">
+                  {query.data.status === "AVAILABLE" ? "Policy available" : "No policy published"}
+                </span>
+              </div>
+            </div>
+
+            {query.data.policy ? (
+              <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                <div className="rounded border p-3">
+                  <dt className="text-xs text-muted">Profit-share rate</dt>
+                  <dd className="mt-1 font-semibold" data-testid="leader-fee-rate">
+                    {query.data.policy.profitShareBps} bps ({formatBasisPointsPercent(query.data.policy.profitShareBps)})
+                  </dd>
+                </div>
+                <div className="rounded border p-3">
+                  <dt className="text-xs text-muted">High-water-mark scope</dt>
+                  <dd className="mt-1 font-medium">
+                    {query.data.policy.highWaterMarkScope === "PER_FOLLOWER_CURRENCY"
+                      ? "Per follower and currency"
+                      : "Per trader and currency"}
+                  </dd>
+                </div>
+                <div className="rounded border p-3">
+                  <dt className="text-xs text-muted">Policy version</dt>
+                  <dd className="mt-1 font-medium">v{query.data.policy.version}</dd>
+                </div>
+                <div className="rounded border p-3">
+                  <dt className="text-xs text-muted">Effective period</dt>
+                  <dd className="mt-1 font-medium">
+                    <time dateTime={query.data.policy.effectiveFrom}>{query.data.policy.effectiveFrom}</time>
+                    {query.data.policy.effectiveTo ? (
+                      <> — <time dateTime={query.data.policy.effectiveTo}>{query.data.policy.effectiveTo}</time></>
+                    ) : " — ongoing"}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="text-sm text-muted">No active profit-share policy has been published for this trader and currency.</p>
+            )}
+
+            <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950" data-testid="leader-fee-calculation-unavailable">
+              <h3 className="font-semibold">Fee amount unavailable</h3>
+              <p className="mt-1">{query.data.feeCalculation.reason}</p>
+              <p className="mt-1">This is a rate disclosure only. It is not a charge, statement, or estimate of a customer&apos;s profit.</p>
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </PageContainer>
+  );
+}
+
+function formatBasisPointsPercent(basisPoints: number): string {
+  const whole = Math.floor(basisPoints / 100);
+  const fractional = String(basisPoints % 100).padStart(2, "0").replace(/0+$/, "");
+  return fractional ? `${whole}.${fractional}%` : `${whole}%`;
+}
+```
+
+FILE: apps/web/src/features/trading/leaderboard-page.tsx
+
+```tsx
+// # Uses shared TradingState
+"use client";
+
+import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { tradingApi } from "@/api/trading-api";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+import { Money } from "@/components/money";
+import { TradingStateBoundary } from "@/components/trading-state";
+import { formatWinRatePercent } from "./trader-metric-definitions";
+
+export function LeaderboardPage(): JSX.Element {
+  const [sortBy, setSortBy] = useState<string>("followers");
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["leaderboard", sortBy],
+    queryFn: () => tradingApi.getLeaderboard({ sortBy, limit: 25 }),
+  });
+
+  const rows = data?.data ?? [];
+
+  return (
+    <PageContainer
+      title="Trader Leaderboard"
+      description="Ranked traders evaluated by canonical realized PnL, executed volume, win rate, and follower trust"
+    >
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs">
+          <label htmlFor="leaderboard-sort" className="font-medium text-muted">
+            Rank By:
+          </label>
+          <select
+            id="leaderboard-sort"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="rounded border px-3 py-1.5 text-xs"
+          >
+            <option value="followers">Followers</option>
+            <option value="pnl">Realized PnL</option>
+            <option value="volume">Executed Volume</option>
+            <option value="winRate">Win Rate</option>
+          </select>
+        </div>
+        <Link href="/traders/compare" className="text-xs font-medium underline">
+          Compare Top Traders →
+        </Link>
+      </div>
+
+      <TradingStateBoundary
+        isLoading={isLoading}
+        error={error}
+        isEmpty={rows.length === 0}
+        emptyTitle="Leaderboard is empty"
+        emptyDescription="No ranked traders are currently available for this tenant."
+        onRetry={() => void refetch()}
+      >
+        <div className="overflow-x-auto rounded border bg-card">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b bg-slate-50 text-muted">
+                <th className="p-3">Rank</th>
+                <th className="p-3">Trader</th>
+                <th className="p-3">Verification</th>
+                <th className="p-3">Realized PnL</th>
+                <th className="p-3">Win Rate</th>
+                <th className="p-3">Volume</th>
+                <th className="p-3">Followers</th>
+                <th className="p-3">Provenance</th>
+                <th className="p-3">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {rows.map((row) => (
+                <tr key={row.traderId}>
+                  <td className="p-3 font-mono font-semibold">#{row.rank}</td>
+                  <td className="p-3 font-medium">
+                    <Link href={`/traders/${row.traderId}`} className="underline">
+                      {row.displayName}
+                    </Link>
+                  </td>
+                  <td className="p-3">
+                    <StatusBadge status={row.verificationState} />
+                  </td>
+                  <td className="p-3 font-mono font-semibold">
+                    <Money value={row.performance.realizedPnl} />
+                  </td>
+                  <td className="p-3 font-mono">
+                    {formatWinRatePercent(row.performance.winRate)}
+                  </td>
+                  <td className="p-3 font-mono">
+                    <Money value={row.totalVolume} />
+                  </td>
+                  <td className="p-3">{row.followerCount}</td>
+                  <td className="p-3">
+                    <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                      {row.performance.isActual ? "ACTUAL" : "ESTIMATED"}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <Link
+                      href={`/traders/${row.traderId}/performance`}
+                      className="underline"
+                    >
+                      Analytics
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </TradingStateBoundary>
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/leverage-policy-panel.tsx
+
+```tsx
+// # Responsibility: shows the server-resolved leverage and margin policy with explicit unavailable states.
+
+export interface LeveragePolicyPanelResult {
+  allowed: boolean;
+  effectiveMaximum: number | null;
+  requestedLeverage: number;
+  marginMode: 'CROSS' | 'ISOLATED';
+  reason: string | null;
+}
+
+export function LeveragePolicyPanel({ result }: { result: LeveragePolicyPanelResult }): JSX.Element {
+  return (
+    <section className="rounded border bg-card p-4" data-testid="leverage-policy-panel">
+      <h3 className="text-sm font-semibold">Leverage and margin policy</h3>
+      <p className="mt-2 text-sm">Margin mode: {result.marginMode}</p>
+      <p className="text-sm">Requested: {result.requestedLeverage}x · Maximum: {result.effectiveMaximum === null ? 'Not verified' : `${result.effectiveMaximum}x`}</p>
+      <p role="status" className={`mt-2 text-xs ${result.allowed ? 'text-emerald-700' : 'text-amber-700'}`}>
+        {result.allowed ? 'Request is within the current policy ceiling; normal risk checks still apply.' : result.reason ?? 'Leverage request is blocked.'}
+      </p>
+    </section>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/performance-benchmark-chart.tsx
+
+```tsx
+// # Responsibility: plots persisted cumulative trader and benchmark returns without generating missing observations.
+
+import type { PerformanceBenchmarkSeries } from '@/api/trading-api';
+
+function chartPoints(values: number[], width: number, height: number, padding: number, min: number, max: number): string {
+  if (values.length < 2 || values.some((value) => !Number.isFinite(value))) return '';
+  const span = max - min || 1;
+  return values.map((value, index) => {
+    const x = padding + (index / (values.length - 1)) * (width - padding * 2);
+    const y = height - padding - ((value - min) / span) * (height - padding * 2);
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+}
+
+export function PerformanceBenchmarkChart({ series, loading = false }: { series: PerformanceBenchmarkSeries | null | undefined; loading?: boolean }): JSX.Element {
+  if (loading || !series || series.status !== 'AVAILABLE' || series.dataCompleteness !== 'COMPLETE'
+    || series.flowBoundary !== 'START_FLOWS_IN_OPENING_NAV_END_FLOWS_EXCLUDED_FROM_CLOSING_NAV'
+    || series.observations.length < 2) {
+    return (
+      <section className="rounded border bg-card p-4" aria-labelledby="benchmark-heading" data-testid="performance-benchmark-chart">
+        <h3 id="benchmark-heading" className="text-sm font-semibold">Market benchmark comparison</h3>
+        <p role="status" className="mt-2 text-xs text-muted">{loading ? 'Loading persisted benchmark observations.' : series?.reason ?? 'A verified trader and benchmark series is not available for comparison.'}</p>
+        <p className="mt-1 text-[11px] text-muted">No synthetic market-price or trader-return points are shown.</p>
+      </section>
+    );
+  }
+
+  const traderValues = series.observations.map((item) => Number(item.traderCumulativeReturnPercent));
+  const benchmarkValues = series.observations.map((item) => Number(item.benchmarkCumulativeReturnPercent));
+  const allValues = [...traderValues, ...benchmarkValues];
+  if (allValues.some((value) => !Number.isFinite(value))) {
+    return (
+      <section className="rounded border bg-card p-4" aria-labelledby="benchmark-heading" data-testid="performance-benchmark-chart">
+        <h3 id="benchmark-heading" className="text-sm font-semibold">Market benchmark comparison</h3>
+        <p role="status" className="mt-2 text-xs text-muted">Verified values are outside the chart&apos;s supported display range.</p>
+      </section>
+    );
+  }
+
+  const width = 640;
+  const height = 240;
+  const padding = 24;
+  const scaleMin = Math.min(0, ...allValues);
+  const scaleMax = Math.max(0, ...allValues);
+  const traderLine = chartPoints(traderValues, width, height, padding, scaleMin, scaleMax);
+  const benchmarkLine = chartPoints(benchmarkValues, width, height, padding, scaleMin, scaleMax);
+  return (
+    <section className="rounded border bg-card p-4" aria-labelledby="benchmark-heading" data-testid="performance-benchmark-chart">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h3 id="benchmark-heading" className="text-sm font-semibold">Trader vs. market benchmark</h3>
+          <p className="text-[11px] text-muted">{series.benchmarkKey} · {series.methodology ?? 'methodology not supplied'} · {series.calculationVersion ?? 'version not supplied'}</p>
+          <p className="text-[11px] text-muted">Start-boundary flows are included in opening NAV; end-boundary flows are excluded from closing NAV.</p>
+        </div>
+        <div className="text-right text-[11px]">
+          <p role="status">Data completeness: {series.dataCompleteness}</p>
+          <p className="text-muted">As of {series.asOf ? <time dateTime={series.asOf}>{series.asOf}</time> : 'unavailable'}; currentness is not asserted.</p>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Cumulative return comparison for trader ${series.traderId} and benchmark ${series.benchmarkKey}`} className="mt-3 h-56 w-full">
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="currentColor" opacity="0.25" />
+        <polyline points={benchmarkLine} fill="none" stroke="#64748b" strokeWidth="3" />
+        <polyline points={traderLine} fill="none" stroke="#0f766e" strokeWidth="3" />
+      </svg>
+      <div className="mt-2 flex flex-wrap gap-4 text-xs">
+        <span className="inline-flex items-center gap-2"><span aria-hidden="true" className="h-2 w-4 bg-teal-700" />Trader cumulative return</span>
+        <span className="inline-flex items-center gap-2"><span aria-hidden="true" className="h-2 w-4 bg-slate-500" />{series.benchmarkKey} cumulative return</span>
+      </div>
+      {series.sourceReferences.length > 0 && <details className="mt-2 text-xs"><summary>Evidence references ({series.sourceReferences.length})</summary><ul className="mt-1 list-disc pl-5">{series.sourceReferences.map((reference) => <li key={reference}>{reference}</li>)}</ul></details>}
+    </section>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/performance-methodology.tsx
+
+```tsx
+// # Responsibility: discloses the canonical period-linking method, source versions, observation age boundary, and evidence.
+
+export interface PerformanceMethodologyProps {
+  methodology?: string | null;
+  flowBoundary?: string | null;
+  calculationVersion?: string | null;
+  sourceCalculationVersion?: string | null;
+  dataCompleteness?: 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE' | null;
+  sourceReferences?: readonly string[];
+  unavailableReason?: string | null;
+  baseCurrency?: string | null;
+  asOf?: string | null;
+  observationCount?: number | null;
+  currentnessRule?: 'AS_OF_DISPLAYED_CURRENTNESS_NOT_ASSERTED' | null;
+}
+
+export function PerformanceMethodology({
+  methodology = null,
+  flowBoundary = null,
+  calculationVersion = null,
+  sourceCalculationVersion = null,
+  dataCompleteness = 'UNAVAILABLE',
+  sourceReferences = [],
+  unavailableReason = null,
+  baseCurrency = null,
+  asOf = null,
+  observationCount = null,
+  currentnessRule = 'AS_OF_DISPLAYED_CURRENTNESS_NOT_ASSERTED',
+}: PerformanceMethodologyProps): JSX.Element {
+  const flowBoundaryVerified = flowBoundary === 'START_FLOWS_IN_OPENING_NAV_END_FLOWS_EXCLUDED_FROM_CLOSING_NAV';
+  const complete = dataCompleteness === 'COMPLETE' && flowBoundaryVerified;
+  const explanation = methodology === 'TIME_WEIGHTED_RETURN' && flowBoundaryVerified
+    ? 'Time-weighted return links persisted, reconciled, closed-period returns using the disclosed external cash-flow boundary. Raw fills and unadjusted NAV snapshots are not substituted.'
+    : methodology === 'TIME_WEIGHTED_RETURN'
+      ? 'The API did not verify the cash-flow boundary convention. Do not interpret the reported period return as a verified time-weighted return.'
+      : methodology
+      ? `The persisted accounting record reports ${methodology}. Unsupported methods are not reinterpreted in the browser.`
+      : 'The performance API did not supply a verified calculation methodology. Do not interpret absent fill-level PnL as zero, ROI, or time-weighted return.';
+
+  return (
+    <section aria-labelledby="performance-methodology-heading" className="rounded border bg-card p-4" data-testid="performance-methodology">
+      <h3 id="performance-methodology-heading" className="text-sm font-semibold">How performance is calculated</h3>
+      <p className="mt-2 text-xs leading-relaxed text-muted">{explanation}</p>
+      <p className="mt-1 text-xs text-muted" data-testid="performance-flow-boundary">
+        Cash-flow boundary: {flowBoundaryVerified
+          ? 'Flows at period start are included in opening NAV; end-boundary flows are excluded from closing NAV; interior flows split the return chain.'
+          : 'Unavailable; the return remains unverified.'}
+      </p>
+      <p className="mt-2 text-xs">Linking calculation version: <code>{calculationVersion ?? 'Not supplied by the accounting API'}</code></p>
+      <p className="mt-1 text-xs">Source calculation version: <code>{sourceCalculationVersion ?? 'Unavailable'}</code></p>
+      <p className="mt-1 text-xs" role="status" data-testid="performance-data-status">
+        Data status: {complete ? 'Complete verified closed-period observations' : dataCompleteness === 'PARTIAL' ? 'Partial history; return and drawdown remain unavailable' : 'Verified complete return series unavailable'}
+      </p>
+      <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+        <div>
+          <dt className="text-muted">Base currency</dt>
+          <dd>{baseCurrency ?? 'Unavailable'}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">{complete ? 'Included closed periods' : 'Candidate closed-period records'}</dt>
+          <dd>{observationCount ?? 'Unavailable'}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">{complete ? 'Latest included period end' : 'Latest candidate period end'}</dt>
+          <dd>{asOf ? <time dateTime={asOf}>{asOf}</time> : 'Unavailable'}</dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-xs text-muted" data-testid="performance-currentness-disclosure">
+        {complete && asOf && currentnessRule === 'AS_OF_DISPLAYED_CURRENTNESS_NOT_ASSERTED'
+          ? 'The verified result is historical as of the timestamp shown; current market-data freshness is not asserted.'
+          : 'No verified as-of boundary is available for a currentness claim.'}
+      </p>
+      {!complete && unavailableReason ? (
+        <p className="mt-1 text-xs text-muted" data-testid="performance-unavailable-reason">Unavailable reason: {unavailableReason}</p>
+      ) : null}
+      {sourceReferences.length > 0 ? (
+        <details className="mt-2 text-xs">
+          <summary>Calculation evidence ({sourceReferences.length})</summary>
+          <ul className="mt-1 list-disc pl-5">{sourceReferences.map((reference) => <li key={reference}>{reference}</li>)}</ul>
+        </details>
+      ) : <p className="mt-1 text-xs text-muted">No source references were supplied for this calculation.</p>}
+    </section>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/position-limit-settings.tsx
+
+```tsx
+// # Responsibility: customer settings surface for user-wide concurrent position-slot and open-order ceilings.
+
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { userPositionLimitsApi } from '@/api/user-position-limits-api';
+
+export const USER_POSITION_LIMITS_QUERY_KEY = ['user-position-limits', 'me'] as const;
+const MAX_LIMIT = 2_147_483_647;
+
+function parseLimitInput(value: string, label: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`${label} must be a whole number, zero, or blank.`);
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > MAX_LIMIT) {
+    throw new Error(`${label} must be between 0 and ${MAX_LIMIT}.`);
+  }
+  return parsed;
+}
+
+function usageValue(value: number | undefined): string {
+  return value === undefined ? 'Unknown' : value.toLocaleString('en-US');
+}
+
+export function PositionLimitSettings(): JSX.Element {
+  const queryClient = useQueryClient();
+  const limitsQuery = useQuery({
+    queryKey: USER_POSITION_LIMITS_QUERY_KEY,
+    queryFn: () => userPositionLimitsApi.getMyLimits(),
+    staleTime: 15_000,
+    retry: false,
+  });
+
+  const [maxConcurrentPositions, setMaxConcurrentPositions] = useState(() => {
+    const value = limitsQuery.data?.limits.maxConcurrentPositions;
+    return value === null || value === undefined ? '' : String(value);
+  });
+  const [maxOpenOrders, setMaxOpenOrders] = useState(() => {
+    const value = limitsQuery.data?.limits.maxOpenOrders;
+    return value === null || value === undefined ? '' : String(value);
+  });
+
+  useEffect(() => {
+    if (!limitsQuery.data) return;
+    setMaxConcurrentPositions(
+      limitsQuery.data.limits.maxConcurrentPositions === null
+        ? ''
+        : String(limitsQuery.data.limits.maxConcurrentPositions),
+    );
+    setMaxOpenOrders(
+      limitsQuery.data.limits.maxOpenOrders === null
+        ? ''
+        : String(limitsQuery.data.limits.maxOpenOrders),
+    );
+  }, [limitsQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      userPositionLimitsApi.updateMyLimits({
+        maxConcurrentPositions: parseLimitInput(maxConcurrentPositions, 'Maximum concurrent positions'),
+        maxOpenOrders: parseLimitInput(maxOpenOrders, 'Maximum open orders'),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: USER_POSITION_LIMITS_QUERY_KEY });
+    },
+  });
+
+  if (limitsQuery.isLoading) {
+    return (
+      <section className="rounded-lg border bg-card p-5" data-testid="position-limit-settings-loading" aria-live="polite">
+        <p className="text-sm text-muted">Loading your position and order limits…</p>
+      </section>
+    );
+  }
+
+  if (limitsQuery.error || !limitsQuery.data) {
+    const message = limitsQuery.error instanceof Error ? limitsQuery.error.message : 'No limit settings were returned.';
+    return (
+      <section className="rounded-lg border border-red-300 bg-card p-5" data-testid="position-limit-settings-error" role="alert">
+        <h2 className="font-semibold">Position limits unavailable</h2>
+        <p className="mt-2 text-sm text-muted">{message}</p>
+        <button
+          type="button"
+          onClick={() => void limitsQuery.refetch()}
+          className="mt-4 rounded border px-3 py-2 text-sm font-medium"
+        >
+          Retry
+        </button>
+      </section>
+    );
+  }
+
+  const view = limitsQuery.data;
+  const usage = view.usageState === 'CURRENT' ? view.usage : null;
+  const errorMessage = saveMutation.error instanceof Error ? saveMutation.error.message : null;
+
+  return (
+    <section className="space-y-5" data-testid="position-limit-settings" aria-labelledby="position-limit-settings-heading">
+      <div className="rounded-lg border bg-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="position-limit-settings-heading" className="text-lg font-semibold">Concurrent position and order limits</h2>
+            <p className="mt-1 text-sm text-muted">
+              Optional integer ceilings applied across your non-deleted trading accounts, including PAPER and LIVE accounts.
+            </p>
+          </div>
+          <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${view.configured ? 'border-emerald-300 text-emerald-700' : 'border-gray-300 text-muted'}`}>
+            {view.configured ? 'Configured' : 'No user-wide ceiling'}
+          </span>
+        </div>
+
+        <form
+          className="mt-5 space-y-5"
+          data-testid="position-limit-settings-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveMutation.mutate();
+          }}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-1.5 text-sm">
+              <span className="font-medium">Maximum concurrent position slots</span>
+              <input
+                aria-label="Maximum concurrent position slots"
+                type="number"
+                min={0}
+                max={MAX_LIMIT}
+                step={1}
+                inputMode="numeric"
+                value={maxConcurrentPositions}
+                onChange={(event) => setMaxConcurrentPositions(event.target.value)}
+                placeholder="No limit"
+                className="w-full rounded-md border bg-background px-3 py-2"
+              />
+              <span className="block text-xs text-muted">
+                Counts distinct account/symbol exposure and pending OMS symbols without trusting a caller-supplied reduce-only flag to bypass the ceiling.
+              </span>
+            </label>
+
+            <label className="space-y-1.5 text-sm">
+              <span className="font-medium">Maximum open orders</span>
+              <input
+                aria-label="Maximum open orders"
+                type="number"
+                min={0}
+                max={MAX_LIMIT}
+                step={1}
+                inputMode="numeric"
+                value={maxOpenOrders}
+                onChange={(event) => setMaxOpenOrders(event.target.value)}
+                placeholder="No limit"
+                className="w-full rounded-md border bg-background px-3 py-2"
+              />
+              <span className="block text-xs text-muted">
+                Counts active OMS intents and canonical open orders once per client order ID, including cancellation requests.
+              </span>
+            </label>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={saveMutation.isPending}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              {saveMutation.isPending ? 'Saving…' : 'Save limits'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMaxConcurrentPositions('');
+                setMaxOpenOrders('');
+                saveMutation.reset();
+              }}
+              className="rounded-md border px-4 py-2 text-sm font-medium"
+            >
+              Clear fields
+            </button>
+            {saveMutation.isSuccess && <span className="text-sm text-emerald-700" role="status">Limits saved and audited.</span>}
+          </div>
+
+          {errorMessage && <p className="text-sm text-red-700" role="alert">Could not save limits: {errorMessage}</p>}
+        </form>
+      </div>
+
+      <div className="rounded-lg border bg-card p-5">
+        <h3 className="font-semibold">Current usage</h3>
+        {usage ? (
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3" data-testid="position-limit-usage">
+            <div className="rounded-md border p-3">
+              <dt className="text-muted">Position slots</dt>
+              <dd className="mt-1 font-mono text-lg font-semibold">{usageValue(usage.openPositionSlots)}</dd>
+            </div>
+            <div className="rounded-md border p-3">
+              <dt className="text-muted">Open orders</dt>
+              <dd className="mt-1 font-mono text-lg font-semibold">{usageValue(usage.openOrderCount)}</dd>
+            </div>
+            <div className="rounded-md border p-3">
+              <dt className="text-muted">Owned accounts included</dt>
+              <dd className="mt-1 font-mono text-lg font-semibold">{usageValue(usage.ownedAccountCount)}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="mt-3 text-sm text-amber-700" role="status" data-testid="position-limit-usage-unknown">
+            Usage is unknown because one or more canonical position/order sources could not be read. The platform does not substitute zero.
+          </p>
+        )}
+        <p className="mt-3 text-xs text-muted">Usage sampled at {new Date(view.asOf).toISOString()} UTC.</p>
+      </div>
+
+      <div className="rounded-lg border bg-card p-5 text-sm">
+        <h3 className="font-semibold">How enforcement works</h3>
+        <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
+          <li>Open OMS intents reserve slots before they are persisted; concurrent submissions are serialized per tenant and account owner.</li>
+          <li>Positions and active OMS trades hold a slot until their canonical lifecycle reports them closed. Orders in cancellation or reconciliation states remain counted.</li>
+          <li>A blank field means no user-wide ceiling; zero blocks new reservations. Lowering a limit does not cancel existing orders or positions.</li>
+          <li>These are count limits, not notional or balance limits. Existing account risk checks, live-trading enablement, exchange credentials, kill switches, and execution gates still apply.</li>
+          <li>Limits guard orders submitted through the platform OMS. Orders placed directly at an exchange cannot be blocked before they are synchronized into platform records.</li>
+        </ul>
+        <p className="mt-3 text-xs text-muted">The usage view unions canonical non-zero positions, active OMS trades, and pending OMS/canonical order symbols by account and symbol; active order rows are de-duplicated by client order ID.</p>
+      </div>
+    </section>
+  );
+}
+```
+
 FILE: apps/web/src/features/trading/strategies-page.tsx
 
 ```tsx
+// # Uses shared TradingState
 "use client";
 
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { tradingApi, copyEligibility } from "@/api/trading-api";
+import { tradingApi } from "@/api/trading-api";
 import { PageContainer } from "@/layout/page-container";
 import { StatusBadge } from "@/components/status-badge";
-import { LoadingState } from "@/components/loading-state";
-import { ErrorState } from "@/components/error-state";
-import { EmptyState } from "@/components/empty-state";
-import { useTradingStatus } from "./use-trading-status";
+import { TradingStateBoundary } from "@/components/trading-state";
 
 export function StrategiesPage(): JSX.Element {
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string>("");
+
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["strategies"],
-    queryFn: () => tradingApi.listStrategies({ page: 1, limit: 20 }),
+    queryKey: ["strategies", search, typeFilter],
+    queryFn: () =>
+      tradingApi.listStrategies({
+        search: search || undefined,
+        status: "PUBLISHED",
+        type: typeFilter || undefined,
+      }),
   });
-  const status = useTradingStatus();
+
   const strategies = data?.data ?? [];
+
   return (
-    <PageContainer title="Strategies" description="Published strategies you can copy">
-      {isLoading ? (
-        <LoadingState />
-      ) : error ? (
-        <ErrorState error={error} onRetry={() => void refetch()} />
-      ) : strategies.length === 0 ? (
-        <EmptyState title="No strategies yet" description="Published strategies from your traders will appear here." />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {strategies.map((s) => {
-            const eligibility = copyEligibility(s, status.data);
-            return (
-              <Link key={s.strategyId} href={`/strategies/${s.strategyId}`} className="rounded border bg-card p-4 hover:shadow">
-                <div className="flex justify-between">
-                  <h3 className="font-semibold">{s.name}</h3>
-                  <StatusBadge status={s.status} />
+    <PageContainer
+      title="Strategies"
+      description="Published copy-trading strategies with canonical copy policy, risk constraints, and symbol/venue coverage"
+    >
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input
+          aria-label="Search strategies"
+          placeholder="Search by strategy name..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="rounded border px-3 py-1.5 text-sm"
+        />
+        <select
+          aria-label="Strategy type"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="rounded border px-3 py-1.5 text-sm"
+        >
+          <option value="">All types</option>
+          <option value="MANUAL">Manual</option>
+          <option value="ALGORITHMIC">Algorithmic</option>
+          <option value="HYBRID">Hybrid</option>
+        </select>
+      </div>
+
+      <TradingStateBoundary
+        isLoading={isLoading}
+        error={error}
+        isEmpty={strategies.length === 0}
+        emptyTitle="No strategies available"
+        emptyDescription="No published strategies matched your filter."
+        onRetry={() => void refetch()}
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {strategies.map((s) => (
+            <Link
+              key={s.strategyId}
+              href={`/strategies/${s.strategyId}`}
+              className="rounded border bg-card p-4 transition hover:bg-slate-50"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold">{s.name}</span>
+                <StatusBadge status={s.status} />
+              </div>
+              {s.description && (
+                <p className="mt-1 line-clamp-2 text-xs text-muted">{s.description}</p>
+              )}
+              <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <dt className="text-muted">Type</dt>
+                  <dd className="font-semibold">{s.type}</dd>
                 </div>
-                <p className="text-xs text-muted">
-                  {s.type} | {s.followerCount} followers | {s.supportedSymbols.slice(0, 3).join(", ") || "All symbols"}
-                </p>
-                <p className="mt-1 text-xs">
-                  {eligibility.canCopy ? "Can copy" : eligibility.reasons.join(", ") || "Checking eligibility…"}
-                </p>
-              </Link>
-            );
-          })}
+                <div>
+                  <dt className="text-muted">Followers</dt>
+                  <dd className="font-semibold">{s.followerCount}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Total Copies</dt>
+                  <dd className="font-semibold">{s.totalCopies}</dd>
+                </div>
+              </dl>
+              {s.supportedSymbols.length > 0 && (
+                <div className="mt-2 text-xs text-muted">
+                  Symbols: {s.supportedSymbols.join(", ")}
+                </div>
+              )}
+              {s.supportedVenues.length > 0 && (
+                <div className="mt-1 text-xs text-muted">
+                  Venues: {s.supportedVenues.join(", ")}
+                </div>
+              )}
+            </Link>
+          ))}
         </div>
-      )}
+      </TradingStateBoundary>
     </PageContainer>
   );
 }
@@ -12797,58 +19875,651 @@ export function StrategiesPage(): JSX.Element {
 FILE: apps/web/src/features/trading/strategy-detail-page.tsx
 
 ```tsx
+// # Displays strategy risk constraints, supported symbols/venues, execution statistics, and effective copy policy summary
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { tradingApi, copyEligibility } from "@/api/trading-api";
+import {
+  copyEligibility,
+  tradingApi,
+  type AllocationMode,
+} from "@/api/trading-api";
 import { PageContainer } from "@/layout/page-container";
 import { StatusBadge } from "@/components/status-badge";
-import { LoadingState } from "@/components/loading-state";
-import { ErrorState } from "@/components/error-state";
-import { CopySubscriptionFlow } from "./copy-subscription-flow";
-import { useTradingStatus } from "./use-trading-status";
+import { Money } from "@/components/money";
+import { TradingStateBoundary } from "@/components/trading-state";
+import { formatWinRatePercent } from "./trader-metric-definitions";
 
 export function StrategyDetailPage({ id }: { id: string }): JSX.Element {
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["strategy", id],
-    queryFn: () => tradingApi.getStrategy(id),
+  const qc = useQueryClient();
+  const [allocationMode, setAllocationMode] = useState<AllocationMode>("FIXED");
+  const [allocationAmount, setAllocationAmount] = useState("100");
+  const [maxAllocation, setMaxAllocation] = useState("");
+  const [minAllocation, setMinAllocation] = useState("");
+  const [slippageToleranceBps, setSlippageToleranceBps] = useState("50");
+  const [takeProfitBps, setTakeProfitBps] = useState("");
+  const [stopLossBps, setStopLossBps] = useState("");
+
+  const analyticsQuery = useQuery({
+    queryKey: ["strategy-analytics", id],
+    queryFn: () => tradingApi.getStrategyAnalytics(id),
   });
-  const status = useTradingStatus();
-  if (isLoading) return <LoadingState />;
-  if (error) return <ErrorState error={error} onRetry={() => void refetch()} />;
-  if (!data) return <div className="p-4">Strategy not found</div>;
-  const eligibility = copyEligibility(data, status.data);
+
+  const tradingStatus = useQuery({
+    queryKey: ["trading-status"],
+    queryFn: () => tradingApi.getTradingStatus(),
+  });
+
+  const subscribe = useMutation({
+    mutationFn: () => {
+      const strategy = analyticsQuery.data?.strategy;
+      if (!strategy) throw new Error("Strategy not loaded");
+      const slippage = slippageToleranceBps.trim() ? Number(slippageToleranceBps) : undefined;
+      const tp = takeProfitBps.trim() ? Number(takeProfitBps) : undefined;
+      const sl = stopLossBps.trim() ? Number(stopLossBps) : undefined;
+      return tradingApi.createSubscription({
+        traderId: strategy.traderId,
+        strategyId: strategy.strategyId,
+        allocationMode,
+        allocationAmount,
+        maxAllocation: maxAllocation || undefined,
+        minAllocation: minAllocation || undefined,
+        copyPolicy: {
+          sizingMode: allocationMode,
+          slippageToleranceBps: Number.isFinite(slippage) ? slippage : null,
+          takeProfitBps: Number.isFinite(tp) ? tp : null,
+          stopLossBps: Number.isFinite(sl) ? sl : null,
+        },
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["copy-subscriptions"] });
+      void qc.invalidateQueries({ queryKey: ["strategy-analytics", id] });
+    },
+  });
+
+  const data = analyticsQuery.data?.strategy;
+  const effectivePolicy = analyticsQuery.data?.effectivePolicy;
+  const traderPerformance = analyticsQuery.data?.traderPerformance;
+  const gate = data ? copyEligibility(data, tradingStatus.data) : { canCopy: false, reasons: [] };
+
   return (
-    <PageContainer title={data.name} description="Strategy details">
-      <div className="space-y-4">
-        <div className="rounded border bg-card p-4">
-          <div className="flex gap-2">
-            <StatusBadge status={data.status} />
-            <StatusBadge status={data.type} variant="neutral" />
+    <PageContainer
+      title={data ? data.name : "Strategy Detail"}
+      description="Strategy analytics, effective copy policy constraints, supported venues/symbols, and follower subscription controls"
+    >
+      <TradingStateBoundary
+        isLoading={analyticsQuery.isLoading}
+        error={analyticsQuery.error}
+        isEmpty={!data}
+        emptyTitle="Strategy not found"
+        emptyDescription="This strategy does not exist or is not published."
+        degradedReason={
+          tradingStatus.data?.maintenance?.active ? tradingStatus.data.maintenance.message : null
+        }
+        blocksTrading={Boolean(tradingStatus.data?.maintenance?.blocksTrading)}
+        onRetry={() => void analyticsQuery.refetch()}
+      >
+        {data && (
+          <div className="space-y-6" data-testid="strategy-detail-page">
+            {/* Strategy Overview Card */}
+            <div className="space-y-3 rounded border bg-card p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={data.status} />
+                  <StatusBadge status={data.type} variant="info" />
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  <Link href={`/traders/${data.traderId}`} className="underline">
+                    View Lead Trader ({data.traderId})
+                  </Link>
+                  <Link
+                    href={`/traders/${data.traderId}/performance`}
+                    className="underline"
+                  >
+                    Trader Performance Analytics →
+                  </Link>
+                </div>
+              </div>
+              {data.description && <p className="text-sm text-muted">{data.description}</p>}
+              <dl className="grid grid-cols-2 gap-3 border-t pt-3 text-xs md:grid-cols-4">
+                <div>
+                  <dt className="text-muted">Followers</dt>
+                  <dd className="font-semibold">{data.followerCount}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Total Copy Executions</dt>
+                  <dd className="font-semibold">{data.totalCopies}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Supported Venues</dt>
+                  <dd className="font-semibold">{data.supportedVenues.join(", ") || "All"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Supported Symbols</dt>
+                  <dd className="font-semibold">{data.supportedSymbols.join(", ") || "All"}</dd>
+                </div>
+              </dl>
+            </div>
+
+            {/* Effective Copy Policy & Risk Constraints (GAP-05) */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div
+                className="rounded border bg-card p-4"
+                data-testid="strategy-effective-policy"
+              >
+                <h2 className="text-sm font-semibold">Effective Copy Policy & Guardrails</h2>
+                <p className="mt-1 text-xs text-muted">
+                  Merged platform, strategy, and default follower copy execution constraints.
+                </p>
+                {effectivePolicy ? (
+                  <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <dt className="text-muted">Default Sizing Mode</dt>
+                      <dd className="font-semibold">{effectivePolicy.sizingMode}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Max Position Size</dt>
+                      <dd className="font-mono">
+                        {effectivePolicy.maxPositionSize ? (
+                          <Money value={effectivePolicy.maxPositionSize} />
+                        ) : (
+                          "Platform Default"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Max Notional / Order</dt>
+                      <dd className="font-mono">
+                        {effectivePolicy.maxNotional ? (
+                          <Money value={effectivePolicy.maxNotional} />
+                        ) : (
+                          "Platform Default"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Max Leverage</dt>
+                      <dd className="font-mono">{effectivePolicy.maxLeverage ?? "1"}x</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Slippage Tolerance</dt>
+                      <dd className="font-mono">
+                        {effectivePolicy.slippageToleranceBps !== null
+                          ? `${effectivePolicy.slippageToleranceBps} bps`
+                          : "Market Default"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Execution Delay</dt>
+                      <dd className="font-mono">{effectivePolicy.executionDelayMs ?? 0} ms</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Allowed Venues</dt>
+                      <dd>{effectivePolicy.allowedVenues?.join(", ") || "All Strategy Venues"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Allowed Symbols</dt>
+                      <dd>{effectivePolicy.allowedSymbols?.join(", ") || "All Strategy Symbols"}</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="mt-2 text-xs text-muted">Standard platform policy applies.</p>
+                )}
+              </div>
+
+              {/* Lead Trader Attribution Summary */}
+              <div
+                className="rounded border bg-card p-4"
+                data-testid="strategy-trader-attribution"
+              >
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">Lead Trader Track Record</h2>
+                  {traderPerformance && (
+                    <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                      {traderPerformance.isActual ? "ACTUAL" : "ESTIMATED"} (
+                      {traderPerformance.source})
+                    </span>
+                  )}
+                </div>
+                {traderPerformance ? (
+                  <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <dt className="text-muted">Realized PnL</dt>
+                      <dd className="font-mono font-semibold">
+                        <Money value={traderPerformance.realizedPnl} />
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Win Rate</dt>
+                      <dd className="font-mono font-semibold">
+                        {formatWinRatePercent(traderPerformance.winRate)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Max Drawdown</dt>
+                      <dd className="font-mono">
+                        {traderPerformance.maxDrawdown ? (
+                          <Money value={traderPerformance.maxDrawdown} />
+                        ) : (
+                          "0.00"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Profit Factor</dt>
+                      <dd className="font-mono">{traderPerformance.profitFactor ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Total Fills</dt>
+                      <dd className="font-semibold">{traderPerformance.tradeCount}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">History Length</dt>
+                      <dd className="font-semibold">{traderPerformance.historyLengthDays} days</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="mt-2 text-xs text-muted">
+                    No executed fill history recorded for this trader yet.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Subscribe Form */}
+            <div className="space-y-3 rounded border bg-card p-4">
+              <h2 className="text-sm font-semibold">Follow & Copy This Strategy</h2>
+
+              {!gate.canCopy && gate.reasons.length > 0 && (
+                <div
+                  role="status"
+                  className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+                >
+                  <div className="font-semibold">Copying is not available right now</div>
+                  <ul className="mt-1 list-disc pl-4">
+                    {gate.reasons.map((r) => (
+                      <li key={r}>{r}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-4">
+                <label className="space-y-1">
+                  <span className="text-muted">Allocation mode</span>
+                  <select
+                    value={allocationMode}
+                    onChange={(e) => setAllocationMode(e.target.value as AllocationMode)}
+                    disabled={!gate.canCopy}
+                    className="w-full rounded border px-2 py-1.5"
+                  >
+                    <option value="FIXED">Fixed amount per trade</option>
+                    <option value="PROPORTIONAL">Proportional</option>
+                    <option value="MULTIPLIER">Multiplier</option>
+                    <option value="EQUITY_RATIO">Equity Ratio</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted">Allocation amount</span>
+                  <input
+                    value={allocationAmount}
+                    onChange={(e) => setAllocationAmount(e.target.value)}
+                    disabled={!gate.canCopy}
+                    inputMode="decimal"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted">Min per trade (optional)</span>
+                  <input
+                    value={minAllocation}
+                    onChange={(e) => setMinAllocation(e.target.value)}
+                    disabled={!gate.canCopy}
+                    inputMode="decimal"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted">Max per trade (optional)</span>
+                  <input
+                    value={maxAllocation}
+                    onChange={(e) => setMaxAllocation(e.target.value)}
+                    disabled={!gate.canCopy}
+                    inputMode="decimal"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+                <label className="space-y-1">
+                  <span className="text-muted">Slippage Tolerance (bps)</span>
+                  <input
+                    value={slippageToleranceBps}
+                    onChange={(e) => setSlippageToleranceBps(e.target.value)}
+                    disabled={!gate.canCopy}
+                    inputMode="numeric"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted">Take-Profit (bps, optional)</span>
+                  <input
+                    value={takeProfitBps}
+                    onChange={(e) => setTakeProfitBps(e.target.value)}
+                    disabled={!gate.canCopy}
+                    inputMode="numeric"
+                    placeholder="e.g. 300"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted">Stop-Loss (bps, optional)</span>
+                  <input
+                    value={stopLossBps}
+                    onChange={(e) => setStopLossBps(e.target.value)}
+                    disabled={!gate.canCopy}
+                    inputMode="numeric"
+                    placeholder="e.g. 150"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </label>
+              </div>
+
+              {subscribe.isError && (
+                <div role="alert" className="text-xs text-red-700">
+                  {(subscribe.error as Error).message}
+                </div>
+              )}
+              {subscribe.isSuccess && (
+                <div role="status" className="text-xs text-green-700">
+                  Subscription created — manage it in{" "}
+                  <Link href="/copy-trading" className="underline">
+                    Copy Trading
+                  </Link>
+                  .
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={!gate.canCopy || subscribe.isPending || !allocationAmount.trim()}
+                onClick={() => subscribe.mutate()}
+                className="rounded bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                {subscribe.isPending ? "Starting…" : "Start copying"}
+              </button>
+            </div>
           </div>
-          <p className="mt-2 text-sm">{data.description ?? "No description"}</p>
-          <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-            <dt className="text-muted">Trader</dt>
-            <dd>
-              <Link href={`/traders/${data.traderId}`} className="underline">
-                View trader profile
-              </Link>
-            </dd>
-            <dt className="text-muted">Symbols</dt>
-            <dd>{data.supportedSymbols.join(", ") || "All"}</dd>
-            <dt className="text-muted">Venues</dt>
-            <dd>{data.supportedVenues.join(", ") || "All"}</dd>
-            <dt className="text-muted">Followers</dt>
-            <dd>{data.followerCount}</dd>
-            <dt className="text-muted">Published</dt>
-            <dd>{data.publishedAt ? new Date(data.publishedAt).toLocaleDateString() : "Not published"}</dd>
-          </dl>
-          <p className="mt-3 text-xs">
-            Can copy: {eligibility.canCopy ? "Yes" : "No"} {eligibility.reasons.join(", ")}
-          </p>
+        )}
+      </TradingStateBoundary>
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/trader-comparison-page.tsx
+
+```tsx
+// # NEW — Side-by-side trader comparison matrix for performance, risk, venues, and strategy stats
+"use client";
+
+import React, { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { tradingApi } from "@/api/trading-api";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+import { Money } from "@/components/money";
+import { TradingStateBoundary } from "@/components/trading-state";
+import { formatWinRatePercent } from "./trader-metric-definitions";
+
+export interface TraderComparisonPageProps {
+  initialIds?: string[];
+}
+
+export function TraderComparisonPage({ initialIds = [] }: TraderComparisonPageProps): JSX.Element {
+  const [selectedIds, setSelectedIds] = useState<string[]>(() =>
+    Array.from(new Set(initialIds.map((x) => x.trim()).filter(Boolean))).slice(0, 4),
+  );
+
+  const tradersCatalog = useQuery({
+    queryKey: ["traders", "comparison-catalog"],
+    queryFn: () => tradingApi.listTraders({ page: 1, limit: 50 }),
+  });
+
+  const activeIds = useMemo(() => {
+    if (selectedIds.length > 0) return selectedIds.slice(0, 4);
+    const catalog = tradersCatalog.data?.data ?? [];
+    return catalog.slice(0, 3).map((t) => t.traderId);
+  }, [selectedIds, tradersCatalog.data]);
+
+  const comparisonQuery = useQuery({
+    queryKey: ["traders-compare", activeIds.join(",")],
+    queryFn: () => tradingApi.compareTraders(activeIds),
+    enabled: activeIds.length > 0,
+  });
+
+  const allTraders = tradersCatalog.data?.data ?? [];
+  const entries = comparisonQuery.data ?? [];
+
+  const toggleTrader = (traderId: string) => {
+    setSelectedIds((prev) => {
+      const base = prev.length > 0 ? prev : activeIds;
+      if (base.includes(traderId)) {
+        return base.filter((id) => id !== traderId);
+      }
+      if (base.length >= 4) return base;
+      return [...base, traderId];
+    });
+  };
+
+  return (
+    <PageContainer
+      title="Compare Traders"
+      description="Evaluate up to 4 traders side by side across canonical performance, risk, venues, and published strategies"
+    >
+      <div className="space-y-6" data-testid="trader-comparison-page">
+        {/* Trader Selector */}
+        <div className="rounded border bg-card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold">Select Traders to Compare (Max 4)</h2>
+              <p className="text-xs text-muted">
+                All comparison metrics are sourced from canonical fills and open position ledgers.
+              </p>
+            </div>
+            <Link href="/traders" className="text-xs font-medium underline">
+              Back to Trader Discovery
+            </Link>
+          </div>
+          {allTraders.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {allTraders.map((trader) => {
+                const isSelected = activeIds.includes(trader.traderId);
+                return (
+                  <button
+                    key={trader.traderId}
+                    type="button"
+                    data-testid={`compare-toggle-${trader.traderId}`}
+                    onClick={() => toggleTrader(trader.traderId)}
+                    className={`rounded border px-3 py-1 text-xs font-medium transition ${
+                      isSelected
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {trader.displayName} {isSelected ? "✓" : "+"}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-        {eligibility.canCopy && <CopySubscriptionFlow strategyId={data.strategyId} traderId={data.traderId} />}
+
+        <TradingStateBoundary
+          isLoading={tradersCatalog.isLoading || comparisonQuery.isLoading}
+          error={tradersCatalog.error ?? comparisonQuery.error}
+          isEmpty={entries.length === 0}
+          emptyTitle="No traders selected for comparison"
+          emptyDescription="Select up to 4 public traders above to compare their canonical performance and risk metrics."
+          onRetry={() => {
+            void tradersCatalog.refetch();
+            void comparisonQuery.refetch();
+          }}
+        >
+          <div className="overflow-x-auto rounded border bg-card">
+            <table className="w-full text-left text-xs" data-testid="trader-comparison-table">
+              <thead>
+                <tr className="border-b bg-slate-50">
+                  <th className="p-3 font-semibold text-slate-700">Metric / Attribute</th>
+                  {entries.map((entry) => (
+                    <th key={entry.profile.traderId} className="p-3 font-semibold text-slate-900">
+                      <div className="flex flex-col gap-1">
+                        <Link
+                          href={`/traders/${entry.profile.traderId}`}
+                          className="text-sm font-semibold underline"
+                        >
+                          {entry.profile.displayName}
+                        </Link>
+                        <div className="flex items-center gap-1">
+                          <StatusBadge status={entry.profile.verificationState} />
+                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                            {entry.performance.isActual ? "ACTUAL" : "ESTIMATED"}
+                          </span>
+                        </div>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                <tr>
+                  <td className="p-3 font-medium text-muted">Realized PnL</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3 font-mono font-semibold">
+                      <Money value={entry.performance.realizedPnl} />
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Unrealized PnL</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3 font-mono">
+                      <Money value={entry.performance.unrealizedPnl ?? "0"} />
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Win Rate</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3 font-mono font-semibold">
+                      {formatWinRatePercent(entry.performance.winRate)} ({entry.performance.winCount}W /{" "}
+                      {entry.performance.lossCount}L)
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Max Drawdown</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3 font-mono">
+                      {entry.performance.maxDrawdown ? (
+                        <Money value={entry.performance.maxDrawdown} />
+                      ) : (
+                        "0.00"
+                      )}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Profit Factor</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3 font-mono">
+                      {entry.performance.profitFactor ?? "—"}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Executed Volume</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3 font-mono">
+                      <Money value={entry.performance.totalVolume} />
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Total Fills / Track Record</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3">
+                      {entry.performance.tradeCount} fills ({entry.performance.historyLengthDays}d)
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Followers</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3 font-semibold">
+                      {entry.profile.followerCount}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Supported Venues</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3">
+                      {entry.profile.supportedVenues.join(", ") || "All"}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Supported Symbols</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3">
+                      {entry.profile.supportedSymbols.join(", ") || "All"}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Published Strategies</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3">
+                      {entry.strategies.length === 0 ? (
+                        <span className="text-muted">None</span>
+                      ) : (
+                        <ul className="space-y-1">
+                          {entry.strategies.map((s) => (
+                            <li key={s.strategyId}>
+                              <Link href={`/strategies/${s.strategyId}`} className="underline">
+                                {s.name}
+                              </Link>{" "}
+                              ({s.status})
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="p-3 font-medium text-muted">Deep Dive</td>
+                  {entries.map((entry) => (
+                    <td key={entry.profile.traderId} className="p-3">
+                      <Link
+                        href={`/traders/${entry.profile.traderId}/performance`}
+                        className="rounded border px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+                      >
+                        Performance Detail →
+                      </Link>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </TradingStateBoundary>
       </div>
     </PageContainer>
   );
@@ -12886,9 +20557,25 @@ export function TraderDetailPage({ id }: { id: string }): JSX.Element {
     <PageContainer title={data.displayName} description="Trader profile">
       <div className="space-y-4">
         <div className="space-y-4 rounded border bg-card p-4">
-          <div className="flex gap-2">
-            <StatusBadge status={data.verificationState} />
-            {data.isFeatured && <StatusBadge status="FEATURED" variant="info" />}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex gap-2">
+              <StatusBadge status={data.verificationState} />
+              {data.isFeatured && <StatusBadge status="FEATURED" variant="info" />}
+            </div>
+            <div className="flex gap-2">
+              <Link
+                href={`/traders/${data.traderId}/performance`}
+                className="rounded border px-3 py-1 text-xs font-medium hover:bg-slate-50"
+              >
+                Performance Analytics
+              </Link>
+              <Link
+                href={`/traders/compare?ids=${encodeURIComponent(data.traderId)}`}
+                className="rounded border px-3 py-1 text-xs font-medium hover:bg-slate-50"
+              >
+                Compare
+              </Link>
+            </div>
           </div>
           <p className="text-sm">{data.bio ?? "No bio"}</p>
           <div className="grid grid-cols-2 gap-4 text-sm">
@@ -12927,52 +20614,1392 @@ export function TraderDetailPage({ id }: { id: string }): JSX.Element {
 }
 ```
 
-FILE: apps/web/src/features/trading/traders-page.tsx
+FILE: apps/web/src/features/trading/trader-exposure-panel.tsx
 
 ```tsx
 "use client";
 
+// # Responsibility: renders a trader-profile owner's own non-sandbox exposure with explicit source scope, freshness, and unavailable valuations.
+
+import { useQuery } from "@tanstack/react-query";
+import { customerExposureApi, type TraderExposureView } from "@/api/customer-exposure-api";
+import { ErrorState } from "@/components/error-state";
+import { LoadingState } from "@/components/loading-state";
+
+function exposureStateLabel(state: TraderExposureView["state"]): string {
+  switch (state) {
+    case "CURRENT":
+      return "Current reference data";
+    case "STALE":
+      return "Stale reference data";
+    case "UNKNOWN":
+      return "Valuation unavailable";
+    case "EMPTY":
+      return "No open exposure";
+  }
+}
+
+function exposureStateClass(state: TraderExposureView["state"]): string {
+  if (state === "CURRENT") return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  if (state === "STALE") return "border-amber-300 bg-amber-50 text-amber-900";
+  if (state === "UNKNOWN") return "border-rose-300 bg-rose-50 text-rose-900";
+  return "border-slate-300 bg-slate-50 text-slate-700";
+}
+
+function timestampLabel(value: string | null): string {
+  if (value === null || !Number.isFinite(Date.parse(value))) return "Unavailable";
+  return new Date(value).toISOString();
+}
+
+function exactAmount(value: string | null, asset: string | null): string {
+  if (value === null || asset === null || asset.trim().length === 0) return "Unavailable";
+  return `${value} ${asset}`;
+}
+
+function lineStateLabel(line: TraderExposureView["lines"][number]): string {
+  if (line.state === "CURRENT") return "Current";
+  if (line.state === "STALE") return "Stale";
+  return "Unavailable";
+}
+
+function ExposureTable({ data }: { data: TraderExposureView }): JSX.Element {
+  return (
+    <div className="overflow-x-auto rounded border" data-testid="trader-exposure-lines">
+      <table className="w-full min-w-[760px] text-sm">
+        <thead className="border-b bg-slate-50 text-left text-xs uppercase text-slate-600">
+          <tr>
+            <th className="p-3">Instrument</th>
+            <th className="p-3 text-right">Net quantity</th>
+            <th className="p-3 text-right">Gross position notional</th>
+            <th className="p-3 text-right">Open-order commitment</th>
+            <th className="p-3">Valuation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.lines.map((line) => (
+            <tr key={`${line.venue}:${line.symbol}:${line.marketType ?? "unknown"}`} className="border-b last:border-0">
+              <td className="p-3">
+                <span className="font-medium">{line.symbol}</span>
+                <span className="ml-2 text-xs text-slate-600">{line.venue}</span>
+                <div className="text-xs text-slate-500">{line.marketType ?? "Market type unavailable"}</div>
+              </td>
+              <td className="p-3 text-right font-mono">{line.netQuantity ?? "Unavailable"}</td>
+              <td className="p-3 text-right font-mono">
+                {exactAmount(line.grossPositionNotional, line.quoteAsset)}
+              </td>
+              <td className="p-3 text-right font-mono">
+                {exactAmount(line.openOrderCommitment, line.quoteAsset)}
+                {line.openOrderCount > 0 ? (
+                  <div className="text-xs font-sans text-slate-500">
+                    {line.openOrderCount} working order{line.openOrderCount === 1 ? "" : "s"}
+                  </div>
+                ) : null}
+              </td>
+              <td className="p-3">
+                <span className={`rounded-full border px-2 py-1 text-xs ${exposureStateClass(line.state)}`}>
+                  {lineStateLabel(line)}
+                </span>
+                {line.price !== null ? (
+                  <div className="mt-1 text-xs text-slate-600">Reference price: {exactAmount(line.price, line.quoteAsset)} · 1-minute close</div>
+                ) : (
+                  <div className="mt-1 text-xs text-slate-600">Reference price unavailable</div>
+                )}
+                {line.priceTimestamp ? (
+                  <div className="mt-1 text-xs text-slate-500">Price as of {timestampLabel(line.priceTimestamp)}</div>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function QuoteTotals({ data }: { data: TraderExposureView }): JSX.Element {
+  if (data.totalsByQuoteAsset.length === 0) {
+    return <p className="mt-3 text-sm text-slate-600">No quote-asset totals are available.</p>;
+  }
+
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full min-w-[520px] text-sm">
+        <thead className="border-b text-left text-xs uppercase text-slate-600">
+          <tr>
+            <th className="py-2">Quote asset</th>
+            <th className="py-2 text-right">Gross positions</th>
+            <th className="py-2 text-right">Working orders</th>
+            <th className="py-2 text-right">Total reference value</th>
+            <th className="py-2">State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.totalsByQuoteAsset.map((total) => (
+            <tr key={total.quoteAsset} className="border-b last:border-0">
+              <td className="py-3 font-medium">{total.quoteAsset}</td>
+              <td className="py-3 text-right font-mono">{exactAmount(total.grossPositionNotional, total.quoteAsset)}</td>
+              <td className="py-3 text-right font-mono">{exactAmount(total.openOrderCommitment, total.quoteAsset)}</td>
+              <td className="py-3 text-right font-mono">{exactAmount(total.totalNotional, total.quoteAsset)}</td>
+              <td className="py-3">
+                <span className={`rounded-full border px-2 py-1 text-xs ${exposureStateClass(total.state)}`}>
+                  {exposureStateLabel(total.state)}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function TraderExposurePanel({ traderId }: { traderId: string }): JSX.Element {
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: ["trader", traderId, "exposure"],
+    queryFn: () => customerExposureApi.getTraderExposure(traderId),
+    enabled: traderId.trim().length > 0,
+    staleTime: 5_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+  });
+
+  if (isLoading) return <LoadingState message="Loading your trader-profile exposure…" />;
+  if (error) {
+    return <ErrorState error={error} onRetry={() => void refetch()} title="Trader exposure unavailable" />;
+  }
+  if (!data || data.traderId !== traderId
+    || data.dataScope !== "TRADER_PROFILE_OWNER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS") {
+    return (
+      <section className="rounded border border-amber-300 bg-amber-50 p-4" data-testid="trader-exposure-unavailable">
+        <h2 className="font-semibold">Trader exposure unavailable</h2>
+        <p className="mt-1 text-sm text-amber-950">
+          The response did not confirm the requested trader-profile owner scope. No portfolio values are displayed.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-4 rounded border bg-card p-4" aria-labelledby="trader-exposure-heading" data-testid="trader-exposure-panel">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 id="trader-exposure-heading" className="font-semibold">Your trader-profile exposure</h2>
+          <p className="mt-1 text-xs text-slate-600">Private to this trader-profile owner. Followers and other profile viewers cannot inspect these account positions.</p>
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-medium ${exposureStateClass(data.state)}`} role="status">
+          {exposureStateLabel(data.state)}
+        </span>
+      </div>
+
+      <p className="text-xs text-slate-600">Snapshot as of {timestampLabel(data.asOf)} · {data.eligibleAccountCount} eligible non-sandbox account{data.eligibleAccountCount === 1 ? "" : "s"}</p>
+      <p className="text-sm text-slate-700">{data.notice}</p>
+      <p className="text-xs text-slate-600">Simulated records excluded · Cash balances excluded · Quote assets remain separate; no FX conversion is applied.</p>
+
+      <button
+        type="button"
+        onClick={() => void refetch()}
+        disabled={isFetching}
+        className="rounded border px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-60"
+      >
+        {isFetching ? "Refreshing…" : "Refresh exposure"}
+      </button>
+
+      {data.state === "EMPTY" ? (
+        <div className="rounded border p-4" data-testid="trader-exposure-empty">
+          <h3 className="font-medium">No open exposure found</h3>
+          <p className="mt-1 text-sm text-slate-600">No qualifying non-simulated open positions or working orders were returned for this trader profile.</p>
+        </div>
+      ) : (
+        <>
+          <div>
+            <h3 className="font-medium">Positions and working orders</h3>
+            <p className="mt-1 text-xs text-slate-600">Reference valuations use exact stored decimal strings and current instrument-linked data only. Unknown or stale amounts stay unavailable.</p>
+          </div>
+          {data.lines.length > 0 ? (
+            <ExposureTable data={data} />
+          ) : (
+            <p className="rounded border p-4 text-sm text-slate-600">Exposure rows are unavailable because verified instrument metadata was not returned.</p>
+          )}
+          <div>
+            <h3 className="font-medium">Totals by quote asset</h3>
+            <p className="mt-1 text-xs text-slate-600">Different quote assets are never added together.</p>
+            <QuoteTotals data={data} />
+          </div>
+        </>
+      )}
+
+      {(data.staleSymbols.length > 0 || data.unknownSymbols.length > 0) ? (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm" aria-label="Incomplete trader exposure values">
+          <h3 className="font-medium">Some exposure amounts are withheld</h3>
+          {data.staleSymbols.length > 0 ? <p className="mt-1">Stale reference data: {data.staleSymbols.join(", ")}</p> : null}
+          {data.unknownSymbols.length > 0 ? <p className="mt-1">Missing or invalid valuation evidence: {data.unknownSymbols.join(", ")}</p> : null}
+          <p className="mt-2 text-xs">Totals for affected quote assets remain unavailable until their required inputs are current and valid.</p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/trader-metric-definitions.ts
+
+```typescript
+// # NEW — Defines canonical metric formulas, units, and ACTUAL vs ESTIMATED provenance explanations
+import type { TraderPerformance } from "@/api/trading-api";
+
+export interface TraderMetricDefinition {
+  key: keyof TraderPerformance | "winLossRatio";
+  label: string;
+  unit: "CURRENCY" | "PERCENT" | "RATIO" | "COUNT" | "DAYS";
+  formula: string;
+  description: string;
+  provenanceNote: string;
+}
+
+export const TRADER_METRIC_DEFINITIONS: Record<string, TraderMetricDefinition> = {
+  realizedPnl: {
+    key: "realizedPnl",
+    label: "Realized PnL",
+    unit: "CURRENCY",
+    formula: "Σ (Closed Sell Proceeds − FIFO Matched Buy Cost)",
+    description:
+      "Cumulative realized profit or loss across closed fills matched using canonical FIFO lot accounting.",
+    provenanceNote: "Derived strictly from executed canonical fills; never client-supplied.",
+  },
+  unrealizedPnl: {
+    key: "unrealizedPnl",
+    label: "Unrealized PnL",
+    unit: "CURRENCY",
+    formula: "Σ ((Current Mark Price − Average Entry Price) × Open Position Quantity)",
+    description:
+      "Open mark-to-market profit or loss across active positions held on connected trading accounts.",
+    provenanceNote: "Calculated from canonical open positions and latest mark prices.",
+  },
+  maxDrawdown: {
+    key: "maxDrawdown",
+    label: "Max Drawdown",
+    unit: "CURRENCY",
+    formula: "max(Peak Cumulative Realized PnL − Trough Cumulative Realized PnL)",
+    description:
+      "Largest peak-to-trough decline observed across the trader's cumulative realized PnL curve.",
+    provenanceNote: "Measured from historical fill progression; null when no drawdown has occurred.",
+  },
+  winRate: {
+    key: "winRate",
+    label: "Win Rate",
+    unit: "PERCENT",
+    formula: "(Winning Closed Trades ÷ Total Closed Trades) × 100",
+    description: "Percentage of closed round-trip trades that resulted in positive realized PnL.",
+    provenanceNote: "Computed from canonical closed trade outcomes.",
+  },
+  profitFactor: {
+    key: "profitFactor",
+    label: "Profit Factor",
+    unit: "RATIO",
+    formula: "Gross Winning PnL ÷ |Gross Losing PnL|",
+    description:
+      "Ratio of gross profit from winning trades to gross loss from losing trades. Values above 1.0 indicate positive expectancy.",
+    provenanceNote: "Derived from canonical fill-matched trade wins and losses.",
+  },
+  averageTrade: {
+    key: "averageTrade",
+    label: "Average Trade PnL",
+    unit: "CURRENCY",
+    formula: "Realized PnL ÷ Closed Trade Count",
+    description: "Mean realized profit or loss per closed round-trip trade.",
+    provenanceNote: "Computed from canonical realized PnL and closed trade count.",
+  },
+  totalVolume: {
+    key: "totalVolume",
+    label: "Total Executed Volume",
+    unit: "CURRENCY",
+    formula: "Σ (Fill Quantity × Fill Price)",
+    description: "Aggregate quote notional volume executed across all canonical fills.",
+    provenanceNote: "Summed directly from verified exchange fill records.",
+  },
+  historyLengthDays: {
+    key: "historyLengthDays",
+    label: "Track Record Length",
+    unit: "DAYS",
+    formula: "floor((Now − First Canonical Fill Timestamp) ÷ 86,400s)",
+    description: "Number of calendar days since the trader's first recorded canonical fill.",
+    provenanceNote: "Anchored to the earliest canonical fill timestamp in the ledger.",
+  },
+};
+
+export function describeDataProvenance(performance: Pick<TraderPerformance, "isActual" | "source">): {
+  badgeLabel: "ACTUAL" | "ESTIMATED";
+  sourceLabel: string;
+  explanation: string;
+} {
+  const badgeLabel = performance.isActual ? "ACTUAL" : "ESTIMATED";
+  const sourceLabel = performance.source || "FILLS";
+  const explanation = performance.isActual
+    ? `Verified ACTUAL ledger metrics computed from canonical ${sourceLabel} records. No synthetic or self-reported ROI is permitted.`
+    : `ESTIMATED metrics derived from ${sourceLabel} snapshots pending full settlement reconciliation.`;
+  return { badgeLabel, sourceLabel, explanation };
+}
+
+export function formatWinRatePercent(winRate: string | null | undefined): string {
+  if (!winRate) return "—";
+  const n = Number(winRate);
+  if (!Number.isFinite(n)) return "—";
+  const pct = n <= 1 && n >= 0 ? n * 100 : n;
+  return `${pct.toFixed(1)}%`;
+}
+```
+
+FILE: apps/web/src/features/trading/trader-performance-chart.tsx
+
+```tsx
+// # NEW — Renders cumulative PnL, drawdown, and win/loss distribution visualizations from canonical series
+"use client";
+
+import React from "react";
+import type { TraderPerformance } from "@/api/trading-api";
+import { Money } from "@/components/money";
+import { formatWinRatePercent } from "./trader-metric-definitions";
+
+export interface TraderPerformanceChartProps {
+  performance: TraderPerformance;
+}
+
+export function TraderPerformanceChart({ performance }: TraderPerformanceChartProps): JSX.Element {
+  const winCount = Math.max(0, performance.winCount || 0);
+  const lossCount = Math.max(0, performance.lossCount || 0);
+  const closedCount = winCount + lossCount;
+  const winPct = closedCount > 0 ? Math.round((winCount / closedCount) * 100) : 0;
+  const lossPct = closedCount > 0 ? 100 - winPct : 0;
+
+  const realizedNum = parseFloat(performance.realizedPnl || "0");
+  const unrealizedNum = parseFloat(performance.unrealizedPnl || "0");
+  const drawdownNum = parseFloat(performance.maxDrawdown || "0");
+  const avgWinNum = parseFloat(performance.averageWin || "0");
+  const avgLossNum = parseFloat(performance.averageLoss || "0");
+
+  // Deterministic canonical milestone bars (no random/synthetic points)
+  const bars = [
+    { label: "Avg Win", value: Number.isFinite(avgWinNum) ? avgWinNum : 0, raw: performance.averageWin ?? "0", tone: "positive" },
+    { label: "Avg Loss", value: Number.isFinite(avgLossNum) ? -Math.abs(avgLossNum) : 0, raw: performance.averageLoss ?? "0", tone: "negative" },
+    { label: "Max Drawdown", value: Number.isFinite(drawdownNum) ? -Math.abs(drawdownNum) : 0, raw: performance.maxDrawdown ?? "0", tone: "negative" },
+    { label: "Unrealized PnL", value: Number.isFinite(unrealizedNum) ? unrealizedNum : 0, raw: performance.unrealizedPnl ?? "0", tone: unrealizedNum >= 0 ? "positive" : "negative" },
+    { label: "Realized PnL", value: Number.isFinite(realizedNum) ? realizedNum : 0, raw: performance.realizedPnl || "0", tone: realizedNum >= 0 ? "positive" : "negative" },
+  ];
+
+  const maxAbs = Math.max(1, ...bars.map((b) => Math.abs(b.value)));
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="trader-performance-chart">
+      <div className="rounded border bg-card p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Canonical PnL & Drawdown Profile</h3>
+          <span className="text-xs text-muted">Source: {performance.source || "FILLS"}</span>
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          Deterministic breakdown derived from canonical fills and open mark-to-market positions.
+        </p>
+
+        <div className="mt-4 space-y-3">
+          {bars.map((bar) => {
+            const widthPct = Math.min(100, Math.max(4, Math.round((Math.abs(bar.value) / maxAbs) * 100)));
+            const colorClass = bar.tone === "positive" ? "bg-emerald-600" : "bg-rose-600";
+            return (
+              <div key={bar.label} className="space-y-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{bar.label}</span>
+                  <span className="font-mono">
+                    <Money value={bar.raw} />
+                  </span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded bg-slate-100">
+                  <div
+                    className={`h-full rounded ${colorClass}`}
+                    style={{ width: `${bar.value === 0 ? 0 : widthPct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded border bg-card p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Win / Loss Distribution</h3>
+          <span className="text-xs font-medium">{formatWinRatePercent(performance.winRate)} Win Rate</span>
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          Total Executed Fills: {performance.tradeCount} | Closed Round-Trips: {closedCount}
+        </p>
+
+        <div className="mt-4">
+          <div
+            className="flex h-4 w-full overflow-hidden rounded bg-slate-100"
+            role="img"
+            aria-label={`Wins ${winPct} percent, Losses ${lossPct} percent`}
+          >
+            {winPct > 0 && (
+              <div
+                className="bg-emerald-600"
+                style={{ width: `${winPct}%` }}
+                data-testid="win-distribution-bar"
+              />
+            )}
+            {lossPct > 0 && (
+              <div
+                className="bg-rose-500"
+                style={{ width: `${lossPct}%` }}
+                data-testid="loss-distribution-bar"
+              />
+            )}
+          </div>
+          <div className="mt-2 flex justify-between text-xs">
+            <span className="text-emerald-700">
+              Winning Trades: <strong>{winCount}</strong> ({winPct}%)
+            </span>
+            <span className="text-rose-700">
+              Losing Trades: <strong>{lossCount}</strong> ({lossPct}%)
+            </span>
+          </div>
+        </div>
+
+        <dl className="mt-4 grid grid-cols-2 gap-3 border-t pt-3 text-xs">
+          <div>
+            <dt className="text-muted">Profit Factor</dt>
+            <dd className="font-mono font-semibold">{performance.profitFactor ?? "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-muted">Track Record</dt>
+            <dd className="font-semibold">{performance.historyLengthDays} days</dd>
+          </div>
+          <div>
+            <dt className="text-muted">Average Trade</dt>
+            <dd className="font-mono">
+              {performance.averageTrade ? <Money value={performance.averageTrade} /> : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Last Fill Timestamp</dt>
+            <dd>
+              {performance.lastTradeAt ? new Date(performance.lastTradeAt).toLocaleDateString() : "No fills yet"}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/trader-performance-page.tsx
+
+```tsx
+// # NEW — Renders canonical trader performance metrics, Actual vs Estimated provenance badge, and strategy/trade breakdown
+// # Integrates performance charts and metric definition tooltips
+"use client";
+
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { tradingApi } from "@/api/trading-api";
 import { PageContainer } from "@/layout/page-container";
 import { StatusBadge } from "@/components/status-badge";
 import { Money } from "@/components/money";
-import { LoadingState } from "@/components/loading-state";
-import { ErrorState } from "@/components/error-state";
-import { EmptyState } from "@/components/empty-state";
+import { TradingStateBoundary } from "@/components/trading-state";
+import {
+  TRADER_METRIC_DEFINITIONS,
+  describeDataProvenance,
+  formatWinRatePercent,
+} from "./trader-metric-definitions";
+import { TraderPerformanceChart } from "./trader-performance-chart";
 
-export function TradersPage(): JSX.Element {
+export function TraderPerformancePage({ id }: { id: string }): JSX.Element {
+  const [selectedMetricKey, setSelectedMetricKey] = useState<string>("realizedPnl");
+
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["traders"],
-    queryFn: () => tradingApi.listTraders({ page: 1, limit: 20 }),
+    queryKey: ["trader-performance-detail", id],
+    queryFn: () => tradingApi.getTraderPerformanceDetail(id),
   });
-  const traders = data?.data ?? [];
+
+  const profile = data?.profile;
+  const performance = data?.performance;
+  const strategies = data?.strategies ?? [];
+  const provenance = performance ? describeDataProvenance(performance) : null;
+  const activeDefinition = TRADER_METRIC_DEFINITIONS[selectedMetricKey] ?? TRADER_METRIC_DEFINITIONS.realizedPnl;
+
   return (
-    <PageContainer title="Traders" description="Discover traders you can copy">
+    <PageContainer
+      title={profile ? `${profile.displayName} — Performance Analytics` : "Trader Performance Analytics"}
+      description="Canonical ledger performance derived from verified fills, open positions, and strategy attribution"
+    >
+      <TradingStateBoundary
+        isLoading={isLoading}
+        error={error}
+        isEmpty={!profile || !performance}
+        emptyTitle="Trader performance unavailable"
+        emptyDescription="This trader profile was not found or has no public performance record."
+        onRetry={() => void refetch()}
+      >
+        {profile && performance && provenance && (
+          <div className="space-y-6" data-testid="trader-performance-page">
+            {/* Header & Provenance Badge */}
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded border bg-card p-4">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold">{profile.displayName}</h2>
+                  <StatusBadge status={profile.verificationState} />
+                  <span
+                    data-testid="provenance-badge"
+                    className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                      performance.isActual
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {provenance.badgeLabel} ({provenance.sourceLabel})
+                  </span>
+                </div>
+                <p className="text-xs text-muted">{provenance.explanation}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/traders/${profile.traderId}`}
+                  className="rounded border px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+                >
+                  Back to Trader Profile
+                </Link>
+                <Link
+                  href={`/traders/compare?ids=${encodeURIComponent(profile.traderId)}`}
+                  className="rounded bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                >
+                  Compare Trader
+                </Link>
+              </div>
+            </div>
+
+            {/* Key Metric Cards with Interactive Formula Inspector */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <button
+                type="button"
+                onClick={() => setSelectedMetricKey("realizedPnl")}
+                className={`rounded border bg-card p-3 text-left transition hover:border-slate-400 ${
+                  selectedMetricKey === "realizedPnl" ? "ring-2 ring-slate-900" : ""
+                }`}
+              >
+                <div className="text-xs text-muted">Realized PnL</div>
+                <div className="mt-1 font-mono text-base font-semibold">
+                  <Money value={performance.realizedPnl} />
+                </div>
+                <div className="mt-1 text-[11px] text-muted">Click for formula</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMetricKey("unrealizedPnl")}
+                className={`rounded border bg-card p-3 text-left transition hover:border-slate-400 ${
+                  selectedMetricKey === "unrealizedPnl" ? "ring-2 ring-slate-900" : ""
+                }`}
+              >
+                <div className="text-xs text-muted">Unrealized PnL</div>
+                <div className="mt-1 font-mono text-base font-semibold">
+                  <Money value={performance.unrealizedPnl ?? "0"} />
+                </div>
+                <div className="mt-1 text-[11px] text-muted">Mark-to-market</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMetricKey("winRate")}
+                className={`rounded border bg-card p-3 text-left transition hover:border-slate-400 ${
+                  selectedMetricKey === "winRate" ? "ring-2 ring-slate-900" : ""
+                }`}
+              >
+                <div className="text-xs text-muted">Win Rate</div>
+                <div className="mt-1 font-mono text-base font-semibold">
+                  {formatWinRatePercent(performance.winRate)}
+                </div>
+                <div className="mt-1 text-[11px] text-muted">
+                  {performance.winCount}W / {performance.lossCount}L ({performance.tradeCount} fills)
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMetricKey("maxDrawdown")}
+                className={`rounded border bg-card p-3 text-left transition hover:border-slate-400 ${
+                  selectedMetricKey === "maxDrawdown" ? "ring-2 ring-slate-900" : ""
+                }`}
+              >
+                <div className="text-xs text-muted">Max Drawdown</div>
+                <div className="mt-1 font-mono text-base font-semibold">
+                  {performance.maxDrawdown ? <Money value={performance.maxDrawdown} /> : "0.00"}
+                </div>
+                <div className="mt-1 text-[11px] text-muted">Peak-to-trough</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMetricKey("profitFactor")}
+                className={`rounded border bg-card p-3 text-left transition hover:border-slate-400 ${
+                  selectedMetricKey === "profitFactor" ? "ring-2 ring-slate-900" : ""
+                }`}
+              >
+                <div className="text-xs text-muted">Profit Factor</div>
+                <div className="mt-1 font-mono text-base font-semibold">
+                  {performance.profitFactor ?? "—"}
+                </div>
+                <div className="mt-1 text-[11px] text-muted">Gross win / loss</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMetricKey("averageTrade")}
+                className={`rounded border bg-card p-3 text-left transition hover:border-slate-400 ${
+                  selectedMetricKey === "averageTrade" ? "ring-2 ring-slate-900" : ""
+                }`}
+              >
+                <div className="text-xs text-muted">Average Trade</div>
+                <div className="mt-1 font-mono text-base font-semibold">
+                  {performance.averageTrade ? <Money value={performance.averageTrade} /> : "—"}
+                </div>
+                <div className="mt-1 text-[11px] text-muted">Per closed round-trip</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMetricKey("totalVolume")}
+                className={`rounded border bg-card p-3 text-left transition hover:border-slate-400 ${
+                  selectedMetricKey === "totalVolume" ? "ring-2 ring-slate-900" : ""
+                }`}
+              >
+                <div className="text-xs text-muted">Executed Volume</div>
+                <div className="mt-1 font-mono text-base font-semibold">
+                  <Money value={performance.totalVolume} />
+                </div>
+                <div className="mt-1 text-[11px] text-muted">Canonical quote notional</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMetricKey("historyLengthDays")}
+                className={`rounded border bg-card p-3 text-left transition hover:border-slate-400 ${
+                  selectedMetricKey === "historyLengthDays" ? "ring-2 ring-slate-900" : ""
+                }`}
+              >
+                <div className="text-xs text-muted">History Length</div>
+                <div className="mt-1 font-mono text-base font-semibold">
+                  {performance.historyLengthDays} days
+                </div>
+                <div className="mt-1 text-[11px] text-muted">Followers: {profile.followerCount}</div>
+              </button>
+            </div>
+
+            {/* Metric Definition & Methodology Tooltip Panel */}
+            {activeDefinition && (
+              <div
+                className="rounded border border-slate-200 bg-slate-50 p-4 text-xs"
+                data-testid="metric-definition-panel"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-900">
+                    Metric Methodology: {activeDefinition.label} ({activeDefinition.unit})
+                  </span>
+                  <code className="rounded bg-white px-2 py-0.5 font-mono text-[11px] text-slate-800">
+                    {activeDefinition.formula}
+                  </code>
+                </div>
+                <p className="mt-1 text-slate-700">{activeDefinition.description}</p>
+                <p className="mt-1 text-[11px] text-muted">{activeDefinition.provenanceNote}</p>
+              </div>
+            )}
+
+            {/* Charts */}
+            <TraderPerformanceChart performance={performance} />
+
+            {/* Published Strategies Breakdown */}
+            <div className="rounded border bg-card p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Published Strategies & Copy Attribution</h3>
+                <span className="text-xs text-muted">{strategies.length} strategies</span>
+              </div>
+              {strategies.length === 0 ? (
+                <p className="mt-2 text-xs text-muted">No strategies published by this trader yet.</p>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b text-muted">
+                        <th className="py-2 pr-3">Strategy</th>
+                        <th className="py-2 pr-3">Type</th>
+                        <th className="py-2 pr-3">Status</th>
+                        <th className="py-2 pr-3">Symbols</th>
+                        <th className="py-2 pr-3">Venues</th>
+                        <th className="py-2 pr-3">Followers</th>
+                        <th className="py-2">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {strategies.map((strategy) => (
+                        <tr key={strategy.strategyId} className="border-b last:border-0">
+                          <td className="py-2 pr-3 font-medium">{strategy.name}</td>
+                          <td className="py-2 pr-3">{strategy.type}</td>
+                          <td className="py-2 pr-3">
+                            <StatusBadge status={strategy.status} />
+                          </td>
+                          <td className="py-2 pr-3">{strategy.supportedSymbols.join(", ") || "All"}</td>
+                          <td className="py-2 pr-3">{strategy.supportedVenues.join(", ") || "All"}</td>
+                          <td className="py-2 pr-3">{strategy.followerCount}</td>
+                          <td className="py-2">
+                            <Link
+                              href={`/strategies/${strategy.strategyId}`}
+                              className="font-medium underline"
+                            >
+                              Inspect Strategy
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </TradingStateBoundary>
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/trader-ranking-controls.tsx
+
+```tsx
+// # Responsibility: lets customers select a 7D, 30D, or 90D ranking window and explains its measured-return methodology.
+
+import type { TraderRankingMethodology, TraderRankingTimeframe } from "@/api/trading-api";
+
+export function TraderRankingControls({
+  timeframe,
+  onTimeframeChange,
+  methodology,
+}: {
+  timeframe: TraderRankingTimeframe;
+  onTimeframeChange: (timeframe: TraderRankingTimeframe) => void;
+  methodology?: TraderRankingMethodology;
+}): JSX.Element {
+  return (
+    <section className="rounded border bg-card p-3 text-xs" aria-label="Ranking timeframe and methodology" data-testid="trader-ranking-controls">
+      <div className="flex flex-wrap items-center gap-3">
+        <label htmlFor="trader-ranking-timeframe" className="font-medium">Ranking timeframe</label>
+        <select
+          id="trader-ranking-timeframe"
+          aria-label="Ranking timeframe"
+          value={timeframe}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === "7D" || value === "30D" || value === "90D") onTimeframeChange(value);
+          }}
+          className="rounded border px-2 py-1.5"
+        >
+          <option value="7D">7 days</option>
+          <option value="30D">30 days</option>
+          <option value="90D">90 days</option>
+        </select>
+        {methodology ? (
+          <span className="rounded border px-2 py-1" data-testid="ranking-methodology-status">
+            {methodology.status}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-2 text-muted">
+        Ranking method: compounded time-weighted return from complete, reconciled, closed accounting periods. Only exact contiguous coverage of the selected window is ranked; missing evidence is unranked, never estimated.
+      </p>
+      {methodology ? (
+        <p className="mt-1 text-muted" data-testid="ranking-minimum-period-count">
+          Ranking requires a minimum of {methodology.minimumPeriodCount} closed, reconciled periods.
+        </p>
+      ) : null}
+      {methodology?.asOf ? (
+        <p className="mt-1 text-muted">
+          Selected window: <time dateTime={methodology.windowStart ?? undefined}>{methodology.windowStart ?? "unavailable"}</time> through{' '}
+          <time dateTime={methodology.asOf}>{methodology.asOf}</time>. This is the latest persisted as-of boundary, not a claim of current market data.
+        </p>
+      ) : methodology?.reason ? (
+        <p className="mt-1 text-muted">Window data unavailable: {methodology.reason}</p>
+      ) : null}
+    </section>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/trader-risk-score.tsx
+
+```tsx
+// # Responsibility: renders the server-provided trader risk score, factor provenance and missing-data state.
+
+import type { TraderRiskScore as TraderRiskScoreResult } from "@/api/trading-api";
+
+export function TraderRiskScore({ result }: { result: TraderRiskScoreResult }): JSX.Element {
+  const tone = result.band === "LOW"
+    ? "text-emerald-700"
+    : result.band === "CRITICAL" || result.band === "HIGH"
+      ? "text-red-700"
+      : "text-amber-700";
+  const measuredFactorCount = result.factors.filter((factor) => factor.status === "MEASURED").length;
+
+  return (
+    <section className="rounded border bg-card p-4" data-testid="trader-risk-score" aria-labelledby="trader-risk-score-heading">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 id="trader-risk-score-heading" className="text-sm font-semibold">Trader risk score</h3>
+          <p className="mt-1 text-xs text-muted">Disclosure only. This score is not an investment recommendation or an execution approval.</p>
+        </div>
+        <span className={`text-sm font-semibold ${tone}`} data-testid="risk-band">
+          {result.score === null ? "Unavailable" : `${result.score}/100 · ${result.band}`}
+        </span>
+      </div>
+      <p className="mt-2 text-xs">
+        Status: {result.status}; confidence: {result.confidence}; {measuredFactorCount} of {result.factors.length} factors measured.
+        {result.asOf ? <> Observed at <time dateTime={result.asOf}>{result.asOf}</time>.</> : " Observation time unavailable."}
+      </p>
+      {result.confidence === "PARTIAL" && (
+        <p className="mt-2 text-xs text-muted">Partial score uses measured factors only. Missing or stale factors are not imputed.</p>
+      )}
+      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+        {result.factors.map((factor) => (
+          <li key={factor.key} className="rounded border p-2 text-xs">
+            <div className="font-medium">{factor.key}</div>
+            <div>{factor.value ?? "Not available"} · {factor.status}</div>
+            <div className="text-muted">{factor.source ? `Source: ${factor.source}` : "No verified source"}</div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/traders-page.tsx
+
+```tsx
+// # Adds search, verification state, featured, venue, symbol, min win-rate, max drawdown, and sort controls
+// # Uses shared TradingState
+"use client";
+
+import React, { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import {
+  TRADER_RANKING_TIMEFRAMES,
+  filterTradersByDiscovery,
+  tradingApi,
+  type TraderPerformance,
+  type TraderProfile,
+  type TraderRankingMethodology,
+  type TraderRankingTimeframe,
+  type TraderVerificationState,
+} from "@/api/trading-api";
+import { PageContainer } from "@/layout/page-container";
+import { StatusBadge } from "@/components/status-badge";
+import { Money } from "@/components/money";
+import { TradingStateBoundary } from "@/components/trading-state";
+
+export interface TradersPageInitialFilters {
+  search?: string;
+  verificationState?: string;
+  isFeatured?: boolean;
+  venue?: string;
+  symbol?: string;
+  minWinRate?: number;
+  maxDrawdown?: number;
+  sortBy?: "followers" | "volume" | "pnl" | "winRate" | "trades" | "score" | "performance";
+  timeframe?: TraderRankingTimeframe;
+}
+
+export function TradersPage({
+  initialFilters,
+}: {
+  initialFilters?: TradersPageInitialFilters;
+} = {}): JSX.Element {
+  const [search, setSearch] = useState(initialFilters?.search ?? "");
+  const [verificationState, setVerificationState] = useState<string>(
+    initialFilters?.verificationState ?? "",
+  );
+  const [onlyFeatured, setOnlyFeatured] = useState<boolean>(initialFilters?.isFeatured ?? false);
+  const [venue, setVenue] = useState<string>(initialFilters?.venue ?? "");
+  const [symbol, setSymbol] = useState<string>(initialFilters?.symbol ?? "");
+  const [minWinRate, setMinWinRate] = useState<string>(
+    initialFilters?.minWinRate !== undefined ? String(initialFilters.minWinRate) : "",
+  );
+  const [maxDrawdown, setMaxDrawdown] = useState<string>(
+    initialFilters?.maxDrawdown !== undefined ? String(initialFilters.maxDrawdown) : "",
+  );
+  const [sortBy, setSortBy] = useState<"followers" | "volume" | "pnl" | "winRate" | "trades" | "score" | "performance">(
+    initialFilters?.sortBy ?? "followers",
+  );
+  const [timeframe, setTimeframe] = useState<TraderRankingTimeframe>(
+    initialFilters?.timeframe ?? "30D",
+  );
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["traders", search, verificationState, onlyFeatured],
+    queryFn: () =>
+      tradingApi.listTraders({
+        search: search || undefined,
+        verificationState: (verificationState || undefined) as TraderVerificationState | undefined,
+        isFeatured: onlyFeatured ? true : undefined,
+      }),
+  });
+
+  // The discovery list shows ranking performance, so the window it was ranked over belongs in the
+  // query key: without it, switching the window would serve the previous window's results from cache.
+  const rankingsQuery = useQuery({
+    queryKey: ["trader-rankings-discovery", search, verificationState, onlyFeatured, timeframe],
+    queryFn: () =>
+      tradingApi.getLeaderboard({
+        search: search || undefined,
+        verificationState: verificationState || undefined,
+        isFeatured: onlyFeatured ? true : undefined,
+        limit: 50,
+        timeframe,
+      }),
+  });
+
+  const rankingMethodology: TraderRankingMethodology | null =
+    (rankingsQuery.data as { methodology?: TraderRankingMethodology } | undefined)?.methodology ??
+    null;
+
+  const performanceByTraderId = useMemo(() => {
+    const map: Record<string, TraderPerformance | null> = {};
+    for (const r of rankingsQuery.data?.data ?? []) {
+      map[r.traderId] = r.performance;
+    }
+    return map;
+  }, [rankingsQuery.data]);
+
+  // A ranking the server marked UNAVAILABLE carries no comparable performance for this window, so
+  // the page says that instead of showing the traders unranked as if they had simply not qualified.
+  const rankingUnavailable = rankingMethodology?.status === "UNAVAILABLE";
+
+  const rawTraders: TraderProfile[] = useMemo(() => data?.data ?? [], [data]);
+
+  const filteredTraders = useMemo(() => {
+    const parsedMinWinRate = minWinRate.trim() !== "" ? Number(minWinRate) : undefined;
+    const parsedMaxDrawdown = maxDrawdown.trim() !== "" ? Number(maxDrawdown) : undefined;
+    return filterTradersByDiscovery(
+      rawTraders,
+      {
+        search: search || undefined,
+        verificationState: (verificationState || undefined) as TraderVerificationState | undefined,
+        isFeatured: onlyFeatured ? true : undefined,
+        venue: venue || undefined,
+        symbol: symbol || undefined,
+        minWinRate: Number.isFinite(parsedMinWinRate) ? parsedMinWinRate : undefined,
+        maxDrawdown: Number.isFinite(parsedMaxDrawdown) ? parsedMaxDrawdown : undefined,
+        sortBy,
+      },
+      performanceByTraderId,
+    );
+  }, [
+    rawTraders,
+    search,
+    verificationState,
+    onlyFeatured,
+    venue,
+    symbol,
+    minWinRate,
+    maxDrawdown,
+    sortBy,
+    performanceByTraderId,
+  ]);
+
+  const toggleCompare = (traderId: string) => {
+    setCompareIds((prev) =>
+      prev.includes(traderId)
+        ? prev.filter((id) => id !== traderId)
+        : prev.length < 4
+          ? [...prev, traderId]
+          : prev,
+    );
+  };
+
+  return (
+    <PageContainer
+      title="Traders"
+      description="Verified lead traders you can follow, filter by venue/symbol/risk, and compare side by side"
+    >
+      <div className="mb-4 space-y-3 rounded border bg-card p-4" data-testid="trader-discovery-filters">
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            aria-label="Search traders"
+            placeholder="Search by display name or bio..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="rounded border px-3 py-1.5 text-sm"
+          />
+          <select
+            aria-label="Verification filter"
+            value={verificationState}
+            onChange={(e) => setVerificationState(e.target.value)}
+            className="rounded border px-3 py-1.5 text-sm"
+          >
+            <option value="">All verification states</option>
+            <option value="VERIFIED">Verified only</option>
+            <option value="UNVERIFIED">Unverified</option>
+          </select>
+          <select
+            aria-label="Venue filter"
+            value={venue}
+            onChange={(e) => setVenue(e.target.value)}
+            className="rounded border px-3 py-1.5 text-sm"
+          >
+            <option value="">All Venues</option>
+            <option value="BINANCE">BINANCE</option>
+            <option value="BYBIT">BYBIT</option>
+            <option value="OKX">OKX</option>
+            <option value="KRAKEN">KRAKEN</option>
+            <option value="COINBASE">COINBASE</option>
+          </select>
+          <input
+            aria-label="Symbol filter"
+            placeholder="Symbol (e.g. BTC-USDT)"
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            className="w-44 rounded border px-3 py-1.5 text-sm"
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={onlyFeatured}
+              onChange={(e) => setOnlyFeatured(e.target.checked)}
+            />
+            Featured only
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              aria-label="Minimum win rate"
+              type="number"
+              min="0"
+              max="100"
+              placeholder="Min Win Rate %"
+              value={minWinRate}
+              onChange={(e) => setMinWinRate(e.target.value)}
+              className="w-36 rounded border px-3 py-1.5 text-xs"
+            />
+            <input
+              aria-label="Maximum drawdown"
+              type="number"
+              min="0"
+              placeholder="Max Drawdown"
+              value={maxDrawdown}
+              onChange={(e) => setMaxDrawdown(e.target.value)}
+              className="w-36 rounded border px-3 py-1.5 text-xs"
+            />
+            <select
+              aria-label="Ranking timeframe"
+              value={timeframe}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "7D" || value === "30D" || value === "90D") {
+                  setTimeframe(value);
+                }
+              }}
+              className="rounded border px-3 py-1.5 text-xs"
+            >
+              {TRADER_RANKING_TIMEFRAMES.map((option) => (
+                <option key={option} value={option}>
+                  Ranking window: {option}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Sort traders"
+              value={sortBy}
+              onChange={(e) =>
+                setSortBy(
+                  e.target.value as "followers" | "volume" | "pnl" | "winRate" | "trades" | "score" | "performance",
+                )
+              }
+              className="rounded border px-3 py-1.5 text-xs"
+            >
+              <option value="followers">Sort by Followers</option>
+              <option value="volume">Sort by Executed Volume</option>
+              <option value="pnl">Sort by Realized PnL</option>
+              <option value="winRate">Sort by Win Rate</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href={
+                compareIds.length > 0
+                  ? `/traders/compare?ids=${encodeURIComponent(compareIds.join(","))}`
+                  : "/traders/compare"
+              }
+              className="rounded bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+            >
+              Compare Traders {compareIds.length > 0 ? `(${compareIds.length})` : ""}
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {rankingUnavailable && (
+        <p
+          role="status"
+          data-testid="ranking-unavailable"
+          className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        >
+          Performance figures are unavailable for the {timeframe} ranking window
+          {rankingMethodology?.asOf ? ` (last reconciled period ended ${rankingMethodology.asOf})` : ""}. The
+          traders below are listed without a ranking rather than ranked on a partial window.
+        </p>
+      )}
+
+      <TradingStateBoundary
+        isLoading={isLoading}
+        error={error}
+        isEmpty={filteredTraders.length === 0}
+        emptyTitle="No traders found"
+        emptyDescription="No public trader profiles matched the current discovery filters."
+        onRetry={() => void refetch()}
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredTraders.map((trader) => {
+            const perf = performanceByTraderId[trader.traderId];
+            const isSelectedForCompare = compareIds.includes(trader.traderId);
+            return (
+              <div
+                key={trader.traderId}
+                data-testid={`trader-card-${trader.traderId}`}
+                className="flex flex-col justify-between rounded border bg-card p-4"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <Link
+                      href={`/traders/${trader.traderId}`}
+                      className="font-semibold hover:underline"
+                    >
+                      {trader.displayName}
+                    </Link>
+                    <div className="flex gap-1">
+                      {trader.isFeatured && <StatusBadge status="FEATURED" variant="info" />}
+                      <StatusBadge status={trader.verificationState} />
+                    </div>
+                  </div>
+                  {trader.bio && (
+                    <p className="mt-1 line-clamp-2 text-xs text-muted">{trader.bio}</p>
+                  )}
+                  <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <dt className="text-muted">Followers</dt>
+                      <dd className="font-semibold">{trader.followerCount}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Trades</dt>
+                      <dd className="font-semibold">{trader.totalTrades}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted">Volume</dt>
+                      <dd className="font-semibold">
+                        <Money value={trader.totalVolume} />
+                      </dd>
+                    </div>
+                  </dl>
+                  {perf && (
+                    <dl className="mt-2 grid grid-cols-2 gap-2 border-t pt-2 text-xs">
+                      <div>
+                        <dt className="text-muted">Realized PnL</dt>
+                        <dd className="font-mono font-semibold">
+                          <Money value={perf.realizedPnl} />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted">Win Rate</dt>
+                        <dd className="font-mono font-semibold">
+                          {perf.winRate
+                            ? `${(Number(perf.winRate) <= 1 ? Number(perf.winRate) * 100 : Number(perf.winRate)).toFixed(1)}%`
+                            : "—"}
+                        </dd>
+                      </div>
+                    </dl>
+                  )}
+                  {trader.supportedVenues.length > 0 && (
+                    <div className="mt-2 text-[11px] text-muted">
+                      Venues: {trader.supportedVenues.join(", ")}
+                    </div>
+                  )}
+                  {trader.supportedSymbols.length > 0 && (
+                    <div className="mt-0.5 text-[11px] text-muted">
+                      Symbols: {trader.supportedSymbols.join(", ")}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-2 border-t pt-3 text-xs">
+                  <div className="flex gap-2">
+                    <Link href={`/traders/${trader.traderId}`} className="underline">
+                      Profile
+                    </Link>
+                    <Link
+                      href={`/traders/${trader.traderId}/performance`}
+                      className="underline"
+                    >
+                      Performance
+                    </Link>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleCompare(trader.traderId)}
+                    className={`rounded border px-2 py-0.5 text-[11px] font-medium ${
+                      isSelectedForCompare
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    {isSelectedForCompare ? "Comparing ✓" : "+ Compare"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </TradingStateBoundary>
+    </PageContainer>
+  );
+}
+```
+
+FILE: apps/web/src/features/trading/trading-state.tsx
+
+```tsx
+// # NEW — Shared loading skeleton, empty state, error retry, and degraded-mode banner for trading surfaces
+// # NEW — reusable trading state components
+'use client';
+
+import React from 'react';
+import { LoadingState } from '@/components/loading-state';
+import { EmptyState } from '@/components/empty-state';
+import { ErrorState } from '@/components/error-state';
+
+export interface TradingDegradedBannerProps {
+  venue?: string | null;
+  reason?: string | null;
+  isMaintenance?: boolean;
+  blocksTrading?: boolean;
+}
+
+export function TradingDegradedBanner({
+  venue,
+  reason,
+  isMaintenance = false,
+  blocksTrading = false,
+}: TradingDegradedBannerProps): JSX.Element | null {
+  if (!venue && !reason && !isMaintenance) return null;
+
+  const toneClass = blocksTrading
+    ? 'border-red-300 bg-red-50 text-red-900'
+    : 'border-amber-300 bg-amber-50 text-amber-900';
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="trading-degraded-banner"
+      className={`mb-4 rounded-md border p-3 text-xs ${toneClass}`}
+    >
+      <div className="flex items-center justify-between gap-2 font-semibold">
+        <span>
+          {blocksTrading
+            ? 'Trading Halted — Safety Gate Engaged'
+            : isMaintenance
+              ? 'Scheduled Maintenance Notice'
+              : `Degraded Venue Telemetry${venue ? `: ${venue}` : ''}`}
+        </span>
+        <span className="rounded bg-white/80 px-2 py-0.5 text-[11px] font-medium uppercase">
+          {blocksTrading ? 'FAIL-CLOSED' : 'DEGRADED'}
+        </span>
+      </div>
+      {reason && <p className="mt-1">{reason}</p>}
+    </div>
+  );
+}
+
+export interface TradingStateBoundaryProps {
+  isLoading: boolean;
+  error?: unknown;
+  isEmpty?: boolean;
+  emptyTitle?: string;
+  emptyDescription?: string;
+  emptyAction?: React.ReactNode;
+  loadingLabel?: string;
+  degradedReason?: string | null;
+  degradedVenue?: string | null;
+  blocksTrading?: boolean;
+  onRetry?: () => void;
+  children: React.ReactNode;
+}
+
+export function TradingStateBoundary({
+  isLoading,
+  error,
+  isEmpty = false,
+  emptyTitle = 'No trading records available',
+  emptyDescription = 'Canonical trading records will appear here once activity is recorded.',
+  emptyAction,
+  degradedReason,
+  degradedVenue,
+  blocksTrading = false,
+  onRetry,
+  children,
+}: TradingStateBoundaryProps): JSX.Element {
+  return (
+    <div data-testid="trading-state-boundary">
+      {(degradedReason || degradedVenue || blocksTrading) && (
+        <TradingDegradedBanner
+          venue={degradedVenue}
+          reason={degradedReason}
+          blocksTrading={blocksTrading}
+        />
+      )}
       {isLoading ? (
         <LoadingState />
       ) : error ? (
-        <ErrorState error={error} onRetry={() => void refetch()} />
-      ) : traders.length === 0 ? (
-        <EmptyState title="No public traders yet" description="Traders appear here once they publish a public profile." />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {traders.map((t) => (
-            <Link key={t.traderId} href={`/traders/${t.traderId}`} className="rounded border bg-card p-4 hover:shadow">
-              <div className="flex justify-between">
-                <h3 className="font-semibold">{t.displayName}</h3>
-                <StatusBadge status={t.verificationState} />
-              </div>
-              <p className="mt-2 text-xs text-muted">
-                Trades: {t.totalTrades} | Volume: <Money value={t.totalVolume} />
-              </p>
-              <p className="text-xs">Followers: {t.followerCount}</p>
-            </Link>
-          ))}
+        <ErrorState error={error} onRetry={onRetry} />
+      ) : isEmpty ? (
+        <div className="space-y-3">
+          <EmptyState title={emptyTitle} description={emptyDescription} />
+          {emptyAction ? <div className="flex justify-center">{emptyAction}</div> : null}
         </div>
+      ) : (
+        <>{children}</>
       )}
-    </PageContainer>
+    </div>
+  );
+}
+
+export interface TradingMetricUnavailableBadgeProps {
+  label?: string;
+  reason?: string;
+}
+
+export function TradingMetricUnavailableBadge({
+  label = 'Not available',
+  reason = 'Metric requires verified historical sample window.',
+}: TradingMetricUnavailableBadgeProps): JSX.Element {
+  return (
+    <span
+      data-testid="trading-metric-unavailable"
+      title={reason}
+      className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+    >
+      {label}
+    </span>
   );
 }
 ```
@@ -13015,6 +22042,66 @@ export function TradingStatus(): JSX.Element {
       {data.maintenance?.active && <p className="mt-2 text-xs text-yellow-700">Maintenance: {data.maintenance.message}</p>}
     </div>
   );
+}
+```
+
+FILE: apps/web/src/features/trading/use-copy-execution-events.ts
+
+```typescript
+// # NEW — React hook subscribing to live copy execution and order fill updates with React Query cache invalidation
+"use client";
+
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { realtimeApi, type CopyRealtimeEvent } from "@/api/realtime-api";
+
+export interface UseCopyExecutionEventsOptions {
+  subscriptionId?: string;
+  enabled?: boolean;
+  pollIntervalMs?: number;
+}
+
+export interface UseCopyExecutionEventsResult {
+  events: CopyRealtimeEvent[];
+  transportMode: "SSE" | "POLLING";
+  lastEventAt: string | null;
+}
+
+export function useCopyExecutionEvents(
+  options: UseCopyExecutionEventsOptions = {},
+): UseCopyExecutionEventsResult {
+  const { subscriptionId, enabled = true, pollIntervalMs = 5000 } = options;
+  const queryClient = useQueryClient();
+  const [events, setEvents] = useState<CopyRealtimeEvent[]>([]);
+  const [transportMode, setTransportMode] = useState<"SSE" | "POLLING">("POLLING");
+  const [lastEventAt, setLastEventAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const unsubscribe = realtimeApi.subscribeToCopyExecutionEvents({
+      subscriptionId,
+      pollIntervalMs,
+      onTransportChange: (mode) => setTransportMode(mode),
+      onEvent: (event) => {
+        setLastEventAt(event.occurredAt);
+        setEvents((prev) => {
+          const filtered = prev.filter((e) => e.execution.executionId !== event.execution.executionId);
+          return [event, ...filtered].slice(0, 25);
+        });
+        void queryClient.invalidateQueries({ queryKey: ["copy-subscription-detail", event.subscriptionId] });
+        void queryClient.invalidateQueries({ queryKey: ["copy-executions", event.subscriptionId] });
+        void queryClient.invalidateQueries({ queryKey: ["copied-orders", event.subscriptionId] });
+        void queryClient.invalidateQueries({ queryKey: ["copied-positions", event.subscriptionId] });
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [enabled, subscriptionId, pollIntervalMs, queryClient]);
+
+  return { events, transportMode, lastEventAt };
 }
 ```
 
@@ -13369,65 +22456,103 @@ export function Topbar(): JSX.Element {
 }
 ```
 
-FILE: apps/web/src/lib/api-error.ts
+FILE: apps/web/src/lib/api/partner-api.ts
 
 ```typescript
-/**
- * The error envelope produced by the API. Mirrors
- * `common/filters/global-exception.filter.ts` so both sides agree on shape.
- */
-export interface ApiErrorBody {
-  success: false;
-  error: {
-    code: string;
-    message: string;
-    details?: Array<{ field: string; message: string }>;
-    requestId?: string;
-    timestamp?: string;
-    path?: string;
-  };
+// # NEW — Typed client for /v1/partner/* endpoints
+import {
+  partnerApi,
+  type PartnerProfileDto,
+  type PartnerPortalSummaryDto,
+  type PartnerProfileResponse,
+  type PartnerReferralRecord,
+  type PartnerAttributionRecord,
+  type PartnerReferralsResponse,
+  type PartnerCommissionRecord,
+  type PartnerPayoutRecord,
+} from '../../api/partner-api';
+
+export {
+  partnerApi,
+  type PartnerProfileDto,
+  type PartnerPortalSummaryDto,
+  type PartnerProfileResponse,
+  type PartnerReferralRecord,
+  type PartnerAttributionRecord,
+  type PartnerReferralsResponse,
+  type PartnerCommissionRecord,
+  type PartnerPayoutRecord,
+};
+
+export default partnerApi;
+```
+
+FILE: apps/web/src/lib/decimal-compare.ts
+
+```typescript
+// # Responsibility: orders decimal strings exactly, so a client-side list order never depends on float rounding.
+//
+// This exists because the web app has no access to the API's `apps/api/src/common/decimal-string.ts`:
+// they are separate builds. The web app uses `@wlct/utils` for transport-neutral helpers, but this
+// comparator stays app-local; the API module remains the authority for money decisions, while this
+// one only orders values the server already computed and deliberately does no arithmetic at all.
+//
+// The bug it replaces was silent. The traders discovery page offers "Sort by Realized PnL" and
+// "Sort by Win Rate" while the filter only implemented volume / trades / followers, so choosing
+// PnL re-sorted by follower count with no indication that the choice had been ignored. Sorting by
+// `parseFloat` would have been the same class of mistake in a smaller font: two values that are
+// equal as doubles can differ as decimals, and the order would then depend on a rounding error.
+'use strict';
+
+/** True when the value is a plain decimal string: optional sign, digits, optional fraction. */
+export function isPlainDecimalString(value: unknown): value is string {
+  return typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value);
 }
 
-export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-    public readonly details?: Array<{ field: string; message: string }>,
-    public readonly requestId?: string,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
+/**
+ * Compares two decimal strings exactly, returning -1, 0 or 1.
+ *
+ * Both sides are expanded to a common fractional width and compared as integers, so the result does
+ * not depend on the magnitude or the precision of either input. Null, undefined and non-decimal
+ * values sort last regardless of direction: a trader whose performance is unknown is not a trader
+ * with a performance of zero, and putting unknown either first or last as if it were a number would
+ * state something the data does not.
+ */
+export function compareDecimalStringsExact(a: string | null | undefined, b: string | null | undefined): number {
+  const left = isPlainDecimalString(a) ? a : null;
+  const right = isPlainDecimalString(b) ? b : null;
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
 
-  static fromBody(status: number, body: unknown): ApiError {
-    const envelope = body as Partial<ApiErrorBody>;
+  // Defaulted rather than asserted: the regex above guarantees an integer part, and a default keeps
+  // the function total without a non-null assertion the compiler cannot verify.
+  const [leftInteger = '0', leftFraction = ''] = left.split('.');
+  const [rightInteger = '0', rightFraction = ''] = right.split('.');
+  const width = Math.max(leftFraction.length, rightFraction.length);
+  const leftScaled = BigInt(`${leftInteger.replace('-', '')}${leftFraction.padEnd(width, '0')}`);
+  const rightScaled = BigInt(`${rightInteger.replace('-', '')}${rightFraction.padEnd(width, '0')}`);
+  const leftSigned = leftInteger.startsWith('-') ? -leftScaled : leftScaled;
+  const rightSigned = rightInteger.startsWith('-') ? -rightScaled : rightScaled;
 
-    if (envelope?.error?.code) {
-      return new ApiError(
-        status,
-        envelope.error.code,
-        envelope.error.message ?? 'The request could not be completed.',
-        envelope.error.details,
-        envelope.error.requestId,
-      );
-    }
+  if (leftSigned === rightSigned) return 0;
+  return leftSigned < rightSigned ? -1 : 1;
+}
 
-    return new ApiError(status, 'UNKNOWN_ERROR', 'The request could not be completed.');
-  }
-
-  get isAuthError(): boolean {
-    return this.status === 401 || this.code === 'TOKEN_EXPIRED' || this.code === 'TOKEN_INVALID';
-  }
-
-  /** Field errors keyed by field name, ready to bind to form inputs. */
-  get fieldErrors(): Record<string, string> {
-    const map: Record<string, string> = {};
-    for (const detail of this.details ?? []) {
-      map[detail.field] = detail.message;
-    }
-    return map;
-  }
+/**
+ * Orders decimal strings descending, with unknown values last.
+ *
+ * The unknown check is repeated rather than delegated: negating `compareDecimalStringsExact` would
+ * invert its "unknown last" rule too, and put every trader with no recorded performance at the top
+ * of a descending list - which reads as the best performers.
+ */
+export function compareDecimalStringsDescending(a: string | null | undefined, b: string | null | undefined): number {
+  const leftUnknown = !isPlainDecimalString(a);
+  const rightUnknown = !isPlainDecimalString(b);
+  if (leftUnknown && rightUnknown) return 0;
+  if (leftUnknown) return 1;
+  if (rightUnknown) return -1;
+  return -compareDecimalStringsExact(a, b);
 }
 ```
 
@@ -13437,8 +22562,12 @@ FILE: apps/web/src/lib/env.ts
 import { z } from 'zod';
 
 /**
- * Server-side configuration for customer web.
- * Validated lazily on first use. Only NEXT_PUBLIC_ vars are browser-safe.
+ * Server-side configuration for customer web: the two values that must never reach the browser,
+ * validated so a misconfigured deployment fails on first use rather than at the first API call.
+ *
+ * Browser-visible configuration is not defined here. It lives in `config/runtime-config.ts`, which
+ * is the one module that reads `NEXT_PUBLIC_*`; this file previously restated those values, so two
+ * places had to agree about the same string and only one of them was ever updated.
  */
 
 const serverSchema = z.object({
@@ -13470,16 +22599,6 @@ export function serverEnv(): ServerEnv {
   cached = parsed.data;
   return cached;
 }
-
-/** Browser-visible configuration. Contains nothing sensitive. */
-export const publicEnv = {
-  appName: process.env.NEXT_PUBLIC_APP_NAME ?? 'Copy Trading',
-  apiVersion: process.env.NEXT_PUBLIC_API_VERSION ?? 'v1',
-  wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? '',
-  wsPath: process.env.NEXT_PUBLIC_WS_PATH ?? '/socket.io',
-  platformDomain: process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'localhost',
-  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? 'support@example.com',
-} as const;
 ```
 
 FILE: apps/web/src/lib/idempotency-key.ts
@@ -13533,6 +22652,132 @@ export function isUnsafeSegment(segment: string): boolean {
 }
 ```
 
+FILE: apps/web/src/lib/public-origin.ts
+
+```typescript
+// # Resolves the canonical public origin and the crawler allowlist for web robots/sitemap
+//
+// One module, two consumers. `robots.txt` and `sitemap.xml` describe the same surface to the same
+// crawler, so the list of public routes and the host they are advertised under live here rather
+// than being restated in each reserved route file, where they could disagree.
+//
+// Two decisions are made here and both fail closed:
+//
+// 1. The origin. A crawler is told a host only when we can name one. An empty, loopback, `.local`
+//    or `.invalid` host resolves to `null`, and a `null` origin makes `robots.txt` refuse
+//    everything. A development or misconfigured deployment is therefore never indexed, and the
+//    sitemap is never built on a guessed host. The decision itself is `resolveOrigin`, a pure
+//    function of the two configuration strings, so it can be tested for every host shape rather
+//    than only for whichever one the test environment happens to carry.
+//
+// 2. The crawl policy is default-deny, not default-allow. Only the routes in `PUBLIC_ROUTES` are
+//    crawlable; everything else - the authenticated app, the tenant surfaces, and any route added
+//    later that nobody remembered to classify - is disallowed by the catch-all. Dynamic detail
+//    pages (`/traders/[id]`, `/strategies/[id]`) are deliberately *not* in the allowlist yet: no
+//    page in this app emits its own robots metadata, so a record that is public for one viewer and
+//    private for another cannot mark itself `noindex`. Advertising those URLs before they can
+//    disavow indexing would be trading a private-data leak for a little discoverability. Adding a
+//    `generateMetadata` robots tag to a page is the prerequisite, and the allowlist is where it
+//    gets added afterwards.
+import { runtimeConfig } from '@/config/runtime-config';
+
+/** Routes that exist for anonymous visitors and are safe to index. */
+export const PUBLIC_ROUTES: readonly string[] = [
+  '/',
+  '/pricing',
+  '/traders',
+  '/strategies',
+  '/terms',
+  '/privacy',
+];
+
+/** Route prefixes that must never be indexed, whichever page is serving them. */
+export const PRIVATE_ROUTE_PREFIXES: readonly string[] = [
+  '/account',
+  '/activity',
+  '/api',
+  '/billing',
+  '/copy-trading',
+  '/dashboard',
+  '/exchanges',
+  '/funding',
+  '/login',
+  '/notifications',
+  '/onboarding',
+  '/partner',
+  '/portfolio',
+  '/register',
+  '/risk',
+  '/security',
+  '/statements',
+  '/status',
+  '/support',
+  '/traders/apply',
+];
+
+/** Hosts that name a machine rather than a deployment, and must never be advertised to a crawler. */
+const NON_PUBLIC_HOSTS: readonly string[] = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'];
+
+/** Suffixes reserved by RFC 2606/6761 for local and invalid names. */
+const NON_PUBLIC_SUFFIXES: readonly string[] = ['.local', '.localhost', '.test', '.invalid', '.example'];
+
+/** A bare IPv4 literal names one machine, not a brand, and cannot hold a public TLS certificate. */
+const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+/**
+ * The origin crawlers should be told about, from the configured site URL if there is one and the
+ * platform domain otherwise, or `null` when this deployment cannot name a public host.
+ *
+ * Pure: the two strings in, the decision out. Callers must refuse to be indexed on `null` rather
+ * than inventing a host.
+ */
+export function resolveOrigin(siteUrl: string, platformDomain: string): string | null {
+  const configured = siteUrl.trim();
+  const raw = configured.length > 0 ? configured : `https://${platformDomain.trim()}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return null;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (host.length === 0) {
+    return null;
+  }
+  if (NON_PUBLIC_HOSTS.includes(host)) {
+    return null;
+  }
+  if (NON_PUBLIC_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
+    return null;
+  }
+  if (IPV4_LITERAL.test(host)) {
+    return null;
+  }
+
+  return parsed.origin;
+}
+
+/** The origin this deployment should be reachable at, or `null` when it cannot name one. */
+export function resolvePublicOrigin(): string | null {
+  return resolveOrigin(runtimeConfig.siteUrl, runtimeConfig.platformDomain);
+}
+
+/** The absolute URL for a public route, or `null` when no public origin is configured. */
+export function publicUrlFor(path: string): string | null {
+  const origin = resolvePublicOrigin();
+  if (origin === null) {
+    return null;
+  }
+  return path === '/' ? `${origin}/` : `${origin}${path}`;
+}
+```
+
 FILE: apps/web/src/lib/save-blob.ts
 
 ```typescript
@@ -13561,8 +22806,9 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { ApiError } from './api-error';
-import { serverEnv, publicEnv } from './env';
+import { ApiError } from '@wlct/utils/api-error';
+import { serverEnv } from './env';
+import { runtimeConfig } from '@/config/runtime-config';
 import { getAccessToken } from './session';
 
 export interface ServerFetchOptions {
@@ -13580,7 +22826,7 @@ function buildUrl(path: string, searchParams?: ServerFetchOptions['searchParams'
   const env = serverEnv();
   const base = env.API_BASE_URL.replace(/\/+$/, '');
   const normalised = path.startsWith('/') ? path : `/${path}`;
-  const versioned = normalised.startsWith(`/${publicEnv.apiVersion}/`) ? normalised : `/${publicEnv.apiVersion}${normalised}`;
+  const versioned = normalised.startsWith(`/${runtimeConfig.apiVersion}/`) ? normalised : `/${runtimeConfig.apiVersion}${normalised}`;
   const url = new URL(`${base}${versioned}`);
   for (const [key, value] of Object.entries(searchParams ?? {})) {
     if (value !== undefined && value !== '') {
@@ -13961,6 +23207,135 @@ if (typeof document !== 'undefined') {
 }
 
 export default App;
+```
+
+FILE: apps/web/src/modules/partner/commission-ledger.tsx
+
+```tsx
+// # NEW — Displays trade-level rebate calculations, tier rates, and settlement status
+'use client';
+
+import {
+  CommissionLedger,
+  type CommissionLedgerProps,
+} from '../../features/partner/commission-ledger';
+
+export { CommissionLedger, type CommissionLedgerProps };
+
+export function calculateCommissionSummary(
+  entries: ReadonlyArray<{ commissionAmount: string; state: string }>,
+): { accruedTotal: number; settledTotal: number } {
+  let accruedTotal = 0;
+  let settledTotal = 0;
+  for (const entry of entries) {
+    const amount = Number(entry.commissionAmount) || 0;
+    if (entry.state === 'ACCRUED' || entry.state === 'APPROVED') {
+      accruedTotal += amount;
+    } else if (entry.state === 'SETTLED' || entry.state === 'PAID') {
+      settledTotal += amount;
+    }
+  }
+  return { accruedTotal, settledTotal };
+}
+
+export default CommissionLedger;
+```
+
+FILE: apps/web/src/modules/partner/partner-dashboard.tsx
+
+```tsx
+// # NEW — Displays partner tier, active referrals, volume, and accrued commissions
+'use client';
+
+import {
+  PartnerDashboard,
+  type PartnerDashboardProps,
+} from '../../features/partner/partner-dashboard';
+
+export { PartnerDashboard, type PartnerDashboardProps };
+
+export interface PartnerTierThresholds {
+  tier: 'BRONZE_IB' | 'SILVER_IB' | 'GOLD_IB' | 'INSTITUTIONAL_IB';
+  minMonthlyVolumeUsd: number;
+  rebateRateBps: number;
+}
+
+export const PARTNER_TIER_SCHEDULE: readonly PartnerTierThresholds[] = [
+  { tier: 'BRONZE_IB', minMonthlyVolumeUsd: 0, rebateRateBps: 1500 },
+  { tier: 'SILVER_IB', minMonthlyVolumeUsd: 250_000, rebateRateBps: 2000 },
+  { tier: 'GOLD_IB', minMonthlyVolumeUsd: 1_000_000, rebateRateBps: 2500 },
+  { tier: 'INSTITUTIONAL_IB', minMonthlyVolumeUsd: 5_000_000, rebateRateBps: 3500 },
+] as const;
+
+export default PartnerDashboard;
+```
+
+FILE: apps/web/src/modules/partner/partner-payouts.tsx
+
+```tsx
+// # NEW — Submits payout requests and displays approval/settlement timeline
+'use client';
+
+import {
+  PartnerPayouts,
+  type PartnerPayoutsProps,
+} from '../../features/partner/partner-payouts';
+
+export { PartnerPayouts, type PartnerPayoutsProps };
+
+export const MINIMUM_PARTNER_PAYOUT_AMOUNT = 50;
+
+export function isEligibleForPartnerPayout(
+  availableBalance: string | number,
+  requestedAmount: string | number,
+): { eligible: boolean; reason?: string } {
+  const available = Number(availableBalance);
+  const requested = Number(requestedAmount);
+  if (!Number.isFinite(requested) || requested < MINIMUM_PARTNER_PAYOUT_AMOUNT) {
+    return {
+      eligible: false,
+      reason: `Minimum partner payout threshold is ${MINIMUM_PARTNER_PAYOUT_AMOUNT} USDT.`,
+    };
+  }
+  if (!Number.isFinite(available) || requested > available) {
+    return {
+      eligible: false,
+      reason: 'Requested payout exceeds settled available partner balance.',
+    };
+  }
+  return { eligible: true };
+}
+
+export default PartnerPayouts;
+```
+
+FILE: apps/web/src/modules/partner/referral-manager.tsx
+
+```tsx
+// # NEW — Creates referral links/codes and displays attribution funnel
+'use client';
+
+import {
+  ReferralManager,
+  type ReferralManagerProps,
+} from '../../features/partner/referral-manager';
+
+export { ReferralManager, type ReferralManagerProps };
+
+export function buildPartnerReferralShareUrl(
+  baseOrigin: string,
+  referralCode: string,
+  campaignId?: string,
+): string {
+  const cleanOrigin = baseOrigin.replace(/\/+$/, '');
+  const params = new URLSearchParams({ ref: referralCode.trim().toUpperCase() });
+  if (campaignId && campaignId.trim()) {
+    params.set('utm_campaign', campaignId.trim());
+  }
+  return `${cleanOrigin}/register?${params.toString()}`;
+}
+
+export default ReferralManager;
 ```
 
 FILE: apps/web/src/styles/branding.css
@@ -14388,7 +23763,7 @@ export function TenantProvider({ children }: TenantProviderProps): JSX.Element {
       // Always verify via backend authoritative resolution
       const host = typeof window !== 'undefined' ? window.location.host : undefined;
       const resolution = await tenantApi.resolve(host);
-      
+
       // Validate tenant ownership via authenticated session is done server-side
       // Frontend only displays backend-verified tenant
       setTenant(resolution.tenant as unknown as Tenant);
@@ -14506,6 +23881,90 @@ export interface EntitlementCheck {
   remaining?: number;
   upgradeRequired?: boolean;
 }
+```
+
+FILE: apps/web/src/tests/allocation-rebalance-page.test.tsx
+
+```tsx
+// # Responsibility: checks rebalance preview disclosures, controlled target weights, and empty-snapshot safety.
+
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { AllocationRebalancePage } from '@/features/trading/allocation-rebalance-page';
+
+const allocation = {
+  traderId: 'trader-a',
+  currentValue: '600.00',
+  targetWeightBps: 6000,
+  priceAvailable: true,
+};
+
+describe('AllocationRebalancePage', () => {
+  it('renders user-input and preview-only warnings with a target weight control', () => {
+    const html = renderToStaticMarkup(<AllocationRebalancePage initialTotalValue="1000.00" initialAllocations={[allocation]} />);
+    expect(html).toContain('user supplied');
+    expect(html).toContain('not checked against exchange balances or positions');
+    expect(html).toContain('Preview portfolio value (unverified)');
+    expect(html).toContain('trader-a target weight in basis points');
+    expect(html).toContain('never creates an order or transfers funds');
+  });
+
+  it('does not offer preview submission without allocation rows', () => {
+    const html = renderToStaticMarkup(<AllocationRebalancePage initialTotalValue="1000" initialAllocations={[]} />);
+    expect(html).toContain('No allocation rows were supplied');
+    expect(html).toContain('disabled=""');
+  });
+});
+```
+
+FILE: apps/web/src/tests/api-error.test.ts
+
+```typescript
+// # Verifies the web application consumes the shared ApiError envelope contract
+import { ApiError } from '@wlct/utils/api-error';
+
+describe('shared ApiError', () => {
+  it('parses the API envelope and retains only well-formed field details', () => {
+    const error = ApiError.fromBody(422, {
+      success: false,
+      error: {
+        code: 'VALIDATION_FAILED',
+        message: 'Check the request.',
+        details: [
+          { field: 'email', message: 'Invalid email.' },
+          { field: 'amount', message: 'Must be a decimal string.' },
+          { field: 7, message: 'Malformed detail is ignored.' },
+        ],
+        requestId: 'request-123',
+      },
+    });
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.status).toBe(422);
+    expect(error.code).toBe('VALIDATION_FAILED');
+    expect(error.message).toBe('Check the request.');
+    expect(error.requestId).toBe('request-123');
+    expect(error.fieldErrors).toEqual({
+      email: 'Invalid email.',
+      amount: 'Must be a decimal string.',
+    });
+  });
+
+  it('returns a generic error for malformed payloads without throwing', () => {
+    expect(ApiError.fromBody(500, null)).toMatchObject({
+      status: 500,
+      code: 'UNKNOWN_ERROR',
+      message: 'The request could not be completed.',
+    });
+    expect(ApiError.fromBody(500, { error: ['bad'] }).details).toBeUndefined();
+  });
+
+  it('identifies authentication failures by status and token code', () => {
+    expect(ApiError.fromBody(401, { error: { code: 'UNAUTHORIZED' } }).isAuthError).toBe(true);
+    expect(ApiError.fromBody(403, { code: 'TOKEN_EXPIRED' }).isAuthError).toBe(true);
+    expect(ApiError.fromBody(500, { code: 'SERVER_ERROR' }).isAuthError).toBe(false);
+  });
+});
 ```
 
 FILE: apps/web/src/tests/billing-api.test.ts
@@ -14716,6 +24175,1176 @@ describe("billing-api mappers", () => {
 });
 ```
 
+FILE: apps/web/src/tests/concentration-risk-panel.test.tsx
+
+```tsx
+// # Responsibility: verifies customer concentration/correlation disclosure, source timestamps, and withholding of stale or unknown statistics.
+
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { CustomerRiskAnalysisView } from '@/api/risk-analysis-api';
+import { CUSTOMER_RISK_ANALYSIS_QUERY_KEY, ConcentrationRiskPanel } from '@/features/trading/concentration-risk-panel';
+
+const currentRiskAnalysis: CustomerRiskAnalysisView = {
+  tenantId: 'tenant-from-api',
+  requestedAt: '2026-10-06T11:45:00.000Z',
+  dataScope: 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS',
+  concentration: {
+    tenantId: 'tenant-from-api',
+    asOf: '2026-10-06T11:44:58.000Z',
+    state: 'CURRENT',
+    eligibleAccountCount: 1,
+    dataScope: 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS',
+    methodology: 'GROSS_POSITION_NOTIONAL_WITHIN_QUOTE_ASSET_NO_FX',
+    marketDataMaxAgeMs: 30_000,
+    metrics: [
+      {
+        dimension: 'ASSET',
+        key: 'BTC',
+        quoteAsset: 'USDT',
+        currentNotional: '60',
+        currentPercent: '60',
+        thresholdPercent: '40',
+        isBreach: true,
+        state: 'CURRENT',
+        source: 'MARKET_DATA_1M_CANDLE_CLOSE',
+        observedAt: '2026-10-06T11:44:30.000Z',
+        evidenceSymbols: ['BINANCE:BTC-USDT', 'BINANCE:ETH-USDT'],
+        reason: 'Measured gross USDT concentration 60% for BTC exceeds configured threshold 40%.',
+      },
+    ],
+    staleSymbols: [],
+    unknownSymbols: [],
+    notice: 'Concentration is measured within quote asset from fresh instrument-linked one-minute candle closes.',
+  },
+  correlation: {
+    tenantId: 'tenant-from-api',
+    asOf: '2026-10-06T11:44:59.000Z',
+    state: 'CURRENT',
+    dataScope: 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS',
+    method: 'PEARSON_30D_ALIGNED_DAILY',
+    methodVersion: 'v2.0.0',
+    interval: '1d',
+    lookbackDays: 30,
+    minObservations: 30,
+    maxSourceAgeMs: 129_600_000,
+    activePositionCount: 2,
+    instrumentCount: 2,
+    omittedPositionCount: 0,
+    candidatePairCount: 1,
+    evaluatedPairCount: 1,
+    truncatedPairCount: 0,
+    pairs: [
+      {
+        tenantId: 'tenant-from-api',
+        method: 'PEARSON_30D_ALIGNED_DAILY',
+        methodVersion: 'v2.0.0',
+        lookbackDays: 30,
+        minObservations: 30,
+        observations: 30,
+        pairKey: 'BINANCE:BTC-USDT:BINANCE:ETH-USDT',
+        correlation: '0.912345',
+        threshold: '0.8',
+        isBreach: true,
+        state: 'HIGH',
+        ruleId: 'MAX_CORRELATION',
+        policyVersion: 'tenant-risk-policy-v4',
+        reason: 'Measured aligned daily price-return correlation 0.912345 exceeds the absolute threshold 0.8.',
+        severity: 'WARNING',
+        isUnknown: false,
+        sourceInterval: '1d',
+        sourceTimestamp: '2026-10-05T23:59:59.999Z',
+        sourceMaxAgeMs: 129_600_000,
+        sourceSymbols: ['BINANCE:BTC-USDT', 'BINANCE:ETH-USDT'],
+        sourceMethodology: 'ALIGNED_DAILY_CLOSE_RETURNS',
+        isStale: false,
+      },
+    ],
+    notice: 'Correlation is a measured price-return statistic and does not imply hedge effectiveness.',
+  },
+};
+
+function renderRiskAnalysis(view: CustomerRiskAnalysisView): string {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(CUSTOMER_RISK_ANALYSIS_QUERY_KEY, view);
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <ConcentrationRiskPanel />
+    </QueryClientProvider>,
+  );
+}
+
+describe('ConcentrationRiskPanel', () => {
+  it('renders measured concentration and only server-sourced, timestamp-aligned correlation with provenance', () => {
+    const html = renderRiskAnalysis(currentRiskAnalysis);
+
+    expect(html).toContain('Measured concentration');
+    expect(html).toContain('60 USDT');
+    expect(html).toContain('60%');
+    expect(html).toContain('Threshold exceeded');
+    expect(html).toContain('1-minute candle close');
+    expect(html).toContain('2026-10-06T11:44:30.000Z UTC');
+    expect(html).toContain('Measured correlation');
+    expect(html).toContain('0.912345');
+    expect(html).toContain('30 aligned daily return observations');
+    expect(html).toContain('ALIGNED_DAILY_CLOSE_RETURNS');
+    expect(html).toContain('2026-10-05T23:59:59.999Z UTC');
+    expect(html).toContain('maximum source age 36 hours');
+    expect(html).toContain('not a hedge guarantee');
+  });
+
+  it('withholds stale and unknown concentration/correlation values instead of rendering zero or a safe score', () => {
+    const unavailable: CustomerRiskAnalysisView = {
+      ...currentRiskAnalysis,
+      concentration: {
+        ...currentRiskAnalysis.concentration,
+        state: 'STALE',
+        staleSymbols: ['BINANCE:BTC-USDT'],
+        metrics: [{
+          ...currentRiskAnalysis.concentration.metrics[0]!,
+          currentNotional: null,
+          currentPercent: null,
+          isBreach: null,
+          state: 'STALE',
+          source: 'UNAVAILABLE',
+          observedAt: '2026-10-06T11:42:00.000Z',
+          reason: 'Concentration is withheld because the source candle is stale.',
+        }],
+      },
+      correlation: {
+        ...currentRiskAnalysis.correlation,
+        state: 'UNKNOWN',
+        pairs: [{
+          ...currentRiskAnalysis.correlation.pairs[0]!,
+          correlation: null,
+          observations: 0,
+          state: 'UNKNOWN',
+          isUnknown: true,
+          isStale: false,
+          sourceTimestamp: null,
+          reason: 'Only 0 valid timestamp-aligned daily return pairs are available.',
+        }],
+      },
+    };
+    const html = renderRiskAnalysis(unavailable);
+
+    expect(html).toContain('Stale evidence — value withheld');
+    expect(html).toContain('Unknown or incomplete — value withheld');
+    expect(html).toContain('Unavailable');
+    expect(html).toContain('Stale sources: BINANCE:BTC-USDT');
+    expect(html).not.toContain('60 USDT');
+    expect(html).not.toContain('0.912345');
+    expect(html).not.toContain('0.000000');
+  });
+
+  it('discloses incomplete candidate-pair coverage rather than implying a full correlation matrix', () => {
+    const incomplete: CustomerRiskAnalysisView = {
+      ...currentRiskAnalysis,
+      correlation: {
+        ...currentRiskAnalysis.correlation,
+        state: 'UNKNOWN',
+        candidatePairCount: 27,
+        evaluatedPairCount: 20,
+        truncatedPairCount: 7,
+      },
+    };
+    const html = renderRiskAnalysis(incomplete);
+
+    expect(html).toContain('7 eligible pair(s) were not evaluated');
+    expect(html).toContain('not a complete correlation matrix');
+  });
+});
+```
+
+FILE: apps/web/src/tests/copied-orders-page.test.tsx
+
+```tsx
+// # NEW — Verifies copied orders and fills rendering, status filter, and error handling
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CopiedOrdersPage } from "../features/trading/copied-orders-page";
+
+describe("CopiedOrdersPage (GAP-11)", () => {
+  test("renders copied orders table with fill quantities, average fill price, fees, and rejection reasons", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["copied-orders", "sub-11", ""], [
+      {
+        executionId: "exec-11",
+        subscriptionId: "sub-11",
+        traderId: "tr-1",
+        followerId: "u-1",
+        strategyId: "st-1",
+        leaderEventId: "fill:11",
+        leaderOrderId: "ord-L11",
+        followerOrderId: "ord-F11",
+        status: "COMPLETED",
+        failureReason: null,
+        leaderQuantity: "1.0",
+        followerQuantity: "0.25",
+        sizingMode: "PROPORTIONAL",
+        riskDecision: "ALLOW",
+        riskReasons: [],
+        isSimulated: false,
+        createdAt: "2026-10-01T10:00:00.000Z",
+        updatedAt: "2026-10-01T10:00:02.000Z",
+        symbol: "ETH-USDT",
+        side: "BUY",
+        orderType: "MARKET",
+        orderStatus: "FILLED",
+        filledQuantity: "0.25",
+        remainingQuantity: "0",
+        averageFillPrice: "2650.00",
+        fee: "0.66",
+        feeAsset: "USDT",
+        slippageBps: 12,
+      },
+    ]);
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <CopiedOrdersPage subscriptionId="sub-11" />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("data-testid=\"copied-orders-table\"");
+    expect(html).toContain("ETH-USDT");
+    expect(html).toContain("0.25 / 0.25");
+    expect(html).toContain("ord-F11");
+  });
+});
+```
+
+FILE: apps/web/src/tests/copied-positions-page.test.tsx
+
+```tsx
+// # NEW — Verifies copied positions table, PnL display, and empty state
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CopiedPositionsPage } from "../features/trading/copied-positions-page";
+
+describe("CopiedPositionsPage (GAP-10)", () => {
+  test("renders open copied positions with entry price, mark price, unrealized/realized PnL, and leader attribution", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["copied-positions", "sub-10", true, ""], [
+      {
+        positionId: "pos-1",
+        subscriptionId: "sub-10",
+        traderId: "tr-10",
+        strategyId: "st-10",
+        symbol: "BTC-USDT",
+        side: "LONG",
+        quantity: "0.45",
+        averageEntryPrice: "62400.00",
+        markPrice: "63950.00",
+        unrealizedPnl: "697.50",
+        realizedPnl: "125.00",
+        isOpen: true,
+        updatedAt: "2026-10-01T12:00:00.000Z",
+      },
+    ]);
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <CopiedPositionsPage subscriptionId="sub-10" />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("data-testid=\"copied-positions-table\"");
+    expect(html).toContain("BTC-USDT");
+    expect(html).toContain("0.45");
+  });
+});
+```
+
+FILE: apps/web/src/tests/copy-execution-detail.test.tsx
+
+```tsx
+// # NEW — Verifies execution detail rendering and rejection/failure reason display
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CopyExecutionDetail } from "../features/trading/copy-execution-detail";
+
+describe("CopyExecutionDetail (GAP-12)", () => {
+  test("renders leader event details, sizing calculation, and child order linkage", () => {
+    const html = renderToStaticMarkup(
+      <CopyExecutionDetail
+        execution={{
+          executionId: "exec-1",
+          subscriptionId: "sub-1",
+          traderId: "tr-1",
+          followerId: "user-1",
+          strategyId: "st-1",
+          leaderEventId: "fill:leader-99",
+          leaderOrderId: "ord-L99",
+          followerOrderId: "ord-F99",
+          status: "ROUTED",
+          failureReason: null,
+          leaderQuantity: "2.0",
+          followerQuantity: "0.5",
+          sizingMode: "PROPORTIONAL",
+          riskDecision: "ALLOW",
+          riskReasons: [],
+          isSimulated: false,
+          createdAt: "2026-10-01T10:00:00.000Z",
+          updatedAt: "2026-10-01T10:00:01.000Z",
+        }}
+      />,
+    );
+
+    expect(html).toContain("data-testid=\"copy-execution-detail\"");
+    expect(html).toContain("ord-F99");
+    expect(html).toContain("ALLOW");
+  });
+
+  test("displays risk block and failure reasons when execution is RISK_BLOCKED", () => {
+    const html = renderToStaticMarkup(
+      <CopyExecutionDetail
+        execution={{
+          executionId: "exec-2",
+          subscriptionId: "sub-1",
+          traderId: "tr-1",
+          followerId: "user-1",
+          strategyId: "st-1",
+          leaderEventId: "fill:leader-100",
+          leaderOrderId: "ord-L100",
+          followerOrderId: null,
+          status: "RISK_BLOCKED",
+          failureReason: "Follower daily loss limit exceeded",
+          leaderQuantity: "1.0",
+          followerQuantity: "0",
+          sizingMode: "FIXED",
+          riskDecision: "BLOCK",
+          riskReasons: ["Daily loss 520 exceeds maxDailyLoss 500"],
+          isSimulated: false,
+          createdAt: "2026-10-01T11:00:00.000Z",
+          updatedAt: "2026-10-01T11:00:01.000Z",
+        }}
+      />,
+    );
+
+    expect(html).toContain("data-testid=\"execution-block-reasons\"");
+    expect(html).toContain("Follower daily loss limit exceeded");
+    expect(html).toContain("Daily loss 520 exceeds maxDailyLoss 500");
+  });
+});
+```
+
+FILE: apps/web/src/tests/copy-reconciliation-status.test.tsx
+
+```tsx
+// # NEW — Verifies reconciliation status display and discrepancy warning banner
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CopyReconciliationStatus } from "../features/trading/copy-reconciliation-status";
+
+describe("CopyReconciliationStatus (GAP-20)", () => {
+  test("renders IN_SYNC status when no discrepancies exist", () => {
+    const html = renderToStaticMarkup(
+      <CopyReconciliationStatus
+        summary={{
+          subscriptionId: "sub-1",
+          status: "IN_SYNC",
+          lastCheckedAt: "2026-10-01T12:00:00.000Z",
+          totalExecutions: 14,
+          completedExecutions: 12,
+          failedExecutions: 0,
+          riskBlockedExecutions: 2,
+          discrepancyCount: 0,
+          discrepancies: [],
+        }}
+      />,
+    );
+
+    expect(html).toContain("IN_SYNC");
+    expect(html).not.toContain("reconciliation-discrepancy-warning");
+  });
+
+  test("renders DISCREPANCY_DETECTED warning banner with detailed discrepancy items", () => {
+    const html = renderToStaticMarkup(
+      <CopyReconciliationStatus
+        summary={{
+          subscriptionId: "sub-1",
+          status: "DISCREPANCY_DETECTED",
+          lastCheckedAt: "2026-10-01T12:00:00.000Z",
+          totalExecutions: 15,
+          completedExecutions: 14,
+          failedExecutions: 1,
+          riskBlockedExecutions: 0,
+          discrepancyCount: 1,
+          discrepancies: [
+            {
+              executionId: "exec-99",
+              category: "MISSING_CHILD_ORDER",
+              severity: "HIGH",
+              message: "Execution marked COMPLETED without linked followerOrderId",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(html).toContain("DISCREPANCY_DETECTED");
+    expect(html).toContain("Execution marked COMPLETED without linked followerOrderId");
+  });
+});
+```
+
+FILE: apps/web/src/tests/copy-risk-guardrails.test.tsx
+
+```tsx
+// # NEW — Verifies risk guardrail headroom, block reasons, and emergency stop action
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CopyRiskGuardrails } from "../features/trading/copy-risk-guardrails";
+import type { CopySubscriptionItem } from "../api/trading-api";
+
+const mockSubscription: CopySubscriptionItem = {
+  subscriptionId: "sub-1",
+  traderId: "tr-1",
+  strategyId: "st-1",
+  state: "ACTIVE",
+  allocationMode: "FIXED",
+  allocationAmount: "200.00",
+  maxAllocation: "1000.00",
+  minAllocation: "25.00",
+  copyPolicy: null,
+  riskPolicy: {
+    maxDailyLoss: "500.00",
+    maxDrawdown: "1200.00",
+    maxOpenExposure: "5000.00",
+    maxExposurePerTrader: "2500.00",
+    maxExposurePerSymbol: "1500.00",
+    maxDailyCopiedTrades: 15,
+    emergencyStopCopy: false,
+  },
+  totalCopies: 8,
+  failedCopies: 1,
+  startedAt: "2026-09-01T00:00:00.000Z",
+  pausedAt: null,
+  stoppedAt: null,
+  stopReason: null,
+  closeOpenPositionsOnStop: false,
+};
+
+describe("CopyRiskGuardrails (GAP-14)", () => {
+  test("renders follower risk limits, block reasons, and emergency stop controls", () => {
+    const html = renderToStaticMarkup(
+      <CopyRiskGuardrails
+        subscription={mockSubscription}
+        recentExecutions={[
+          {
+            executionId: "exec-b1",
+            subscriptionId: "sub-1",
+            traderId: "tr-1",
+            followerId: "u-1",
+            strategyId: "st-1",
+            leaderEventId: "fill:1",
+            leaderOrderId: "ord-1",
+            followerOrderId: null,
+            status: "RISK_BLOCKED",
+            failureReason: "Exposure cap exceeded",
+            leaderQuantity: "1",
+            followerQuantity: "0",
+            sizingMode: "FIXED",
+            riskDecision: "BLOCK",
+            riskReasons: ["Max symbol exposure 1500 exceeded"],
+            isSimulated: false,
+            createdAt: "2026-10-01T00:00:00.000Z",
+            updatedAt: "2026-10-01T00:00:00.000Z",
+          },
+        ]}
+        onEmergencyStop={() => {}}
+      />,
+    );
+
+    expect(html).toContain("data-testid=\"copy-risk-guardrails\"");
+    expect(html).toContain("Max symbol exposure 1500 exceeded");
+    expect(html).toContain("data-testid=\"emergency-stop-close-btn\"");
+    expect(html).toContain("data-testid=\"emergency-stop-keep-btn\"");
+  });
+});
+```
+
+FILE: apps/web/src/tests/copy-settings-page.test.tsx
+
+```tsx
+// # NEW — Verifies copy settings form load, validation, effective policy preview, and save
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CopySettingsPage } from "../features/trading/copy-settings-page";
+import { tradingApi } from "../api/trading-api";
+import { apiClient } from "../api/api-client";
+
+describe("CopySettingsPage (GAP-06 & GAP-07)", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("loads subscription settings, displays effective policy preview, and saves updated TP/SL/risk settings", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["copy-subscription-detail", "sub-55"], {
+      subscription: {
+        subscriptionId: "sub-55",
+        traderId: "tr-1",
+        strategyId: "st-1",
+        state: "ACTIVE",
+        allocationMode: "FIXED",
+        allocationAmount: "250.00",
+        maxAllocation: "1000.00",
+        minAllocation: "50.00",
+        copyPolicy: {
+          sizingMode: "FIXED",
+          fixedQuantity: "0.1",
+          multiplier: null,
+          proportionalRatio: null,
+          maxPositionSize: "2000",
+          maxNotional: "5000",
+          maxOpenPositions: 5,
+          maxLeverage: "2",
+          allowedSymbols: ["BTC-USDT"],
+          blockedSymbols: [],
+          allowedVenues: ["BINANCE"],
+          orderTypePolicy: "MARKET_AND_LIMIT",
+          slippageToleranceBps: 40,
+          executionDelayMs: 100,
+          takeProfitBps: 250,
+          stopLossBps: 125,
+          trailingStopBps: 60,
+          emergencyStop: false,
+        },
+        riskPolicy: {
+          maxDailyLoss: "400",
+          maxDrawdown: "900",
+          maxOpenExposure: "4000",
+          maxExposurePerTrader: null,
+          maxExposurePerSymbol: null,
+          maxDailyCopiedTrades: 20,
+          emergencyStopCopy: false,
+        },
+        totalCopies: 10,
+        failedCopies: 0,
+        startedAt: "2026-09-01T00:00:00.000Z",
+        pausedAt: null,
+        stoppedAt: null,
+        stopReason: null,
+        closeOpenPositionsOnStop: false,
+      },
+      effectivePolicy: {
+        sizingMode: "FIXED",
+        fixedQuantity: "0.1",
+        multiplier: null,
+        proportionalRatio: null,
+        maxPositionSize: "2000",
+        maxNotional: "5000",
+        maxOpenPositions: 5,
+        maxLeverage: "2",
+        allowedSymbols: ["BTC-USDT"],
+        blockedSymbols: [],
+        allowedVenues: ["BINANCE"],
+        orderTypePolicy: "MARKET_AND_LIMIT",
+        slippageToleranceBps: 40,
+        executionDelayMs: 100,
+        takeProfitBps: 250,
+        stopLossBps: 125,
+        trailingStopBps: 60,
+        emergencyStop: false,
+      },
+      recentExecutions: [],
+      reconciliation: {
+        subscriptionId: "sub-55",
+        status: "IN_SYNC",
+        lastCheckedAt: "2026-10-01T00:00:00.000Z",
+        totalExecutions: 10,
+        completedExecutions: 10,
+        failedExecutions: 0,
+        riskBlockedExecutions: 0,
+        discrepancyCount: 0,
+        discrepancies: [],
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <CopySettingsPage subscriptionId="sub-55" />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("data-testid=\"copy-settings-page\"");
+    expect(html).toContain("data-testid=\"effective-policy-preview\"");
+    expect(html).toContain("250 / 125 / 60 bps");
+
+    const putSpy = jest.spyOn(apiClient, "put").mockResolvedValue({
+      subscriptionId: "sub-55",
+      traderId: "tr-1",
+      strategyId: "st-1",
+      state: "ACTIVE",
+      allocationMode: "FIXED",
+      allocationAmount: "300.00",
+    });
+
+    const updated = await tradingApi.updateCopySubscriptionSettings("sub-55", {
+      allocationMode: "FIXED",
+      allocationAmount: "300.00",
+      copyPolicy: { takeProfitBps: 350, stopLossBps: 150, trailingStopBps: 75 },
+    });
+    expect(putSpy).toHaveBeenCalledWith(
+      "/v1/copy-trading/subscriptions/sub-55",
+      expect.objectContaining({ allocationAmount: "300.00" }),
+    );
+    expect(updated.allocationAmount).toBe("300.00");
+  });
+});
+```
+
+FILE: apps/web/src/tests/copy-stop-policy.test.ts
+
+```typescript
+// # NEW — Verifies stop-copy policy selection and open-position handling
+import { tradingApi } from "../api/trading-api";
+import { apiClient } from "../api/api-client";
+
+describe("Stop-Copy Position Handling Policy (GAP-17)", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("passes closeOpenPositions=true and stop reason when stopping a subscription", async () => {
+    const postSpy = jest.spyOn(apiClient, "post").mockResolvedValue({
+      subscriptionId: "sub-17",
+      traderId: "tr-1",
+      strategyId: "st-1",
+      state: "STOPPED",
+      allocationMode: "FIXED",
+      allocationAmount: "100",
+      stopReason: "Emergency flatten requested",
+      closeOpenPositionsOnStop: true,
+    });
+
+    const result = await tradingApi.stopSubscription(
+      "sub-17",
+      "Emergency flatten requested",
+      true,
+    );
+
+    expect(postSpy).toHaveBeenCalledWith("/v1/copy-trading/subscriptions/sub-17/stop", {
+      reason: "Emergency flatten requested",
+      closeOpenPositions: true,
+    });
+    expect(result.state).toBe("STOPPED");
+    expect(result.closeOpenPositionsOnStop).toBe(true);
+    expect(result.stopReason).toBe("Emergency flatten requested");
+  });
+
+  test("defaults closeOpenPositions=false when keeping open positions on stop", async () => {
+    const postSpy = jest.spyOn(apiClient, "post").mockResolvedValue({
+      subscriptionId: "sub-18",
+      traderId: "tr-1",
+      strategyId: "st-1",
+      state: "STOPPED",
+      allocationMode: "FIXED",
+      allocationAmount: "100",
+      stopReason: "Manual stop keep positions",
+      closeOpenPositionsOnStop: false,
+    });
+
+    const result = await tradingApi.stopSubscription("sub-18", "Manual stop keep positions", false);
+    expect(postSpy).toHaveBeenCalledWith("/v1/copy-trading/subscriptions/sub-18/stop", {
+      reason: "Manual stop keep positions",
+      closeOpenPositions: false,
+    });
+    expect(result.closeOpenPositionsOnStop).toBe(false);
+  });
+});
+```
+
+FILE: apps/web/src/tests/copy-subscription-detail-page.test.tsx
+
+```tsx
+// # NEW — Verifies subscription detail view, pause/resume/stop actions, and execution list
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CopySubscriptionDetailPage } from "../features/trading/copy-subscription-detail-page";
+
+describe("CopySubscriptionDetailPage (GAP-09)", () => {
+  test("renders subscription status, effective policy, reconciliation status, and execution list", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["copy-subscription-detail", "sub-900"], {
+      subscription: {
+        subscriptionId: "sub-900",
+        traderId: "tr-9",
+        strategyId: "st-9",
+        state: "ACTIVE",
+        allocationMode: "FIXED",
+        allocationAmount: "500.00",
+        maxAllocation: "2000.00",
+        minAllocation: "50.00",
+        copyPolicy: null,
+        riskPolicy: {
+          maxDailyLoss: "300.00",
+          maxDrawdown: "800.00",
+          maxOpenExposure: "3000.00",
+          maxExposurePerTrader: null,
+          maxExposurePerSymbol: null,
+          maxDailyCopiedTrades: 10,
+          emergencyStopCopy: false,
+        },
+        totalCopies: 5,
+        failedCopies: 0,
+        startedAt: "2026-09-01T00:00:00.000Z",
+        pausedAt: null,
+        stoppedAt: null,
+        stopReason: null,
+        closeOpenPositionsOnStop: false,
+      },
+      effectivePolicy: {
+        sizingMode: "FIXED",
+        fixedQuantity: "0.2",
+        multiplier: null,
+        proportionalRatio: null,
+        maxPositionSize: "2000",
+        maxNotional: "5000",
+        maxOpenPositions: 5,
+        maxLeverage: "2",
+        allowedSymbols: ["BTC-USDT"],
+        blockedSymbols: [],
+        allowedVenues: ["BINANCE"],
+        orderTypePolicy: "MARKET_AND_LIMIT",
+        slippageToleranceBps: 50,
+        executionDelayMs: 0,
+        takeProfitBps: 200,
+        stopLossBps: 100,
+        trailingStopBps: null,
+        emergencyStop: false,
+      },
+      recentExecutions: [
+        {
+          executionId: "exec-901",
+          subscriptionId: "sub-900",
+          traderId: "tr-9",
+          followerId: "user-1",
+          strategyId: "st-9",
+          leaderEventId: "fill:L901",
+          leaderOrderId: "ord-L901",
+          followerOrderId: "ord-F901",
+          status: "COMPLETED",
+          failureReason: null,
+          leaderQuantity: "1.0",
+          followerQuantity: "0.2",
+          sizingMode: "FIXED",
+          riskDecision: "ALLOW",
+          riskReasons: [],
+          isSimulated: false,
+          createdAt: "2026-10-01T10:00:00.000Z",
+          updatedAt: "2026-10-01T10:00:05.000Z",
+        },
+      ],
+      reconciliation: {
+        subscriptionId: "sub-900",
+        status: "IN_SYNC",
+        lastCheckedAt: "2026-10-01T10:05:00.000Z",
+        totalExecutions: 5,
+        completedExecutions: 5,
+        failedExecutions: 0,
+        riskBlockedExecutions: 0,
+        discrepancyCount: 0,
+        discrepancies: [],
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <CopySubscriptionDetailPage subscriptionId="sub-900" />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("data-testid=\"copy-subscription-detail-page\"");
+    expect(html).toContain("data-testid=\"subscription-executions-table\"");
+    expect(html).toContain("exec-901");
+    expect(html).toContain("IN_SYNC");
+  });
+});
+```
+
+FILE: apps/web/src/tests/customer-activity-page.test.tsx
+
+```tsx
+// # NEW — Verifies customer activity log rendering and filtering
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CustomerActivityPage } from "../features/activity/customer-activity-page";
+import { activityApi } from "../api/activity-api";
+import { apiClient } from "../api/api-client";
+
+describe("CustomerActivityPage (GAP-42)", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("renders customer audit trail and calls customer-scoped activity API", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["customer-activity", "", "", ""], {
+      items: [
+        {
+          id: "aud-1",
+          action: "COPY_SUBSCRIPTION_CREATED",
+          outcome: "SUCCESS",
+          resourceType: "CopySubscription",
+          resourceId: "sub-100",
+          actorId: "user-1",
+          metadata: {},
+          createdAt: "2026-10-01T10:00:00.000Z",
+        },
+        {
+          id: "aud-2",
+          action: "COPY_POLICY_UPDATED",
+          outcome: "SUCCESS",
+          resourceType: "CopySubscription",
+          resourceId: "sub-100",
+          actorId: "user-1",
+          metadata: {},
+          createdAt: "2026-10-01T10:05:00.000Z",
+        },
+      ],
+      total: 2,
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <CustomerActivityPage />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("data-testid=\"customer-activity-table\"");
+    expect(html).toContain("COPY_SUBSCRIPTION_CREATED");
+    expect(html).toContain("COPY_POLICY_UPDATED");
+
+    const getSpy = jest.spyOn(apiClient, "get").mockResolvedValue({
+      items: [{ id: "aud-1", action: "COPY_SUBSCRIPTION_CREATED", outcome: "SUCCESS", resourceType: "CopySubscription" }],
+      pagination: { totalItems: 1 },
+    });
+
+    const res = await activityApi.listMyActivity({ resourceType: "CopySubscription" });
+    expect(getSpy).toHaveBeenCalledWith(
+      "/v1/audit-logs/me/activity",
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ resourceType: "CopySubscription" }),
+      }),
+    );
+    expect(res.items[0]?.action).toBe("COPY_SUBSCRIPTION_CREATED");
+  });
+});
+```
+
+FILE: apps/web/src/tests/customer-exposure-api.test.ts
+
+```typescript
+// # Responsibility: pins the web client to the routes the API actually mounts - trader exposure is read from `trader-exposure/:traderId`, not the `/traders/:id/exposure` path that no controller ever served.
+
+import { customerExposureApi } from '../api/customer-exposure-api';
+import type { TraderExposureView } from '../api/customer-exposure-api';
+
+jest.mock('../api/api-client', () => ({
+  apiClient: { get: jest.fn() },
+}));
+
+const { apiClient } = jest.requireMock('../api/api-client') as {
+  apiClient: { get: jest.Mock };
+};
+
+/**
+ * Why this test exists.
+ *
+ * `customerExposureApi.getTraderExposure` requested
+ * `/v1/risk-management/traders/<id>/exposure`. No controller ever mounted that path - the API
+ * serves `GET /v1/risk-management/trader-exposure/:traderId` - so the call was a 404 in
+ * production while both of its panels rendered "unavailable". `npm run check:web-api-contract`
+ * is the gate that found it; this test pins the string next to the code so a hand edit cannot
+ * silently reintroduce a path that does not exist, and pins the sibling call too.
+ */
+describe('customerExposureApi', () => {
+  beforeEach(() => {
+    apiClient.get.mockReset();
+    apiClient.get.mockResolvedValue(undefined);
+  });
+
+  it('reads trader exposure from the mounted route with the identifier bound to the path', async () => {
+    await customerExposureApi.getTraderExposure('trader-1');
+
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+    expect(apiClient.get).toHaveBeenCalledWith('/v1/risk-management/trader-exposure/trader-1');
+  });
+
+  it('never calls the unrouted /traders/<id>/exposure shape', async () => {
+    await customerExposureApi.getTraderExposure('trader-1');
+
+    const calledWith = apiClient.get.mock.calls.map((call) => String(call[0]));
+    expect(calledWith).not.toContain('/v1/risk-management/traders/trader-1/exposure');
+    expect(calledWith.every((path) => path.startsWith('/v1/risk-management/trader-exposure/'))).toBe(
+      true,
+    );
+  });
+
+  it('encodes an identifier so it cannot break out of its path segment', async () => {
+    await customerExposureApi.getTraderExposure('trader/../../admin?x=1');
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      `/v1/risk-management/trader-exposure/${encodeURIComponent('trader/../../admin?x=1')}`,
+    );
+  });
+
+  it('reads the caller-scoped exposure from the route that exists', async () => {
+    await customerExposureApi.getMyExposure();
+
+    expect(apiClient.get).toHaveBeenCalledWith('/v1/risk-management/my-exposure');
+  });
+
+  it('returns the API payload unchanged rather than converting financial values in the browser', async () => {
+    const payload = {
+      tenantId: 'tenant-1',
+      traderId: 'trader-1',
+      asOf: '2026-10-07T00:00:00.000Z',
+      state: 'EMPTY',
+      eligibleAccountCount: 0,
+      lines: [],
+      totalsByQuoteAsset: [],
+      staleSymbols: [],
+      unknownSymbols: [],
+      cashBalancesIncluded: false,
+      currencyTreatment: 'SEPARATE_QUOTE_ASSETS_NO_FX_CONVERSION',
+      priceMethodology: 'LATEST_1M_CANDLE_CLOSE_WITH_POLICY_FRESHNESS',
+      notice: 'No eligible positions.',
+      dataScope: 'TRADER_PROFILE_OWNER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS',
+    } as unknown as TraderExposureView;
+    apiClient.get.mockResolvedValue(payload);
+
+    await expect(customerExposureApi.getTraderExposure('trader-1')).resolves.toBe(payload);
+  });
+});
+```
+
+FILE: apps/web/src/tests/customer-exposure-panel.test.tsx
+
+```tsx
+// # Responsibility: verifies that the customer exposure panel labels price provenance and never renders unavailable totals as zero/current.
+
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { CustomerExposureView } from '@/api/customer-exposure-api';
+import { CUSTOMER_EXPOSURE_QUERY_KEY, CustomerExposurePanel } from '@/features/portfolio/customer-exposure-panel';
+import { APP_ROUTES } from '@/config/routes';
+import { featureCatalog } from '@/config/feature-config';
+
+const baseView: CustomerExposureView = {
+  tenantId: 'tenant-owned',
+  traderId: null,
+  asOf: '2026-10-06T00:00:00.000Z',
+  state: 'CURRENT',
+  eligibleAccountCount: 1,
+  lines: [{
+    symbol: 'BTC-USDT',
+    venue: 'BINANCE',
+    marketType: 'SPOT',
+    baseAsset: 'BTC',
+    quoteAsset: 'USDT',
+    longQuantity: '1',
+    shortQuantity: '0',
+    netQuantity: '1',
+    longPositionNotional: '100',
+    shortPositionNotional: '0',
+    grossPositionNotional: '100',
+    netPositionNotional: '100',
+    openOrderCommitment: '0',
+    totalNotional: '100',
+    openOrderCount: 0,
+    openOrderCommitmentBasis: null,
+    price: '100',
+    priceSource: 'MARKET_DATA_1M_CANDLE_CLOSE',
+    priceTimestamp: '2026-10-06T00:00:00.000Z',
+    positionState: 'CURRENT',
+    openOrderState: 'NO_OPEN_ORDERS',
+    state: 'CURRENT',
+  }],
+  totalsByQuoteAsset: [{
+    quoteAsset: 'USDT',
+    longPositionNotional: '100',
+    shortPositionNotional: '0',
+    grossPositionNotional: '100',
+    openOrderCommitment: '0',
+    totalNotional: '100',
+    state: 'CURRENT',
+  }],
+  staleSymbols: [],
+  unknownSymbols: [],
+  dataScope: 'SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS',
+  simulatedRecordsIncluded: false,
+  cashBalancesIncluded: false,
+  currencyTreatment: 'SEPARATE_QUOTE_ASSETS_NO_FX_CONVERSION',
+  priceMethodology: 'LATEST_1M_CANDLE_CLOSE_WITH_POLICY_FRESHNESS',
+  notice: 'Positions use a fresh tenant-instrument-linked 1-minute close. Cash and FX are not included.',
+};
+
+function renderView(view: CustomerExposureView): string {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(CUSTOMER_EXPOSURE_QUERY_KEY, view);
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <CustomerExposurePanel />
+    </QueryClientProvider>,
+  );
+}
+
+describe('CustomerExposurePanel', () => {
+  it('shows the fresh one-minute reference and separates position and order values by quote asset', () => {
+    const html = renderView(baseView);
+
+    expect(html).toContain('Current reference data');
+    expect(html).toContain('1-minute close reference');
+    expect(html).toContain('100 USDT');
+    expect(html).toContain('Totals by quote asset');
+    expect(html).toContain('Cash balances excluded');
+    expect(html).toContain('No FX rate is assumed');
+  });
+
+  it('withholds stale values and quote totals instead of presenting them as current', () => {
+    const stale: CustomerExposureView = {
+      ...baseView,
+      state: 'STALE',
+      staleSymbols: ['BINANCE:BTC-USDT'],
+      lines: [{
+        ...baseView.lines[0]!,
+        price: null,
+        priceSource: null,
+        priceTimestamp: '2026-10-05T23:58:00.000Z',
+        grossPositionNotional: null,
+        totalNotional: null,
+        positionState: 'STALE',
+        state: 'STALE',
+      }],
+      totalsByQuoteAsset: [{
+        ...baseView.totalsByQuoteAsset[0]!,
+        longPositionNotional: null,
+        shortPositionNotional: null,
+        grossPositionNotional: null,
+        openOrderCommitment: null,
+        totalNotional: null,
+        state: 'STALE',
+      }],
+    };
+    const html = renderView(stale);
+
+    expect(html).toContain('Stale price data');
+    expect(html).toContain('Stale prices: BINANCE:BTC-USDT');
+    expect(html).toContain('Totals for affected quote assets are not shown');
+    expect(html).toContain('Unavailable');
+    expect(html).not.toContain('100 USDT');
+  });
+
+  it('withholds missing-price totals and never changes unknown values into zero', () => {
+    const unknown: CustomerExposureView = {
+      ...baseView,
+      state: 'UNKNOWN',
+      unknownSymbols: ['BINANCE:BTC-USDT'],
+      lines: [{
+        ...baseView.lines[0]!,
+        price: null,
+        priceSource: null,
+        priceTimestamp: null,
+        grossPositionNotional: null,
+        netPositionNotional: null,
+        totalNotional: null,
+        positionState: 'UNKNOWN',
+        state: 'UNKNOWN',
+      }],
+      totalsByQuoteAsset: [{
+        ...baseView.totalsByQuoteAsset[0]!,
+        longPositionNotional: null,
+        shortPositionNotional: null,
+        grossPositionNotional: null,
+        openOrderCommitment: null,
+        totalNotional: null,
+        state: 'UNKNOWN',
+      }],
+    };
+    const html = renderView(unknown);
+
+    expect(html).toContain('Valuation unavailable');
+    expect(html).toContain('Missing or invalid prices/data: BINANCE:BTC-USDT');
+    expect(html).toContain('Unavailable');
+    expect(html).not.toContain('<td class=\"p-3 text-right font-mono\">0 USDT</td>');
+  });
+
+  it('renders an honest empty state rather than a fabricated zero total', () => {
+    const empty: CustomerExposureView = {
+      ...baseView,
+      state: 'EMPTY',
+      eligibleAccountCount: 0,
+      lines: [],
+      totalsByQuoteAsset: [],
+    };
+    const html = renderView(empty);
+
+    expect(html).toContain('No open exposure found');
+    expect(html).toContain('no non-deleted non-sandbox exchange accounts');
+    expect(html).not.toContain('<td class=\"p-3 text-right font-mono\">0 USDT</td>');
+  });
+
+  it('registers a portfolio route with UX-only permission gates for risk or portfolio readers', () => {
+    expect(APP_ROUTES.riskExposure).toMatchObject({
+      path: '/risk/exposure',
+      section: 'portfolio',
+      requiresAuth: true,
+    });
+    expect(featureCatalog.find((feature) => feature.key === 'risk_exposure')?.requiresPermission).toEqual([
+      'risk:read',
+      'portfolio:read',
+    ]);
+  });
+});
+```
+
+FILE: apps/web/src/tests/exchange-capabilities.test.tsx
+
+```tsx
+// # NEW — Verifies venue capability matrix rendering
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ExchangeCapabilities } from "../features/exchanges/exchange-capabilities";
+
+describe("ExchangeCapabilities (GAP-21)", () => {
+  test("renders full 5-venue capability matrix when no specific venue is provided", () => {
+    const html = renderToStaticMarkup(<ExchangeCapabilities />);
+    expect(html).toContain("data-testid=\"exchange-capabilities-matrix\"");
+    expect(html).toContain("Binance");
+    expect(html).toContain("Bybit V5");
+    expect(html).toContain("OKX V5");
+    expect(html).toContain("Kraken");
+    expect(html).toContain("Coinbase Advanced Trade");
+    expect(html).toContain("Passphrase Required");
+  });
+
+  test("renders single venue capability details and execution posture badge when venue is specified", () => {
+    const html = renderToStaticMarkup(
+      <ExchangeCapabilities
+        venue="BYBIT"
+        discoveredCapabilities={["SPOT", "PERPETUALS", "ORDERS"]}
+        tradingEnabled={true}
+        environment="LIVE"
+      />,
+    );
+    expect(html).toContain("Bybit V5");
+    expect(html).toContain("LIVE EXECUTION READY");
+    expect(html).toContain("SPOT, PERPETUALS, ORDERS");
+  });
+});
+```
+
 FILE: apps/web/src/tests/funding-api.test.ts
 
 ```typescript
@@ -14856,6 +25485,269 @@ describe("funding-api mappers", () => {
 });
 ```
 
+FILE: apps/web/src/tests/lead-trader-application-api.test.ts
+
+```typescript
+// # Responsibility: verifies typed customer API methods preserve the tenant-scoped route, submission payload, and returned decision history.
+
+jest.mock('../api/api-client', () => ({
+  apiClient: {
+    get: jest.fn(),
+    post: jest.fn(),
+  },
+}));
+
+import { apiClient } from '../api/api-client';
+import { tradingApi } from '../api/trading-api';
+
+const application = {
+  id: 'application-1',
+  traderId: 'trader-1',
+  status: 'REJECTED',
+  version: 1,
+  declaration: {
+    yearsExperience: 4,
+    markets: ['SPOT'],
+    strategySummary: 'A documented approach with fixed risk limits and regular review procedures.',
+    evidenceReferences: ['review-1'],
+    riskAcknowledged: true,
+  },
+  submittedAt: '2026-10-05T10:00:00.000Z',
+  reviewedAt: '2026-10-05T12:00:00.000Z',
+  decisionReason: 'Please provide more detail about risk controls.',
+};
+
+const mockedGet = jest.mocked(apiClient.get);
+const mockedPost = jest.mocked(apiClient.post);
+
+describe('lead-trader application client', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('reads only the authenticated applicant application-history endpoint', async () => {
+    mockedGet.mockResolvedValue({ data: [application] } as never);
+
+    await expect(tradingApi.listMyLeadTraderApplications()).resolves.toMatchObject([
+      { id: 'application-1', status: 'REJECTED', version: 1, decisionReason: application.decisionReason },
+    ]);
+    expect(mockedGet).toHaveBeenCalledWith('/v1/copy-trading/lead-trader-applications/mine');
+  });
+
+  it('submits a declaration with a stable caller-provided idempotency key', async () => {
+    mockedPost.mockResolvedValue(application as never);
+    const input = {
+      idempotencyKey: 'lead-app-key-0001',
+      yearsExperience: 4,
+      markets: ['SPOT'] as Array<'SPOT' | 'USDT_PERPETUAL' | 'COIN_PERPETUAL'>,
+      strategySummary: application.declaration.strategySummary,
+      evidenceReferences: ['review-1'],
+      riskAcknowledged: true,
+    };
+
+    await expect(tradingApi.submitLeadTraderApplication(input)).resolves.toMatchObject({ id: 'application-1' });
+    expect(mockedPost).toHaveBeenCalledWith('/v1/copy-trading/lead-trader-applications', input);
+  });
+});
+```
+
+FILE: apps/web/src/tests/lead-trader-application-rules.test.ts
+
+```typescript
+// # Responsibility: protects applicant-side eligibility for initial submission and rejection-only versioned resubmission.
+
+import { canSubmitLeadTraderApplication } from '../features/trading/lead-trader-application-rules';
+
+describe('lead-trader application submission rules', () => {
+  it('allows an initial application before any version exists', () => {
+    expect(canSubmitLeadTraderApplication(undefined)).toBe(true);
+    expect(canSubmitLeadTraderApplication(null)).toBe(true);
+  });
+
+  it.each(['SUBMITTED', 'IN_REVIEW', 'APPROVED'] as const)(
+    'prevents a new submission while latest status is %s',
+    (status) => expect(canSubmitLeadTraderApplication(status)).toBe(false),
+  );
+
+  it('allows a new version only after rejection', () => {
+    expect(canSubmitLeadTraderApplication('REJECTED')).toBe(true);
+  });
+});
+```
+
+FILE: apps/web/src/tests/leader-fee-settings-page.test.tsx
+
+```tsx
+// # Responsibility: verifies customers see the active fee rate and HWM scope without fabricated fee amounts.
+
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { PublicLeaderFeePolicy } from '../api/trading-api';
+import { LeaderFeeSettingsPage } from '../features/trading/leader-fee-settings-page';
+
+const response: PublicLeaderFeePolicy = {
+  traderId: '22222222-3333-4444-8555-666666666666',
+  currency: 'USD',
+  status: 'AVAILABLE',
+  policy: {
+    id: '44444444-5555-4666-8777-888888888888',
+    traderId: '22222222-3333-4444-8555-666666666666',
+    currency: 'USD',
+    profitShareBps: 750,
+    highWaterMarkScope: 'PER_FOLLOWER_CURRENCY',
+    version: 2,
+    effectiveFrom: '2030-01-01T00:00:00.000Z',
+    effectiveTo: null,
+    createdAt: '2029-12-15T12:00:00.000Z',
+  },
+  feeCalculation: {
+    status: 'UNAVAILABLE',
+    reason: 'A verified, reconciled, posted follower-profit source and settlement integration are not connected to this fee disclosure.',
+  },
+};
+
+function renderDisclosure(value: PublicLeaderFeePolicy): string {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(['leader-fee-policy', value.traderId, value.currency], value);
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <LeaderFeeSettingsPage traderId={value.traderId} currency={value.currency} />
+    </QueryClientProvider>,
+  );
+}
+
+describe('LeaderFeeSettingsPage', () => {
+  it('shows policy rate, scope, version, effective date, and honest unavailable calculation state', () => {
+    const html = renderDisclosure(response);
+    expect(html).toContain('Lead trader fee disclosure');
+    expect(html).toContain('750 bps (7.5%)');
+    expect(html).toContain('Per follower and currency');
+    expect(html).toContain('v2');
+    expect(html).toContain('2030-01-01T00:00:00.000Z');
+    expect(html).toContain('Fee amount unavailable');
+    expect(html).toContain('not a charge, statement, or estimate');
+  });
+
+  it('does not infer a zero fee when the trader has not published a policy', () => {
+    const html = renderDisclosure({ ...response, status: 'UNCONFIGURED', policy: null });
+    expect(html).toContain('No policy published');
+    expect(html).toContain('No active profit-share policy has been published');
+    expect(html).not.toContain('0 bps');
+    expect(html).not.toContain('0.00%');
+  });
+});
+```
+
+FILE: apps/web/src/tests/leaderboard-page.test.tsx
+
+```tsx
+// # Responsibility: checks leaderboard timeframe sorting contract and renders incomplete period evidence as unranked.
+
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { TraderLeaderboard } from '../api/trading-api';
+import { LeaderboardPage } from '../features/trading/leaderboard-page';
+
+const data: TraderLeaderboard = {
+  page: 1,
+  limit: 25,
+  total: 2,
+  methodology: {
+    status: 'PARTIAL',
+    key: 'RECONCILED_CLOSED_PERIOD_TWR',
+    description: 'Ranks from closed, reconciled, contiguous periods.',
+    timeframe: '30D',
+    windowStart: '2026-09-01T00:00:00.000Z',
+    asOf: '2026-10-01T00:00:00.000Z',
+    boundaryRule: 'EXACT_CONTIGUOUS_PERIODS_ONLY',
+    orderingRule: 'RETURN_DESCENDING_UNAVAILABLE_LAST',
+    currentnessRule: 'AS_OF_DISPLAYED_CURRENTNESS_NOT_ASSERTED',
+    minimumPeriodCount: 2,
+    rankedCount: 1,
+    unrankedCount: 1,
+    reason: 'One trader lacks exact window coverage.',
+  },
+  data: [
+    {
+      traderId: 'ranked-1',
+      tenantId: 'tenant-1',
+      displayName: 'Ranked Trader',
+      verificationState: 'VERIFIED',
+      isPublic: true,
+      isFeatured: false,
+      followerCount: 0,
+      performance: null,
+      score: null,
+      rank: 1,
+      timeframe: '30D',
+      periodStatus: 'AVAILABLE',
+      periodReturnPercent: '4.25',
+      periodStart: '2026-09-01T00:00:00.000Z',
+      periodEnd: '2026-10-01T00:00:00.000Z',
+      baseCurrency: 'USD',
+      flowBoundary: 'START_FLOWS_IN_OPENING_NAV_END_FLOWS_EXCLUDED_FROM_CLOSING_NAV',
+      calculationVersion: 'twr-linked-periods-v1-integer-decimal',
+      sourceCalculationVersion: 'accounting-close-v3',
+      observationCount: 2,
+      sourceReferences: ['record-1'],
+      unavailableReason: null,
+      rankingMethodology: 'RECONCILED_CLOSED_PERIOD_TWR',
+      metrics: { riskAdjustedReturn: null, drawdownScore: null, consistencyScore: null, historyLengthScore: null, followerScore: null, activityScore: null, verifiedScore: null },
+      weighting: {},
+    },
+    {
+      traderId: 'unranked-1',
+      tenantId: 'tenant-1',
+      displayName: 'Unranked Trader',
+      verificationState: 'VERIFIED',
+      isPublic: true,
+      isFeatured: false,
+      followerCount: 0,
+      performance: null,
+      score: null,
+      rank: null,
+      timeframe: '30D',
+      periodStatus: 'UNAVAILABLE',
+      periodReturnPercent: null,
+      periodStart: null,
+      periodEnd: null,
+      baseCurrency: null,
+      flowBoundary: null,
+      calculationVersion: null,
+      sourceCalculationVersion: null,
+      observationCount: null,
+      sourceReferences: [],
+      unavailableReason: 'Accounting-period coverage contains a gap or overlap.',
+      rankingMethodology: 'RECONCILED_CLOSED_PERIOD_TWR',
+      metrics: { riskAdjustedReturn: null, drawdownScore: null, consistencyScore: null, historyLengthScore: null, followerScore: null, activityScore: null, verifiedScore: null },
+      weighting: {},
+    },
+  ],
+};
+
+describe('LeaderboardPage', () => {
+  it('shows the selected period return and leaves incomplete windows unranked', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(['leaderboard', '30D'], data);
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <LeaderboardPage />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain('30D time-weighted return');
+    expect(html).toContain('4.25%');
+    expect(html).toContain('2 closed periods');
+    expect(html).toContain('accounting-close-v3');
+    expect(html).toContain('Start flows are included in opening NAV');
+    expect(html).toContain('#1');
+    expect(html).toContain('Unranked');
+    expect(html).toContain('gap or overlap');
+    expect(html).toContain('not a claim of current market data');
+  });
+});
+```
+
 FILE: apps/web/src/tests/logout-route.test.ts
 
 ```typescript
@@ -14950,6 +25842,451 @@ describe('BFF POST /api/auth/logout', () => {
 });
 ```
 
+FILE: apps/web/src/tests/partner-dashboard.test.tsx
+
+```tsx
+// # NEW — Verifies partner dashboard and referral creation flow
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { PartnerDashboard } from "../features/partner/partner-dashboard";
+import { ReferralManager } from "../features/partner/referral-manager";
+
+describe("PartnerDashboard & ReferralManager (GAP-35)", () => {
+  test("renders partner tier, active referrals, volume, and accrued commissions", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["partner", "profile", "self"], {
+      profile: {
+        id: "partner-1",
+        code: "IB-GOLD-01",
+        name: "Alpha Capital IB",
+        legalName: "Alpha Capital Ltd",
+        type: "INTRODUCING_BROKER",
+        state: "ACTIVE",
+        tier: "GOLD_TIER",
+        contactEmail: "ib@alphacapital.example",
+        currency: "USDT",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+      summary: {
+        activeReferralsCount: 42,
+        attributedTenantsCount: 12,
+        referredTradingVolumeUsd: "1845000.00",
+        accruedCommissionsAmount: "3690.00",
+        settledCommissionsAmount: "2500.00",
+        availablePayoutBalance: "1190.00",
+        tierName: "GOLD_IB",
+        rebateRateBps: 2500,
+      },
+    });
+    queryClient.setQueryData(["partner", "referrals", "self"], {
+      partnerId: "partner-1",
+      referrals: [
+        {
+          id: "ref-1",
+          partnerId: "partner-1",
+          campaignId: "camp-q4",
+          code: "ALPHAVIP",
+          usesCount: 19,
+          maxUses: 100,
+          state: "ACTIVE",
+          createdAt: "2026-09-10T00:00:00.000Z",
+        },
+      ],
+      attributions: [],
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <PartnerDashboard />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain('data-testid="partner-dashboard"');
+    expect(html).toContain("GOLD_IB");
+    expect(html).toContain("1845000.00");
+    expect(html).toContain("3690.00 USDT");
+    expect(html).toContain("ALPHAVIP");
+  });
+
+  test("renders referral creation form and attribution funnel", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["partner", "referrals", "self"], {
+      partnerId: "partner-1",
+      referrals: [
+        {
+          id: "ref-1",
+          partnerId: "partner-1",
+          campaignId: "camp-q4",
+          code: "ALPHAVIP",
+          usesCount: 19,
+          maxUses: 100,
+          state: "ACTIVE",
+          createdAt: "2026-09-10T00:00:00.000Z",
+        },
+      ],
+      attributions: [
+        {
+          id: "attr-1",
+          partnerId: "partner-1",
+          tenantId: "tenant-follower-9",
+          referralCode: "ALPHAVIP",
+          attributionSource: "REFERRAL_LINK",
+          capturedAt: "2026-09-15T12:00:00.000Z",
+        },
+      ],
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <ReferralManager />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain('data-testid="referral-manager"');
+    expect(html).toContain('data-testid="create-referral-form"');
+    expect(html).toContain("tenant-follower-9");
+  });
+});
+```
+
+FILE: apps/web/src/tests/partner-payouts.test.tsx
+
+```tsx
+// # NEW — Verifies partner payout submission and status display
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { PartnerPayouts } from "../features/partner/partner-payouts";
+
+describe("PartnerPayouts (GAP-37)", () => {
+  test("renders partner payout request form and settlement history table", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["partner", "payouts", "self"], {
+      partnerId: "partner-1",
+      items: [
+        {
+          id: "po-101",
+          partnerId: "partner-1",
+          settlementId: "stl-2026-09",
+          amount: "1250.00",
+          currency: "USDT",
+          method: "USDT_ERC20",
+          state: "PAID",
+          providerReference: "0x9988776655443322",
+          createdAt: "2026-10-01T09:00:00.000Z",
+        },
+      ],
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <PartnerPayouts />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain('data-testid="partner-payouts"');
+    expect(html).toContain('data-testid="partner-payout-request-form"');
+    expect(html).toContain("po-101");
+    expect(html).toContain("stl-2026-09");
+    expect(html).toContain("1250.00 USDT");
+    expect(html).toContain("0x9988776655443322");
+  });
+});
+```
+
+FILE: apps/web/src/tests/performance-benchmark-chart.test.tsx
+
+```tsx
+// # Responsibility: verifies the benchmark UI renders verified series and honest unavailable/partial states.
+
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { PerformanceBenchmarkChart } from '@/features/trading/performance-benchmark-chart';
+import type { PerformanceBenchmarkSeries } from '@/api/trading-api';
+
+const base: PerformanceBenchmarkSeries = {
+  status: 'AVAILABLE',
+  traderId: 'trader-1',
+  benchmarkKey: 'BTC-USDT',
+  baseCurrency: 'USD',
+  methodology: 'TIME_WEIGHTED_RETURN',
+  flowBoundary: 'START_FLOWS_IN_OPENING_NAV_END_FLOWS_EXCLUDED_FROM_CLOSING_NAV',
+  calculationVersion: 'twr-v1',
+  dataCompleteness: 'COMPLETE',
+  asOf: '2025-01-03T00:00:00.000Z',
+  currentnessRule: 'AS_OF_DISPLAYED_CURRENTNESS_NOT_ASSERTED',
+  observations: [
+    { periodStart: '2025-01-01T00:00:00.000Z', periodEnd: '2025-01-02T00:00:00.000Z', traderPeriodReturnPercent: '10', benchmarkPeriodReturnPercent: '5', traderCumulativeReturnPercent: '10', benchmarkCumulativeReturnPercent: '5' },
+    { periodStart: '2025-01-02T00:00:00.000Z', periodEnd: '2025-01-03T00:00:00.000Z', traderPeriodReturnPercent: '-5', benchmarkPeriodReturnPercent: '10', traderCumulativeReturnPercent: '4.5', benchmarkCumulativeReturnPercent: '15.5' },
+  ],
+  sourceReferences: ['nav:period-1', 'benchmark:period-1'],
+};
+
+describe('PerformanceBenchmarkChart', () => {
+  it('renders the two persisted series, methodology, completeness, and source references', () => {
+    const html = renderToStaticMarkup(<PerformanceBenchmarkChart series={base} />);
+    expect(html).toContain('Trader vs. market benchmark');
+    expect(html).toContain('BTC-USDT');
+    expect(html).toContain('TIME_WEIGHTED_RETURN');
+    expect(html).toContain('Start-boundary flows are included in opening NAV');
+    expect(html).toContain('Data completeness: COMPLETE');
+    expect(html).toContain('2025-01-03T00:00:00.000Z');
+    expect(html).toContain('currentness is not asserted');
+    expect(html).toContain('nav:period-1');
+    expect(html).toContain('polyline');
+  });
+
+  it('does not draw a fabricated series when data is unavailable or incomplete', () => {
+    const unavailable = renderToStaticMarkup(<PerformanceBenchmarkChart series={{ ...base, status: 'UNAVAILABLE', dataCompleteness: 'UNAVAILABLE', observations: [], reason: 'No persisted benchmark.' }} />);
+    expect(unavailable).toContain('No persisted benchmark.');
+    expect(unavailable).toContain('No synthetic market-price');
+    expect(unavailable).not.toContain('polyline');
+
+    const partial = renderToStaticMarkup(<PerformanceBenchmarkChart series={{ ...base, dataCompleteness: 'PARTIAL' }} />);
+    expect(partial).toContain('A verified trader and benchmark series is not available for comparison.');
+    expect(partial).not.toContain('polyline');
+  });
+});
+```
+
+FILE: apps/web/src/tests/position-limit-settings.test.tsx
+
+```tsx
+// # Responsibility: verifies customer position-limit settings, current usage provenance, zero semantics, and unknown-data disclosure.
+
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { UserPositionLimitsView } from '@/api/user-position-limits-api';
+import {
+  PositionLimitSettings,
+  USER_POSITION_LIMITS_QUERY_KEY,
+} from '@/features/trading/position-limit-settings';
+
+const baseView: UserPositionLimitsView = {
+  tenantId: 'tenant-from-authenticated-api',
+  limits: { maxConcurrentPositions: 3, maxOpenOrders: 8 },
+  configured: true,
+  updatedAt: '2026-10-07T10:00:00.000Z',
+  usage: { ownedAccountCount: 2, openPositionSlots: 2, openOrderCount: 5 },
+  usageState: 'CURRENT',
+  accountScope: 'USER_OWNED_NON_DELETED_ACCOUNTS_INCLUDING_PAPER_AND_LIVE',
+  asOf: '2026-10-07T10:05:00.000Z',
+};
+
+function renderSettings(view: UserPositionLimitsView): string {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(USER_POSITION_LIMITS_QUERY_KEY, view);
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <PositionLimitSettings />
+    </QueryClientProvider>,
+  );
+}
+
+describe('PositionLimitSettings', () => {
+  it('renders saved count ceilings, sourced usage, and the account scope without presenting them as notional risk', () => {
+    const html = renderSettings(baseView);
+
+    expect(html).toContain('Concurrent position and order limits');
+    expect(html).toContain('value="3"');
+    expect(html).toContain('value="8"');
+    expect(html).toContain('Position slots');
+    expect(html).toContain('Open orders');
+    expect(html).toContain('Owned accounts included');
+    expect(html).toContain('>2</dd>');
+    expect(html).toContain('>5</dd>');
+    expect(html).toContain('These are count limits, not notional or balance limits');
+    expect(html).toContain('Orders placed directly at an exchange cannot be blocked');
+  });
+
+  it('distinguishes unknown usage from zero and describes zero as a blocking ceiling', () => {
+    const unknown: UserPositionLimitsView = {
+      ...baseView,
+      limits: { maxConcurrentPositions: 0, maxOpenOrders: null },
+      usage: null,
+      usageState: 'UNKNOWN',
+    };
+    const html = renderSettings(unknown);
+
+    expect(html).toContain('value="0"');
+    expect(html).toContain('Usage is unknown');
+    expect(html).toContain('does not substitute zero');
+    expect(html).toContain('zero blocks new reservations');
+    expect(html).not.toContain('data-testid="position-limit-usage"');
+  });
+
+  it('keeps clear as a form action and does not imply that existing orders or positions are canceled', () => {
+    const html = renderSettings(baseView);
+
+    expect(html).toContain('Clear fields');
+    expect(html).toContain('Lowering a limit does not cancel existing orders or positions');
+    expect(html).toContain('Save limits');
+  });
+});
+```
+
+FILE: apps/web/src/tests/public-indexing.test.ts
+
+```typescript
+// # Verifies the crawler policy: default-deny robots, public-only sitemap, fail-closed origin
+//
+// The policy is only worth having if a private route cannot become crawlable by accident, so the
+// assertions are about refusal rather than about the happy path: an unnamed host must resolve to
+// no origin at all, every authenticated surface must be denied, and the deny list must keep its
+// catch-all. A change that dropped `disallow: '/'` would leave `robots.txt` looking reasonable
+// while exposing the whole application, which is the failure this file exists to catch.
+//
+// `resolveOrigin` is pure, so every host shape is exercised directly rather than through whatever
+// `NEXT_PUBLIC_*` the machine running the tests happens to have set. The reserved route modules
+// read the environment once at import, so their assertions branch on the origin they resolved and
+// cover both outcomes instead of assuming one.
+import robots from '../app/robots';
+import sitemap from '../app/sitemap';
+import {
+  PRIVATE_ROUTE_PREFIXES,
+  PUBLIC_ROUTES,
+  publicUrlFor,
+  resolveOrigin,
+  resolvePublicOrigin,
+} from '../lib/public-origin';
+
+type RobotsRule = { userAgent: string; allow?: string[]; disallow?: string[] };
+type RobotsResult = { rules: RobotsRule | RobotsRule[]; sitemap?: string; host?: string };
+
+function firstRule(result: RobotsResult): RobotsRule {
+  return Array.isArray(result.rules) ? (result.rules[0] as RobotsRule) : result.rules;
+}
+
+describe('crawler policy: origin resolution', () => {
+  it('names a host for an explicitly configured public origin', () => {
+    expect(resolveOrigin('https://app.example.com', 'localhost')).toBe('https://app.example.com');
+    expect(resolveOrigin('https://app.example.com', '')).toBe('https://app.example.com');
+  });
+
+  it('falls back to the platform domain when no site URL is configured', () => {
+    expect(resolveOrigin('', 'app.example.com')).toBe('https://app.example.com');
+    expect(resolveOrigin('   ', 'app.example.com')).toBe('https://app.example.com');
+  });
+
+  it('refuses a host that names a machine rather than a deployment', () => {
+    expect(resolveOrigin('', 'localhost')).toBeNull();
+    expect(resolveOrigin('http://localhost:3001', '')).toBeNull();
+    expect(resolveOrigin('', '127.0.0.1')).toBeNull();
+    expect(resolveOrigin('', '0.0.0.0')).toBeNull();
+    expect(resolveOrigin('', '::1')).toBeNull();
+    expect(resolveOrigin('', '10.0.0.5')).toBeNull();
+    expect(resolveOrigin('', '')).toBeNull();
+  });
+
+  it('refuses a name reserved for local or invalid use', () => {
+    expect(resolveOrigin('', 'app.local')).toBeNull();
+    expect(resolveOrigin('', 'app.test')).toBeNull();
+    expect(resolveOrigin('', 'app.invalid')).toBeNull();
+    expect(resolveOrigin('', 'app.example')).toBeNull();
+  });
+
+  it('refuses to build an origin out of junk or a non-web scheme', () => {
+    expect(resolveOrigin('not a url', 'app.example.com')).toBeNull();
+    expect(resolveOrigin('javascript:alert(1)', 'app.example.com')).toBeNull();
+    expect(resolveOrigin('ftp://app.example.com', 'app.example.com')).toBeNull();
+    expect(resolveOrigin('https://', 'app.example.com')).toBeNull();
+  });
+
+  it('keeps the port an operator configured', () => {
+    expect(resolveOrigin('https://app.example.com:8443', '')).toBe('https://app.example.com:8443');
+  });
+
+  it('never builds a public URL without an origin', () => {
+    // The production path is the branch under test when the suite runs in an unnamed environment,
+    // and the refusal is asserted directly so it holds in either case.
+    if (resolvePublicOrigin() === null) {
+      expect(publicUrlFor('/pricing')).toBeNull();
+      expect(publicUrlFor('/')).toBeNull();
+    } else {
+      expect(publicUrlFor('/pricing')).toBe(`${resolvePublicOrigin()}/pricing`);
+      expect(publicUrlFor('/')).toBe(`${resolvePublicOrigin()}/`);
+    }
+  });
+});
+
+describe('crawler policy: robots.txt', () => {
+  it('denies everything when the deployment cannot name a public host', () => {
+    const result = robots() as RobotsResult;
+    const rule = firstRule(result);
+
+    expect(rule.userAgent).toBe('*');
+    // The catch-all is present in both branches: it is what makes the policy default-deny.
+    expect(rule.disallow).toContain('/');
+
+    if (resolvePublicOrigin() === null) {
+      // No sitemap pointer and no host when there is no origin: a crawler is told nothing.
+      expect(result.sitemap).toBeUndefined();
+      expect(result.host).toBeUndefined();
+      expect(rule.allow).toBeUndefined();
+    } else {
+      expect(rule.allow).toEqual([...PUBLIC_ROUTES]);
+      expect(result.sitemap).toBe(`${resolvePublicOrigin()}/sitemap.xml`);
+      expect(result.host).toBe(resolvePublicOrigin());
+    }
+  });
+
+  it('never allowlists an authenticated surface', () => {
+    // The allowlist is the only thing that makes a path crawlable, so it is checked directly
+    // against the deny list: a route in both would be a policy that contradicts itself.
+    for (const privatePath of PRIVATE_ROUTE_PREFIXES) {
+      expect(PUBLIC_ROUTES).not.toContain(privatePath);
+    }
+    expect(PUBLIC_ROUTES).toContain('/traders');
+    expect(PUBLIC_ROUTES).not.toContain('/dashboard');
+    expect(PUBLIC_ROUTES).not.toContain('/copy-trading');
+  });
+
+  it('covers the authenticated application in the deny list', () => {
+    for (const required of ['/dashboard', '/account', '/portfolio', '/copy-trading', '/api']) {
+      expect(PRIVATE_ROUTE_PREFIXES).toContain(required);
+    }
+  });
+
+  it('keeps the catch-all that makes the policy default-deny', () => {
+    // This is the assertion that fails if someone "simplifies" robots.txt into an allowlist-only
+    // policy, which would expose every route added after it.
+    const rule = firstRule(robots() as RobotsResult);
+    expect(rule.disallow).toContain('/');
+  });
+});
+
+describe('crawler policy: sitemap', () => {
+  it('advertises nothing when the deployment cannot name a public host', () => {
+    if (resolvePublicOrigin() === null) {
+      expect(sitemap()).toEqual([]);
+    } else {
+      expect(sitemap().map((entry) => entry.url)).toEqual(
+        PUBLIC_ROUTES.map((route) => publicUrlFor(route)),
+      );
+    }
+  });
+
+  it('advertises only routes that robots.txt allows', () => {
+    // A sitemap entry that robots.txt refuses is a contradiction crawlers report as an error.
+    // Entries are built from PUBLIC_ROUTES, so this asserts the invariant at the list level.
+    for (const route of PUBLIC_ROUTES) {
+      expect(route.startsWith('/')).toBe(true);
+      expect(PRIVATE_ROUTE_PREFIXES).not.toContain(route);
+    }
+  });
+
+  it('never lists a dynamic or authenticated route', () => {
+    for (const route of PUBLIC_ROUTES) {
+      expect(route).not.toMatch(/\[/);
+      expect(route).not.toContain('?');
+      expect(route).not.toContain('#');
+    }
+  });
+});
+```
+
 FILE: apps/web/src/tests/register-route.test.ts
 
 ```typescript
@@ -14964,7 +26301,7 @@ jest.mock('@/lib/server-api', () => ({ serverFetch: (...args: unknown[]) => serv
 jest.mock('@/lib/session', () => ({ persistSession: (...args: unknown[]) => persistSession(...args) }));
 
 import { POST } from '@/app/api/auth/register/route';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 
 function makeRequest(body: unknown, host = 'acme.example.test'): Request {
   return new Request('https://acme.example.test/api/auth/register', {
@@ -15454,9 +26791,1068 @@ describe("sso-flow helpers", () => {
 });
 ```
 
+FILE: apps/web/src/tests/strategy-detail-page.test.tsx
+
+```tsx
+// # NEW — Verifies strategy detail analytics and effective policy summary
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StrategyDetailPage } from "../features/trading/strategy-detail-page";
+
+describe("StrategyDetailPage (GAP-05)", () => {
+  test("renders strategy details, effective copy policy constraints, and lead trader attribution", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["strategy-analytics", "st-100"], {
+      strategy: {
+        strategyId: "st-100",
+        traderId: "tr-10",
+        name: "Delta Neutral Basis",
+        description: "Perpetual basis capture",
+        status: "PUBLISHED",
+        type: "ALGORITHMIC",
+        supportedSymbols: ["BTC-USDT", "ETH-USDT"],
+        supportedVenues: ["BINANCE", "BYBIT"],
+        followerCount: 64,
+        totalCopies: 410,
+        publishedAt: "2026-08-01T00:00:00.000Z",
+        createdAt: "2026-07-15T00:00:00.000Z",
+      },
+      effectivePolicy: {
+        sizingMode: "PROPORTIONAL",
+        fixedQuantity: null,
+        multiplier: "1.0",
+        proportionalRatio: "0.10",
+        maxPositionSize: "5000",
+        maxNotional: "25000",
+        maxOpenPositions: 10,
+        maxLeverage: "3",
+        allowedSymbols: ["BTC-USDT", "ETH-USDT"],
+        blockedSymbols: [],
+        allowedVenues: ["BINANCE", "BYBIT"],
+        orderTypePolicy: "MARKET_ONLY",
+        slippageToleranceBps: 45,
+        executionDelayMs: 150,
+        takeProfitBps: 250,
+        stopLossBps: 120,
+        trailingStopBps: null,
+        emergencyStop: false,
+      },
+      traderPerformance: {
+        traderId: "tr-10",
+        tenantId: "t-1",
+        realizedPnl: "9840.00",
+        unrealizedPnl: "110.00",
+        totalReturn: "9840.00",
+        totalReturnPercent: null,
+        maxDrawdown: "620.00",
+        maxDrawdownPercent: null,
+        winCount: 54,
+        lossCount: 16,
+        tradeCount: 70,
+        winRate: "0.7714",
+        lossRate: "0.2286",
+        totalVolume: "1120000",
+        averageTrade: "140.57",
+        averageWin: "215.00",
+        averageLoss: "110.00",
+        profitFactor: "2.65",
+        sharpeRatio: null,
+        historyLengthDays: 88,
+        lastTradeAt: "2026-10-01T00:00:00.000Z",
+        isActual: true,
+        source: "FILLS",
+      },
+    });
+    queryClient.setQueryData(["trading-status"], {
+      eligibility: "ELIGIBLE",
+      canCopy: true,
+      restrictions: [],
+      maintenance: null,
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <StrategyDetailPage id="st-100" />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("data-testid=\"strategy-detail-page\"");
+    expect(html).toContain("PROPORTIONAL");
+    expect(html).toContain("45 bps");
+    expect(html).toContain("ACTUAL (FILLS)");
+  });
+});
+```
+
+FILE: apps/web/src/tests/trader-comparison-page.test.tsx
+
+```tsx
+// # NEW — Verifies trader comparison selection, metrics table, and empty/error states
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TraderComparisonPage } from "../features/trading/trader-comparison-page";
+
+describe("TraderComparisonPage (GAP-03)", () => {
+  test("renders side-by-side trader comparison matrix with canonical performance and strategies", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["traders", "comparison-catalog"], {
+      data: [
+        {
+          traderId: "tr-1",
+          displayName: "Alpha Quant",
+          bio: null,
+          avatarUrl: null,
+          verificationState: "VERIFIED",
+          verifiedAt: null,
+          supportedVenues: ["BINANCE"],
+          supportedSymbols: ["BTC-USDT"],
+          isPublic: true,
+          isFeatured: true,
+          followerCount: 50,
+          totalVolume: "800000",
+          totalTrades: 110,
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+        {
+          traderId: "tr-2",
+          displayName: "Beta Arbitrage",
+          bio: null,
+          avatarUrl: null,
+          verificationState: "VERIFIED",
+          verifiedAt: null,
+          supportedVenues: ["KRAKEN"],
+          supportedSymbols: ["ETH-USDT"],
+          isPublic: true,
+          isFeatured: false,
+          followerCount: 30,
+          totalVolume: "540000",
+          totalTrades: 85,
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+      total: 2,
+    });
+
+    queryClient.setQueryData(["traders-compare", "tr-1,tr-2"], [
+      {
+        profile: {
+          traderId: "tr-1",
+          displayName: "Alpha Quant",
+          bio: null,
+          avatarUrl: null,
+          verificationState: "VERIFIED",
+          verifiedAt: null,
+          supportedVenues: ["BINANCE"],
+          supportedSymbols: ["BTC-USDT"],
+          isPublic: true,
+          isFeatured: true,
+          followerCount: 50,
+          totalVolume: "800000",
+          totalTrades: 110,
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+        performance: {
+          traderId: "tr-1",
+          tenantId: "t-1",
+          realizedPnl: "12400.00",
+          unrealizedPnl: "200.00",
+          totalReturn: "12400.00",
+          totalReturnPercent: null,
+          maxDrawdown: "800.00",
+          maxDrawdownPercent: null,
+          winCount: 70,
+          lossCount: 30,
+          tradeCount: 100,
+          winRate: "0.70",
+          lossRate: "0.30",
+          totalVolume: "800000",
+          averageTrade: "124.00",
+          averageWin: "220.00",
+          averageLoss: "100.00",
+          profitFactor: "2.20",
+          sharpeRatio: null,
+          historyLengthDays: 95,
+          lastTradeAt: "2026-10-01T00:00:00.000Z",
+          isActual: true,
+          source: "FILLS",
+        },
+        strategies: [
+          {
+            strategyId: "st-1",
+            traderId: "tr-1",
+            name: "Alpha BTC Trend",
+            description: null,
+            status: "PUBLISHED",
+            type: "ALGORITHMIC",
+            supportedSymbols: ["BTC-USDT"],
+            supportedVenues: ["BINANCE"],
+            followerCount: 50,
+            totalCopies: 190,
+            publishedAt: "2026-07-01T00:00:00.000Z",
+            createdAt: "2026-06-01T00:00:00.000Z",
+          },
+        ],
+      },
+      {
+        profile: {
+          traderId: "tr-2",
+          displayName: "Beta Arbitrage",
+          bio: null,
+          avatarUrl: null,
+          verificationState: "VERIFIED",
+          verifiedAt: null,
+          supportedVenues: ["KRAKEN"],
+          supportedSymbols: ["ETH-USDT"],
+          isPublic: true,
+          isFeatured: false,
+          followerCount: 30,
+          totalVolume: "540000",
+          totalTrades: 85,
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+        performance: {
+          traderId: "tr-2",
+          tenantId: "t-1",
+          realizedPnl: "6300.00",
+          unrealizedPnl: "0.00",
+          totalReturn: "6300.00",
+          totalReturnPercent: null,
+          maxDrawdown: "450.00",
+          maxDrawdownPercent: null,
+          winCount: 55,
+          lossCount: 25,
+          tradeCount: 80,
+          winRate: "0.6875",
+          lossRate: "0.3125",
+          totalVolume: "540000",
+          averageTrade: "78.75",
+          averageWin: "150.00",
+          averageLoss: "78.00",
+          profitFactor: "1.92",
+          sharpeRatio: null,
+          historyLengthDays: 75,
+          lastTradeAt: "2026-10-01T00:00:00.000Z",
+          isActual: true,
+          source: "FILLS",
+        },
+        strategies: [],
+      },
+    ]);
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <TraderComparisonPage initialIds={["tr-1", "tr-2"]} />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("data-testid=\"trader-comparison-table\"");
+    expect(html).toContain("Alpha BTC Trend");
+    expect(html).toContain("2.20");
+    expect(html).toContain("1.92");
+  });
+});
+```
+
+FILE: apps/web/src/tests/trader-detail-page.test.tsx
+
+```tsx
+// # Responsibility: protects the customer trader page from presenting stale counters or unavailable AUM as verified trading activity.
+import React from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderToStaticMarkup } from "react-dom/server";
+import { parseTrader, type TraderProfilePublicMetrics } from "../api/trading-api";
+import { TraderDetailPage } from "../features/trading/trader-detail-page";
+
+const availableMetrics: TraderProfilePublicMetrics = {
+  activeFollowers: {
+    status: "AVAILABLE",
+    value: 2,
+    source: "ACTIVE_COPY_SUBSCRIPTIONS",
+    asOf: "2026-10-05T09:00:00.000Z",
+    reason: null,
+  },
+  aum: {
+    status: "UNAVAILABLE",
+    value: null,
+    currency: null,
+    source: null,
+    asOf: null,
+    reason: "NO_AUTHORITATIVE_FOLLOWER_PORTFOLIO_VALUATION",
+  },
+  activity: {
+    status: "AVAILABLE",
+    source: "NON_SIMULATED_CANONICAL_FILL_RECORDS",
+    asOf: "2026-10-05T09:00:00.000Z",
+    latestRecordedFillAt: "2026-10-05T08:00:00.000Z",
+    sampledFillCount: 2,
+    sampleLimit: 500,
+    hasMore: false,
+    volumeByQuoteAsset: [
+      { asset: "BTC", amount: "0.000000000001" },
+      { asset: "USDT", amount: "125.250000000001" },
+    ],
+    calculationMethod: "MIXED",
+    reason: null,
+  },
+  riskScore: {
+    status: "PARTIAL",
+    score: 5,
+    band: "LOW",
+    confidence: "PARTIAL",
+    factors: [
+      { key: "maxDrawdownPercent", value: "5", score: 5, weightBps: 3500, status: "MEASURED", source: "RECONCILED_CLOSED_PERIOD_RECORDS" },
+      { key: "leverage", value: null, score: null, weightBps: 2500, status: "MISSING", source: null },
+      { key: "concentrationPercent", value: null, score: null, weightBps: 2500, status: "MISSING", source: null },
+      { key: "lossStreak", value: null, score: null, weightBps: 1500, status: "MISSING", source: null },
+    ],
+    methodology: "risk-score-v1",
+    asOf: "2026-10-05T09:00:00.000Z",
+  },
+};
+
+function renderTrader(publicMetrics: TraderProfilePublicMetrics | null, viewerIsOwner = false): string {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const profile = parseTrader({
+    traderId: "trader-1",
+    displayName: "Verified Trader",
+    bio: "Canonical profile",
+    verificationState: "VERIFIED",
+    supportedVenues: ["BINANCE"],
+    supportedSymbols: ["BTC-USDT"],
+    isPublic: true,
+    isFeatured: false,
+    viewerIsOwner,
+    followerCount: 999,
+    totalVolume: "999999999.99",
+    totalTrades: 9999,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    publicMetrics,
+  });
+  queryClient.setQueryData(["trader", "trader-1"], profile);
+  queryClient.setQueryData(["trader", "trader-1", "strategies"], { data: [], total: 0 });
+
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <TraderDetailPage id="trader-1" />
+    </QueryClientProvider>,
+  );
+}
+
+describe("TraderDetailPage public metric provenance (GAP-51)", () => {
+  test("renders active follower provenance, fresh canonical activity, asset-separated exact volume, and unavailable AUM", () => {
+    const html = renderTrader(availableMetrics);
+
+    expect(html).toContain("Active followers");
+    expect(html).toContain("Stored profile follower totals are not displayed because they do not establish the number of active subscriptions.");
+    expect(html).toContain("2");
+    expect(html).toContain("ACTIVE_COPY_SUBSCRIPTIONS");
+    expect(html).toContain("2026-10-05T09:00:00.000Z");
+    expect(html).toContain("Assets under management (AUM)");
+    expect(html).toContain("Unavailable");
+    expect(html).toContain("no account equity or estimate is substituted");
+    expect(html).toContain("Recent trading activity");
+    expect(html).toContain("NON_SIMULATED_CANONICAL_FILL_RECORDS");
+    expect(html).toContain("125.250000000001 USDT");
+    expect(html).toContain("0.000000000001 BTC");
+    expect(html).not.toContain("999999999.99");
+    expect(html).toContain("Trader risk score");
+    expect(html).toContain("5/100 · LOW");
+    expect(html).toContain("Partial score uses measured factors only");
+    expect(html).toContain("No verified source");
+  });
+
+  test("does not fall back to stale follower, volume, or trade counters when metric provenance is unavailable", () => {
+    const unavailableMetrics: TraderProfilePublicMetrics = {
+      activeFollowers: {
+        status: "UNAVAILABLE",
+        value: null,
+        source: null,
+        asOf: null,
+        reason: "SOURCE_READ_FAILED",
+      },
+      aum: {
+        status: "UNAVAILABLE",
+        value: null,
+        currency: null,
+        source: null,
+        asOf: null,
+        reason: "NO_AUTHORITATIVE_FOLLOWER_PORTFOLIO_VALUATION",
+      },
+      activity: {
+        status: "UNAVAILABLE",
+        source: null,
+        asOf: null,
+        latestRecordedFillAt: null,
+        sampledFillCount: null,
+        sampleLimit: 500,
+        hasMore: null,
+        volumeByQuoteAsset: [],
+        calculationMethod: null,
+        reason: "SOURCE_READ_FAILED",
+      },
+      riskScore: {
+        status: "UNAVAILABLE",
+        score: null,
+        band: "UNAVAILABLE",
+        confidence: "UNAVAILABLE",
+        factors: [
+          { key: "maxDrawdownPercent", value: null, score: null, weightBps: 3500, status: "MISSING", source: null },
+          { key: "leverage", value: null, score: null, weightBps: 2500, status: "MISSING", source: null },
+          { key: "concentrationPercent", value: null, score: null, weightBps: 2500, status: "MISSING", source: null },
+          { key: "lossStreak", value: null, score: null, weightBps: 1500, status: "MISSING", source: null },
+        ],
+        methodology: "risk-score-v1",
+        asOf: "2026-10-05T09:00:00.000Z",
+      },
+    };
+    const html = renderTrader(unavailableMetrics);
+
+    expect(html).toContain("Active subscription records could not be verified");
+    expect(html).toContain("Canonical fill provenance could not be verified");
+    expect(html).toContain("AUM");
+    expect(html).toContain("Unavailable");
+    expect(html).not.toContain("999");
+    expect(html).not.toContain("$0.00");
+    expect(html).toContain("Trader risk score");
+    expect(html).toContain("Status: UNAVAILABLE; confidence: UNAVAILABLE");
+  });
+
+  test("requests the private trader exposure panel only when the API identifies the profile owner", () => {
+    const ownerHtml = renderTrader(availableMetrics, true);
+    const otherViewerHtml = renderTrader(availableMetrics, false);
+
+    expect(ownerHtml).toContain("Loading your trader-profile exposure");
+    expect(otherViewerHtml).not.toContain("Loading your trader-profile exposure");
+    expect(otherViewerHtml).not.toContain("Your trader-profile exposure");
+  });
+});
+```
+
+FILE: apps/web/src/tests/trader-exposure-panel.test.tsx
+
+```tsx
+// # Responsibility: proves trader-profile exposure is owner-scoped and renders sourced exact values without inventing stale or missing valuations.
+
+import React from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { TraderExposureView } from "../api/customer-exposure-api";
+import { TraderExposurePanel } from "../features/trading/trader-exposure-panel";
+
+const TRADER_ID = "trader-owner-profile-1";
+
+const currentExposure: TraderExposureView = {
+  tenantId: "tenant-1",
+  traderId: TRADER_ID,
+  asOf: "2026-10-06T12:00:00.000Z",
+  state: "CURRENT",
+  eligibleAccountCount: 1,
+  lines: [
+    {
+      symbol: "BTC-USDT",
+      venue: "BINANCE",
+      marketType: "SPOT",
+      baseAsset: "BTC",
+      quoteAsset: "USDT",
+      longQuantity: "0.5",
+      shortQuantity: "0",
+      netQuantity: "0.5",
+      longPositionNotional: "30000.125",
+      shortPositionNotional: "0",
+      grossPositionNotional: "30000.125",
+      netPositionNotional: "30000.125",
+      openOrderCommitment: "0",
+      totalNotional: "30000.125",
+      openOrderCount: 0,
+      openOrderCommitmentBasis: null,
+      price: "60000.25",
+      priceSource: "MARKET_DATA_1M_CANDLE_CLOSE",
+      priceTimestamp: "2026-10-06T11:59:00.000Z",
+      positionState: "CURRENT",
+      openOrderState: "NO_OPEN_ORDERS",
+      state: "CURRENT",
+    },
+  ],
+  totalsByQuoteAsset: [
+    {
+      quoteAsset: "USDT",
+      longPositionNotional: "30000.125",
+      shortPositionNotional: "0",
+      grossPositionNotional: "30000.125",
+      openOrderCommitment: "0",
+      totalNotional: "30000.125",
+      state: "CURRENT",
+    },
+  ],
+  staleSymbols: [],
+  unknownSymbols: [],
+  dataScope: "TRADER_PROFILE_OWNER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS",
+  simulatedRecordsIncluded: false,
+  cashBalancesIncluded: false,
+  currencyTreatment: "SEPARATE_QUOTE_ASSETS_NO_FX_CONVERSION",
+  priceMethodology: "LATEST_1M_CANDLE_CLOSE_WITH_POLICY_FRESHNESS",
+  notice: "Reference prices come from current tenant-instrument-linked one-minute candles; not exchange mark prices.",
+};
+
+function renderPanel(exposure: TraderExposureView): string {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(["trader", TRADER_ID, "exposure"], exposure);
+
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <TraderExposurePanel traderId={TRADER_ID} />
+    </QueryClientProvider>,
+  );
+}
+
+describe("TraderExposurePanel (GAP-58)", () => {
+  test("renders only the owner-scoped exposure response and exact, source-backed values", () => {
+    const html = renderPanel(currentExposure);
+
+    expect(html).toContain("Your trader-profile exposure");
+    expect(html).toContain("Private to this trader-profile owner");
+    expect(html).toContain("BTC-USDT");
+    expect(html).toContain("0.5");
+    expect(html).toContain("30000.125 USDT");
+    expect(html).toContain("60000.25");
+    expect(html).toContain("Different quote assets are never added together");
+    expect(html).not.toContain("apiSecret");
+    expect(html).not.toContain("accountId");
+  });
+
+  test("keeps stale or unavailable valuations explicit instead of formatting them as zero", () => {
+    const unknownExposure: TraderExposureView = {
+      ...currentExposure,
+      state: "UNKNOWN",
+      lines: [
+        {
+          ...currentExposure.lines[0]!,
+          longPositionNotional: null,
+          shortPositionNotional: null,
+          grossPositionNotional: null,
+          netPositionNotional: null,
+          totalNotional: null,
+          price: null,
+          priceSource: null,
+          priceTimestamp: null,
+          positionState: "UNKNOWN",
+          state: "UNKNOWN",
+        },
+      ],
+      totalsByQuoteAsset: [
+        {
+          ...currentExposure.totalsByQuoteAsset[0]!,
+          longPositionNotional: null,
+          shortPositionNotional: null,
+          grossPositionNotional: null,
+          totalNotional: null,
+          state: "UNKNOWN",
+        },
+      ],
+      staleSymbols: [],
+      unknownSymbols: ["BINANCE:BTC-USDT"],
+    };
+    const html = renderPanel(unknownExposure);
+
+    expect(html).toContain("Valuation unavailable");
+    expect(html).toContain("Unavailable");
+    expect(html).toContain("Missing or invalid valuation evidence: BINANCE:BTC-USDT");
+    expect(html).not.toContain("0.00 USDT");
+    expect(html).not.toContain("30,000");
+  });
+
+  test("withholds rows when the API response does not prove the requested trader and private owner scope", () => {
+    const untrusted = {
+      ...currentExposure,
+      traderId: "another-trader",
+      dataScope: "SIGNED_IN_USER_NON_SANDBOX_NON_SIMULATED_ACCOUNTS",
+    } as unknown as TraderExposureView;
+    const html = renderPanel(untrusted);
+
+    expect(html).toContain("The response did not confirm the requested trader-profile owner scope");
+    expect(html).not.toContain("30000.125");
+    expect(html).not.toContain("BTC-USDT");
+  });
+});
+```
+
+FILE: apps/web/src/tests/trader-performance-page.test.tsx
+
+```tsx
+// # NEW — Verifies trader performance page, charts, and metric tooltips
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TraderPerformancePage } from "../features/trading/trader-performance-page";
+import {
+  TRADER_METRIC_DEFINITIONS,
+  describeDataProvenance,
+  formatWinRatePercent,
+} from "../features/trading/trader-metric-definitions";
+
+describe("TraderPerformancePage (GAP-01 & GAP-02)", () => {
+  test("renders canonical trader performance metrics, ACTUAL provenance badge, charts, and formula definitions", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["trader-performance-detail", "tr-101"], {
+      profile: {
+        traderId: "tr-101",
+        displayName: "Elena Quant",
+        bio: "Systematic BTC & ETH perpetuals",
+        avatarUrl: null,
+        verificationState: "VERIFIED",
+        verifiedAt: "2026-09-01T00:00:00.000Z",
+        supportedVenues: ["BINANCE"],
+        supportedSymbols: ["BTC-USDT", "ETH-USDT"],
+        isPublic: true,
+        isFeatured: true,
+        followerCount: 84,
+        totalVolume: "1450000.00",
+        totalTrades: 210,
+        createdAt: "2026-06-01T00:00:00.000Z",
+      },
+      performance: {
+        traderId: "tr-101",
+        tenantId: "tenant-1",
+        realizedPnl: "18420.50",
+        unrealizedPnl: "640.00",
+        totalReturn: "18420.50",
+        totalReturnPercent: null,
+        maxDrawdown: "1250.00",
+        maxDrawdownPercent: null,
+        winCount: 68,
+        lossCount: 22,
+        tradeCount: 90,
+        winRate: "0.7555",
+        lossRate: "0.2445",
+        totalVolume: "1450000.00",
+        averageTrade: "204.67",
+        averageWin: "320.00",
+        averageLoss: "151.80",
+        profitFactor: "2.81",
+        sharpeRatio: null,
+        historyLengthDays: 120,
+        lastTradeAt: "2026-10-01T10:00:00.000Z",
+        isActual: true,
+        source: "FILLS",
+      },
+      strategies: [
+        {
+          strategyId: "strat-1",
+          traderId: "tr-101",
+          name: "Momentum Alpha",
+          description: "Trend following",
+          status: "PUBLISHED",
+          type: "ALGORITHMIC",
+          supportedSymbols: ["BTC-USDT"],
+          supportedVenues: ["BINANCE"],
+          followerCount: 84,
+          totalCopies: 320,
+          publishedAt: "2026-06-15T00:00:00.000Z",
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <TraderPerformancePage id="tr-101" />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("data-testid=\"trader-performance-page\"");
+    expect(html).toContain("ACTUAL (FILLS)");
+    expect(html).toContain("data-testid=\"trader-performance-chart\"");
+    expect(html).toContain("Momentum Alpha");
+    expect(html).toContain("2.81");
+    expect(TRADER_METRIC_DEFINITIONS.profitFactor.formula).toBe(
+      "Gross Winning PnL ÷ |Gross Losing PnL|",
+    );
+    expect(describeDataProvenance({ isActual: true, source: "FILLS" }).badgeLabel).toBe("ACTUAL");
+    expect(formatWinRatePercent("0.7555")).toBe("75.5%");
+  });
+});
+```
+
+FILE: apps/web/src/tests/trader-ranking-controls.test.tsx
+
+```tsx
+// # Responsibility: protects timeframe controls and clear ranking methodology/freshness disclosures.
+
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { TraderRankingControls } from '../features/trading/trader-ranking-controls';
+import type { TraderRankingMethodology } from '../api/trading-api';
+
+// `status` mirrors what the server can actually return: AVAILABLE or UNAVAILABLE. The case this
+// fixture describes - four of five ranked - is AVAILABLE with a non-zero unrankedCount, and the
+// unranked reason is carried in `reason`. The previous fixture used a status the API never emits.
+const methodology: TraderRankingMethodology = {
+  status: 'AVAILABLE',
+  key: 'RECONCILED_CLOSED_PERIOD_TWR',
+  description: 'Compounded return from verified periods.',
+  timeframe: '30D',
+  windowStart: '2026-09-01T00:00:00.000Z',
+  asOf: '2026-10-01T00:00:00.000Z',
+  boundaryRule: 'EXACT_CONTIGUOUS_PERIODS_ONLY',
+  orderingRule: 'RETURN_DESCENDING_UNAVAILABLE_LAST',
+  currentnessRule: 'AS_OF_DISPLAYED_CURRENTNESS_NOT_ASSERTED',
+  minimumPeriodCount: 2,
+  rankedCount: 4,
+  unrankedCount: 1,
+  reason: 'One profile lacks complete coverage.',
+};
+
+describe('TraderRankingControls', () => {
+  it('offers documented 7D, 30D, and 90D windows and discloses exact coverage rules', () => {
+    const html = renderToStaticMarkup(
+      <TraderRankingControls timeframe="30D" onTimeframeChange={() => undefined} methodology={methodology} />,
+    );
+    expect(html).toContain('Ranking timeframe');
+    expect(html).toContain('7 days');
+    expect(html).toContain('30 days');
+    expect(html).toContain('90 days');
+    expect(html).toContain('compounded time-weighted return');
+    expect(html).toContain('exact contiguous coverage');
+    expect(html).toContain('minimum of 2 closed, reconciled periods');
+    expect(html).toContain('2026-10-01T00:00:00.000Z');
+    expect(html).toContain('not a claim of current market data');
+  });
+});
+```
+
+FILE: apps/web/src/tests/traders-page.test.tsx
+
+```tsx
+// # NEW — Verifies trader discovery filtering and sorting
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TradersPage } from "../features/trading/traders-page";
+
+describe("TradersPage (GAP-04)", () => {
+  test("filters traders by venue, symbol, and sorts by volume", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["traders", "", "", false], {
+      data: [
+        {
+          traderId: "tr-1",
+          displayName: "Alpha Quant",
+          bio: "BTC specialist",
+          avatarUrl: null,
+          verificationState: "VERIFIED",
+          verifiedAt: null,
+          supportedVenues: ["BINANCE"],
+          supportedSymbols: ["BTC-USDT"],
+          isPublic: true,
+          isFeatured: true,
+          followerCount: 90,
+          totalVolume: "250000",
+          totalTrades: 80,
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+        {
+          traderId: "tr-2",
+          displayName: "Solana Momentum",
+          bio: "SOL specialist",
+          avatarUrl: null,
+          verificationState: "VERIFIED",
+          verifiedAt: null,
+          supportedVenues: ["BYBIT"],
+          supportedSymbols: ["SOL-USDT"],
+          isPublic: true,
+          isFeatured: false,
+          followerCount: 25,
+          totalVolume: "950000",
+          totalTrades: 140,
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+      total: 2,
+    });
+    queryClient.setQueryData(["trader-rankings-discovery", "", "", false], {
+      data: [],
+      total: 0,
+    });
+
+    const htmlAll = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <TradersPage />
+      </QueryClientProvider>,
+    );
+    expect(htmlAll).toContain("Alpha Quant");
+    expect(htmlAll).toContain("Solana Momentum");
+
+    const htmlBybitOnly = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <TradersPage initialFilters={{ venue: "BYBIT" }} />
+      </QueryClientProvider>,
+    );
+    expect(htmlBybitOnly).not.toContain("Alpha Quant");
+    expect(htmlBybitOnly).toContain("Solana Momentum");
+  });
+});
+```
+
+FILE: apps/web/src/tests/trading-api-account-scope.test.ts
+
+```typescript
+// # Responsibility: verifies copy history reads use linked follower accounts and never fall back to unscoped queries.
+// # Verifies copied-position reads use the subscription's linked account and canonical execution API schema.
+import { apiClient } from "../api/api-client";
+import { tradingApi } from "../api/trading-api";
+
+describe("tradingApi.listSubscriptionPositions account scope", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("queries only the linked follower account and maps canonical position fields without invented subscription attribution", async () => {
+    const get = jest.spyOn(apiClient, "get");
+    get
+      .mockResolvedValueOnce({
+        subscriptionId: "sub-1",
+        traderId: "trader-1",
+        strategyId: "strategy-1",
+        state: "ACTIVE",
+        allocationMode: "FIXED",
+        allocationAmount: "100.00",
+        followerAccountId: "account-1",
+      } as never)
+      .mockResolvedValueOnce([
+        {
+          id: "position-1",
+          accountId: "account-1",
+          symbol: "BTC-USDT",
+          side: "LONG",
+          quantity: "0.25",
+          averageEntryPrice: "60000.00",
+          markPrice: "61000.00",
+          unrealisedPnl: "250.00",
+          realisedPnl: "12.50",
+          cumulativeFee: "0.75",
+          feeCurrency: "USDT",
+          containsSimulatedFills: false,
+          fillCount: 4,
+          venue: "BINANCE",
+          updatedAt: "2026-10-01T10:00:00.000Z",
+        },
+        {
+          id: "position-flat",
+          accountId: "account-1",
+          symbol: "ETH-USDT",
+          side: "FLAT",
+          quantity: "0",
+          averageEntryPrice: null,
+          markPrice: null,
+          unrealisedPnl: null,
+          realisedPnl: "5.00",
+          cumulativeFee: "0.10",
+          feeCurrency: "USDT",
+          containsSimulatedFills: true,
+          fillCount: 2,
+          venue: "BINANCE",
+          updatedAt: "2026-10-01T10:01:00.000Z",
+        },
+      ] as never);
+
+    const positions = await tradingApi.listSubscriptionPositions("sub-1", { onlyOpen: false });
+
+    expect(get).toHaveBeenNthCalledWith(1, "/v1/copy-trading/subscriptions/sub-1");
+    expect(get).toHaveBeenNthCalledWith(2, "/v1/execution/positions", {
+      searchParams: { accountId: "account-1", symbol: undefined, includeFlat: true },
+    });
+    expect(positions).toHaveLength(2);
+    expect(positions[0]).toMatchObject({
+      id: "position-1",
+      accountId: "account-1",
+      unrealizedPnl: "250.00",
+      realizedPnl: "12.50",
+      containsSimulatedFills: false,
+      isOpen: true,
+    });
+    expect(positions[1]).toMatchObject({ id: "position-flat", isOpen: false });
+    expect(positions[0]).not.toHaveProperty("traderId");
+    expect(positions[0]).not.toHaveProperty("strategyId");
+  });
+
+  test("uses the subscription-scoped execution route and joins only account-filtered order records", async () => {
+    const get = jest.spyOn(apiClient, "get");
+    get
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "exec-1",
+            subscriptionId: "sub-1",
+            leaderEventId: "event-1",
+            leaderOrderId: "leader-order-1",
+            leaderFillId: null,
+            traderId: "trader-1",
+            followerId: "user-1",
+            followerAccountId: "account-1",
+            status: "FILLED",
+            sizingMode: "FIXED",
+            leaderQuantity: "1.00",
+            leaderPrice: "100.00",
+            followerQuantity: "0.25",
+            followerPrice: "101.00",
+            slippageTolerance: "50",
+            maxNotional: "500.00",
+            followerOrderId: "order-1",
+            riskDecision: "ALLOW",
+            riskRuleId: null,
+            failureReason: null,
+            executionIntent: { symbol: "BTC-USDT" },
+            createdAt: "2026-10-01T10:00:00.000Z",
+            updatedAt: "2026-10-01T10:00:01.000Z",
+          },
+        ],
+        total: 1,
+      } as never)
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "order-1",
+            clientOrderId: "client-1",
+            exchangeOrderId: "exchange-1",
+            accountId: "account-1",
+            strategyId: "strategy-1",
+            venue: "BINANCE",
+            symbol: "BTC-USDT",
+            side: "BUY",
+            orderType: "MARKET",
+            status: "FILLED",
+            quantity: "0.25",
+            filledQuantity: "0.25",
+            averageFillPrice: "101.00",
+            cumulativeFee: "0.10",
+            feeCurrency: "USDT",
+            isSimulated: false,
+            rejectionCode: null,
+            rejectionReason: null,
+            createdAt: "2026-10-01T10:00:01.000Z",
+          },
+        ],
+      } as never);
+
+    const history = await tradingApi.listSubscriptionOrders("sub-1", {
+      status: "FILLED",
+      page: 2,
+      limit: 5,
+    });
+
+    expect(get).toHaveBeenNthCalledWith(1, "/v1/copy-trading/subscriptions/sub-1/executions", {
+      searchParams: { status: "FILLED", page: 2, limit: 5 },
+    });
+    expect(get).toHaveBeenNthCalledWith(2, "/v1/execution/orders", {
+      searchParams: { accountId: "account-1", symbol: undefined, limit: 50 },
+    });
+    expect(history.items[0]).toMatchObject({
+      execution: { executionId: "exec-1", status: "FILLED" },
+      order: { id: "order-1", type: "MARKET", cumulativeFee: "0.10" },
+    });
+  });
+
+  test("does not fall back to an unscoped position query without a linked follower account", async () => {
+    const get = jest.spyOn(apiClient, "get");
+    get.mockResolvedValueOnce({
+      subscriptionId: "sub-unlinked",
+      traderId: "trader-1",
+      strategyId: "strategy-1",
+      state: "ACTIVE",
+      allocationMode: "FIXED",
+      allocationAmount: "100.00",
+      followerAccountId: null,
+    } as never);
+
+    await expect(tradingApi.listSubscriptionPositions("sub-unlinked")).resolves.toEqual([]);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+FILE: apps/web/src/tests/trading-api-allocation-rebalance.test.ts
+
+```typescript
+// # Responsibility: verifies the allocation planner request shape, exact-decimal response mapping, and fail-closed preview contract.
+
+import { apiClient } from '@/api/api-client';
+import { tradingApi } from '@/api/trading-api';
+
+describe('tradingApi.previewAllocationRebalance', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('sends decimal strings unchanged and maps only a non-executable unverified response', async () => {
+    const input = {
+      totalValue: '0.000000000001',
+      allocations: [
+        { traderId: 'trader-a', currentValue: '0', targetWeightBps: 5000, priceAvailable: true },
+        { traderId: 'trader-b', currentValue: '0', targetWeightBps: 5000, priceAvailable: true },
+      ],
+    };
+    const post = jest.spyOn(apiClient, 'post').mockResolvedValue({
+      executable: false,
+      inputProvenance: 'CLIENT_SUPPLIED_UNVERIFIED',
+      lines: [
+        {
+          traderId: 'trader-a',
+          currentValue: '0',
+          targetValue: '0.0000000000005',
+          deltaValue: '0.0000000000005',
+          targetWeightBps: 5000,
+          status: 'PREVIEW',
+        },
+        {
+          traderId: 'trader-b',
+          currentValue: '0',
+          targetValue: '0.0000000000005',
+          deltaValue: '0.0000000000005',
+          targetWeightBps: 5000,
+          status: 'PREVIEW',
+        },
+      ],
+    } as never);
+
+    await expect(tradingApi.previewAllocationRebalance(input)).resolves.toEqual([
+      {
+        traderId: 'trader-a',
+        currentValue: '0',
+        targetValue: '0.0000000000005',
+        deltaValue: '0.0000000000005',
+        targetWeightBps: 5000,
+        status: 'PREVIEW',
+      },
+      {
+        traderId: 'trader-b',
+        currentValue: '0',
+        targetValue: '0.0000000000005',
+        deltaValue: '0.0000000000005',
+        targetWeightBps: 5000,
+        status: 'PREVIEW',
+      },
+    ]);
+    expect(post).toHaveBeenCalledWith('/v1/copy-trading/allocation-rebalance/preview', input);
+  });
+
+  it('rejects executable or differently-provenanced responses', async () => {
+    jest.spyOn(apiClient, 'post').mockResolvedValue({
+      executable: true,
+      inputProvenance: 'PERSISTED',
+      lines: [],
+    } as never);
+
+    await expect(tradingApi.previewAllocationRebalance({ totalValue: '1', allocations: [] })).rejects.toThrow(
+      /non-executable, unverified-input contract/,
+    );
+  });
+});
+```
+
 FILE: apps/web/src/tests/trading-api.test.ts
 
 ```typescript
+// # Verifies trader performance detail and trade breakdown client methods
 /**
  * Copy-trading, client-lifecycle and maintenance clients: mapping of the real
  * API records (the old types described fields the API never returned) and the
@@ -15465,9 +27861,14 @@ FILE: apps/web/src/tests/trading-api.test.ts
 import {
   composeTradingStatus,
   copyEligibility,
+  filterTradersByDiscovery,
+  parseCopyExecution,
+  parseCopyPolicy,
+  parseFollowerRiskPolicy,
   parseStrategy,
   parseSubscription,
   parseTrader,
+  parseTraderPerformance,
   permissionsAllowCopy,
 } from "../api/trading-api";
 import { parseOnboarding, reasonList } from "../api/client-lifecycle-api";
@@ -15527,6 +27928,150 @@ describe("trading-api mappers", () => {
     expect(() => parseTrader(null)).not.toThrow();
     expect(parseStrategy(undefined).status).toBe("DRAFT");
     expect(parseSubscription({}).allocationAmount).toBe("0");
+  });
+
+  test("parses canonical trader performance, copy policy, risk policy, and execution records (GAP-01)", () => {
+    const perf = parseTraderPerformance({
+      traderId: "tr-1",
+      tenantId: "t-1",
+      realizedPnl: "4820.25",
+      unrealizedPnl: "120.50",
+      maxDrawdown: "410.00",
+      winCount: 42,
+      lossCount: 18,
+      tradeCount: 60,
+      winRate: "0.7",
+      totalVolume: "250000",
+      profitFactor: "2.45",
+      historyLengthDays: 90,
+      isActual: true,
+      source: "FILLS",
+    });
+    expect(perf).toMatchObject({
+      traderId: "tr-1",
+      realizedPnl: "4820.25",
+      winCount: 42,
+      lossCount: 18,
+      tradeCount: 60,
+      winRate: "0.7",
+      isActual: true,
+      source: "FILLS",
+    });
+
+    const policy = parseCopyPolicy({
+      sizingMode: "FIXED",
+      fixedQuantity: "0.25",
+      slippageToleranceBps: 50,
+      executionDelayMs: 200,
+      takeProfitBps: 300,
+      stopLossBps: 150,
+      trailingStopBps: 75,
+    });
+    expect(policy).toMatchObject({
+      sizingMode: "FIXED",
+      fixedQuantity: "0.25",
+      slippageToleranceBps: 50,
+      executionDelayMs: 200,
+      takeProfitBps: 300,
+      stopLossBps: 150,
+      trailingStopBps: 75,
+    });
+
+    const risk = parseFollowerRiskPolicy({
+      maxDailyLoss: "500",
+      maxDrawdown: "15",
+      emergencyStopCopy: true,
+    });
+    expect(risk).toMatchObject({
+      maxDailyLoss: "500",
+      maxDrawdown: "15",
+      emergencyStopCopy: true,
+    });
+
+    const exec = parseCopyExecution({
+      id: "exec-1",
+      subscriptionId: "sub-1",
+      leaderEventId: "fill:1",
+      status: "ROUTED",
+      leaderQuantity: "1.0",
+      followerQuantity: "0.1",
+      riskDecision: "ALLOW",
+    });
+    expect(exec).toMatchObject({
+      executionId: "exec-1",
+      subscriptionId: "sub-1",
+      status: "ROUTED",
+      followerQuantity: "0.1",
+      riskDecision: "ALLOW",
+    });
+  });
+
+  test("filters and sorts traders by venue, symbol, win rate, drawdown, and volume (GAP-04)", () => {
+    const traders = [
+      parseTrader({
+        traderId: "tr-1",
+        displayName: "Alpha Quant",
+        verificationState: "VERIFIED",
+        supportedVenues: ["BINANCE"],
+        supportedSymbols: ["BTC-USDT", "ETH-USDT"],
+        followerCount: 45,
+        totalVolume: "500000",
+        totalTrades: 120,
+      }),
+      parseTrader({
+        traderId: "tr-2",
+        displayName: "Beta Swing",
+        verificationState: "UNVERIFIED",
+        supportedVenues: ["KRAKEN"],
+        supportedSymbols: ["SOL-USDT"],
+        followerCount: 15,
+        totalVolume: "900000",
+        totalTrades: 30,
+      }),
+    ];
+    const perfs = {
+      "tr-1": parseTraderPerformance({ traderId: "tr-1", realizedPnl: "8500", winRate: "0.68", maxDrawdown: "5" }),
+      "tr-2": parseTraderPerformance({ traderId: "tr-2", realizedPnl: "1200", winRate: "0.45", maxDrawdown: "22" }),
+    };
+
+    expect(filterTradersByDiscovery(traders, { venue: "BINANCE" }).map((t) => t.traderId)).toEqual(["tr-1"]);
+    expect(filterTradersByDiscovery(traders, { symbol: "SOL" }).map((t) => t.traderId)).toEqual(["tr-2"]);
+    expect(filterTradersByDiscovery(traders, { minWinRate: 60 }, perfs).map((t) => t.traderId)).toEqual(["tr-1"]);
+    expect(filterTradersByDiscovery(traders, { maxDrawdown: 10 }, perfs).map((t) => t.traderId)).toEqual(["tr-1"]);
+    expect(filterTradersByDiscovery(traders, { sortBy: "volume" }).map((t) => t.traderId)).toEqual(["tr-2", "tr-1"]);
+  });
+
+  // The discovery page has always offered "Sort by Realized PnL" and "Sort by Win Rate". The filter
+  // implemented neither, so both options silently fell through to follower-count ordering. These
+  // assertions fail if the branches are removed again.
+  test("sorts by realized PnL and by win rate, ordering unknown performances last", () => {
+    const traders = [
+      parseTrader({ traderId: "tr-1", displayName: "Alice", followerCount: 1, supportedVenues: [], supportedSymbols: [], totalVolume: "1" }),
+      parseTrader({ traderId: "tr-2", displayName: "Bob", followerCount: 99, supportedVenues: [], supportedSymbols: [], totalVolume: "2" }),
+      parseTrader({ traderId: "tr-3", displayName: "Cara", followerCount: 50, supportedVenues: [], supportedSymbols: [], totalVolume: "3" }),
+    ];
+    // tr-2 has the most followers, so a fall-through to follower ordering would put it first.
+    const perfs = {
+      "tr-1": parseTraderPerformance({ traderId: "tr-1", realizedPnl: "8500", winRate: "0.68" }),
+      "tr-2": parseTraderPerformance({ traderId: "tr-2", realizedPnl: "-250.75", winRate: "0.45" }),
+      "tr-3": null,
+    };
+
+    expect(filterTradersByDiscovery(traders, { sortBy: "pnl" }, perfs).map((t) => t.traderId)).toEqual(["tr-1", "tr-2", "tr-3"]);
+    expect(filterTradersByDiscovery(traders, { sortBy: "winRate" }, perfs).map((t) => t.traderId)).toEqual(["tr-1", "tr-2", "tr-3"]);
+  });
+
+  test("orders decimals by value, not by string: 9 is less than 10", () => {
+    const traders = [
+      parseTrader({ traderId: "tr-9", displayName: "Nine", followerCount: 1, supportedVenues: [], supportedSymbols: [], totalVolume: "9" }),
+      parseTrader({ traderId: "tr-10", displayName: "Ten", followerCount: 1, supportedVenues: [], supportedSymbols: [], totalVolume: "10" }),
+      parseTrader({ traderId: "tr-100", displayName: "Hundred", followerCount: 1, supportedVenues: [], supportedSymbols: [], totalVolume: "100" }),
+    ];
+    expect(filterTradersByDiscovery(traders, { sortBy: "volume" }).map((t) => t.traderId)).toEqual([
+      "tr-100",
+      "tr-10",
+      "tr-9",
+    ]);
   });
 });
 
@@ -15641,6 +28186,79 @@ describe("operations-api maintenance notice", () => {
     expect(parseMaintenanceNotice({ active: false }).active).toBe(false);
     expect(parseMaintenanceNotice({ active: false, blocksTrading: true }).blocksTrading).toBe(false);
     expect(parseMaintenanceNotice({ active: true, scope: "BILLING_CAPABILITY", blocksTrading: false }).blocksTrading).toBe(false);
+  });
+});
+```
+
+FILE: apps/web/src/tests/use-copy-execution-events.test.ts
+
+```typescript
+// # NEW — Verifies live event hook and polling fallback
+import {
+  classifyExecutionEventType,
+  realtimeApi,
+  type CopyRealtimeEvent,
+} from "../api/realtime-api";
+import { tradingApi } from "../api/trading-api";
+
+describe("useCopyExecutionEvents & realtimeApi (GAP-13)", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("subscribes via polling fallback, classifies execution status, and surfaces live events", async () => {
+    jest.spyOn(tradingApi, "listExecutions").mockResolvedValue({
+      data: [
+        {
+          executionId: "exec-101",
+          subscriptionId: "sub-1",
+          traderId: "tr-1",
+          followerId: "user-1",
+          strategyId: "st-1",
+          leaderEventId: "fill:leader-1",
+          leaderOrderId: "ord-leader-1",
+          followerOrderId: "ord-follower-1",
+          status: "COMPLETED",
+          failureReason: null,
+          leaderQuantity: "1.0",
+          followerQuantity: "0.25",
+          sizingMode: "PROPORTIONAL",
+          riskDecision: "ALLOW",
+          riskReasons: [],
+          isSimulated: false,
+          createdAt: "2026-10-01T12:00:00.000Z",
+          updatedAt: "2026-10-01T12:00:02.000Z",
+        },
+      ],
+      total: 1,
+    });
+
+    const events: CopyRealtimeEvent[] = [];
+    let mode = "";
+    const unsubscribe = realtimeApi.subscribeToCopyExecutionEvents({
+      subscriptionId: "sub-1",
+      pollIntervalMs: 60000,
+      onTransportChange: (m) => {
+        mode = m;
+      },
+      onEvent: (ev) => {
+        events.push(ev);
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    unsubscribe();
+
+    expect(mode).toBe("POLLING");
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe("COPY_ORDER_FILLED");
+    expect(
+      classifyExecutionEventType({
+        ...events[0]!.execution,
+        status: "RISK_BLOCKED",
+        riskDecision: "BLOCK",
+      }),
+    ).toBe("COPY_RISK_BLOCKED");
   });
 });
 ```

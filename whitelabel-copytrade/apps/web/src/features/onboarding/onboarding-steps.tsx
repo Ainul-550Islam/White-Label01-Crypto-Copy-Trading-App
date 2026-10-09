@@ -1,4 +1,5 @@
 "use client";
+import type { JSX } from 'react';
 
 import { StatusBadge } from "@/components/status-badge";
 import { LoadingState } from "@/components/loading-state";

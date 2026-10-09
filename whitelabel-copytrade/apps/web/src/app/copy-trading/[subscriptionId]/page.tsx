@@ -2,21 +2,20 @@
 // # MODIFY — execution detail linkage
 // # MODIFY — reconciliation status integration
 'use client';
+import type { JSX } from 'react';
 
-import React from 'react';
+import React, { use } from 'react';
 import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { CopySubscriptionDetailPage } from '@/features/trading/copy-subscription-detail-page';
 import { AppShell } from '@/layout/app-shell';
 
 export interface CopySubscriptionDetailRouteProps {
-  params: {
-    subscriptionId: string;
-  };
+  params: Promise<{ subscriptionId: string }>;
 }
 
 export default function Page({ params }: CopySubscriptionDetailRouteProps): JSX.Element {
-  const { subscriptionId } = params;
+  const { subscriptionId } = use(params);
 
   return (
     <AuthGuard>

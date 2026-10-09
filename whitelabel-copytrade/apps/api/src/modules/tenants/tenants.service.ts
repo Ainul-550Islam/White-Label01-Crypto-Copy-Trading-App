@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import {
   AuditAction,
@@ -17,6 +17,7 @@ import { buildPaginationMeta, normalisePagination } from '@wlct/utils';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { CacheService } from '../../infrastructure/redis/cache.service';
 import { CryptoService } from '../../infrastructure/crypto/crypto.service';
 import { PasswordService } from '../../infrastructure/crypto/password.service';
@@ -57,6 +58,7 @@ export class TenantsService {
     private readonly audit: AuditService,
     private readonly featureFlags: FeatureFlagsService,
     @InjectPinoLogger(TenantsService.name) private readonly logger: PinoLogger,
+    @Optional() private readonly outbox?: OutboxService,
   ) {}
 
   async list(query: ListTenantsDto): Promise<PaginatedResult<TenantDto>> {
@@ -303,6 +305,20 @@ export class TenantsService {
         }
       }
 
+      if (!this.outbox) {
+        throw new Error('Transactional outbox is unavailable; refusing tenant creation without its customer.created event');
+      }
+      await (tx as any).$executeRaw`SELECT set_config('app.tenant_id', ${created.id}, true)`;
+      await this.outbox.append(tx, {
+        tenantId: created.id,
+        aggregateType: 'customer',
+        aggregateId: created.id,
+        eventType: 'customer.created',
+        idempotencyKey: `tenant:${created.id}:customer.created`,
+        correlationId: context.requestId.length <= 64 ? context.requestId : null,
+        payload: { customerId: created.id },
+      });
+
       return created;
     });
 
@@ -344,29 +360,44 @@ export class TenantsService {
       throw new NotFoundException('Tenant', tenantId);
     }
 
-    const updated = await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name } : {}),
-        ...(dto.legalName !== undefined ? { legalName: dto.legalName } : {}),
-        ...(dto.contactEmail !== undefined ? { contactEmail: dto.contactEmail } : {}),
-        ...(dto.contactPhone !== undefined ? { contactPhone: dto.contactPhone } : {}),
-        ...(dto.countryCode !== undefined ? { countryCode: dto.countryCode } : {}),
-        ...(dto.defaultLocale !== undefined ? { defaultLocale: dto.defaultLocale } : {}),
-        ...(dto.supportedLocales !== undefined ? { supportedLocales: dto.supportedLocales } : {}),
-        ...(dto.defaultCurrency !== undefined ? { defaultCurrency: dto.defaultCurrency } : {}),
-        ...(dto.supportedCurrencies !== undefined
-          ? { supportedCurrencies: dto.supportedCurrencies }
-          : {}),
-        ...(dto.timezone !== undefined ? { timezone: dto.timezone } : {}),
-        ...(dto.platformFeeBps !== undefined ? { platformFeeBps: dto.platformFeeBps } : {}),
-        ...(dto.performanceFeeBps !== undefined
-          ? { performanceFeeBps: dto.performanceFeeBps }
-          : {}),
-        ...(dto.maxUsers !== undefined ? { maxUsers: dto.maxUsers } : {}),
-        ...(dto.maxTraders !== undefined ? { maxTraders: dto.maxTraders } : {}),
-      },
-      include: TENANT_INCLUDE,
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing tenant update without its customer.updated event');
+    }
+    const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const tenantUpdate = await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.legalName !== undefined ? { legalName: dto.legalName } : {}),
+          ...(dto.contactEmail !== undefined ? { contactEmail: dto.contactEmail } : {}),
+          ...(dto.contactPhone !== undefined ? { contactPhone: dto.contactPhone } : {}),
+          ...(dto.countryCode !== undefined ? { countryCode: dto.countryCode } : {}),
+          ...(dto.defaultLocale !== undefined ? { defaultLocale: dto.defaultLocale } : {}),
+          ...(dto.supportedLocales !== undefined ? { supportedLocales: dto.supportedLocales } : {}),
+          ...(dto.defaultCurrency !== undefined ? { defaultCurrency: dto.defaultCurrency } : {}),
+          ...(dto.supportedCurrencies !== undefined
+            ? { supportedCurrencies: dto.supportedCurrencies }
+            : {}),
+          ...(dto.timezone !== undefined ? { timezone: dto.timezone } : {}),
+          ...(dto.platformFeeBps !== undefined ? { platformFeeBps: dto.platformFeeBps } : {}),
+          ...(dto.performanceFeeBps !== undefined
+            ? { performanceFeeBps: dto.performanceFeeBps }
+            : {}),
+          ...(dto.maxUsers !== undefined ? { maxUsers: dto.maxUsers } : {}),
+          ...(dto.maxTraders !== undefined ? { maxTraders: dto.maxTraders } : {}),
+        },
+        include: TENANT_INCLUDE,
+      });
+      await this.outbox!.append(tx, {
+        tenantId,
+        aggregateType: 'customer',
+        aggregateId: tenantId,
+        eventType: 'customer.updated',
+        idempotencyKey: `tenant:${tenantId}:customer.updated:${context.requestId.slice(0, 128)}`,
+        correlationId: context.requestId.length <= 64 ? context.requestId : null,
+        payload: { customerId: tenantId },
+      });
+      return tenantUpdate;
     });
 
     await this.resolver.invalidate(
@@ -407,10 +438,25 @@ export class TenantsService {
       throw new NotFoundException('Tenant', tenantId);
     }
 
-    const updated = await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: { status: dto.status },
-      include: TENANT_INCLUDE,
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing tenant status update without its customer.updated event');
+    }
+    const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const tenantUpdate = await tx.tenant.update({
+        where: { id: tenantId },
+        data: { status: dto.status },
+        include: TENANT_INCLUDE,
+      });
+      await this.outbox!.append(tx, {
+        tenantId,
+        aggregateType: 'customer',
+        aggregateId: tenantId,
+        eventType: 'customer.updated',
+        idempotencyKey: `tenant:${tenantId}:customer.status:${context.requestId.slice(0, 128)}`,
+        correlationId: context.requestId.length <= 64 ? context.requestId : null,
+        payload: { customerId: tenantId },
+      });
+      return tenantUpdate;
     });
 
     // Suspension must stop live traffic immediately.

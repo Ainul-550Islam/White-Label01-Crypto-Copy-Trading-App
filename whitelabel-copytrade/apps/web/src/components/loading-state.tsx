@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 export function LoadingState({ message = 'Loading...' }: { message?: string }): JSX.Element {
   return (
     <div className="flex min-h-[200px] items-center justify-center p-8" role="status" aria-live="polite">

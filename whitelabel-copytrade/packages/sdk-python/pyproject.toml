@@ -6,8 +6,29 @@ build-backend = "setuptools.build_meta"
 name = "wlct-sdk"
 version = "1.0.0"
 description = "Typed Python SDK for the white-label developer platform API"
+readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+license = { text = "LicenseRef-Proprietary" }
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "License :: Other/Proprietary License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = ["pydantic>=2.7,<3"]
+
+[project.urls]
+Repository = "https://github.com/Ainul-550Islam/White-Label01-Crypto-Copy-Trading-App"
+Changelog = "https://github.com/Ainul-550Islam/White-Label01-Crypto-Copy-Trading-App/blob/main/whitelabel-copytrade/packages/sdk-python/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+  "datamodel-code-generator>=0.28,<1",
+  "pytest>=8,<9",
+]
 
 [tool.setuptools.packages.find]
 include = ["wlct_sdk*"]

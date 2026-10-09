@@ -186,6 +186,39 @@ describe("trading-api mappers", () => {
     expect(filterTradersByDiscovery(traders, { maxDrawdown: 10 }, perfs).map((t) => t.traderId)).toEqual(["tr-1"]);
     expect(filterTradersByDiscovery(traders, { sortBy: "volume" }).map((t) => t.traderId)).toEqual(["tr-2", "tr-1"]);
   });
+
+  // The discovery page has always offered "Sort by Realized PnL" and "Sort by Win Rate". The filter
+  // implemented neither, so both options silently fell through to follower-count ordering. These
+  // assertions fail if the branches are removed again.
+  test("sorts by realized PnL and by win rate, ordering unknown performances last", () => {
+    const traders = [
+      parseTrader({ traderId: "tr-1", displayName: "Alice", followerCount: 1, supportedVenues: [], supportedSymbols: [], totalVolume: "1" }),
+      parseTrader({ traderId: "tr-2", displayName: "Bob", followerCount: 99, supportedVenues: [], supportedSymbols: [], totalVolume: "2" }),
+      parseTrader({ traderId: "tr-3", displayName: "Cara", followerCount: 50, supportedVenues: [], supportedSymbols: [], totalVolume: "3" }),
+    ];
+    // tr-2 has the most followers, so a fall-through to follower ordering would put it first.
+    const perfs = {
+      "tr-1": parseTraderPerformance({ traderId: "tr-1", realizedPnl: "8500", winRate: "0.68" }),
+      "tr-2": parseTraderPerformance({ traderId: "tr-2", realizedPnl: "-250.75", winRate: "0.45" }),
+      "tr-3": null,
+    };
+
+    expect(filterTradersByDiscovery(traders, { sortBy: "pnl" }, perfs).map((t) => t.traderId)).toEqual(["tr-1", "tr-2", "tr-3"]);
+    expect(filterTradersByDiscovery(traders, { sortBy: "winRate" }, perfs).map((t) => t.traderId)).toEqual(["tr-1", "tr-2", "tr-3"]);
+  });
+
+  test("orders decimals by value, not by string: 9 is less than 10", () => {
+    const traders = [
+      parseTrader({ traderId: "tr-9", displayName: "Nine", followerCount: 1, supportedVenues: [], supportedSymbols: [], totalVolume: "9" }),
+      parseTrader({ traderId: "tr-10", displayName: "Ten", followerCount: 1, supportedVenues: [], supportedSymbols: [], totalVolume: "10" }),
+      parseTrader({ traderId: "tr-100", displayName: "Hundred", followerCount: 1, supportedVenues: [], supportedSymbols: [], totalVolume: "100" }),
+    ];
+    expect(filterTradersByDiscovery(traders, { sortBy: "volume" }).map((t) => t.traderId)).toEqual([
+      "tr-100",
+      "tr-10",
+      "tr-9",
+    ]);
+  });
 });
 
 describe("trading status and copy eligibility", () => {

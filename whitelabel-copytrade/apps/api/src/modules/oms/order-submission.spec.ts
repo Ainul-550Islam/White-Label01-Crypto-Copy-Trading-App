@@ -279,7 +279,9 @@ describe('Partial fill progression & remaining quantity (GAP-18)', () => {
     let intentState: string = OrderIntentState.ACKNOWLEDGED;
     const transitions: any[] = [];
 
-    const prisma = {
+    let prisma: any;
+    prisma = {
+      withTenantRls: jest.fn(async (_tenantId: string, work: (tx: unknown) => Promise<unknown>) => work(prisma)),
       order: {
         findFirst: jest.fn(async () => ({ id: 'o-1', tenantId: 't-1', clientOrderId: 'oms-1', quantity: '1.0', venue: 'PAPER' })),
         update: jest.fn(async () => ({})),
@@ -307,7 +309,8 @@ describe('Partial fill progression & remaining quantity (GAP-18)', () => {
       },
     };
 
-    const lifecycle = new OrderLifecycleService(prisma as any);
+    const outbox = { append: jest.fn(async () => undefined) };
+    const lifecycle = new OrderLifecycleService(prisma as any, outbox as never);
     const fillService = new FillManagementService(prisma as any, lifecycle);
 
     expect(fillService.calculateRemainingQuantity('1.0', '0.4')).toBe('0.6');
@@ -345,6 +348,14 @@ describe('Partial fill progression & remaining quantity (GAP-18)', () => {
       averagePrice: '50600',
     });
     expect(intentState).toBe(OrderIntentState.FILLED);
+    expect(outbox.append).toHaveBeenCalledTimes(1);
+    expect(outbox.append).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      tenantId: 't-1',
+      aggregateType: 'order',
+      aggregateId: 'i-1',
+      eventType: 'order.filled',
+      payload: expect.objectContaining({ orderId: 'i-1', status: 'FILLED' }),
+    }));
 
     await expect(
       lifecycle.transition({

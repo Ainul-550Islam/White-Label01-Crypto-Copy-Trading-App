@@ -1,11 +1,12 @@
 # Runtime dependencies, pinned exactly like the sibling services so one
 # upgrade sweep touches all Python services together.
-fastapi==0.115.0
+fastapi==0.143.0
+starlette==1.7.0
 uvicorn[standard]==0.31.0
 pydantic==2.9.2
 pydantic-settings==2.5.2
 python-json-logger==2.0.7
-# Live credential fetching (Part 19). app/secret_fetcher.py is the one module in this
+# Live credential fetching (Part 19). app/security/secret_fetcher.py is the one module in this
 # service that talks HTTP to a secret store, and it is a RUNTIME dependency, not a
 # test one: previously httpx appeared only in requirements-dev.txt (pulled in for
 # fastapi.testclient), so a production image built from this file had no HTTP client at

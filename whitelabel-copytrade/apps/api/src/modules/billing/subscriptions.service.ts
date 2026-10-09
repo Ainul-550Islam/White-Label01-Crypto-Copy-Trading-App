@@ -1,5 +1,6 @@
 import { Injectable, Optional, Inject, forwardRef } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import type { Prisma } from '@prisma/client';
 import {
   AuditAction,
   AuditActorType,
@@ -12,6 +13,7 @@ import {
 } from '@wlct/shared-types';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PlansService } from './plans.service';
@@ -42,6 +44,7 @@ export class SubscriptionsService {
     @Optional()
     @Inject(forwardRef(() => BillingEventService))
     private readonly billingEventService?: BillingEventService,
+    @Optional() private readonly outbox?: OutboxService,
   ) {}
 
   async getCurrent(tenantId: string): Promise<TenantSubscriptionDto | null> {
@@ -80,20 +83,31 @@ export class SubscriptionsService {
     }
 
     const now = new Date();
-    const subscription = await this.prisma.tenantSubscription.create({
-      data: {
+    const subscription = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const created = await tx.tenantSubscription.create({
+        data: {
+          tenantId,
+          planId: plan.id,
+          status: plan.trialDays > 0 ? SubscriptionStatus.TRIALING : SubscriptionStatus.ACTIVE,
+          currentPeriodStart: now,
+          currentPeriodEnd: this.periodEnd(now, plan.interval as BillingInterval),
+          trialEndsAt:
+            plan.trialDays > 0 ? new Date(now.getTime() + plan.trialDays * 86_400_000) : null,
+          seatsPurchased: dto.seatsPurchased,
+          externalCustomerId: dto.externalCustomerId ?? null,
+          externalSubscriptionId: dto.externalSubscriptionId ?? null,
+        },
+        include: { plan: true },
+      });
+      await this.appendSubscriptionEvent(tx, {
         tenantId,
-        planId: plan.id,
-        status: plan.trialDays > 0 ? SubscriptionStatus.TRIALING : SubscriptionStatus.ACTIVE,
-        currentPeriodStart: now,
-        currentPeriodEnd: this.periodEnd(now, plan.interval as BillingInterval),
-        trialEndsAt:
-          plan.trialDays > 0 ? new Date(now.getTime() + plan.trialDays * 86_400_000) : null,
-        seatsPurchased: dto.seatsPurchased,
-        externalCustomerId: dto.externalCustomerId ?? null,
-        externalSubscriptionId: dto.externalSubscriptionId ?? null,
-      },
-      include: { plan: true },
+        subscriptionId: created.id,
+        eventType: 'subscription.created',
+        status: created.status,
+        naturalKey: context.requestId,
+        occurredAt: created.createdAt,
+      });
+      return created;
     });
 
     await this.applyPlanLimitsToTenant(tenantId, plan.limits as unknown as PlanLimits);
@@ -153,26 +167,37 @@ export class SubscriptionsService {
     }
 
     const now = new Date();
-    const updated = await this.prisma.tenantSubscription.update({
-      where: { id: subscription.id },
-      data: dto.atPeriodEnd
-        ? // Scheduled change: keep the current entitlements until the period
-          // rolls over, and record the intent in metadata for the billing job.
-          {
-            metadata: {
-              ...((subscription.metadata as Record<string, unknown>) ?? {}),
-              pendingPlanId: plan.id,
-              pendingPlanCode: plan.code,
-              pendingEffectiveAt: subscription.currentPeriodEnd.toISOString(),
+    const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const changed = await tx.tenantSubscription.update({
+        where: { id: subscription.id },
+        data: dto.atPeriodEnd
+          ? // Scheduled change: keep the current entitlements until the period
+            // rolls over, and record the intent in metadata for the billing job.
+            {
+              metadata: {
+                ...((subscription.metadata as Record<string, unknown>) ?? {}),
+                pendingPlanId: plan.id,
+                pendingPlanCode: plan.code,
+                pendingEffectiveAt: subscription.currentPeriodEnd.toISOString(),
+              },
+            }
+          : {
+              planId: plan.id,
+              status: SubscriptionStatus.ACTIVE,
+              currentPeriodStart: now,
+              currentPeriodEnd: this.periodEnd(now, plan.interval as BillingInterval),
             },
-          }
-        : {
-            planId: plan.id,
-            status: SubscriptionStatus.ACTIVE,
-            currentPeriodStart: now,
-            currentPeriodEnd: this.periodEnd(now, plan.interval as BillingInterval),
-          },
-      include: { plan: true },
+        include: { plan: true },
+      });
+      await this.appendSubscriptionEvent(tx, {
+        tenantId,
+        subscriptionId: changed.id,
+        eventType: 'subscription.changed',
+        status: changed.status,
+        naturalKey: context.requestId,
+        occurredAt: changed.updatedAt,
+      });
+      return changed;
     });
 
     if (!dto.atPeriodEnd) {
@@ -236,20 +261,31 @@ export class SubscriptionsService {
       throw new NotFoundException('Active subscription', tenantId);
     }
 
-    const updated = await this.prisma.tenantSubscription.update({
-      where: { id: subscription.id },
-      data: dto.atPeriodEnd
-        ? {
-            cancelAtPeriodEnd: true,
-            cancelReason: dto.reason ?? null,
-          }
-        : {
-            status: SubscriptionStatus.CANCELED,
-            canceledAt: new Date(),
-            cancelAtPeriodEnd: false,
-            cancelReason: dto.reason ?? null,
-          },
-      include: { plan: true },
+    const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const changed = await tx.tenantSubscription.update({
+        where: { id: subscription.id },
+        data: dto.atPeriodEnd
+          ? {
+              cancelAtPeriodEnd: true,
+              cancelReason: dto.reason ?? null,
+            }
+          : {
+              status: SubscriptionStatus.CANCELED,
+              canceledAt: new Date(),
+              cancelAtPeriodEnd: false,
+              cancelReason: dto.reason ?? null,
+            },
+        include: { plan: true },
+      });
+      await this.appendSubscriptionEvent(tx, {
+        tenantId,
+        subscriptionId: changed.id,
+        eventType: dto.atPeriodEnd ? 'subscription.changed' : 'subscription.cancelled',
+        status: changed.status,
+        naturalKey: context.requestId,
+        occurredAt: changed.updatedAt,
+      });
+      return changed;
     });
 
     await this.audit.recordImmediate({
@@ -312,10 +348,21 @@ export class SubscriptionsService {
       throw new NotFoundException('Cancellable subscription', tenantId);
     }
 
-    const updated = await this.prisma.tenantSubscription.update({
-      where: { id: subscription.id },
-      data: { cancelAtPeriodEnd: false, cancelReason: null },
-      include: { plan: true },
+    const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const resumed = await tx.tenantSubscription.update({
+        where: { id: subscription.id },
+        data: { cancelAtPeriodEnd: false, cancelReason: null },
+        include: { plan: true },
+      });
+      await this.appendSubscriptionEvent(tx, {
+        tenantId,
+        subscriptionId: resumed.id,
+        eventType: 'subscription.changed',
+        status: resumed.status,
+        naturalKey: context.requestId,
+        occurredAt: resumed.updatedAt,
+      });
+      return resumed;
     });
 
     await this.audit.recordImmediate({
@@ -441,6 +488,32 @@ export class SubscriptionsService {
     );
 
     return { pastDue: pastDue.count, expired: expired.count };
+  }
+
+  private async appendSubscriptionEvent(
+    tx: Prisma.TransactionClient,
+    input: {
+      tenantId: string;
+      subscriptionId: string;
+      eventType: 'subscription.created' | 'subscription.changed' | 'subscription.cancelled';
+      status: string;
+      naturalKey: string;
+      occurredAt?: Date;
+    },
+  ): Promise<void> {
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing subscription transition without its webhook event');
+    }
+    await this.outbox.append(tx, {
+      tenantId: input.tenantId,
+      aggregateType: 'billing.subscription',
+      aggregateId: input.subscriptionId,
+      eventType: input.eventType,
+      idempotencyKey: `subscription:${input.subscriptionId}:${input.eventType}:${input.naturalKey.slice(0, 128)}`,
+      correlationId: input.naturalKey.length <= 64 ? input.naturalKey : null,
+      ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
+      payload: { subscriptionId: input.subscriptionId, status: input.status },
+    });
   }
 
   /** Mirrors plan seat limits onto the tenant so guards can read them cheaply. */

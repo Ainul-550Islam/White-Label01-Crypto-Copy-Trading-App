@@ -1,5 +1,6 @@
 // # Integrates copy-trading notification filter and detail links
 "use client";
+import type { JSX } from 'react';
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

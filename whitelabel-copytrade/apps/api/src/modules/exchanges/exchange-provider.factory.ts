@@ -11,10 +11,10 @@ import {
   isDecimalString,
   canonicalFromConcatenated,
 } from './base-exchange-provider';
-import { BybitProvider } from './venues/bybit.provider';
-import { OkxProvider } from './venues/okx.provider';
-import { KrakenProvider } from './venues/kraken.provider';
-import { CoinbaseProvider } from './venues/coinbase.provider';
+import { BybitProvider } from './providers/bybit.provider';
+import { OkxProvider } from './providers/okx.provider';
+import { KrakenProvider } from './providers/kraken.provider';
+import { CoinbaseProvider } from './providers/coinbase.provider';
 import * as crypto from 'crypto';
 
 
@@ -412,7 +412,7 @@ class GenericExchangeProvider extends BaseExchangeProvider {
   private notSupported(context: ExchangeProviderContext, operation: string): ExchangeProviderError {
     return new ExchangeProviderError(
       ExchangeProviderErrorCode.NOT_SUPPORTED,
-      `${this.displayName} (${this.venue}) has no exchange adapter: ${operation} is not available. Add a dedicated provider under exchanges/venues before connecting accounts to this venue.`,
+      `${this.displayName} (${this.venue}) has no exchange adapter: ${operation} is not available. Add a dedicated provider under exchanges/providers before connecting accounts to this venue.`,
       context.venue,
       context.environment,
       false,

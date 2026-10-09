@@ -1,20 +1,19 @@
 // # NEW — subscription settings route
 'use client';
+import type { JSX } from 'react';
 
-import React from 'react';
+import React, { use } from 'react';
 import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { CopySettingsPage } from '@/features/trading/copy-settings-page';
 import { AppShell } from '@/layout/app-shell';
 
 export interface CopySubscriptionSettingsRouteProps {
-  params: {
-    subscriptionId: string;
-  };
+  params: Promise<{ subscriptionId: string }>;
 }
 
 export default function Page({ params }: CopySubscriptionSettingsRouteProps): JSX.Element {
-  const { subscriptionId } = params;
+  const { subscriptionId } = use(params);
 
   return (
     <AuthGuard>

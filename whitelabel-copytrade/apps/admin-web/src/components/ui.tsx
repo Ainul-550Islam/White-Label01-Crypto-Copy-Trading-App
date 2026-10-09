@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
 import { theme, type StatusTone } from '@/lib/theme';

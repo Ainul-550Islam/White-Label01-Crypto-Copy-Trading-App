@@ -1,12 +1,13 @@
 // # NEW — Displays screening match details and disposition controls
 // # NEW — initiate/rescreen/disposition UI
 'use client';
+import type { JSX } from 'react';
 
 import React, { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui';
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { theme } from '@/lib/theme';
 
 export interface AmlScreeningMatch {

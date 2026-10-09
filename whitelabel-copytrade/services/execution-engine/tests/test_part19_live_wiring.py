@@ -32,7 +32,7 @@ from wlct_trading.execution.live_enablement import LivePrerequisite
 from wlct_trading.execution.placement_review import PlacementReviewPolicy, ReviewArea
 
 from app.config import Settings
-from app.placement import build_confirmation_verifier, build_placement_reviewer
+from app.orders.placement import build_confirmation_verifier, build_placement_reviewer
 from tests.conftest import BASE_ENV
 from tests.test_execution_engine import settings_for
 from tests.test_part16_placement import CREDENTIAL_SHAPED_KEYS, json_keys, runtime_for
@@ -395,7 +395,7 @@ class TestReviewerWiring:
     def test_the_boot_log_carries_presence_and_no_material(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with caplog.at_level(logging.INFO, logger="app.placement"):
+        with caplog.at_level(logging.INFO, logger="app.orders.placement"):
             self.describe(
                 ("EXECUTION_REQUIRE_OPERATOR_CONFIRMATION", "true"),
                 ("EXECUTION_CONFIRMATION_KEY_ENV", "EXECUTION_TEST_CONFIRMATION_KEY"),

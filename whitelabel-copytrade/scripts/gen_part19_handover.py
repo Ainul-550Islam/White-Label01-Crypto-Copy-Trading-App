@@ -58,7 +58,7 @@ NEW: Final[list[tuple[str, str]]] = [
         "the sentence live refuses with, computed: eight LivePrerequisite members, one evaluate_live_enablement over the wiring the composition root just built, LIVE_* reason codes spelled FROM the enum so the two vocabularies cannot drift, to_public_dict() for machines, render_refusal() for humans, and HARD_BLOCKERS naming the absence no configuration in this build reaches - stated as a constant so that the day it stops being true is a reviewed change to it rather than a boolean that started meaning something else.",
     ),
     (
-        "services/execution-engine/app/secret_fetcher.py",
+        "services/execution-engine/app/security/secret_fetcher.py",
         "the interface's first implementation, and the reason `secret-manager` stopped being a refusal: Vault KV v2 over httpx, https-only with an embedded-credential authority refused even over TLS, mount and path template validated at boot, identifiers matched against [A-Za-z0-9._-]{1,64} BEFORE a request is built, the rendered path bounded at 512 characters and the response at 1 KiB..4 MiB and refused without being consumed, every non-200 one CredentialNotFound that keeps the status and drops the body, and no log line, repr or describe() that can render the token it read.",
     ),
     (
@@ -125,11 +125,11 @@ MODIFIED: Final[list[tuple[str, str]]] = [
         "thirteen settings, two validators (_validate_placement then _validate_live_wiring), the vault_config and operator_confirmation properties that build the core's own types, and to_public_dict() publishing names and presence: the fetcher selector, the mount, the template, the token VARIABLE's name, whether TLS is verified - never an address, never a value, and structurally unable to hold either.",
     ),
     (
-        "services/execution-engine/app/credentials.py",
+        "services/execution-engine/app/exchanges/credentials.py",
         "build_credential_provider takes the fetcher selection from configuration instead of only from an injected argument, exposes fetcher_source as the one bit the enablement report needs, refuses a fetcher named for a source that will never call it, and moves its boot-log keys to providerSource / providerFetcher / providerVariableNames - because RedactionFilter scrubs any credential-SHAPED KEY, and a boot line whose interesting field prints [REDACTED] is a boot line nobody can debug from.",
     ),
     (
-        "services/execution-engine/app/placement.py",
+        "services/execution-engine/app/orders/placement.py",
         "build_confirmation_verifier (key from the environment, minimum length enforced, the same refusal whether the check is required or merely available) and build_placement_reviewer wiring the verifier in, with the boot event carrying requireOperatorConfirmation and operatorConfirmationConfigured and no material.",
     ),
     (

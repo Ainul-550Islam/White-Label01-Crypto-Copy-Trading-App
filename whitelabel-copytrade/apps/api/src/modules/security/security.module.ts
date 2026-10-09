@@ -12,6 +12,7 @@ import { SessionSecurityService } from './session-security.service';
 import { DeviceTrustService } from './device-trust.service';
 import { MfaPolicyService } from './mfa-policy.service';
 import { SecurityEventService } from './security-event.service';
+import { SecurityEventsService } from './security-events.service';
 import { SecurityAuditService } from './security-audit.service';
 import { SecurityThreatDetectionService } from './security-threat-detection.service';
 import { SecurityController } from './security.controller';
@@ -36,6 +37,7 @@ import { SecurityController } from './security.controller';
     DeviceTrustService,
     MfaPolicyService,
     SecurityEventService,
+    SecurityEventsService,
     SecurityAuditService,
     SecurityThreatDetectionService,
   ],
@@ -52,6 +54,7 @@ import { SecurityController } from './security.controller';
     DeviceTrustService,
     MfaPolicyService,
     SecurityEventService,
+    SecurityEventsService,
     SecurityAuditService,
     SecurityThreatDetectionService,
   ],

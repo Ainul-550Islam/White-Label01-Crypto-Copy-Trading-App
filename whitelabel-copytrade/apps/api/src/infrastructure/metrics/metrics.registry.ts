@@ -266,6 +266,25 @@ export class MetricsRegistry {
     this.register(name, 'histogram', help, labels, Object.freeze(asArray), options);
   }
 
+  /** Registers the outbox families at boot with no identifier labels. */
+  registerOutboxMetrics(): void {
+    this.registerGauge(
+      'wlct_outbox_lag_seconds',
+      'Age in seconds of the oldest unpublished outbox event; alert threshold 60 seconds; zero when none.',
+      [],
+    );
+    this.registerCounter(
+      'wlct_outbox_published_total',
+      'Outbox events whose webhook and notification projections committed and whose relay state became PUBLISHED.',
+      [],
+    );
+    this.registerCounter(
+      'wlct_outbox_failed_total',
+      'Outbox dispatch, retry-state, or relay-cycle failures recorded by this API process.',
+      [],
+    );
+  }
+
   private register(
     name: string,
     type: MetricType,

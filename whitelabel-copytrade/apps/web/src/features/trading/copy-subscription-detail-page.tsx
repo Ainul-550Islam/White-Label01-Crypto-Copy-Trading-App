@@ -1,5 +1,6 @@
 // # NEW — Displays subscription status, effective policy, risk headroom, recent executions, and lifecycle actions
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

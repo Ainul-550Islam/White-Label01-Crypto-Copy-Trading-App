@@ -1,5 +1,6 @@
 // # Responsibility: provides authenticated lead-trader application submission, status history, rejection feedback, and risk disclosure.
 'use client';
+import type { JSX } from 'react';
 
 import React, { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

@@ -70,7 +70,13 @@ describe('TraderProfileService public metrics', () => {
       ? jest.fn().mockRejectedValue(new Error('performance store unavailable'))
       : jest.fn().mockResolvedValue(options?.performance ?? null);
     const performanceService = { getPerformance } as unknown as TraderPerformanceService;
-    const service = new TraderProfileService(prisma, guard, performanceService, new TraderRiskScoreService());
+    const service = new TraderProfileService(
+      prisma,
+      guard,
+      performanceService,
+      new TraderRiskScoreService(),
+      { append: jest.fn() } as never,
+    );
     return { service, findProfile, findFollowers, findFills, getPerformance };
   }
 
@@ -283,5 +289,66 @@ describe('TraderProfileService public metrics', () => {
     expect(findFollowers).not.toHaveBeenCalled();
     expect(findFills).not.toHaveBeenCalled();
     expect(getPerformance).not.toHaveBeenCalled();
+  });
+
+  it('commits trader verification and its typed outbox event in the same tenant transaction', async () => {
+    const row = {
+      id: traderId,
+      tenantId,
+      userId,
+      displayName: 'Trader',
+      bio: null,
+      avatarUrl: null,
+      verificationState: TraderVerificationState.PENDING,
+      verifiedAt: null,
+      supportedVenues: [],
+      supportedSymbols: [],
+      riskProfile: {},
+      isPublic: true,
+      isFeatured: false,
+      followerCount: 0,
+      totalVolume: '0',
+      totalTrades: 0,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const tx = {
+      traderProfile: {
+        findFirst: jest.fn()
+          .mockResolvedValueOnce({ ...row })
+          .mockResolvedValueOnce({ ...row, verificationState: TraderVerificationState.VERIFIED, verifiedAt: createdAt }),
+        updateMany: jest.fn(async () => ({ count: 1 })),
+      },
+    };
+    const prisma = {
+      withTenantRls: jest.fn(async (_scope: string, work: (client: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as PrismaService;
+    const append = jest.fn(async () => ({ id: 'outbox-trader-verified' }));
+    const service = new TraderProfileService(
+      prisma,
+      {} as never,
+      { getPerformance: jest.fn() } as never,
+      new TraderRiskScoreService(),
+      { append } as never,
+    );
+
+    const verified = await service.verifyTrader(tenantId, traderId, 'verifier-1');
+
+    expect(verified?.verificationState).toBe(TraderVerificationState.VERIFIED);
+    expect(prisma.withTenantRls).toHaveBeenCalledTimes(1);
+    expect(tx.traderProfile.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: traderId, tenantId, verificationState: TraderVerificationState.PENDING },
+        data: expect.objectContaining({ verificationState: TraderVerificationState.VERIFIED }),
+      }),
+    );
+    expect(append).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        tenantId,
+        eventType: 'trader.verified',
+        payload: expect.objectContaining({ traderId, verificationState: 'VERIFIED' }),
+      }),
+    );
   });
 });

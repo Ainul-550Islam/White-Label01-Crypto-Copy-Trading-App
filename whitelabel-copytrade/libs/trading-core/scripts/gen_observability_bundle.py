@@ -25,9 +25,9 @@ Five laws, each enforced rather than described
    ``interval`` or ``for``: this repository declares no scrape policy and the catalog carries no
    dwell time, so the pinned image's defaults stand and a test asserts the keys are absent. A ``15s``
    typed here would be a policy nobody chose.
-4. **A rule is rendered only when the catalog can support it.** ``ALERT_RULES`` carries 24 rules; 17
-   have ``threshold: None``, and of the 7 that have a number, 3 name a unit no registered family
-   exposes. So four rules render - each referencing a family whose name was found literally in the
+4. **A rule is rendered only when the catalog can support it.** ``ALERT_RULES`` carries 25 rules; 17
+   have ``threshold: None``, and of the 8 that have a number, 3 name a unit no registered family
+   exposes. So five rules render - each referencing a family whose name was found literally in the
    source that registers it - and twenty refuse, with the reason and the names that were searched.
    Every numeric literal in the output is then re-checked against the catalog: the file may contain
    nothing but catalog thresholds, the declared ppm conversion, and the zero of a failed scrape.
@@ -268,9 +268,9 @@ class RuleSource:
     matchers: tuple[tuple[str, str], ...] = ()
 
 
-#: The whole mapping: four entries, twenty refusals. The SLO pair lands on the API's own SLO gauges
-#: and the telemetry rule on the tracing exporter's consecutive-failure gauge, whose registered help
-#: text already contains the number the catalog names.
+#: The whole mapping: five entries, twenty refusals. The SLO pair lands on the API's own SLO gauges,
+#: the telemetry rule on the tracing exporter's consecutive-failure gauge, and the outbox rule on
+#: the relay's oldest-unpublished-event age gauge; each family is registered in its process source.
 RULE_SOURCES: Final[tuple[RuleSource, ...]] = (
     RuleSource(
         rule_id="SLO_BURN_FAST",
@@ -329,6 +329,22 @@ RULE_SOURCES: Final[tuple[RuleSource, ...]] = (
             "the direction follows AlertRule's own docstring - `threshold` is the value the observation "
             "exceeded - so `>` even though the help text's prose says `at 3`; whether three failures or "
             "four are the trigger is the catalog's policy, not this file's",
+        ),
+    ),
+    RuleSource(
+        rule_id="OUTBOX_LAG_HIGH",
+        family="wlct_outbox_lag_seconds",
+        comparison=">",
+        unit_conversion=None,
+        window_kind=None,
+        require_both_windows=False,
+        evidence=(
+            "apps/api/src/infrastructure/metrics/metrics.registry.ts defines "
+            "wlct_outbox_lag_seconds as the age in seconds of the oldest unpublished event and names "
+            "the 60-second alert threshold in its help text; "
+            "apps/api/src/modules/observability/metrics.registry.provider.ts registers the family at API boot",
+            "the catalog threshold and family are both seconds, so the expression uses 60 without "
+            "unit conversion; any comparison change belongs in ALERT_RULES",
         ),
     ),
 )

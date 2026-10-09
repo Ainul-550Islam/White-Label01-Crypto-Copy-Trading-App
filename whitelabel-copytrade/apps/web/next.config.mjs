@@ -4,9 +4,7 @@ const nextConfig = {
   poweredByHeader: false,
   output: 'standalone',
   transpilePackages: ['@wlct/shared-types', '@wlct/validation'],
-  experimental: {
-    typedRoutes: false,
-  },
+  typedRoutes: false,
   async headers() {
     return [
       {

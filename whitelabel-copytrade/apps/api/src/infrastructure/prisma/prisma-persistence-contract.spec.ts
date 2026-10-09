@@ -419,7 +419,7 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
       });
       expect(settlement.calculatedAt).toEqual(expect.any(String));
 
-      const payouts = new PayoutRepository(prisma as any);
+      const payouts = new PayoutRepository(prisma as any, { append: jest.fn() } as never);
       const payout = await payouts.create({
         settlementId: settlement.id,
         beneficiaryId: randomUUID(),

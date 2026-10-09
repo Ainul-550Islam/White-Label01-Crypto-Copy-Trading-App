@@ -1,4 +1,5 @@
 "use client";
+import type { JSX } from 'react';
 
 import { StatusBadge } from "@/components/status-badge";
 import { useOnboarding } from "./use-onboarding";

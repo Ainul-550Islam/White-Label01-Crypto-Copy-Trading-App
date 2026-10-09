@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.main import CORRELATION_HEADER
-from app.security import (
+from app.security.internal_auth import (
     CALLER_AUTH_HEADER,
     TENANT_HEADER,
     TENANT_REQUIRED_CODE,
@@ -83,7 +83,7 @@ def _code_of(exc: HTTPException) -> str:
     """The `code` of a raised HTTPException, typed.
 
     `detail` is declared `str | None` by the framework while every raise site in
-    `app/security.py` passes a dict, so an `isinstance(detail, dict)` here would be
+    `app/security/internal_auth.py` passes a dict, so an `isinstance(detail, dict)` here would be
     provably false to a type checker - and unreachable code is exactly how an assertion
     stops being one. The cast states the known shape and the runtime check below keeps
     it honest: a raise that lost its code fails here instead of comparing `None` to a

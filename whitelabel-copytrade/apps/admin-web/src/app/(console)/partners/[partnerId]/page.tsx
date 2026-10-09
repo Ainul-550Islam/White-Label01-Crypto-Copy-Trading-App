@@ -1,4 +1,5 @@
 // # NEW — Admin detail route for partner attribution and commission audit
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
@@ -46,9 +47,9 @@ interface PartnerPayoutDto {
 export default async function AdminPartnerDetailPage({
   params,
 }: {
-  params: { partnerId: string };
+  params: Promise<{ partnerId: string }>;
 }): Promise<JSX.Element> {
-  const { partnerId } = params;
+  const { partnerId } = await params;
   const failures: string[] = [];
   const track = async <T,>(label: string, promise: Promise<T>): Promise<T | null> => {
     try {

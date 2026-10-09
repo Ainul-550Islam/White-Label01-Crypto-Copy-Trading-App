@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import type { Prisma } from '@prisma/client';
 import { FeeAccrual, FeeAccrualStatus, SettlementState, PayoutState, FeeType, FeeSourceType, RateBasis } from './fee.types';
 import { randomUUID } from 'crypto';
 
@@ -61,15 +62,28 @@ export class FeeAccrualRepository {
     calculationTimestamp: string;
     metadata?: Record<string, unknown> | null;
     safeMetadata?: Record<string, unknown> | null;
-  }): Promise<FeeAccrual> {
-    // Idempotency check first
-    const existingByIdempotency = await this.findByIdempotencyKey(data.idempotencyKey, data.tenantId);
+  }, tx?: Prisma.TransactionClient): Promise<FeeAccrual> {
+    const client = (tx ?? this.prisma) as any;
+    // Idempotency checks use the same transaction as the insert when supplied.
+    const existingByIdempotencyRow = await client.feeAccrual?.findFirst({
+      where: { idempotencyKey: data.idempotencyKey, tenantId: data.tenantId },
+    });
+    const existingByIdempotency = existingByIdempotencyRow ? this.mapToDomain(existingByIdempotencyRow) : null;
     if (existingByIdempotency) {
       this.logger.log(`Idempotent accrual return by idempotencyKey: ${data.idempotencyKey}`);
       return existingByIdempotency;
     }
 
-    const existingBySource = await this.findBySource(data.tenantId, data.sourceType, data.sourceId, data.feeType);
+    const existingBySourceRow = await client.feeAccrual?.findFirst({
+      where: {
+        tenantId: data.tenantId,
+        feeSourceType: data.sourceType,
+        sourceId: data.sourceId,
+        feeType: data.feeType,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const existingBySource = existingBySourceRow ? this.mapToDomain(existingBySourceRow) : null;
     if (existingBySource) {
       this.logger.log(`Idempotent accrual return by source: ${data.sourceType}:${data.sourceId} feeType=${data.feeType}`);
       return existingBySource;
@@ -110,7 +124,7 @@ export class FeeAccrualRepository {
       // FeeAccrual columns only (feeSourceType, sourceAmount, rateBps,
       // rateReference); the rest of the accrual lives in metadata._fee. The
       // previous column names made Prisma reject every accrual.
-      const created = await (this.prisma as any).feeAccrual?.create({
+      const created = await client.feeAccrual?.create({
         data: {
           id: accrual.id,
           tenantId: accrual.tenantId,
@@ -143,8 +157,16 @@ export class FeeAccrualRepository {
       if (created) {
         return this.mapToDomain(created);
       }
+      if (tx) {
+        throw new Error('fee accrual was not persisted; refusing to append its outbox event');
+      }
     } catch (error: any) {
-      // Handle duplicate key (idempotency) - return existing
+      // A PostgreSQL transaction is aborted after a unique-constraint error;
+      // let the caller retry instead of querying through a broken transaction.
+      if ((error.code === 'P2002' || error.message?.includes('Unique constraint')) && tx) {
+        throw error;
+      }
+      // Handle duplicate key (idempotency) for non-transactional callers.
       if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
         this.logger.warn(`Duplicate accrual detected, returning existing: ${data.idempotencyKey}`);
         const existing = await this.findByIdempotencyKey(data.idempotencyKey, data.tenantId);
@@ -154,6 +176,7 @@ export class FeeAccrualRepository {
       }
 
       if (error.code === 'P2021' || error.message?.includes('does not exist')) {
+        if (tx) throw new Error('fee accrual table is unavailable inside the caller transaction');
         // Table doesn't exist - fallback to audit log storage but return domain object
         this.logger.warn(`feeAccrual table not found, using fallback storage: ${error.message}`);
         // Try to store in audit log as fallback for auditability

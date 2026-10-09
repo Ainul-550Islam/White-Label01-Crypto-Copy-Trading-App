@@ -48,7 +48,7 @@ having.
 
 | service | port | path | note |
 | --- | --- | --- | --- |
-| `api` | 4000 | `${PROMETHEUS_PATH}` | token expanded from the deployment environment (30 `wlct_*` names in its source) |
+| `api` | 4000 | `${PROMETHEUS_PATH}` | token expanded from the deployment environment (33 `wlct_*` names in its source) |
 | `trading-engine` | 8001 | `/metrics` | unauthenticated on the internal network (30 `wlct_*` names in its source) |
 | `execution-engine` | 8093 | `/metrics` | unauthenticated on the internal network (23 `wlct_*` names in its source) |
 | `market-data` | 8002 | `/metrics` | unauthenticated on the internal network (27 `wlct_*` names in its source) |
@@ -61,8 +61,12 @@ having.
 
 ## Rules
 
-4 of 24 catalog rules became Prometheus alerts:
+5 of 25 catalog rules became Prometheus alerts:
 
+* `OUTBOX_LAG_HIGH` (WARNING) - `wlct_outbox_lag_seconds > 60`
+  - registered help: Age in seconds of the oldest unpublished outbox event; alert threshold 60 seconds; zero when none.
+  - apps/api/src/infrastructure/metrics/metrics.registry.ts defines wlct_outbox_lag_seconds as the age in seconds of the oldest unpublished event and names the 60-second alert threshold in its help text; apps/api/src/modules/observability/metrics.registry.provider.ts registers the family at API boot
+  - the catalog threshold and family are both seconds, so the expression uses 60 without unit conversion; any comparison change belongs in ALERT_RULES
 * `SLO_BUDGET_EXHAUSTED` (CRITICAL) - `wlct_slo_error_budget_remaining_ppm <= 0`
   - registered help: Remaining error-budget ratio of the latest evaluation tick, ppm (0..1_000_000).
   - the catalog's unit `remaining_budget_ppm` is the family's name verbatim, so the threshold needs no conversion

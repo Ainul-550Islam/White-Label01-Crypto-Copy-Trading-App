@@ -53,8 +53,22 @@ export class ExchangeRateLimitService {
     private readonly auditService: ExchangeAuditService,
   ) {}
 
-  private getCacheKey(venue: ExchangeVenue, environment: ExchangeEnvironment, accountId: string | null, endpointClass: string): string {
-    return `exchange:ratelimit:${venue}:${environment}:${accountId || 'global'}:${endpointClass}`;
+  /**
+   * The budget key names the tenant first.
+   *
+   * It did not, so two tenants routing to the same venue with no account selected shared one
+   * `global` bucket: one tenant's traffic consumed another tenant's budget, and a busy tenant could
+   * rate-limit a quiet one out of its own orders. In a white-label deployment that is a
+   * cross-tenant defect, not a tuning detail.
+   */
+  private getCacheKey(
+    tenantId: string,
+    venue: ExchangeVenue,
+    environment: ExchangeEnvironment,
+    accountId: string | null,
+    endpointClass: string,
+  ): string {
+    return `exchange:ratelimit:${tenantId}:${venue}:${environment}:${accountId || 'global'}:${endpointClass}`;
   }
 
   private getVenueLimit(venue: ExchangeVenue): { requestsPerSecond: number; weightLimitPerMinute: number; isWeightBased: boolean } {
@@ -70,57 +84,87 @@ export class ExchangeRateLimitService {
     weight?: number;
   }): Promise<RateLimitCheckResult> {
     const venueLimit = this.getVenueLimit(input.venue);
-    const weight = input.weight || 1;
-    const key = this.getCacheKey(input.venue, input.environment, input.accountId || null, input.endpointClass);
+    const weight = input.weight === undefined || input.weight === null ? 1 : input.weight;
 
-    try {
-      // Get current usage from cache
-      const current = (await this.cache.get<number>(key)) || 0;
-
-      // Calculate limit based on endpoint class
-      let maxRequests: number;
-      if (venueLimit.isWeightBased) {
-        maxRequests = venueLimit.weightLimitPerMinute;
-      } else {
-        // For request-count based, use per-second * 60 for minute window
-        maxRequests = venueLimit.requestsPerSecond * 60;
-      }
-
-      // Endpoint class multipliers - ORDER is more restrictive
-      if (input.endpointClass === 'ORDER') {
-        maxRequests = Math.floor(maxRequests * 0.5);
-      } else if (input.endpointClass === 'PRIVATE') {
-        maxRequests = Math.floor(maxRequests * 0.8);
-      }
-
-      const newUsage = current + weight;
-      const remaining = Math.max(0, maxRequests - newUsage);
-      const pressure = Math.min(100, Math.floor((newUsage / maxRequests) * 100));
-
-      if (newUsage > maxRequests) {
-        // Rate limited
-        const retryAfterMs = 1000; // Simple 1s retry for now, could be calculated from reset time
-        this.logger.warn(`Rate limit exceeded venue=${input.venue} env=${input.environment} account=${input.accountId} endpoint=${input.endpointClass} usage=${newUsage}/${maxRequests}`);
-
-        await this.auditService.record({
-          tenantId: input.tenantId,
-          accountId: input.accountId || 'global',
-          venue: input.venue,
-          environment: input.environment,
-          event: 'RATE_LIMIT_TRIGGERED',
-          result: 'SUCCESS',
-          safeMetadata: { endpointClass: input.endpointClass, currentUsage: newUsage, maxRequests, pressure, retryAfterMs },
-        });
-
-        return { allowed: false, remaining: 0, retryAfterMs, pressure, reason: `Rate limit exceeded for ${input.venue} ${input.endpointClass}` };
-      }
-
-      return { allowed: true, remaining, retryAfterMs: null, pressure };
-    } catch (e: any) {
-      this.logger.warn(`Rate limit check failed venue=${input.venue} error=${e.message} - allowing request to avoid blocking`);
-      // Fail open for cache errors, but log
-      return { allowed: true, remaining: null, retryAfterMs: null, pressure: 0 };
+    // A weight that is not a positive integer is not a request. It used to be coerced with `|| 1`,
+    // which turned 0 into 1 and silently dropped the fractional part of 1.5, so a caller asking for a
+    // heavier endpoint was charged for a lighter one and the budget under-counted.
+    if (!Number.isInteger(weight) || weight < 1) {
+      return { allowed: false, remaining: null, retryAfterMs: null, pressure: 100, reason: 'Rate-limit request weight is invalid' };
     }
+
+    const key = this.getCacheKey(input.tenantId, input.venue, input.environment, input.accountId || null, input.endpointClass);
+    const maxRequests = this.maxRequestsFor(venueLimit, input.endpointClass);
+    const windowSeconds = 60;
+
+    let reservedUsage: number;
+    try {
+      // Reserve first, decide second, in one atomic increment. Checking and then recording is two
+      // steps with a gap: concurrent requests all read the same usage, all conclude they fit, and the
+      // venue is the one that finds out otherwise.
+      reservedUsage = await this.cache.incrementBy(key, weight, windowSeconds);
+    } catch (e: any) {
+      // Fail closed. The budget could not be read, so whether this request is within the venue's
+      // limit is unknown - and the consequence of guessing "yes" is the venue throttling or banning
+      // the API key, which stops every copy for every follower on that account. A refusal that is
+      // retried costs a moment; a ban costs the account.
+      this.logger.error(`Rate limit reservation failed venue=${input.venue} tenant=${input.tenantId} error=${e.message} - denying request`);
+      await this.auditService.record({
+        tenantId: input.tenantId,
+        accountId: input.accountId || 'global',
+        venue: input.venue,
+        environment: input.environment,
+        event: 'RATE_LIMIT_STATE_UNAVAILABLE',
+        result: 'FAILURE',
+        safeMetadata: { endpointClass: input.endpointClass, weight, maxRequests },
+      });
+      return { allowed: false, remaining: null, retryAfterMs: 1000, pressure: 100, reason: `Rate limit state unavailable for ${input.venue} ${input.endpointClass}` };
+    }
+
+    const pressure = Math.min(100, Math.floor((reservedUsage / maxRequests) * 100));
+
+    if (reservedUsage > maxRequests) {
+      // Hand the reservation back. The request is refused, so it did not consume budget, and leaving
+      // the weight charged would let one burst of refusals exhaust the window for the requests that
+      // are still allowed.
+      try {
+        await this.cache.incrementBy(key, -weight, windowSeconds);
+      } catch (e: any) {
+        this.logger.warn(`Rate limit refund failed venue=${input.venue} tenant=${input.tenantId} error=${e.message}`);
+      }
+
+      this.logger.warn(`Rate limit exceeded venue=${input.venue} env=${input.environment} account=${input.accountId} endpoint=${input.endpointClass} usage=${reservedUsage}/${maxRequests}`);
+
+      await this.auditService.record({
+        tenantId: input.tenantId,
+        accountId: input.accountId || 'global',
+        venue: input.venue,
+        environment: input.environment,
+        event: 'RATE_LIMIT_TRIGGERED',
+        result: 'SUCCESS',
+        safeMetadata: { endpointClass: input.endpointClass, currentUsage: reservedUsage, maxRequests, pressure, retryAfterMs: 1000 },
+      });
+
+      return { allowed: false, remaining: 0, retryAfterMs: 1000, pressure, reason: `Rate limit exceeded for ${input.venue} ${input.endpointClass}` };
+    }
+
+    const remaining = Math.max(0, maxRequests - reservedUsage);
+    return { allowed: true, remaining, retryAfterMs: null, pressure };
+  }
+
+  /**
+   * The per-minute budget for an endpoint class: the venue's own limit, halved for order placement
+   * and reduced to 80% for private endpoints, so the account keeps headroom for cancellations and
+   * reconciliation instead of spending the venue's whole allowance on new orders.
+   */
+  private maxRequestsFor(
+    venueLimit: { requestsPerSecond: number; weightLimitPerMinute: number; isWeightBased: boolean },
+    endpointClass: string,
+  ): number {
+    const base = venueLimit.isWeightBased ? venueLimit.weightLimitPerMinute : venueLimit.requestsPerSecond * 60;
+    if (endpointClass === 'ORDER') return Math.max(1, Math.floor(base * 0.5));
+    if (endpointClass === 'PRIVATE') return Math.max(1, Math.floor(base * 0.8));
+    return base;
   }
 
   async recordRequest(input: {
@@ -133,7 +177,7 @@ export class ExchangeRateLimitService {
     responseHeaders?: Record<string, string>;
   }): Promise<void> {
     const weight = input.weight || 1;
-    const key = this.getCacheKey(input.venue, input.environment, input.accountId || null, input.endpointClass);
+    const key = this.getCacheKey(input.tenantId, input.venue, input.environment, input.accountId || null, input.endpointClass);
 
     try {
       // Increment usage counter with TTL
@@ -229,8 +273,14 @@ export class ExchangeRateLimitService {
     return null;
   }
 
-  async getRateLimitState(input: { venue: ExchangeVenue; environment: ExchangeEnvironment; accountId?: string | null; endpointClass: string }): Promise<RateLimitState | null> {
-    const key = this.getCacheKey(input.venue, input.environment, input.accountId || null, input.endpointClass);
+  /**
+   * The current budget state for an account. Requires the tenant: without it the key fell back to the
+   * shared `global` bucket, so an operator reading one tenant's pressure was reading every tenant's
+   * combined usage - and the number would have been wrong in whichever direction the neighbours were
+   * busier.
+   */
+  async getRateLimitState(input: { tenantId: string; venue: ExchangeVenue; environment: ExchangeEnvironment; accountId?: string | null; endpointClass: string }): Promise<RateLimitState | null> {
+    const key = this.getCacheKey(input.tenantId, input.venue, input.environment, input.accountId || null, input.endpointClass);
     const stateKey = `${key}:state`;
 
     try {

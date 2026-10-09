@@ -1,4 +1,6 @@
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
+import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
 import { FeeAccrualRepository } from './fee-accrual.repository';
 import { FeeSettlementRepository } from './fee-settlement.repository';
 import { FeeAuditService } from './fee-audit.service';
@@ -19,6 +21,8 @@ export class FeeSettlementService {
     private readonly accrualRepository: FeeAccrualRepository,
     private readonly settlementRepository: FeeSettlementRepository,
     private readonly auditService: FeeAuditService,
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxService,
     @Optional()
     @Inject(forwardRef(() => BillingEventService))
     private readonly billingEventService?: BillingEventService,
@@ -197,18 +201,67 @@ export class FeeSettlementService {
       throw new Error(`Settlement ${settlementId} cannot be finalized from status ${settlement.status}`);
     }
 
-    const updated = await this.settlementRepository.updateStatus(settlementId, SettlementState.FINALIZED, {
-      finalizedAt: new Date().toISOString(),
-    });
+    const finalizedAt = new Date();
+    await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const current = await tx.feeSettlement.findFirst({
+        where: { id: settlementId, tenantId },
+      });
+      if (!current) throw new Error(`Settlement not found: ${settlementId}`);
+      if (current.status !== SettlementState.APPROVED && current.status !== SettlementState.CALCULATED) {
+        throw new Error(`Settlement ${settlementId} cannot be finalized from status ${current.status}`);
+      }
+      if (current.accrualIds.length === 0) {
+        throw new Error(`Settlement ${settlementId} has no persisted accrual IDs to finalize`);
+      }
 
-    for (const accrualId of settlement.accrualIds) {
-      try {
-        await this.accrualRepository.updateStatus(accrualId, {
-          settlementState: SettlementState.FINALIZED,
+      const settlementTransition = await tx.feeSettlement.updateMany({
+        where: {
+          id: settlementId,
+          tenantId,
+          status: { in: [SettlementState.APPROVED, SettlementState.CALCULATED] },
+        },
+        data: { status: SettlementState.FINALIZED, finalizedAt, updatedAt: finalizedAt },
+      });
+      if (settlementTransition.count !== 1) {
+        throw new Error(`Settlement ${settlementId} changed concurrently; finalization was not committed`);
+      }
+
+      const accrualTransition = await tx.feeAccrual.updateMany({
+        where: {
+          tenantId,
+          settlementId,
+          id: { in: current.accrualIds },
+        },
+        data: {
           status: FeeAccrualStatus.SETTLED,
-        });
-      } catch {}
-    }
+          settlementState: SettlementState.FINALIZED,
+          settlementTimestamp: finalizedAt,
+          updatedAt: finalizedAt,
+        },
+      });
+      if (accrualTransition.count !== current.accrualIds.length) {
+        throw new Error(
+          `Settlement ${settlementId} references ${current.accrualIds.length} accruals but finalized ${accrualTransition.count}; transaction rolled back`,
+        );
+      }
+
+      await this.outbox.append(tx, {
+        tenantId,
+        aggregateType: 'fee.settlement',
+        aggregateId: settlementId,
+        eventType: 'fee.settled',
+        idempotencyKey: `fee-settlement:${settlementId}:settled`,
+        payload: {
+          settlementId,
+          amount: current.finalSettlementAmount,
+          currency: current.currency,
+          feeType: current.feeType,
+          accrualIds: current.accrualIds,
+          status: SettlementState.FINALIZED,
+        },
+      });
+    });
+    const updated = { ...settlement, status: SettlementState.FINALIZED, finalizedAt: finalizedAt.toISOString() };
 
     await this.auditService.logSettlementFinalized(tenantId, settlementId, settlement.finalSettlementAmount, settlement.currency);
 

@@ -343,25 +343,21 @@ export class OrderSubmissionResultService implements OnApplicationBootstrap, OnM
 
   private async applyToIntent(result: SubmissionResultView, verdict: SubmissionVerdict, venue: string): Promise<void> {
     if (verdict.kind === 'unknown') return;
-    try {
-      await this.ackService.processAckFromExecutionEvent({
-        tenantId: result.tenantId,
-        orderId: result.platformOrderId,
-        clientOrderId: result.clientOrderId,
-        exchangeOrderId: result.exchangeOrderId,
-        providerOrderId: result.engineOrderId,
-        venue,
-        status: verdict.kind === 'accepted' ? 'ACKNOWLEDGED' : 'REJECTED',
-        occurredAtMicros: (BigInt(Date.now()) * 1000n).toString(),
-        reason: verdict.kind === 'rejected' ? `${verdict.code}: ${verdict.reason}` : null,
-        source: result.isSimulated ? 'EXECUTION_ENGINE_SIMULATED' : 'EXECUTION_ENGINE',
-        providerErrorCode: verdict.kind === 'rejected' ? verdict.code : null,
-        providerErrorMessage: verdict.kind === 'rejected' ? verdict.reason : null,
-        latencyMicros: result.latencyMicros !== null ? String(result.latencyMicros) : null,
-      });
-    } catch (error) {
-      this.logger.warn(`Ack processing for ${result.clientOrderId} failed: ${(error as Error).message}`);
-    }
+    await this.ackService.processAckFromExecutionEvent({
+      tenantId: result.tenantId,
+      orderId: result.platformOrderId,
+      clientOrderId: result.clientOrderId,
+      exchangeOrderId: result.exchangeOrderId,
+      providerOrderId: result.engineOrderId,
+      venue,
+      status: verdict.kind === 'accepted' ? 'ACKNOWLEDGED' : 'REJECTED',
+      occurredAtMicros: (BigInt(Date.now()) * 1000n).toString(),
+      reason: verdict.kind === 'rejected' ? `${verdict.code}: ${verdict.reason}` : null,
+      source: result.isSimulated ? 'EXECUTION_ENGINE_SIMULATED' : 'EXECUTION_ENGINE',
+      providerErrorCode: verdict.kind === 'rejected' ? verdict.code : null,
+      providerErrorMessage: verdict.kind === 'rejected' ? verdict.reason : null,
+      latencyMicros: result.latencyMicros !== null ? String(result.latencyMicros) : null,
+    });
     if (verdict.kind === 'accepted' && verdict.orderStatus !== 'ACKNOWLEDGED' && result.omsIntentId) {
       const toState = verdict.orderStatus === 'FILLED' ? OrderIntentState.FILLED : OrderIntentState.PARTIALLY_FILLED;
       await this.lifecycleService

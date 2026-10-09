@@ -10,6 +10,17 @@ import { CopyOrderMapperService } from './copy-order-mapper.service';
 import { FollowerRiskService } from './follower-risk.service';
 import { CopyExecutionService } from './copy-execution.service';
 import { TraderPerformanceService } from './trader-performance.service';
+// The canonical linked-period TWR arithmetic. TraderPerformanceService depends on it, so it must
+// be a provider of this module; it was previously referenced only by a service that no module
+// registered, which made the whole engine unreachable at runtime.
+import { PerformanceCalculationService } from './performance-calculation.service';
+import { PerformanceBenchmarkService } from './performance-benchmark.service';
+import { PerformanceBenchmarkController } from './performance-benchmark.controller';
+import { AllocationRebalanceController } from './allocation-rebalance.controller';
+import { AllocationValuationController } from './allocation-valuation.controller';
+import { AllocationRebalanceService } from './allocation-rebalance.service';
+import { AllocationValuationRepository } from './allocation-valuation.repository';
+import { RiskModule } from '../risk/risk.module';
 import { TraderRankingService } from './trader-ranking.service';
 import { CopyReconciliationService } from './copy-reconciliation.service';
 import { CopySubscriptionRepository } from './copy-subscription.repository';
@@ -30,6 +41,9 @@ import { OperationsModule } from '../operations/operations.module';
 @Module({
   imports: [
     PrismaModule,
+    // Exports TraderRiskScoreService, which the public trader profile publishes. RiskModule has no
+    // imports of its own, so this direction cannot form a cycle.
+    RiskModule,
     forwardRef(() => ExchangesModule),
     forwardRef(() => BillingModule),
     forwardRef(() => ComplianceModule),
@@ -42,7 +56,10 @@ import { OperationsModule } from '../operations/operations.module';
     // MaintenanceModeService. OperationsModule imports this module too.
     forwardRef(() => OperationsModule),
   ],
-  controllers: [CopyTradingController],
+  // AllocationRebalanceController and AllocationRebalanceService existed but were declared by no
+  // module, so the preview route was unreachable in a running application while its controller spec
+  // passed against a hand-constructed instance. A route that only tests can reach is not a route.
+  controllers: [CopyTradingController, PerformanceBenchmarkController, AllocationRebalanceController, AllocationValuationController],
   providers: [
     TraderProfileService,
     TraderStrategyService,
@@ -53,6 +70,8 @@ import { OperationsModule } from '../operations/operations.module';
     CopyOrderMapperService,
     FollowerRiskService,
     CopyExecutionService,
+    PerformanceCalculationService,
+    PerformanceBenchmarkService,
     TraderPerformanceService,
     TraderRankingService,
     CopyReconciliationService,
@@ -60,6 +79,8 @@ import { OperationsModule } from '../operations/operations.module';
     CopyExecutionRepository,
     LeaderEventSourceService,
     LeaderEventIngestionService,
+    AllocationRebalanceService,
+    AllocationValuationRepository,
   ],
   exports: [
     TraderProfileService,
@@ -71,6 +92,7 @@ import { OperationsModule } from '../operations/operations.module';
     CopyOrderMapperService,
     FollowerRiskService,
     CopyExecutionService,
+    PerformanceCalculationService,
     TraderPerformanceService,
     TraderRankingService,
     CopyReconciliationService,

@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { ReactNode, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

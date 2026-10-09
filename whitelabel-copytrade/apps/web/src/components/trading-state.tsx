@@ -1,5 +1,6 @@
 // # NEW — Shared trading loading, empty, error, and degraded-venue banner states
 "use client";
+import type { JSX } from 'react';
 
 import React from "react";
 import { LoadingState } from "@/components/loading-state";

@@ -14,8 +14,8 @@ export interface ConsoleClaims {
   isPlatformUser: boolean;
 }
 
-export function getConsoleClaims(): ConsoleClaims | null {
-  const token = getAccessToken();
+export async function getConsoleClaims(): Promise<ConsoleClaims | null> {
+  const token = await getAccessToken();
   if (!token) {
     return null;
   }

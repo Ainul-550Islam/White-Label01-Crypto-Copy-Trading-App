@@ -4,6 +4,7 @@ import { RiskController } from './risk.controller';
 import { RiskPolicyService } from './risk-policy.service';
 import { RiskProtectionService } from './risk-protection.service';
 import { RiskStateService } from './risk-state.service';
+import { TraderRiskScoreService } from './trader-risk-score.service';
 
 /**
  * The Part 8 risk control plane.
@@ -33,7 +34,11 @@ import { RiskStateService } from './risk-state.service';
  */
 @Module({
   controllers: [RiskController],
-  providers: [RiskPolicyService, RiskProtectionService, RiskStateService],
-  exports: [RiskPolicyService, RiskProtectionService, RiskStateService],
+  // TraderRiskScoreService is a pure calculator with no dependencies: it turns observed factor
+  // values into a score, a band and a confidence. It was implemented and unit-tested and referenced
+  // by no production code, so it is provided here (its own module) and exported for the one consumer
+  // that publishes it - the public trader profile.
+  providers: [RiskPolicyService, RiskProtectionService, RiskStateService, TraderRiskScoreService],
+  exports: [RiskPolicyService, RiskProtectionService, RiskStateService, TraderRiskScoreService],
 })
 export class RiskModule {}

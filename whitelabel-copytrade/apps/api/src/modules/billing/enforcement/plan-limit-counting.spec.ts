@@ -31,7 +31,16 @@ describe('TraderProfileService.createProfile enforces maxTraders', () => {
       user: { findFirst: jest.fn(async () => ({ id: 'u1', tenantId: TENANT })) },
       traderProfile: { findFirst: jest.fn(async () => null), create },
     };
-    const service = new TraderProfileService(prisma as any, guard as any);
+    // The two stats dependencies are not exercised by these cases - they are only reached by the
+    // public-metrics read. They are still passed, because the service takes them by constructor and a
+    // placeholder here would hide it if that stopped being true.
+    const service = new TraderProfileService(
+      prisma as any,
+      guard as any,
+      {} as any,
+      {} as any,
+      { append: jest.fn() } as never,
+    );
     return { service, guard, create, order };
   }
 

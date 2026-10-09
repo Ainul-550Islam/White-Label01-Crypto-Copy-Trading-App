@@ -28,6 +28,7 @@ import { WebhookSubscriptionService } from './webhook-subscription.service';
 import { WebhookDeliveryService, DEVELOPER_WEBHOOK_HTTP } from './webhook-delivery.service';
 import { WebhookReplayService } from './webhook-replay.service';
 import { EventSubscriptionService } from './event-subscription.service';
+import { validateDeveloperEventPayload } from './event-schemas/developer-event-schemas';
 import { DeveloperReconciliationService } from './developer-reconciliation.service';
 
 const prisma = new InMemoryPrisma();
@@ -57,8 +58,10 @@ const subscriptions = new WebhookSubscriptionService(
 );
 
 let lastResponse: { status?: number; timedOut?: boolean; networkError?: boolean } = {};
+let lastHttpBody: string | null = null;
 const httpStub = {
-  async post() {
+  async post(_url: string, _headers: Record<string, string>, body: string, _timeoutMs: number) {
+    lastHttpBody = body;
     return lastResponse;
   },
 };
@@ -227,7 +230,7 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
       occurredAt: new Date().toISOString(),
       correlationId: 'corr-1',
       source: 'billing.payments',
-      payload: { id: 'pay-1' },
+      payload: { paymentId: 'pay-1', amount: '1.00', currency: 'USD', status: 'SUCCEEDED' },
     };
     const deliveryKey = idempotencyKey(TENANT_A, 'webhook.delivery', `${subscription.id}|${envelope.eventId}`);
     const first = await deliveries.enqueue({
@@ -253,6 +256,58 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
     expect(rows).toHaveLength(1);
   });
 
+  it('persists the original envelope payload across retry attempts and authorized replay', async () => {
+    await seedActiveApplication('app-wh-envelope');
+    const { subscription } = await createSubscriptionFor('app-wh-envelope');
+    const occurredAt = '2026-10-09T01:02:03.000Z';
+    const payload = { paymentId: 'pay-envelope', amount: '12.34', currency: 'USD', status: 'SUCCEEDED' };
+    const immutablePayload = { ...payload };
+    const envelope = {
+      eventId: 'evt-envelope-1',
+      eventType: 'payment.succeeded',
+      eventVersion: 'v1',
+      tenantId: TENANT_A,
+      occurredAt,
+      correlationId: 'corr-envelope',
+      source: 'billing.payments',
+      payload,
+    };
+    const queued = await deliveries.enqueue({
+      tenantId: TENANT_A,
+      subscriptionId: subscription.id,
+      applicationId: 'app-wh-envelope',
+      envelope,
+      idempotencyKey: idempotencyKey(TENANT_A, 'webhook.delivery', `${subscription.id}|${envelope.eventId}`),
+      environment: 'SANDBOX',
+    });
+    payload.amount = '999.99';
+    payload.status = 'FAILED';
+
+    lastResponse = { status: 503 };
+    lastHttpBody = null;
+    await deliveries.attempt(actor, queued.id, { webhookMaxAttempts: 3 } as never);
+    const firstAttemptBody = lastHttpBody;
+    expect(firstAttemptBody).not.toBeNull();
+    expect(JSON.parse(String(firstAttemptBody))).toEqual({
+      eventId: envelope.eventId,
+      eventType: envelope.eventType,
+      eventVersion: envelope.eventVersion,
+      occurredAt,
+      correlationId: envelope.correlationId,
+      source: envelope.source,
+      payload: immutablePayload,
+    });
+
+    lastResponse = { status: 204 };
+    lastHttpBody = null;
+    await deliveries.attempt(actor, queued.id, { webhookMaxAttempts: 3 } as never);
+    expect(lastHttpBody).toBe(firstAttemptBody);
+
+    const replayed = await replay.replay(actor, subscription.id, envelope.eventId);
+    const replayRow = await prisma.client.developerWebhookDelivery.findUnique({ where: { id: replayed.deliveryId } });
+    expect(replayRow).toMatchObject({ source: envelope.source, occurredAt: new Date(occurredAt), payload: immutablePayload });
+  });
+
   it('35. webhook event id deterministic: same domain event projects the same id', () => {
     const a = idempotencyKey(TENANT_A, 'developer.event', 'payment.succeeded|pay-42');
     const b = idempotencyKey(TENANT_A, 'developer.event', 'payment.succeeded|pay-42');
@@ -274,7 +329,7 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
     expect(classifyAttempt({ status: 404 })).toBe('CLIENT_4XX_NO_RETRY');
     expect(classifyAttempt({ status: 410 })).toBe('CLIENT_4XX_NO_RETRY');
     expect(classifyAttempt({ status: 422 })).toBe('CLIENT_4XX_NO_RETRY');
-    // ...except 429, which is the explicit rate-limit retry class.
+    // 429 is the explicit rate-limit retry class.
     expect(classifyAttempt({ status: 429 })).toBe('RATE_LIMIT_RETRY');
   });
 
@@ -318,6 +373,21 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
     ).rejects.toMatchObject({ code: DEVELOPER_ERROR_CODES.ENVIRONMENT_MISMATCH });
   });
 
+  it('rejects unknown event types when a webhook subscription is created', async () => {
+    await seedActiveApplication('app-wh-unknown-event');
+    const before = await prisma.client.developerWebhookSubscription.count({ where: { tenantId: TENANT_A } });
+
+    await expect(subscriptions.create(actor, {
+      applicationId: 'app-wh-unknown-event',
+      endpointUrl: 'https://hooks.example.com/unknown-event',
+      eventTypes: ['payment.succeeded', 'wallet.drained'],
+      environment: 'SANDBOX',
+    })).rejects.toMatchObject({ code: DEVELOPER_ERROR_CODES.EVENT_NOT_SUBSCRIBED });
+
+    const after = await prisma.client.developerWebhookSubscription.count({ where: { tenantId: TENANT_A } });
+    expect(after).toBe(before);
+  });
+
   it('42. event tenant scope: an authoritative event of tenant A never reaches tenant B', async () => {
     await seedActiveApplication('app-wh-tena');
     await seedActiveApplication('app-wh-tenb', TENANT_B);
@@ -330,7 +400,7 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
       domainRecordId: 'pay-100',
       occurredAt: new Date(),
       correlationId: 'corr-ten',
-      payload: { id: 'pay-100' },
+      payload: { paymentId: 'pay-100', amount: '100.00', currency: 'USD', status: 'SUCCEEDED' },
     });
     expect(outcome.delivered).toBe(true);
     const rows = await prisma.client.developerWebhookDelivery.findMany({
@@ -366,6 +436,8 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
   it('57. webhook replay cannot double-mutate business state', async () => {
     await seedActiveApplication('app-wh-replay');
     const { subscription } = await createSubscriptionFor('app-wh-replay');
+    const validOrderFilledPayload = { orderId: 'o-1', status: 'FILLED' };
+    expect(validateDeveloperEventPayload('order.filled', validOrderFilledPayload).valid).toBe(true);
     await deliveries.enqueue({
       tenantId: TENANT_A,
       subscriptionId: subscription.id,
@@ -378,7 +450,7 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
         occurredAt: new Date().toISOString(),
         correlationId: 'corr-r',
         source: 'execution',
-        payload: { orderId: 'o-1' },
+        payload: validOrderFilledPayload,
       },
       idempotencyKey: idempotencyKey(TENANT_A, 'webhook.delivery', `${subscription.id}|evt-replay-1`),
       environment: 'SANDBOX',
@@ -397,7 +469,7 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
       domainRecordId: 'o-1',
       occurredAt: new Date(),
       correlationId: 'corr-r',
-      payload: { orderId: 'o-1', status: 'FILLED' },
+      payload: validOrderFilledPayload,
     });
     const projectedRows = await prisma.client.developerWebhookDelivery.findMany({
       where: { eventId: idempotencyKey(TENANT_A, 'developer.event', 'order.filled|o-1') },

@@ -49,7 +49,7 @@ export async function POST(): Promise<NextResponse> {
   } catch {
     // Ignore logout errors, clear cookies anyway
   } finally {
-    clearSession();
+    await clearSession();
   }
 
   const response = NextResponse.json({ success: true, data: { redirectTo } });

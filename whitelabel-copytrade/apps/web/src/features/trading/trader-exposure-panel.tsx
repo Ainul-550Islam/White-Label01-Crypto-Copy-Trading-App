@@ -1,4 +1,5 @@
 "use client";
+import type { JSX } from 'react';
 
 // # Responsibility: renders a trader-profile owner's own non-sandbox exposure with explicit source scope, freshness, and unavailable valuations.
 

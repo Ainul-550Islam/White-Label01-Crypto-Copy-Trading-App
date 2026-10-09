@@ -10,6 +10,7 @@
 // # Adds follower risk policy read/update helpers
 // # Adds customer-safe reconciliation status query helper
 import { Permission } from "@wlct/shared-types";
+import { compareDecimalStringsDescending } from "@/lib/decimal-compare";
 import { apiClient } from "./api-client";
 import { ApiError } from "./api-errors";
 import { newIdempotencyKey } from "@/lib/idempotency-key";
@@ -97,6 +98,48 @@ export interface TraderPerformanceDetail {
   strategies: Strategy[];
 }
 
+/**
+ * Trader verification states, mirroring TraderVerificationState in the API. The page imported this
+ * name before it existed here, so the traders page did not typecheck and its verification filter was
+ * untyped.
+ */
+export type TraderVerificationState = "UNVERIFIED" | "PENDING" | "VERIFIED" | "REJECTED" | "SUSPENDED";
+
+export const TRADER_VERIFICATION_STATES: readonly TraderVerificationState[] = [
+  "UNVERIFIED",
+  "PENDING",
+  "VERIFIED",
+  "REJECTED",
+  "SUSPENDED",
+];
+
+/** The ranking windows the server accepts. Mirrors TraderRankingTimeframe in the API. */
+export type TraderRankingTimeframe = "7D" | "30D" | "90D";
+
+export const TRADER_RANKING_TIMEFRAMES: readonly TraderRankingTimeframe[] = ["7D", "30D", "90D"];
+
+/**
+ * How the ranking was produced, as reported by the server. `status` is UNAVAILABLE when no window
+ * satisfied the admission rule, and `asOf` / `windowStart` are then null: the page must show that
+ * the ranking is not available rather than an empty table that reads as "no traders".
+ */
+export interface TraderRankingMethodology {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  key: "RECONCILED_CLOSED_PERIOD_TWR";
+  description: string;
+  timeframe: TraderRankingTimeframe;
+  windowStart: string | null;
+  asOf: string | null;
+  boundaryRule: "EXACT_CONTIGUOUS_PERIODS_ONLY";
+  orderingRule: "RETURN_DESCENDING_UNAVAILABLE_LAST";
+  currentnessRule: string;
+  minimumPeriodCount: number;
+  rankedCount: number;
+  unrankedCount: number;
+  /** Why any row is unranked; null when every row was ranked. */
+  reason: string | null;
+}
+
 export interface TraderRanking {
   traderId: string;
   tenantId: string;
@@ -136,7 +179,7 @@ export interface TraderDiscoveryFilters {
   maxDrawdown?: number;
   minTrades?: number;
   minFollowers?: number;
-  sortBy?: "score" | "performance" | "followers" | "volume" | "trades";
+  sortBy?: "score" | "performance" | "followers" | "volume" | "trades" | "pnl" | "winRate";
   page?: number;
   limit?: number;
 }
@@ -653,16 +696,33 @@ export function filterTradersByDiscovery(
     }
   }
 
-  if (filters.sortBy === "volume") {
-    result.sort((a, b) => parseFloat(b.totalVolume || "0") - parseFloat(a.totalVolume || "0"));
+  if (filters.sortBy === "pnl" && performancesByTraderId) {
+    // The page has always offered "Sort by Realized PnL"; this branch is what makes the option mean
+    // anything. Unknown performances sort last, not as zero.
+    result.sort((a, b) =>
+      compareDecimalStringsDescending(
+        performancesByTraderId[a.traderId]?.realizedPnl,
+        performancesByTraderId[b.traderId]?.realizedPnl,
+      ),
+    );
+  } else if (filters.sortBy === "winRate" && performancesByTraderId) {
+    result.sort((a, b) =>
+      compareDecimalStringsDescending(
+        performancesByTraderId[a.traderId]?.winRate,
+        performancesByTraderId[b.traderId]?.winRate,
+      ),
+    );
+  } else if (filters.sortBy === "volume") {
+    result.sort((a, b) => compareDecimalStringsDescending(a.totalVolume, b.totalVolume));
   } else if (filters.sortBy === "trades") {
     result.sort((a, b) => (b.totalTrades || 0) - (a.totalTrades || 0));
   } else if (filters.sortBy === "performance" && performancesByTraderId) {
-    result.sort((a, b) => {
-      const aPnl = parseFloat(performancesByTraderId[a.traderId]?.realizedPnl || "0");
-      const bPnl = parseFloat(performancesByTraderId[b.traderId]?.realizedPnl || "0");
-      return bPnl - aPnl;
-    });
+    result.sort((a, b) =>
+      compareDecimalStringsDescending(
+        performancesByTraderId[a.traderId]?.realizedPnl,
+        performancesByTraderId[b.traderId]?.realizedPnl,
+      ),
+    );
   } else {
     result.sort((a, b) => (b.followerCount || 0) - (a.followerCount || 0));
   }
@@ -727,6 +787,7 @@ export const tradingApi = {
     page?: number;
     limit?: number;
     sortBy?: string;
+    timeframe?: TraderRankingTimeframe;
   }): Promise<Paged<TraderRanking>> => {
     const raw = await apiClient.get<unknown>("/v1/copy-trading/rankings", {
       searchParams: {
@@ -736,6 +797,7 @@ export const tradingApi = {
         page: params?.page,
         limit: params?.limit,
         sortBy: params?.sortBy,
+        timeframe: params?.timeframe,
       },
     });
     return parsePaged(raw, (entry) => {

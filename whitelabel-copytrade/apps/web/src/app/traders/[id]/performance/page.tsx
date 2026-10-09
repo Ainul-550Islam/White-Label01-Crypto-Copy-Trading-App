@@ -1,27 +1,24 @@
 // # NEW — Customer route for trader performance detail view
 'use client';
+import type { JSX } from 'react';
 
-import React from 'react';
+import React, { use } from 'react';
 import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { TraderPerformancePage } from '@/features/trading/trader-performance-page';
 import { AppShell } from '@/layout/app-shell';
 
 export interface TraderPerformanceRouteProps {
-  params: {
-    id: string;
-  };
-  searchParams?: {
-    window?: string;
-  };
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ window?: string }>;
 }
 
 export default function Page({
   params,
   searchParams,
 }: TraderPerformanceRouteProps): JSX.Element {
-  const traderId = params.id;
-  const initialWindow = searchParams?.window;
+  const traderId = use(params).id;
+  const initialWindow = use(searchParams).window;
 
   return (
     <AuthGuard>

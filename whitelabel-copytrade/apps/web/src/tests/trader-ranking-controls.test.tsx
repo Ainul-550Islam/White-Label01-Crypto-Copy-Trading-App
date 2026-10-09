@@ -5,8 +5,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { TraderRankingControls } from '../features/trading/trader-ranking-controls';
 import type { TraderRankingMethodology } from '../api/trading-api';
 
+// `status` mirrors what the server can actually return: AVAILABLE or UNAVAILABLE. The case this
+// fixture describes - four of five ranked - is AVAILABLE with a non-zero unrankedCount, and the
+// unranked reason is carried in `reason`. The previous fixture used a status the API never emits.
 const methodology: TraderRankingMethodology = {
-  status: 'PARTIAL',
+  status: 'AVAILABLE',
   key: 'RECONCILED_CLOSED_PERIOD_TWR',
   description: 'Compounded return from verified periods.',
   timeframe: '30D',

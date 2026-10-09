@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { AuthGuard } from '@/auth/auth.guard';
 import { NotificationPreferencesPage } from '@/features/notifications/notification-preferences-page';
 import { AppShell } from '@/layout/app-shell';

@@ -95,7 +95,7 @@ export const engineInternalClientConfigured = (config: AppConfigService): boolea
   );
 };
 
-/** The engine's own minimum (`services/execution-engine/app/security.py` accepts no
+/** The engine's own minimum (`services/execution-engine/app/security/internal_auth.py` accepts no
  * shorter token on the receiving side), restated here only as a number, never as a
  * second validation path. */
 const ENGINE_TOKEN_MIN_LENGTH = 32;

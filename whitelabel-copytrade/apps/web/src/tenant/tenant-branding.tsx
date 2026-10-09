@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { useEffect } from 'react';
 import { useTenant } from './tenant-context';

@@ -1,20 +1,19 @@
 // # NEW — copied positions route
 'use client';
+import type { JSX } from 'react';
 
-import React from 'react';
+import React, { use } from 'react';
 import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { CopiedPositionsPage } from '@/features/trading/copied-positions-page';
 import { AppShell } from '@/layout/app-shell';
 
 export interface CopySubscriptionPositionsRouteProps {
-  params: {
-    subscriptionId: string;
-  };
+  params: Promise<{ subscriptionId: string }>;
 }
 
 export default function Page({ params }: CopySubscriptionPositionsRouteProps): JSX.Element {
-  const { subscriptionId } = params;
+  const { subscriptionId } = use(params);
 
   return (
     <AuthGuard>

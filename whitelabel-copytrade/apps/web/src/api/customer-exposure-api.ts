@@ -71,8 +71,14 @@ export const customerExposureApi = {
     return apiClient.get<CustomerExposureView>('/v1/risk-management/my-exposure');
   },
   getTraderExposure(traderId: string): Promise<TraderExposureView> {
+    // The API mounts this read at `risk-management/trader-exposure/:traderId`
+    // (`apps/api/src/modules/risk-management/risk.controller.ts`). This client
+    // asked for `/traders/<id>/exposure`, a path no controller ever served, so
+    // every call was a 404 in production. The web path is the one that moves:
+    // the route is the published contract, is permission-decorated, and is
+    // covered by the route-authorization gate.
     return apiClient.get<TraderExposureView>(
-      `/v1/risk-management/traders/${encodeURIComponent(traderId)}/exposure`,
+      `/v1/risk-management/trader-exposure/${encodeURIComponent(traderId)}`,
     );
   },
 };

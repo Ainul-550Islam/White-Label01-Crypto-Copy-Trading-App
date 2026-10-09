@@ -207,6 +207,61 @@ describe('CopyPolicyService', () => {
       stopCopyReason: 'Stop-copy drawdown threshold 10% reached (current 12%)',
     });
   });
+
+  it('computes exit prices as exact decimals rather than by scaling a double', async () => {
+    const { service } = build();
+    const effective = await service.resolveEffectivePolicy({ tenantId: 't1' });
+    // 50000 * 2101/10000 = 10505 exactly. Through a double the same expression pays 10505.000000000002
+    // on some entries, which is not a price the venue will accept at the tick size.
+    const plan = service.resolveStopPolicy({
+      policy: { ...effective, takeProfitBps: 2101, stopLossBps: 3, trailingStopBps: 0 },
+      entryPrice: '50000',
+      side: 'BUY',
+    });
+    expect(plan.takeProfitPrice).toBe('60505');
+    expect(plan.stopLossPrice).toBe('49985');
+  });
+
+  it('refuses an exit price that would be zero instead of instructing the venue to exit at 0', async () => {
+    const { service } = build();
+    const effective = await service.resolveEffectivePolicy({ tenantId: 't1' });
+    // A 100% stop-loss distance leaves no positive price: 50000 * (1 - 1) = 0.
+    const plan = service.resolveStopPolicy({
+      policy: { ...effective, takeProfitBps: null, stopLossBps: 10000, trailingStopBps: null },
+      entryPrice: '50000',
+      side: 'BUY',
+    });
+    expect(plan.stopLossPrice).toBeNull();
+  });
+
+  it('validates symbol rules and names the rules that could never match or that contradict each other', async () => {
+    const { service } = build();
+    const effective = await service.resolveEffectivePolicy({ tenantId: 't1' });
+
+    // The platform deny rule is a glob and is valid; a validator that rejected it would be telling
+    // operators to delete the one rule that blocks withdrawal-like instruments.
+    expect(service.validateSymbolRules({ ...effective, allowedSymbols: ['BTC-USDT'], blockedSymbols: ['*WITHDRAWAL*'] })).toEqual({ valid: true, errors: [] });
+
+    const whitespace = service.validateSymbolRules({ ...effective, allowedSymbols: ['BTC USDT'], blockedSymbols: null });
+    expect(whitespace.valid).toBe(false);
+    expect(whitespace.errors.join(' ')).toContain('never match a symbol');
+
+    const contradictory = service.validateSymbolRules({ ...effective, allowedSymbols: ['BTC-USDT'], blockedSymbols: ['BTC-USDT'] });
+    expect(contradictory.valid).toBe(false);
+    expect(contradictory.errors.join(' ')).toContain('appears in both allowedSymbols and blockedSymbols');
+
+    const swallowed = service.validateSymbolRules({ ...effective, allowedSymbols: ['BTC-USDT'], blockedSymbols: ['BTC*'] });
+    expect(swallowed.valid).toBe(false);
+    expect(swallowed.errors.join(' ')).toContain('no symbol can satisfy both');
+
+    const blockEverything = service.validateSymbolRules({ ...effective, allowedSymbols: null, blockedSymbols: ['*'] });
+    expect(blockEverything.valid).toBe(false);
+    expect(blockEverything.errors.join(' ')).toContain("blockedSymbols '*' blocks every symbol");
+
+    const empty = service.validateSymbolRules({ ...effective, allowedSymbols: [''], blockedSymbols: null });
+    expect(empty.valid).toBe(false);
+    expect(empty.errors.join(' ')).toContain('empty rule');
+  });
 });
 
 describe('CustodyVisibilityService.checkAccess (CLIENT scope)', () => {

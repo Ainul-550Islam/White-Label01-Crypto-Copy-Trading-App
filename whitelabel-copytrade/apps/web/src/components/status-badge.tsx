@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 type StatusVariant = 'default' | 'success' | 'warning' | 'danger' | 'info' | 'neutral';
 
 interface StatusBadgeProps {

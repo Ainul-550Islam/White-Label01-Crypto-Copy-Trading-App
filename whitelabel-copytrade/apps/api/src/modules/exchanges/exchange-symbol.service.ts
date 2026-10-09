@@ -7,7 +7,7 @@ import { ExchangeAccountRepository } from './exchange-account.repository';
 import { ExchangeProviderContext } from './exchange-provider.interface';
 import { CacheService } from '../../infrastructure/redis/cache.service';
 import { randomUUID } from 'crypto';
-import { krakenPairParts } from './venues/kraken.provider';
+import { krakenPairParts } from './providers/kraken.provider';
 
 /**
  * Symbol/instrument normalization: base/quote, precision, quantity step, tick size, min/max quantity/notional, contract type, and canonical internal symbol mapping.

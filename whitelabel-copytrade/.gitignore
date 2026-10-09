@@ -67,3 +67,6 @@ desktop.ini
 !.vscode/extensions.json
 !.vscode/launch.json
 .idea/
+
+# Generated SPDX SBOM (release-gates/security.yml regenerate it; never commit an artifact)
+whitelabel-sbom*.spdx.json

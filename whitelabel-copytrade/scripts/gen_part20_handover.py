@@ -113,7 +113,7 @@ MODIFIED: Final[list[tuple[str, str]]] = [
         "`execution` gained `sections`, rendered from the posture view, and the existing `enginePosture` readiness-gate summary is untouched: the panel row is a second reader of one fact, not a second source of it.",
     ),
     (
-        "services/execution-engine/app/security.py",
+        "services/execution-engine/app/security/internal_auth.py",
         "the part's behaviour change: one law, two scopes. `_authenticate` (the constant-time token comparison), `_tenant_or_none` (validate-what-is-sent, refuse-what-is-required) and `_request_id` are shared, `TENANT_REQUIRED_CODE` names the refusal the worker matches on, `require_internal_auth` keeps its command semantics and its exact message, and `require_internal_auth_readonly` tolerates the absence of a tenant header for a route that acts on no tenant while still refusing a malformed one and still returning `tenant_id == \"\"` rather than an invented pseudo-tenant.",
     ),
     (

@@ -1,6 +1,6 @@
 {
   "schema": "part11-rls-coverage-v1",
-  "stamp": "20260923090000",
+  "stamp": "20261008130000",
   "policyName": "tenant_isolation",
   "functionName": "wlct_current_tenant_id",
   "covered": [
@@ -313,6 +313,14 @@
       "model": "KycProfile"
     },
     {
+      "table": "lead_trader_applications",
+      "model": "LeadTraderApplication"
+    },
+    {
+      "table": "leader_fee_policies",
+      "model": "LeaderFeePolicy"
+    },
+    {
       "table": "login_attempts",
       "model": "LoginAttempt"
     },
@@ -411,6 +419,10 @@
     {
       "table": "orders",
       "model": "Order"
+    },
+    {
+      "table": "outbox_events",
+      "model": "OutboxEvent"
     },
     {
       "table": "overage_records",
@@ -719,6 +731,10 @@
     {
       "table": "usage_meters",
       "model": "UsageMeter"
+    },
+    {
+      "table": "user_position_limits",
+      "model": "UserPositionLimit"
     },
     {
       "table": "user_roles",

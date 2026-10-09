@@ -56,6 +56,57 @@ describe('NOWPayments Production Adapter Contract', () => {
     if (original) process.env['NOWPAYMENTS_API_KEY'] = original;
   });
 
+  test('invoice request preserves the exact decimal value in its required JSON number field', async () => {
+    const originalKey = process.env['NOWPAYMENTS_API_KEY'];
+    process.env['NOWPAYMENTS_API_KEY'] = 'test-nowpayments-key';
+    const request = jest.spyOn(requestService, 'requestWithRetry').mockResolvedValue({
+      data: { id: 'invoice-123', payment_id: 'payment-123', invoice_url: 'https://pay.example.test/invoice-123' },
+      latencyMs: 1,
+    } as any);
+
+    try {
+      const result = await adapter.createPayment({
+        planId: 'plan_123',
+        planCode: 'BASIC',
+        planName: 'Basic',
+        price: '49.99',
+        currency: 'USD',
+        tenantId: 'tenant_123',
+        idempotencyKey: 'idem_123',
+        successUrl: 'https://example.com/success',
+        cancelUrl: 'https://example.com/cancel',
+        correlationId: 'corr_456',
+      });
+
+      expect(result.success).toBe(true);
+      const requestOptions = request.mock.calls[0][0] as any;
+      expect(requestOptions.url).toMatch(/\/v1\/invoice$/);
+      expect(requestOptions.body.price_amount).toBe(49.99);
+      expect(result.data?.amount).toBe('49.99');
+
+      const rejected = await adapter.createPayment({
+        planId: 'plan_123',
+        planCode: 'BASIC',
+        planName: 'Basic',
+        price: '1.230000000000000001',
+        currency: 'USD',
+        tenantId: 'tenant_123',
+        idempotencyKey: 'idem_456',
+        successUrl: 'https://example.com/success',
+        cancelUrl: 'https://example.com/cancel',
+        correlationId: 'corr_789',
+      });
+
+      expect(rejected.success).toBe(false);
+      expect(rejected.error?.code).toBe(ProviderErrorCode.VALIDATION_ERROR);
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      request.mockRestore();
+      if (originalKey === undefined) delete process.env['NOWPAYMENTS_API_KEY'];
+      else process.env['NOWPAYMENTS_API_KEY'] = originalKey;
+    }
+  });
+
   test('NOWPayments response normalized', () => {
     const normalizeStatus = (status: string) => {
       const s = status.toLowerCase();

@@ -16,11 +16,11 @@ interface RefreshResponse {
 }
 
 export async function POST(): Promise<NextResponse> {
-  const refreshToken = getRefreshToken();
-  const deviceId = getDeviceId();
+  const refreshToken = await getRefreshToken();
+  const deviceId = await getDeviceId();
 
   if (!refreshToken || !deviceId) {
-    clearSession();
+    await clearSession();
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'No refresh token.' } },
       { status: 401 }
@@ -34,11 +34,11 @@ export async function POST(): Promise<NextResponse> {
       body: { refreshToken, deviceId },
     });
 
-    persistSession(result.tokens, deviceId, randomUUID());
+    await persistSession(result.tokens, deviceId, randomUUID());
 
     return NextResponse.json({ success: true, data: {} });
   } catch {
-    clearSession();
+    await clearSession();
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'Session refresh failed.' } },
       { status: 401 }

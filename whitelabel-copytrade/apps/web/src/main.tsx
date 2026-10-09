@@ -5,6 +5,7 @@
  * a programmatic bootstrap for non-Next.js tooling if needed.
  */
 
+import type { JSX } from 'react';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Providers } from './app/providers';

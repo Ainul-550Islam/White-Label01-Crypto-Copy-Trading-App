@@ -1,5 +1,6 @@
 // # NEW — Displays partner tier, active referrals, volume, and accrued commissions
 "use client";
+import type { JSX } from 'react';
 
 import React from "react";
 import Link from "next/link";

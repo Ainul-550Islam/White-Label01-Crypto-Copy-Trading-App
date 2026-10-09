@@ -1,6 +1,7 @@
 // # NEW — Customer support and helpdesk route
 // # NEW — customer support destination/page
 'use client';
+import type { JSX } from 'react';
 
 import React from 'react';
 import Link from 'next/link';

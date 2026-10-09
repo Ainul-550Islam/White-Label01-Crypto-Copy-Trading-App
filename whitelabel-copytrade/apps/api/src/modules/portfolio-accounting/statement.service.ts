@@ -1,5 +1,6 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { AccountingPolicyService } from './accounting-policy.service';
 import { AccountingPeriodService } from './accounting-period.service';
 import { PortfolioSnapshotService } from './portfolio-snapshot.service';
@@ -49,6 +50,7 @@ export class StatementService {
     private readonly performanceService: PerformanceService,
     private readonly cashLedger: CashLedgerService,
     private readonly positionAccounting: PositionAccountingService,
+    @Optional() private readonly outbox?: OutboxService,
   ) {}
 
   async generateStatement(params: {
@@ -74,11 +76,6 @@ export class StatementService {
       profileId,
       sourceId: periodId,
     });
-
-    try {
-      const existing = await (this.prisma as any).portfolioStatement.findFirst({ where: { tenantId, idempotencyKey } });
-      if (existing) return existing;
-    } catch {}
 
     // Fetch persisted records — statements from persisted accounting
     const openingSnapshot = await (this.prisma as any).portfolioSnapshot.findFirst({
@@ -172,55 +169,75 @@ export class StatementService {
       policy.returnMethodology === PortfolioReturnMethodology.MONEY_WEIGHTED_RETURN ? mwr.returnPercent : twr.returnPercent;
 
     // Only columns of the PortfolioStatement model: Prisma rejects unknown
-    // fields, so the previous payload (holdings, grossPnl, performance, ...)
-    // failed every generation. Line items and evidence live in the Json columns.
-    const statement = await (this.prisma as any).portfolioStatement.create({
-      data: {
+    // fields, so line items and evidence remain in the model's Json columns.
+    const finalizedAt = new Date();
+    const persistenceData = {
+      tenantId,
+      profileId,
+      periodId,
+      statementId,
+      state: PortfolioStatementState.FINALIZED as any,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      openingNav: statementData.openingNav,
+      closingNav: statementData.closingNav,
+      deposits: sumLedgerAmounts(statementData.deposits),
+      withdrawals: sumLedgerAmounts(statementData.withdrawals),
+      transfers: sumLedgerAmounts(statementData.transfers),
+      tradingActivity: {
+        count: statementData.tradingActivity,
+        deposits: statementData.deposits,
+        withdrawals: statementData.withdrawals,
+        transfers: statementData.transfers,
+      } as any,
+      realizedPnl: statementData.realizedPnl,
+      unrealizedPnl: statementData.unrealizedPnl,
+      fees: { total: statementData.fees, grossPnl: statementData.grossPnl } as any,
+      netPnl: statementData.netPnl,
+      returnMethodology: policy.returnMethodology as any,
+      returnPercent: returnPercent ?? null,
+      benchmarkReturn: null,
+      endingHoldings: holdings as any,
+      cash: statementData.cash.balance,
+      reconciliationStatus,
+      baseCurrency: period.baseCurrency,
+      calculationVersion: policy.calculationVersion,
+      policyVersion: policy.policyVersion,
+      sourceReferences: [...new Set([...(closingSnapshot?.sourceReferences ?? []), ...(openingSnapshot?.sourceReferences ?? [])])],
+      evidence: redactSecrets({
+        statementData,
+        period,
+        openingSnapshotId: openingSnapshot?.id,
+        closingSnapshotId: closingSnapshot?.id,
+        performance: statementData.performance,
+        methodology: `STATEMENT_${policy.returnMethodology}`,
+        dataCompleteness,
+        createdBy: operatorId,
+      }) as any,
+      idempotencyKey,
+      finalizedAt,
+    };
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing statement generation without its statement.generated event');
+    }
+    const statement = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const store = tx as any;
+      const existing = await store.portfolioStatement.findFirst({ where: { tenantId, idempotencyKey } });
+      const persisted = existing ?? await store.portfolioStatement.create({ data: persistenceData });
+      const generatedAt = persisted.finalizedAt ?? persisted.createdAt ?? finalizedAt;
+      await this.outbox!.append(tx, {
         tenantId,
-        profileId,
-        periodId,
-        statementId,
-        state: PortfolioStatementState.FINALIZED as any,
-        periodStart: period.periodStart,
-        periodEnd: period.periodEnd,
-        openingNav: statementData.openingNav,
-        closingNav: statementData.closingNav,
-        deposits: sumLedgerAmounts(statementData.deposits),
-        withdrawals: sumLedgerAmounts(statementData.withdrawals),
-        transfers: sumLedgerAmounts(statementData.transfers),
-        tradingActivity: {
-          count: statementData.tradingActivity,
-          deposits: statementData.deposits,
-          withdrawals: statementData.withdrawals,
-          transfers: statementData.transfers,
-        } as any,
-        realizedPnl: statementData.realizedPnl,
-        unrealizedPnl: statementData.unrealizedPnl,
-        fees: { total: statementData.fees, grossPnl: statementData.grossPnl } as any,
-        netPnl: statementData.netPnl,
-        returnMethodology: policy.returnMethodology as any,
-        returnPercent: returnPercent ?? null,
-        benchmarkReturn: null,
-        endingHoldings: holdings as any,
-        cash: statementData.cash.balance,
-        reconciliationStatus,
-        baseCurrency: period.baseCurrency,
-        calculationVersion: policy.calculationVersion,
-        policyVersion: policy.policyVersion,
-        sourceReferences: [...new Set([...(closingSnapshot?.sourceReferences ?? []), ...(openingSnapshot?.sourceReferences ?? [])])],
-        evidence: redactSecrets({
-          statementData,
-          period,
-          openingSnapshotId: openingSnapshot?.id,
-          closingSnapshotId: closingSnapshot?.id,
-          performance: statementData.performance,
-          methodology: `STATEMENT_${policy.returnMethodology}`,
-          dataCompleteness,
-          createdBy: operatorId,
-        }) as any,
-        idempotencyKey,
-        finalizedAt: new Date(),
-      },
+        aggregateType: 'statement',
+        aggregateId: persisted.id,
+        eventType: 'statement.generated',
+        idempotencyKey: `statement:${persisted.id}:generated`,
+        occurredAt: generatedAt,
+        payload: {
+          statementId: persisted.statementId,
+          generatedAt: new Date(generatedAt).toISOString(),
+        },
+      });
+      return persisted;
     });
 
     this.logger.log({ event: 'portfolio.statement.generated', statementId, tenantId, periodId });

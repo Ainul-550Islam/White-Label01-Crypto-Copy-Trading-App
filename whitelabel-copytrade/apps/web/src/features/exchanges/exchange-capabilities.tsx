@@ -1,5 +1,6 @@
 // # NEW — Renders venue capability matrix (Spot/Futures/Margin, order types, live vs paper readiness, IP whitelist requirements)
 "use client";
+import type { JSX } from 'react';
 
 import React from "react";
 import { StatusBadge } from "@/components/status-badge";

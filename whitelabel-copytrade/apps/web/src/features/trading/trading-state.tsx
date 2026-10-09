@@ -1,6 +1,7 @@
 // # NEW — Shared loading skeleton, empty state, error retry, and degraded-mode banner for trading surfaces
 // # NEW — reusable trading state components
 'use client';
+import type { JSX } from 'react';
 
 import React from 'react';
 import { LoadingState } from '@/components/loading-state';

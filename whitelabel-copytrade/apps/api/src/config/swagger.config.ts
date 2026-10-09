@@ -1,9 +1,15 @@
 import type { INestApplication } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule, type OpenAPIObject } from '@nestjs/swagger';
+import { DocumentBuilder, SwaggerModule, type OpenAPIObject, type SchemaObject } from '@nestjs/swagger';
 import type { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 
 import { AppConfigService } from './app-config.service';
+import { DEVELOPER_EVENT_TYPES } from '../modules/developer-platform/developer.types';
+import { DEVELOPER_EVENT_PAYLOAD_SCHEMAS } from '../modules/developer-platform/event-schemas/developer-event-schemas';
+import type {
+  DeveloperEventPayloadSchema,
+  EventJsonSchemaProperty,
+} from '../modules/developer-platform/event-schemas/event-schema.types';
 import {
   HEADER_DEVICE_ID,
   HEADER_IDEMPOTENCY_KEY,
@@ -31,6 +37,24 @@ export function setupSwagger(app: INestApplication, config: AppConfigService): v
     applyDocsBasicAuth(app, config);
   }
 
+  const document = createSwaggerDocument(app, config);
+
+  SwaggerModule.setup(config.swaggerPath, app, document, {
+    swaggerOptions: {
+      persistAuthorization: true,
+      displayRequestDuration: true,
+      docExpansion: 'none',
+      filter: true,
+      tagsSorter: 'alpha',
+      operationsSorter: 'alpha',
+    },
+    customSiteTitle: `${config.swaggerTitle} - API reference`,
+    jsonDocumentUrl: `${config.swaggerPath}/json`,
+    yamlDocumentUrl: `${config.swaggerPath}/yaml`,
+  });
+}
+
+export function createSwaggerDocument(app: INestApplication, config: AppConfigService): OpenAPIObject {
   const builder = new DocumentBuilder()
     .setTitle(config.swaggerTitle)
     .setDescription(buildDescription(config))
@@ -107,25 +131,106 @@ export function setupSwagger(app: INestApplication, config: AppConfigService): v
     .addTag('Audit', 'Immutable audit trail')
     .addTag('Security', 'Security events and suspicious activity');
 
-  const document: OpenAPIObject = SwaggerModule.createDocument(app, builder.build(), {
+  const document = SwaggerModule.createDocument(app, builder.build(), {
     deepScanRoutes: true,
     operationIdFactory: (controllerKey: string, methodKey: string) =>
       `${controllerKey.replace(/Controller$/, '')}_${methodKey}`,
   });
+  return addDeveloperEventSchemas(document);
+}
 
-  SwaggerModule.setup(config.swaggerPath, app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      displayRequestDuration: true,
-      docExpansion: 'none',
-      filter: true,
-      tagsSorter: 'alpha',
-      operationsSorter: 'alpha',
+function eventSchemaComponentName(eventType: string): string {
+  return `DeveloperEventPayload_${eventType.replace(/[^A-Za-z0-9]+/g, '_')}_v1`;
+}
+
+function convertEventProperty(schema: EventJsonSchemaProperty): SchemaObject {
+  const types = Array.isArray(schema.type) ? [...schema.type] : [schema.type];
+  const nullable = types.includes('null') || schema.enum?.includes(null) === true;
+  const nonNullTypes = types.filter((type) => type !== 'null');
+  const output: Record<string, unknown> = {};
+
+  if (nonNullTypes.length === 1) {
+    output.type = nonNullTypes[0];
+  } else if (nonNullTypes.length > 1) {
+    output.oneOf = nonNullTypes.map((type) => ({ type }));
+  } else {
+    output.type = 'string';
+  }
+  if (nullable) output.nullable = true;
+  if (schema.description !== undefined) output.description = schema.description;
+  if (schema.format !== undefined) output.format = schema.format;
+  if (schema.pattern !== undefined) output.pattern = schema.pattern;
+  if (schema.minLength !== undefined) output.minLength = schema.minLength;
+  if (schema.maxLength !== undefined) output.maxLength = schema.maxLength;
+  if (schema.minimum !== undefined) output.minimum = schema.minimum;
+  if (schema.maximum !== undefined) output.maximum = schema.maximum;
+  if (schema.minItems !== undefined) output.minItems = schema.minItems;
+  if (schema.maxItems !== undefined) output.maxItems = schema.maxItems;
+  if (schema.enum !== undefined) output.enum = schema.enum.filter((value) => value !== null);
+  if (schema.items !== undefined) output.items = convertEventProperty(schema.items);
+  if (schema.properties !== undefined) {
+    output.properties = Object.fromEntries(
+      Object.entries(schema.properties).map(([name, property]) => [name, convertEventProperty(property)]),
+    );
+  }
+  if (schema.required !== undefined) output.required = [...schema.required];
+  if (schema.additionalProperties !== undefined) output.additionalProperties = schema.additionalProperties;
+
+  return output as SchemaObject;
+}
+
+function addDeveloperEventSchemas(document: OpenAPIObject): OpenAPIObject {
+  const eventPayloadComponents: Record<string, SchemaObject> = {};
+  for (const definition of DEVELOPER_EVENT_TYPES) {
+    const schema: DeveloperEventPayloadSchema | undefined = DEVELOPER_EVENT_PAYLOAD_SCHEMAS[definition.eventType];
+    if (!schema) {
+      throw new Error(`developer event '${definition.eventType}' has no versioned schema`);
+    }
+    const properties = Object.fromEntries(
+      Object.entries(schema.properties).map(([name, property]) => [name, convertEventProperty(property)]),
+    );
+    eventPayloadComponents[eventSchemaComponentName(definition.eventType)] = {
+      title: schema.title,
+      description: schema.description,
+      type: 'object',
+      additionalProperties: schema.additionalProperties,
+      required: [...schema.required],
+      properties,
+      example: schema.examples[0],
+      'x-json-schema-id': schema.$id,
+    } as SchemaObject;
+  }
+
+  const envelope: SchemaObject = {
+    title: 'Developer webhook event envelope v1',
+    description: 'The JSON body signed and delivered to each registered webhook endpoint. Tenant routing identifiers are not serialized.',
+    type: 'object',
+    additionalProperties: false,
+    required: ['eventId', 'eventType', 'eventVersion', 'occurredAt', 'correlationId', 'source', 'payload'],
+    properties: {
+      eventId: { type: 'string', pattern: '^[a-f0-9]{48}$', minLength: 48, maxLength: 48 },
+      eventType: { type: 'string', enum: DEVELOPER_EVENT_TYPES.map((definition) => definition.eventType) },
+      eventVersion: { type: 'string', enum: [...new Set(DEVELOPER_EVENT_TYPES.map((definition) => definition.eventVersion))] },
+      occurredAt: { type: 'string', format: 'date-time' },
+      correlationId: { type: 'string', minLength: 1, maxLength: 64 },
+      source: { type: 'string', enum: [...new Set(DEVELOPER_EVENT_TYPES.map((definition) => definition.source))] },
+      payload: {
+        oneOf: DEVELOPER_EVENT_TYPES.map((definition) => ({
+          $ref: `#/components/schemas/${eventSchemaComponentName(definition.eventType)}`,
+        })),
+      },
     },
-    customSiteTitle: `${config.swaggerTitle} - API reference`,
-    jsonDocumentUrl: `${config.swaggerPath}/json`,
-    yamlDocumentUrl: `${config.swaggerPath}/yaml`,
-  });
+  };
+
+  document.components = {
+    ...(document.components ?? {}),
+    schemas: {
+      ...(document.components?.schemas ?? {}),
+      ...eventPayloadComponents,
+      DeveloperWebhookEventEnvelope: envelope,
+    },
+  };
+  return document;
 }
 
 function buildDescription(config: AppConfigService): string {

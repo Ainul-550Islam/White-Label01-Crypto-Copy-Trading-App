@@ -4,6 +4,7 @@
 // # Emits notification events on copy execution outcomes and stop-copy triggers
 import { Injectable, Logger, Inject, Optional, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { CopySubscriptionRepository } from './copy-subscription.repository';
 import { CopyExecutionRepository } from './copy-execution.repository';
 import { CopyPolicyService } from './copy-policy.service';
@@ -12,7 +13,7 @@ import { FollowerAllocationService } from './follower-allocation.service';
 import { FollowerRiskService } from './follower-risk.service';
 import { ExchangeRoutingService } from '../exchanges/exchange-routing.service';
 import { ExchangeHealthService } from '../exchanges/exchange-health.service';
-import { CopyExecutionStatus, CopyRiskDecision } from './copy-trading.types';
+import { CopyExecutionStatus, CopyRiskDecision, CopySubscriptionState } from './copy-trading.types';
 import { randomUUID } from 'crypto';
 import { OrderIntentService } from '../oms/order-intent.service';
 import { OrderRoutingService } from '../oms/order-routing.service';
@@ -147,6 +148,7 @@ export class CopyExecutionService {
     private readonly exchangeRouting: ExchangeRoutingService,
     private readonly exchangeHealth: ExchangeHealthService,
     private readonly maintenance: MaintenanceModeService,
+    private readonly outbox: OutboxService,
     @Optional() @Inject(forwardRef(() => OrderIntentService)) private readonly orderIntents?: OrderIntentService,
     @Optional() @Inject(forwardRef(() => OrderRoutingService)) private readonly orderRouting?: OrderRoutingService,
     @Optional() @Inject('COPY_TRADING_OUTCOME_NOTIFIER') private readonly outcomeNotifier?: CopyTradingOutcomeNotifier,
@@ -277,6 +279,44 @@ export class CopyExecutionService {
     return { processed, skipped, blocked, executions };
   }
 
+  private async transitionSubscriptionWithOutbox(input: {
+    tenantId: string;
+    subscription: Record<string, any>;
+    nextState: CopySubscriptionState;
+    eventType: string;
+    timestamps: { pausedAt?: Date; stoppedAt?: Date };
+  }): Promise<void> {
+    const transitionEventId = randomUUID();
+
+    await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const updated = await this.subscriptionRepo.updateState(
+        input.subscription.id,
+        input.tenantId,
+        input.nextState,
+        input.timestamps,
+        { tx, expectedState: input.subscription.state as CopySubscriptionState },
+      );
+      if (!updated) {
+        throw new Error('copy subscription state changed concurrently; refusing to publish a stale lifecycle event');
+      }
+
+      await this.outbox.append(tx, {
+        tenantId: input.tenantId,
+        aggregateType: 'copy.subscription',
+        aggregateId: updated.id,
+        eventType: input.eventType,
+        idempotencyKey: `copy-subscription:${updated.id}:${input.eventType}:${transitionEventId}`,
+        payload: {
+          subscriptionId: updated.id,
+          followerId: updated.followerId,
+          traderId: updated.traderId,
+          strategyId: updated.strategyId,
+          state: input.nextState,
+        },
+      });
+    });
+  }
+
   private async emitNotificationIfWired(payload: {
     tenantId: string;
     followerId: string;
@@ -356,18 +396,63 @@ export class CopyExecutionService {
     // Resolve effective copy policy - Platform → Tenant → Trader Strategy → Follower Subscription
     const effectivePolicy = await this.policyService.resolveEffectivePolicy({ tenantId, strategyId: input.strategyId, subscriptionId: subscription.id });
 
-    // Get follower balance from canonical data
+    // Get follower balance from canonical data.
+    //
+    // This used to be wrapped in a bare `catch {}`. An empty catch here is not
+    // harmless: a failed lookup leaves `followerBalance` null, which silently
+    // changed the sizing result downstream. The lookup now fails the copy
+    // closed and says so, because sizing money against an unknown balance is
+    // exactly the case that must not be guessed at.
     let followerBalance: string | null = null;
     let leaderTotalBalance: string | null = null;
 
     if (subscription.followerAccountId) {
       try {
-        followerBalance = await this.allocationService.getAvailableBalance(tenantId, subscription.followerId, subscription.followerAccountId);
-      } catch {}
+        followerBalance = await this.allocationService.getAvailableBalance(
+          tenantId,
+          subscription.followerId,
+          subscription.followerAccountId,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Follower balance lookup failed, refusing to copy tenant=${tenantId} sub=${subscription.id} account=${subscription.followerAccountId}: ${
+            (error as Error)?.message ?? 'unknown error'
+          }`,
+        );
+        const failed = await this.executionRepo.create({
+          tenantId,
+          leaderEventId: leaderEvent.eventId,
+          leaderOrderId: leaderEvent.orderId || null,
+          leaderFillId: leaderEvent.fillId || null,
+          subscriptionId: subscription.id,
+          followerId: subscription.followerId,
+          traderId: input.traderId,
+          followerAccountId: subscription.followerAccountId,
+          sizingMode: subscription.allocationMode,
+          leaderQuantity: leaderEvent.quantity,
+          leaderPrice: leaderEvent.price || null,
+          followerQuantity: null,
+          followerPrice: null,
+          slippageTolerance: effectivePolicy.slippageToleranceBps?.toString() || null,
+          maxNotional: effectivePolicy.maxOrderNotional || null,
+          executionIntent: { reason: 'BALANCE_LOOKUP_FAILED', leaderEvent } as any,
+          idempotencyKey: copyIdempotencyKey(tenantId, leaderEvent.eventId, subscription.id),
+        });
+        await this.executionRepo.updateStatus(failed.id, tenantId, CopyExecutionStatus.REJECTED, {
+          failureReason: 'Follower balance lookup failed - copy refused',
+        });
+        return { ...failed, status: CopyExecutionStatus.REJECTED };
+      }
     }
 
-    // Map leader event to follower intent using precision-safe calculations
-    const followerIntent = await this.orderMapper.mapLeaderToFollower({
+    // Map leader event to follower intent using precision-safe calculations.
+    //
+    // `planLeaderToFollower` (rather than `mapLeaderToFollower`) is used so the
+    // execution row records *why* a copy was refused: "filtered or below
+    // minimum" hid the difference between a blocked symbol, a missing venue
+    // step and an unaffordable size, and every one of those needs a different
+    // answer from support.
+    const mapping = await this.orderMapper.planLeaderToFollower({
       tenantId,
       leaderEvent,
       followerAccountId: subscription.followerAccountId,
@@ -376,9 +461,14 @@ export class CopyExecutionService {
       copyPolicy: effectivePolicy,
       followerBalance,
       leaderTotalBalance,
+      // The leader's own fill price doubles as the reference price. Leader
+      // events are built from fills (`leader-event-source.service.ts`), so a
+      // price is normally present; a reference would only matter for a
+      // price-less event, and refusing those is the intended behaviour.
+      referencePrice: leaderEvent.price ?? null,
     });
 
-    if (!followerIntent) {
+    if (!mapping.ok) {
       const skipped = await this.executionRepo.create({
         tenantId,
         leaderEventId: leaderEvent.eventId,
@@ -395,20 +485,37 @@ export class CopyExecutionService {
         followerPrice: null,
         slippageTolerance: effectivePolicy.slippageToleranceBps?.toString() || null,
         maxNotional: effectivePolicy.maxOrderNotional || null,
-        executionIntent: { reason: 'MAPPING_FAILED', leaderEvent, effectivePolicy },
+        executionIntent: {
+          reason: 'MAPPING_REJECTED',
+          code: mapping.rejection.code,
+          detail: mapping.rejection.message,
+          leaderEvent,
+          effectivePolicy,
+        },
         idempotencyKey: copyIdempotencyKey(tenantId, leaderEvent.eventId, subscription.id),
       });
 
-      await this.executionRepo.updateStatus(skipped.id, tenantId, CopyExecutionStatus.SKIPPED, { failureReason: 'Order mapping failed - filtered or below minimum' });
+      await this.executionRepo.updateStatus(skipped.id, tenantId, CopyExecutionStatus.SKIPPED, {
+        failureReason: `${mapping.rejection.code}: ${mapping.rejection.message}`,
+      });
       return { ...skipped, status: CopyExecutionStatus.SKIPPED };
     }
 
+    const followerIntent = mapping.intent;
+
     // Slippage and delay enforcement (GAP-15)
+    //
+    // `executionPrice` is the follower's own price and nothing else. It used to fall back to the
+    // leader's price, which made the adverse-slippage computation identical to zero on every copy -
+    // a guardrail that could not fail, reported as a pass. The intent's price is the leader's price
+    // snapped to the venue tick, so this is a real comparison; when the follower's price is not
+    // known the evaluator says the measurement has not been taken rather than implying it was
+    // zero, and the venue-side bounds on the intent constrain the fill in the meantime.
     if (typeof (this.policyService as any).evaluateSlippageAndDelay === 'function') {
       const slippageEval = (this.policyService as any).evaluateSlippageAndDelay({
         policy: effectivePolicy,
         leaderPrice: leaderEvent.price || null,
-        executionPrice: followerIntent.price || leaderEvent.price || null,
+        executionPrice: followerIntent.price || null,
         side: followerIntent.side,
         leaderTimestamp: leaderEvent.timestamp,
       });
@@ -485,9 +592,13 @@ export class CopyExecutionService {
           riskRuleId: 'STOP_COPY_CONDITION',
           failureReason: stopPlan.stopCopyReason || 'Stop-copy condition triggered',
         });
-        try {
-          await this.subscriptionRepo.updateState(subscription.id, tenantId, 'STOPPED' as any, { stoppedAt: new Date() });
-        } catch {}
+        await this.transitionSubscriptionWithOutbox({
+          tenantId,
+          subscription,
+          nextState: CopySubscriptionState.STOPPED,
+          eventType: 'copy.subscription.stopped',
+          timestamps: { stoppedAt: new Date() },
+        });
         await this.emitNotificationIfWired({
           tenantId,
           followerId: subscription.followerId,
@@ -583,9 +694,13 @@ export class CopyExecutionService {
       await this.executionRepo.updateStatus(blocked.id, tenantId, CopyExecutionStatus.BLOCKED, { riskDecision: riskCheck.decision, riskRuleId: riskCheck.ruleId || undefined, failureReason: riskCheck.reason || 'Risk blocked' });
 
       if (riskCheck.decision === CopyRiskDecision.STOP_COPY) {
-        try {
-          await this.subscriptionRepo.updateState(subscription.id, tenantId, 'STOPPED' as any, { stoppedAt: new Date() });
-        } catch {}
+        await this.transitionSubscriptionWithOutbox({
+          tenantId,
+          subscription,
+          nextState: CopySubscriptionState.STOPPED,
+          eventType: 'copy.subscription.stopped',
+          timestamps: { stoppedAt: new Date() },
+        });
       }
 
       await this.emitNotificationIfWired({
@@ -628,9 +743,13 @@ export class CopyExecutionService {
 
       await this.executionRepo.updateStatus(paused.id, tenantId, CopyExecutionStatus.BLOCKED, { riskDecision: riskCheck.decision, riskRuleId: riskCheck.ruleId || undefined, failureReason: riskCheck.reason || 'Risk paused' });
 
-      try {
-        await this.subscriptionRepo.updateState(subscription.id, tenantId, 'PAUSED' as any, { pausedAt: new Date() });
-      } catch {}
+      await this.transitionSubscriptionWithOutbox({
+        tenantId,
+        subscription,
+        nextState: CopySubscriptionState.PAUSED,
+        eventType: 'copy.subscription.paused',
+        timestamps: { pausedAt: new Date() },
+      });
 
       return { ...paused, status: CopyExecutionStatus.BLOCKED };
     }

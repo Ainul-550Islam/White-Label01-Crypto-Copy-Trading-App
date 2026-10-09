@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
 
@@ -84,7 +84,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       host,
     });
 
-    persistSession(result.tokens, deviceId, randomUUID());
+    await persistSession(result.tokens, deviceId, randomUUID());
 
     return NextResponse.json(
       {

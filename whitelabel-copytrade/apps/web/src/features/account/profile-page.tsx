@@ -1,6 +1,7 @@
 'use client';
+import type { JSX } from 'react';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -15,6 +16,36 @@ import { StatusBadge } from '@/components/status-badge';
 import { LoadingState } from '@/components/loading-state';
 import { ErrorState } from '@/components/error-state';
 
+type ProfileResponse = Awaited<ReturnType<typeof accountApi.getMe>>;
+
+interface ProfileDraft {
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  phone: string;
+  bio: string;
+  countryCode: string;
+  timezone: string;
+  locale: SupportedLocaleCode;
+  preferredCurrency: SupportedCurrencyCode;
+  marketingOptIn: boolean;
+}
+
+function profileDraftFromData(data: ProfileResponse | undefined): ProfileDraft {
+  return {
+    firstName: data?.profile?.firstName ?? '',
+    lastName: data?.profile?.lastName ?? '',
+    displayName: data?.profile?.displayName ?? '',
+    phone: data?.phone ?? '',
+    bio: data?.profile?.bio ?? '',
+    countryCode: data?.profile?.countryCode ?? '',
+    timezone: data?.profile?.timezone ?? 'UTC',
+    locale: data?.profile?.locale ?? 'en',
+    preferredCurrency: data?.profile?.preferredCurrency ?? 'USD',
+    marketingOptIn: Boolean(data?.profile?.marketingOptIn),
+  };
+}
+
 export function ProfilePage(): JSX.Element {
   const { session, refreshSession } = useAuth();
   const queryClient = useQueryClient();
@@ -25,16 +56,11 @@ export function ProfilePage(): JSX.Element {
     enabled: Boolean(session),
   });
 
-  const [firstName, setFirstName] = useState<string>('');
-  const [lastName, setLastName] = useState<string>('');
-  const [displayName, setDisplayName] = useState<string>('');
-  const [phone, setPhone] = useState<string>('');
-  const [bio, setBio] = useState<string>('');
-  const [countryCode, setCountryCode] = useState<string>('');
-  const [timezone, setTimezone] = useState<string>('UTC');
-  const [locale, setLocale] = useState<SupportedLocaleCode>('en');
-  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrencyCode>('USD');
-  const [marketingOptIn, setMarketingOptIn] = useState<boolean>(false);
+  const [draft, setDraft] = useState<Partial<ProfileDraft>>({});
+  const profileValues: ProfileDraft = { ...profileDraftFromData(data), ...draft };
+  const updateProfileField = <K extends keyof ProfileDraft,>(field: K, value: ProfileDraft[K]) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
 
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
   const [profileNotice, setProfileNotice] = useState<string>('');
@@ -47,20 +73,6 @@ export function ProfilePage(): JSX.Element {
   const [passwordNotice, setPasswordNotice] = useState<string>('');
   const [passwordError, setPasswordError] = useState<string>('');
 
-  useEffect(() => {
-    if (!data) return;
-    setFirstName(data.profile?.firstName ?? '');
-    setLastName(data.profile?.lastName ?? '');
-    setDisplayName(data.profile?.displayName ?? '');
-    setPhone(data.phone ?? '');
-    setBio(data.profile?.bio ?? '');
-    setCountryCode(data.profile?.countryCode ?? '');
-    setTimezone(data.profile?.timezone ?? 'UTC');
-    setLocale(data.profile?.locale ?? 'en');
-    setPreferredCurrency(data.profile?.preferredCurrency ?? 'USD');
-    setMarketingOptIn(Boolean(data.profile?.marketingOptIn));
-  }, [data]);
-
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingProfile(true);
@@ -68,18 +80,19 @@ export function ProfilePage(): JSX.Element {
     setProfileError('');
     try {
       await accountApi.updateProfile({
-        ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
-        ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
-        ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
-        ...(phone.trim() ? { phone: phone.trim() } : {}),
-        ...(bio.trim() ? { bio: bio.trim() } : {}),
-        ...(countryCode.trim() ? { countryCode: countryCode.trim().toUpperCase() } : {}),
-        ...(timezone.trim() ? { timezone: timezone.trim() } : {}),
-        locale,
-        preferredCurrency,
-        marketingOptIn,
+        ...(profileValues.firstName.trim() ? { firstName: profileValues.firstName.trim() } : {}),
+        ...(profileValues.lastName.trim() ? { lastName: profileValues.lastName.trim() } : {}),
+        ...(profileValues.displayName.trim() ? { displayName: profileValues.displayName.trim() } : {}),
+        ...(profileValues.phone.trim() ? { phone: profileValues.phone.trim() } : {}),
+        ...(profileValues.bio.trim() ? { bio: profileValues.bio.trim() } : {}),
+        ...(profileValues.countryCode.trim() ? { countryCode: profileValues.countryCode.trim().toUpperCase() } : {}),
+        ...(profileValues.timezone.trim() ? { timezone: profileValues.timezone.trim() } : {}),
+        locale: profileValues.locale,
+        preferredCurrency: profileValues.preferredCurrency,
+        marketingOptIn: profileValues.marketingOptIn,
       });
       await queryClient.invalidateQueries({ queryKey: ['users', 'me'] });
+      setDraft({});
       await refreshSession();
       setProfileNotice('Profile updated.');
     } catch (err) {
@@ -198,8 +211,8 @@ export function ProfilePage(): JSX.Element {
                   </label>
                   <input
                     id="profile-first-name"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
+                    value={profileValues.firstName}
+                    onChange={(e) => updateProfileField('firstName', e.target.value)}
                     maxLength={64}
                     className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
                   />
@@ -210,8 +223,8 @@ export function ProfilePage(): JSX.Element {
                   </label>
                   <input
                     id="profile-last-name"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
+                    value={profileValues.lastName}
+                    onChange={(e) => updateProfileField('lastName', e.target.value)}
                     maxLength={64}
                     className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
                   />
@@ -225,8 +238,8 @@ export function ProfilePage(): JSX.Element {
                   </label>
                   <input
                     id="profile-display-name"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
+                    value={profileValues.displayName}
+                    onChange={(e) => updateProfileField('displayName', e.target.value)}
                     maxLength={64}
                     className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
                   />
@@ -237,8 +250,8 @@ export function ProfilePage(): JSX.Element {
                   </label>
                   <input
                     id="profile-phone"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    value={profileValues.phone}
+                    onChange={(e) => updateProfileField('phone', e.target.value)}
                     placeholder="+8801712345678"
                     className="mt-1 w-full rounded border px-3 py-1.5 font-mono text-sm"
                   />
@@ -252,8 +265,8 @@ export function ProfilePage(): JSX.Element {
                   </label>
                   <input
                     id="profile-country"
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                    value={profileValues.countryCode}
+                    onChange={(e) => updateProfileField('countryCode', e.target.value.toUpperCase())}
                     maxLength={2}
                     placeholder="BD"
                     className="mt-1 w-full rounded border px-3 py-1.5 font-mono text-sm uppercase"
@@ -265,8 +278,8 @@ export function ProfilePage(): JSX.Element {
                   </label>
                   <select
                     id="profile-locale"
-                    value={locale}
-                    onChange={(e) => setLocale(e.target.value as SupportedLocaleCode)}
+                    value={profileValues.locale}
+                    onChange={(e) => updateProfileField('locale', e.target.value as SupportedLocaleCode)}
                     className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
                   >
                     <option value="en">English (en)</option>
@@ -282,8 +295,8 @@ export function ProfilePage(): JSX.Element {
                   </label>
                   <select
                     id="profile-currency"
-                    value={preferredCurrency}
-                    onChange={(e) => setPreferredCurrency(e.target.value as SupportedCurrencyCode)}
+                    value={profileValues.preferredCurrency}
+                    onChange={(e) => updateProfileField('preferredCurrency', e.target.value as SupportedCurrencyCode)}
                     className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
                   >
                     <option value="USD">USD</option>
@@ -302,8 +315,8 @@ export function ProfilePage(): JSX.Element {
                 </label>
                 <input
                   id="profile-timezone"
-                  value={timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
+                  value={profileValues.timezone}
+                  onChange={(e) => updateProfileField('timezone', e.target.value)}
                   maxLength={64}
                   placeholder="Asia/Dhaka"
                   className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
@@ -316,8 +329,8 @@ export function ProfilePage(): JSX.Element {
                 </label>
                 <textarea
                   id="profile-bio"
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
+                  value={profileValues.bio}
+                  onChange={(e) => updateProfileField('bio', e.target.value)}
                   maxLength={500}
                   rows={2}
                   className="mt-1 w-full rounded border px-3 py-1.5 text-sm"
@@ -327,8 +340,8 @@ export function ProfilePage(): JSX.Element {
               <label className="flex items-center gap-2 text-xs">
                 <input
                   type="checkbox"
-                  checked={marketingOptIn}
-                  onChange={(e) => setMarketingOptIn(e.target.checked)}
+                  checked={profileValues.marketingOptIn}
+                  onChange={(e) => updateProfileField('marketingOptIn', e.target.checked)}
                 />
                 <span>Receive product and strategy announcements from my organisation</span>
               </label>

@@ -88,14 +88,21 @@ export class CustomDomainService {
     // Validate domain format
     this.validateDomainFormat(domain);
 
-    // Prevent cross-tenant ownership - check if domain already exists for another tenant
-    const existingDomain = await this.prisma.tenantDomain.findFirst({ where: { domain } });
+    // Normalise before every comparison and write. `domain` is UNIQUE and the row is stored
+    // lower-case while callers pass whatever the operator typed, so an un-normalised lookup would
+    // miss the existing row and let a second tenant register `BRAND.EXAMPLE.COM` alongside
+    // `brand.example.com` - two tenants, one host, and the cross-tenant ownership check defeated by
+    // capitalisation.
+    const normalised = domain.trim().toLowerCase().replace(/\.$/, '');
+
+    // Prevent cross-tenant ownership - check if domain already exists for any tenant
+    const existingDomain = await this.prisma.tenantDomain.findFirst({ where: { domain: normalised } });
     if (existingDomain) {
       if (existingDomain.tenantId !== tenantId) {
-        throw new Error(`Domain ${domain} is already registered to another tenant`);
+        throw new Error(`Domain ${normalised} is already registered to another tenant`);
       } else {
         // Same tenant duplicate
-        throw new Error(`Domain ${domain} is already registered for this tenant`);
+        throw new Error(`Domain ${normalised} is already registered for this tenant`);
       }
     }
 
@@ -111,7 +118,7 @@ export class CustomDomainService {
     const created = await this.prisma.tenantDomain.create({
       data: {
         tenantId,
-        domain: domain.toLowerCase(),
+        domain: normalised,
         isPrimary: isPrimary ?? true,
         status: 'PENDING_DNS' as any,
         verificationToken,

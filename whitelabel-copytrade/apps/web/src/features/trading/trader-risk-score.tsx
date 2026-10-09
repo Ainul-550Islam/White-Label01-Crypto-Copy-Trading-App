@@ -1,5 +1,6 @@
 // # Responsibility: renders the server-provided trader risk score, factor provenance and missing-data state.
 
+import type { JSX } from 'react';
 import type { TraderRiskScore as TraderRiskScoreResult } from "@/api/trading-api";
 
 export function TraderRiskScore({ result }: { result: TraderRiskScoreResult }): JSX.Element {

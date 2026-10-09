@@ -117,19 +117,23 @@ export class WebhookReplayGuard {
       // On DB failure, allow processing but log warning
     }
 
-    // Step 3: Check event age for replay window
+    // Step 3: Check event age for replay window only when the provider supplied a valid timestamp.
+    // Missing provider time is unknown evidence, not permission to substitute the receive time.
     const replayWindowSeconds = 24 * 60 * 60; // 24 hours
-    const eventAgeSeconds = (Date.now() - event.providerCreatedAt.getTime()) / 1000;
+    const providerCreatedAtMs = event.providerCreatedAt?.getTime();
 
-    if (eventAgeSeconds > replayWindowSeconds) {
-      this.logger.warn(`Webhook event too old: ${provider}:${providerEventId} age ${eventAgeSeconds}s exceeds window ${replayWindowSeconds}s`);
+    if (providerCreatedAtMs !== undefined && Number.isFinite(providerCreatedAtMs)) {
+      const eventAgeSeconds = (Date.now() - providerCreatedAtMs) / 1000;
+      if (eventAgeSeconds > replayWindowSeconds) {
+        this.logger.warn(`Webhook event too old: ${provider}:${providerEventId} age ${eventAgeSeconds}s exceeds window ${replayWindowSeconds}s`);
 
-      return {
-        isDuplicate: false,
-        isReplay: true,
-        shouldProcess: false,
-        reason: `Event too old: ${eventAgeSeconds}s old, window is ${replayWindowSeconds}s`,
-      };
+        return {
+          isDuplicate: false,
+          isReplay: true,
+          shouldProcess: false,
+          reason: `Event too old: ${eventAgeSeconds}s old, window is ${replayWindowSeconds}s`,
+        };
+      }
     }
 
     // Event is new and should be processed

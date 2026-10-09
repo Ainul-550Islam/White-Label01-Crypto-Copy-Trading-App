@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { AuthGuard } from '@/auth/auth.guard';
 import { ProfilePage } from '@/features/account/profile-page';
 import { AppShell } from '@/layout/app-shell';

@@ -42,7 +42,7 @@ from app.schemas import (
     EnablementRequest,
     EnablementRoleView,
 )
-from app.security import ServiceCaller, require_internal_auth, require_tenant_match
+from app.security.internal_auth import ServiceCaller, require_internal_auth, require_tenant_match
 
 router = APIRouter(prefix="/internal/v1", tags=["enablement"])
 

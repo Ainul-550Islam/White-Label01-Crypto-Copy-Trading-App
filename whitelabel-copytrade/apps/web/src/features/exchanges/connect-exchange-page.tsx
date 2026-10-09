@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { useState } from 'react';
 import { exchangeApi, EXCHANGE_VENUES, PASSPHRASE_VENUES } from '@/api/exchange-api';
 import { ApiError } from '@/api/api-errors';

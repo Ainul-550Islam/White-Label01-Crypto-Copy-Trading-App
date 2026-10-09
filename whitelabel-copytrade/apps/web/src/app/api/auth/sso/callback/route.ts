@@ -48,7 +48,7 @@ function redirectTo(request: Request, path: string): NextResponse {
  * browser JavaScript, and no token is ever put in a URL.
  */
 export async function GET(request: Request): Promise<NextResponse> {
-  const store = cookies();
+  const store = await cookies();
   const bindingToken = store.get(SSO_BINDING_COOKIE)?.value;
   const deviceId = store.get(SSO_DEVICE_COOKIE)?.value;
   // One attempt per start: the binding cookies are dropped whatever happens next.
@@ -100,7 +100,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (!("tokens" in result) || !result.tokens) {
       return redirectTo(request, SSO_FAILURE_PATH);
     }
-    persistSession(result.tokens, deviceId, randomUUID());
+    await persistSession(result.tokens, deviceId, randomUUID());
     return redirectTo(request, ssoSuccessPath(completed.returnTo));
   } catch {
     // Refusals are generic by design (the API recorded the specific reason in its audit trail).

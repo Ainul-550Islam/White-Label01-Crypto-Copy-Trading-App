@@ -15,8 +15,6 @@ export default function PlanComparisonPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const fetchComparison = async () => {
-    setLoading(true);
-    setError(null);
     try {
       const data = await getPlanComparison();
       setComparison(data);
@@ -27,8 +25,15 @@ export default function PlanComparisonPage() {
     }
   };
 
+  const refreshComparison = async () => {
+    setLoading(true);
+    setError(null);
+    await fetchComparison();
+  };
+
   useEffect(() => {
-    fetchComparison();
+    const timer = window.setTimeout(() => void fetchComparison(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const handleSelectPlan = async (planId: string) => {
@@ -45,12 +50,12 @@ export default function PlanComparisonPage() {
           cancelUrl: window.location.origin + '/billing/plans',
         });
         if (checkout.checkoutUrl) {
-          window.location.href = checkout.checkoutUrl;
+          window.location.assign(checkout.checkoutUrl);
           return;
         }
       }
       setMessage(result.message || 'Plan change successful');
-      await fetchComparison();
+      await refreshComparison();
     } catch (e: any) {
       setMessage(`Error: ${e.message}`);
     } finally {

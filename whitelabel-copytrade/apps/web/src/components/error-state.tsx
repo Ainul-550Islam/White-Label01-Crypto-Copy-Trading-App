@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { ApiError } from '@/api/api-errors';
 

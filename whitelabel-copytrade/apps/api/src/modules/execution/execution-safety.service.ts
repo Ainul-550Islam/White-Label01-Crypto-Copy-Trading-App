@@ -1,11 +1,13 @@
 // # Centralizes platform, tenant, venue, symbol, and account kill-switch evaluation
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { AuditAction, AuditActorType, AuditOutcome } from '@wlct/shared-types';
 import { sanitiseForLog } from '@wlct/utils';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { AuditService } from '../audit/audit.service';
 import { AppConfigService } from '../../config/app-config.service';
 import { ConflictException, ValidationException } from '../../common/errors/app.exception';
@@ -43,6 +45,7 @@ export class ExecutionSafetyService {
     scope: true,
     target: true,
     isEngaged: true,
+    requiresExplicitClear: true,
     reason: true,
     engagedByUserId: true,
     engagedAt: true,
@@ -56,6 +59,7 @@ export class ExecutionSafetyService {
     private readonly audit: AuditService,
     private readonly config: AppConfigService,
     @InjectPinoLogger(ExecutionSafetyService.name) private readonly logger: PinoLogger,
+    private readonly outbox: OutboxService,
   ) {}
 
   /**
@@ -112,64 +116,75 @@ export class ExecutionSafetyService {
       ]);
     }
 
-    const existing = await this.prisma.killSwitch.findFirst({
-      where: { tenantId, scope: input.scope, target },
-      select: ExecutionSafetyService.SWITCH_SELECT,
-    });
-
-    if (existing && existing.isEngaged === input.engaged) {
-      throw new ConflictException(
-        `This kill switch is already ${input.engaged ? 'engaged' : 'released'}.`,
-      );
-    }
-
-    if (existing && !input.engaged) {
-      // Part 8 guard: a switch pulled by AUTOMATIC risk protection cannot be
-      // released from this surface. The execution console predates the
-      // protection lifecycle and has no notion of explicit-clear; releasing
-      // one of those rows from here would bypass the acknowledge-and-confirm
-      // sequence the risk console enforces. The durable flag decides, so
-      // future surfaces inherit the rule instead of re-implementing it.
-      const lifecycle = await this.prisma.killSwitch.findFirst({
-        where: { id: existing.id },
-        select: { requiresExplicitClear: true, status: true },
+    const now = new Date();
+    const transitionEventId = randomUUID();
+    const result = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const existing = await tx.killSwitch.findFirst({
+        where: { tenantId, scope: input.scope, target },
+        select: ExecutionSafetyService.SWITCH_SELECT,
       });
-      if (lifecycle?.requiresExplicitClear) {
+      if (existing && existing.isEngaged === input.engaged) {
         throw new ConflictException(
-          'This switch was triggered by automatic risk protection. It must be ' +
-            'acknowledged and cleared from the risk console, not released here.',
+          `This kill switch is already ${input.engaged ? 'engaged' : 'released'}.`,
         );
       }
-    }
-
-    const now = new Date();
-    const data = input.engaged
-      ? {
-          isEngaged: true,
-          reason: sanitiseForLog(input.reason, 500),
-          engagedByUserId: actor.userId,
-          engagedAt: now,
-          // The previous release is deliberately left in place. Reading a
-          // switch's history should show engage/release/engage, not a row that
-          // pretends it was never released.
+      if (existing && !input.engaged) {
+        // Automatic protection can only be released through the explicit
+        // acknowledge-and-clear risk workflow.
+        if (existing.requiresExplicitClear) {
+          throw new ConflictException(
+            'This switch was triggered by automatic risk protection. It must be ' +
+              'acknowledged and cleared from the risk console, not released here.',
+          );
         }
-      : {
-          isEngaged: false,
-          reason: sanitiseForLog(input.reason, 500),
-          releasedByUserId: actor.userId,
-          releasedAt: now,
-        };
+      }
 
-    const saved = existing
-      ? await this.prisma.killSwitch.update({
-          where: { id: existing.id },
-          data,
-          select: ExecutionSafetyService.SWITCH_SELECT,
-        })
-      : await this.prisma.killSwitch.create({
-          data: { tenantId, scope: input.scope, target, ...data },
-          select: ExecutionSafetyService.SWITCH_SELECT,
+      const data = input.engaged
+        ? {
+            isEngaged: true,
+            reason: sanitiseForLog(input.reason, 500),
+            engagedByUserId: actor.userId,
+            engagedAt: now,
+          }
+        : {
+            isEngaged: false,
+            reason: sanitiseForLog(input.reason, 500),
+            releasedByUserId: actor.userId,
+            releasedAt: now,
+          };
+      const saved = existing
+        ? await tx.killSwitch.update({
+            where: { id: existing.id },
+            data,
+            select: ExecutionSafetyService.SWITCH_SELECT,
+          })
+        : await tx.killSwitch.create({
+            data: { tenantId, scope: input.scope, target, ...data },
+            select: ExecutionSafetyService.SWITCH_SELECT,
+          });
+
+      // Creating an initially released row is not a release transition, so it
+      // does not create a public event. Every actual transition shares commit.
+      if (input.engaged || existing?.isEngaged) {
+        const eventType = input.engaged ? 'kill_switch.activated' : 'kill_switch.released';
+        await this.outbox.append(tx, {
+          tenantId,
+          aggregateType: 'kill_switch',
+          aggregateId: saved.id,
+          eventType,
+          idempotencyKey: `kill-switch:${saved.id}:${input.engaged ? 'activated' : 'released'}:${transitionEventId}`,
+          payload: {
+            killSwitchId: saved.id,
+            scope: saved.scope,
+            target: saved.target,
+            isEngaged: input.engaged,
+            ...(input.engaged ? { activatedAt: now.toISOString() } : { releasedAt: now.toISOString() }),
+          },
         });
+      }
+      return { saved, wasEngaged: existing?.isEngaged ?? false };
+    });
+    const { saved, wasEngaged } = result;
 
     await this.audit.recordImmediate({
       tenantId,
@@ -180,7 +195,7 @@ export class ExecutionSafetyService {
       resourceType: 'kill_switch',
       resourceId: saved.id,
       description: sanitiseForLog(input.reason, 500),
-      changes: { isEngaged: { before: existing?.isEngaged ?? false, after: input.engaged } },
+      changes: { isEngaged: { before: wasEngaged, after: input.engaged } },
       metadata: { scope: input.scope, target },
       requestId: actor.requestId ?? null,
     });

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ReconciliationCategory, isValidDecimal, parseScaled, formatScaled, reconciliationErrorCode } from './oms.types';
+import { ReconciliationCategory, isTerminalState, isValidDecimal, parseScaled, formatScaled, reconciliationErrorCode } from './oms.types';
 import { randomUUID } from 'crypto';
 
 /**
@@ -109,7 +109,7 @@ export class OrderReconciliationService {
       }
 
       // Terminal state mismatch
-      const omsTerminal = ['FILLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'REPLACED'].includes(currentState);
+      const omsTerminal = isTerminalState(currentState);
       const canonicalTerminal = ['FILLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'FAILED'].includes(canonicalOrder.status as any);
       if (omsTerminal !== canonicalTerminal) {
         findings.push({

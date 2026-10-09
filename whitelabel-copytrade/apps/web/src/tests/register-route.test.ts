@@ -9,7 +9,7 @@ jest.mock('@/lib/server-api', () => ({ serverFetch: (...args: unknown[]) => serv
 jest.mock('@/lib/session', () => ({ persistSession: (...args: unknown[]) => persistSession(...args) }));
 
 import { POST } from '@/app/api/auth/register/route';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 
 function makeRequest(body: unknown, host = 'acme.example.test'): Request {
   return new Request('https://acme.example.test/api/auth/register', {

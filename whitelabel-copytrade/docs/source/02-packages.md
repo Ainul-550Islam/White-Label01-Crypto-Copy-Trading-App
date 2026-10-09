@@ -2,7 +2,7 @@
 
 The contracts every runtime agrees on: shared types, validated configuration, validation schemas and the crypto/util layer.
 
-52 files. Part of the complete source dump - see `docs/source/README.md`.
+53 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -1711,8 +1711,54 @@ export function validateEnv(source: Record<string, unknown> = process.env): AppE
 FILE: packages/config/src/index.ts
 
 ```typescript
-export * from './env.schema';
+// # Enforces strict Zod validation on all production environment variables
+import {
+  envSchema,
+  validateEnv,
+  EnvValidationError,
+  type AppEnv,
+  type EnvValidationFailure,
+} from './env.schema';
+
 export * from './constants';
+export * from './env.schema';
+
+export type ValidatedEnv = AppEnv;
+
+export interface ProductionPreflightReport {
+  valid: boolean;
+  environment: string;
+  errors: string[];
+}
+
+export function evaluateEnvironmentSafety(
+  rawEnv: Record<string, string | undefined> = process.env,
+): ProductionPreflightReport {
+  const errors: string[] = [];
+  const environment = String(rawEnv.NODE_ENV ?? 'development');
+
+  try {
+    validateEnv(rawEnv);
+  } catch (error) {
+    if (error instanceof EnvValidationError) {
+      errors.push(
+        ...error.failures.map(
+          (failure: EnvValidationFailure) => `${failure.path}: ${failure.message}`,
+        ),
+      );
+    } else if (error instanceof Error) {
+      errors.push(error.message);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    environment,
+    errors,
+  };
+}
+
+export { envSchema, validateEnv, EnvValidationError, type AppEnv, type EnvValidationFailure };
 ```
 
 FILE: packages/config/tsconfig.json
@@ -7533,6 +7579,18 @@ FILE: packages/utils/package.json
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./api-error": {
+      "types": "./dist/api-error.d.ts",
+      "import": "./dist/api-error.js",
+      "require": "./dist/api-error.js"
+    }
+  },
   "files": ["dist"],
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.json",
@@ -7546,6 +7604,107 @@ FILE: packages/utils/package.json
   "devDependencies": {
     "rimraf": "^5.0.7",
     "typescript": "^5.5.4"
+  }
+}
+```
+
+FILE: packages/utils/src/api-error.ts
+
+```typescript
+// # single ApiError helper consumed by web and admin-web
+export interface ApiErrorFieldDetail {
+  field: string;
+  message: string;
+}
+
+export interface ApiErrorBody {
+  success?: false;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: unknown;
+    requestId?: string;
+    timestamp?: string;
+    path?: string;
+  } | string;
+  code?: string;
+  message?: string;
+  details?: unknown;
+  requestId?: string;
+  timestamp?: string;
+  path?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readFieldDetails(value: unknown): ApiErrorFieldDetail[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const details: ApiErrorFieldDetail[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    if (typeof item.field !== 'string' || typeof item.message !== 'string') continue;
+    details.push({ field: item.field, message: item.message });
+  }
+  return details.length > 0 ? details : undefined;
+}
+
+/**
+ * The shared, transport-neutral representation of an API failure.
+ *
+ * `fromBody` accepts the Nest response envelope and older top-level BFF errors. It never throws
+ * while inspecting an untrusted response body; malformed error payloads become a generic error
+ * rather than leaking their shape or causing the error handler itself to fail.
+ */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+    public readonly details?: ApiErrorFieldDetail[],
+    public readonly requestId?: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+
+  static fromBody(status: number, body: unknown): ApiError {
+    const root = isRecord(body) ? body : undefined;
+    const nested = root && isRecord(root.error) ? root.error : undefined;
+    const stringError = root && typeof root.error === 'string' ? root.error : undefined;
+
+    const codeValue = nested?.code ?? root?.code;
+    const messageValue = nested?.message ?? root?.message ?? stringError;
+    const detailsValue = nested?.details ?? root?.details;
+    const requestIdValue = nested?.requestId ?? root?.requestId;
+
+    const code = typeof codeValue === 'string' && codeValue.trim() !== ''
+      ? codeValue.trim()
+      : 'UNKNOWN_ERROR';
+    const message = typeof messageValue === 'string' && messageValue.trim() !== ''
+      ? messageValue.trim()
+      : 'The request could not be completed.';
+    const details = readFieldDetails(detailsValue);
+    const requestId = typeof requestIdValue === 'string' && requestIdValue.trim() !== ''
+      ? requestIdValue.trim()
+      : undefined;
+
+    return new ApiError(status, code, message, details, requestId);
+  }
+
+  get isAuthError(): boolean {
+    return this.status === 401 || this.code === 'TOKEN_EXPIRED' || this.code === 'TOKEN_INVALID';
+  }
+
+  /** Field errors keyed by field name, ready to bind to form inputs. */
+  get fieldErrors(): Record<string, string> {
+    const map: Record<string, string> = {};
+    for (const detail of this.details ?? []) {
+      map[detail.field] = detail.message;
+    }
+    return map;
   }
 }
 ```
@@ -7769,6 +7928,7 @@ export * from './strings';
 export * from './crypto';
 export * from './time';
 export * from './result';
+export * from './api-error';
 ```
 
 FILE: packages/utils/src/pagination.ts

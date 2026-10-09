@@ -1,4 +1,6 @@
 "use client";
+
+import type { JSX } from 'react';
 import { useQuery } from "@tanstack/react-query";
 import { fundingApi, OPEN_FUNDING_STATES } from "@/api/funding-api";
 import { FundingStatusBadge } from "@/components/status-badge";

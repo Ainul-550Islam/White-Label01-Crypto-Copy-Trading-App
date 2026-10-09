@@ -1,7 +1,8 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, type Column } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme, toneForStatus } from '@/lib/theme';
@@ -33,9 +34,10 @@ interface Paginated<T> {
 export default async function AuditLogsPage({
   searchParams,
 }: {
-  searchParams: { page?: string; action?: string; outcome?: string };
+  searchParams: Promise<{ page?: string; action?: string; outcome?: string }>;
 }): Promise<JSX.Element> {
-  const page = Number.parseInt(searchParams.page ?? '1', 10);
+  const query = await searchParams;
+  const page = Number.parseInt(query.page ?? '1', 10);
 
   let data: Paginated<AuditRow> | null = null;
   let error: string | null = null;
@@ -45,8 +47,8 @@ export default async function AuditLogsPage({
       searchParams: {
         page: Number.isFinite(page) && page > 0 ? page : 1,
         limit: 50,
-        action: searchParams.action,
-        outcome: searchParams.outcome,
+        action: query.action,
+        outcome: query.outcome,
       },
     });
   } catch (caught) {

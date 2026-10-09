@@ -7,7 +7,7 @@
 # The container runs as a non-root user and ships no source, no .env and no
 # build cache.
 # ---------------------------------------------------------------------------
-FROM node:20.11.0-bookworm-slim AS base
+FROM node:22.23.3-bookworm-slim AS base
 ENV NODE_ENV=production \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false
@@ -71,7 +71,7 @@ RUN npm prune --omit=dev --workspace @wlct/api --include-workspace-root \
 FROM base AS runtime
 WORKDIR /app
 
-# node:20 already provides an unprivileged `node` user (uid 1000).
+# node:22 already provides an unprivileged `node` user (uid 1000).
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/packages ./packages

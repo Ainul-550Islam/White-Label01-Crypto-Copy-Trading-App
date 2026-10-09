@@ -1,20 +1,19 @@
 // # MODIFY — strategy detail integration
 'use client';
+import type { JSX } from 'react';
 
-import React from 'react';
+import React, { use } from 'react';
 import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { StrategyDetailPage } from '@/features/trading/strategy-detail-page';
 import { AppShell } from '@/layout/app-shell';
 
 export interface StrategyDetailRouteProps {
-  params: {
-    id: string;
-  };
+  params: Promise<{ id: string }>;
 }
 
 export default function Page({ params }: StrategyDetailRouteProps): JSX.Element {
-  const strategyId = params.id;
+  const strategyId = use(params).id;
 
   return (
     <AuthGuard>

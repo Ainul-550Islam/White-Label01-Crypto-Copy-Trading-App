@@ -1,4 +1,5 @@
 // # Responsibility: serves the tenant-scoped lead-trader review queue in the authenticated admin console.
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { Card, ErrorNotice, PageHeader } from '@/components/ui';
 import { LeadTraderApplicationQueue, type AdminLeadTraderApplication } from '@/features/trading/lead-trader-application-queue';

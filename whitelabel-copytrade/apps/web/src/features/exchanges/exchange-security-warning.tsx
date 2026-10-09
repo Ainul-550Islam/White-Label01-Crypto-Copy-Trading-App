@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 export function ExchangeSecurityWarning(): JSX.Element {
   return (
     <div className="rounded border border-yellow-200 bg-yellow-50 p-4 text-xs text-yellow-800 space-y-2">

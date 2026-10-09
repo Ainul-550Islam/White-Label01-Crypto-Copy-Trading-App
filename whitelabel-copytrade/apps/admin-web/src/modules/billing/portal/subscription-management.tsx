@@ -26,8 +26,6 @@ export default function SubscriptionManagementPage() {
   const [cancelReason, setCancelReason] = useState('');
 
   const fetchData = async () => {
-    setLoading(true);
-    setError(null);
     try {
       const [subState, plansRes] = await Promise.all([getCurrentSubscription(), getAvailablePlans()]);
       setSubscriptionState(subState);
@@ -39,8 +37,15 @@ export default function SubscriptionManagementPage() {
     }
   };
 
+  const refreshData = async () => {
+    setLoading(true);
+    setError(null);
+    await fetchData();
+  };
+
   useEffect(() => {
-    fetchData();
+    const timer = window.setTimeout(() => void fetchData(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const handleCancel = async () => {
@@ -50,7 +55,7 @@ export default function SubscriptionManagementPage() {
       const result = await cancelSubscription({ reason: cancelReason, atPeriodEnd: true });
       setMessage(`Subscription will cancel at ${result.effectiveAt ? new Date(result.effectiveAt).toLocaleDateString() : 'period end'}`);
       setShowCancelDialog(false);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Cancel failed: ${e.message}`);
     } finally {
@@ -64,7 +69,7 @@ export default function SubscriptionManagementPage() {
     try {
       const result = await resumeSubscription();
       setMessage(result.message || 'Subscription resumed');
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Resume failed: ${e.message}`);
     } finally {
@@ -85,12 +90,12 @@ export default function SubscriptionManagementPage() {
           cancelUrl: window.location.origin + '/billing/subscription',
         });
         if (checkout.checkoutUrl) {
-          window.location.href = checkout.checkoutUrl;
+          window.location.assign(checkout.checkoutUrl);
           return;
         }
       }
       setMessage(result.message || 'Plan changed successfully');
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Plan change failed: ${e.message}`);
     } finally {
@@ -104,7 +109,7 @@ export default function SubscriptionManagementPage() {
     try {
       const result = await changeInterval({ newInterval, atPeriodEnd: true });
       setMessage(result.message || `Interval change to ${newInterval} scheduled`);
-      await fetchData();
+      await refreshData();
     } catch (e: any) {
       setMessage(`Interval change failed: ${e.message}`);
     } finally {

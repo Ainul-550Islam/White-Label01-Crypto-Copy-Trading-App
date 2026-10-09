@@ -1,0 +1,408 @@
+# Responsibility: build digest-pinned release images on version tags, attach a validated SBOM and image manifest to the GitHub Release, then pass that exact manifest to production-release.yml.
+name: Release — Digest-pinned images, SBOM and manifest
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: whitelabel-copytrade
+
+env:
+  NODE_VERSION: 22.23.3
+  PYTHON_VERSION: '3.11'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  verify:
+    name: Verify the full CI gate at this commit
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  release-evidence:
+    name: Verify committed release evidence
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: whitelabel-copytrade/package-lock.json
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies from the lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Run SBOM, license-gate, and release-manifest regression tests
+        run: node --test scripts/generate-sbom.test.mjs scripts/license-gate.test.mjs scripts/generate-release-manifest.test.mjs
+
+      - name: Read the committed CycloneDX creation timestamp
+        id: sbom-time
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_EOF' >> "$GITHUB_OUTPUT"
+          import json
+          import pathlib
+
+          files = sorted(pathlib.Path('docs/sbom').glob('*.cdx.json'))
+          expected = {
+              'cargo-crates.cdx.json',
+              'flutter-mobile.cdx.json',
+              'npm-workspaces.cdx.json',
+              'python-projects.cdx.json',
+          }
+          if {path.name for path in files} != expected:
+              raise SystemExit('committed CycloneDX SBOM set differs from the four required ecosystems')
+          timestamps = {
+              json.loads(path.read_text(encoding='utf-8'))['metadata']['timestamp']
+              for path in files
+          }
+          if len(timestamps) != 1:
+              raise SystemExit('committed CycloneDX SBOM timestamps do not match')
+          timestamp = timestamps.pop()
+          print(f'timestamp={timestamp}')
+          PY_EOF
+
+      - name: Regenerate the four committed CycloneDX SBOMs with exact-version license evidence
+        run: node scripts/generate-sbom.mjs --format cyclonedx --out-dir docs/sbom --resolve-license-metadata --created "${{ steps.sbom-time.outputs.timestamp }}"
+
+      - name: Run the shipped-dependency license gate and verify the generated report
+        run: |
+          set -euo pipefail
+          node scripts/license-gate.mjs --sbom-dir docs/sbom --allowlist docs/sale/LICENSE_ALLOWLIST.md --report docs/THIRD_PARTY_LICENSES.md
+          node scripts/license-gate.mjs --sbom-dir docs/sbom --allowlist docs/sale/LICENSE_ALLOWLIST.md --report docs/THIRD_PARTY_LICENSES.md --check-report
+          git -C "${GITHUB_WORKSPACE}" diff --exit-code -- whitelabel-copytrade/docs/sbom whitelabel-copytrade/docs/THIRD_PARTY_LICENSES.md
+          changes="$(git -C "${GITHUB_WORKSPACE}" status --porcelain --untracked-files=all -- whitelabel-copytrade/docs/sbom whitelabel-copytrade/docs/THIRD_PARTY_LICENSES.md)"
+          if [[ -n "${changes}" ]]; then
+            printf '%s\n' "${changes}"
+            echo '::error::SBOM and third-party license artifacts must be committed and reproducible.'
+            exit 1
+          fi
+
+      - name: Verify database schema consistency
+        run: node scripts/verify-schema-consistency.js
+
+      - name: Run the 50-Gap Parity Scanner
+        run: node ops/gap-parity-scanner.js
+
+      - name: Generate and verify the deterministic RELEASE_MANIFEST.json
+        env:
+          TS_NODE_COMPILER_OPTIONS: '{"module":"commonjs","moduleResolution":"node"}'
+        run: npx ts-node scripts/generate-release-manifest.ts
+
+      - name: Verify the Final Release Handover Report
+        run: python3 scripts/gen_part22_handover.py
+
+      - name: Fail if the committed manifest does not describe this tree
+        run: |
+          set -euo pipefail
+          git show HEAD:RELEASE_MANIFEST.json > /tmp/committed-manifest.json
+          python3 - <<'PY_EOF'
+          import json
+          import sys
+
+          with open('/tmp/committed-manifest.json', encoding='utf-8') as handle:
+              committed = json.load(handle)
+          with open('RELEASE_MANIFEST.json', encoding='utf-8') as handle:
+              generated = json.load(handle)
+
+          def index(manifest):
+              return {
+                  entry['path']: (entry['sha256'], entry['size_bytes'])
+                  for entry in manifest['files']
+              }
+
+          before = index(committed)
+          after = index(generated)
+          added = sorted(set(after) - set(before))
+          removed = sorted(set(before) - set(after))
+          changed = sorted(path for path in set(before) & set(after) if before[path] != after[path])
+          sbom_hashes_changed = committed.get('sbom_hashes') != generated.get('sbom_hashes')
+
+          for label, paths in (('added', added), ('removed', removed), ('changed', changed)):
+              for path in paths[:20]:
+                  print(f'{label}: {path}')
+
+          if added or removed or changed or sbom_hashes_changed:
+              print(
+                  '::error::The committed RELEASE_MANIFEST.json does not describe this tree: '
+                  f'{len(added)} added, {len(removed)} removed, {len(changed)} changed; '
+                  f'explicit SBOM hashes changed={sbom_hashes_changed}. '
+                  'Regenerate it with `npx ts-node scripts/generate-release-manifest.ts` only after Block A is green, then commit the result.'
+              )
+              sys.exit(1)
+
+          print(f'RELEASE_MANIFEST.json describes this tree: {len(after)} files and all SBOM hashes verified.')
+          PY_EOF
+
+      - name: Upload the validated CycloneDX SBOMs and third-party license inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-evidence
+          path: |
+            whitelabel-copytrade/docs/sbom/*.cdx.json
+            whitelabel-copytrade/docs/THIRD_PARTY_LICENSES.md
+          if-no-files-found: error
+          retention-days: 365
+
+  build:
+    name: Build and attest ${{ matrix.component }}
+    needs: [verify, release-evidence]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        component:
+          - api
+          - admin-web
+          - web
+          - notification-service
+          - trading-engine
+          - market-data
+          - execution-engine
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve the lowercase image name
+        id: image
+        run: |
+          set -euo pipefail
+          repository="${IMAGE_NAME,,}"
+          printf 'name=%s/%s/%s\n' "$REGISTRY" "$repository" '${{ matrix.component }}' >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the immutable commit tag
+        id: image-build
+        uses: docker/build-push-action@v6
+        with:
+          context: whitelabel-copytrade
+          file: whitelabel-copytrade/infrastructure/docker/${{ matrix.component }}.Dockerfile
+          target: runtime
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      - name: Attest build provenance for the pushed digest
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image-build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record the immutable image reference
+        run: |
+          set -euo pipefail
+          mkdir -p digests
+          printf '%s@%s\n' '${{ steps.image.outputs.name }}' '${{ steps.image-build.outputs.digest }}' > "digests/${{ matrix.component }}"
+
+      - name: Upload the image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.component }}
+          path: whitelabel-copytrade/digests/${{ matrix.component }}
+          if-no-files-found: error
+          retention-days: 90
+
+  release-evidence-bundle:
+    name: Assemble the release manifest, SPDX and CycloneDX SBOM evidence
+    needs: [build, release-evidence]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download the validated CycloneDX SBOMs and license inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-evidence
+          path: whitelabel-copytrade/release-cyclonedx
+
+      - name: Verify the downloaded CycloneDX artifacts and create an evidence archive
+        run: |
+          set -euo pipefail
+          for sbom in \
+            release-cyclonedx/sbom/npm-workspaces.cdx.json \
+            release-cyclonedx/sbom/python-projects.cdx.json \
+            release-cyclonedx/sbom/cargo-crates.cdx.json \
+            release-cyclonedx/sbom/flutter-mobile.cdx.json
+          do
+            node scripts/generate-sbom.mjs --check "${sbom}"
+          done
+          node scripts/license-gate.mjs \
+            --sbom-dir release-cyclonedx/sbom \
+            --allowlist docs/sale/LICENSE_ALLOWLIST.md \
+            --report release-cyclonedx/THIRD_PARTY_LICENSES.md \
+            --check-report
+          tar --create --gzip --file "${GITHUB_WORKSPACE}/whitelabel-copytrade/release-sbom-cyclonedx.tar.gz" --directory "${GITHUB_WORKSPACE}/whitelabel-copytrade/release-cyclonedx" sbom THIRD_PARTY_LICENSES.md
+
+      - name: Download every component digest
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: whitelabel-copytrade/digests
+          merge-multiple: true
+
+      - name: Create the immutable image manifest
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_EOF'
+          import json
+          import os
+          import pathlib
+          import re
+
+          digest_directory = pathlib.Path('digests')
+          expected = {
+              'api',
+              'admin-web',
+              'web',
+              'notification-service',
+              'trading-engine',
+              'market-data',
+              'execution-engine',
+          }
+          actual_files = {path.name for path in digest_directory.iterdir() if path.is_file()}
+          if actual_files != expected:
+              raise SystemExit(
+                  f'release digest set differs from expected components: '
+                  f'missing={sorted(expected - actual_files)}, extra={sorted(actual_files - expected)}'
+              )
+
+          images = {}
+          for path in sorted(digest_directory.iterdir()):
+              if not path.is_file():
+                  continue
+              reference = path.read_text(encoding='utf-8').strip()
+              if not re.fullmatch(r'ghcr\.io/[a-z0-9./_-]+@sha256:[a-f0-9]{64}', reference):
+                  raise SystemExit(f'refusing malformed or mutable image reference for {path.name}: {reference!r}')
+              images[path.name] = reference
+
+          manifest = {
+              'schema': 'wlct-release-manifest-v1',
+              'commitSha': os.environ['COMMIT_SHA'],
+              'ref': os.environ['REF_NAME'],
+              'runId': os.environ['RUN_ID'],
+              'IMAGE_NAME': os.environ['IMAGE_NAME'],
+              'images': images,
+          }
+          pathlib.Path('release-manifest.json').write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          PY_EOF
+
+      - name: Generate the release SPDX SBOM from committed lockfiles
+        run: |
+          set -euo pipefail
+          node scripts/generate-sbom.mjs \
+            --out release-sbom.spdx.json \
+            --resolve-license-metadata \
+            --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node scripts/generate-sbom.mjs --check release-sbom.spdx.json
+
+      - name: Upload the release manifest and SBOM for deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: |
+            whitelabel-copytrade/release-manifest.json
+            whitelabel-copytrade/release-sbom.spdx.json
+            whitelabel-copytrade/release-sbom-cyclonedx.tar.gz
+            whitelabel-copytrade/release-cyclonedx/sbom/*.cdx.json
+            whitelabel-copytrade/release-cyclonedx/THIRD_PARTY_LICENSES.md
+          if-no-files-found: error
+          retention-days: 365
+
+  publish-release:
+    name: Publish the GitHub Release with manifest and SBOM assets
+    needs: release-evidence-bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download the release evidence bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-evidence
+          path: release-evidence
+
+      - name: Create the versioned release and attach the evidence
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-evidence/release-manifest.json
+            release-evidence/release-sbom.spdx.json
+            release-evidence/release-sbom-cyclonedx.tar.gz
+            release-evidence/release-cyclonedx/sbom/*.cdx.json
+            release-evidence/release-cyclonedx/THIRD_PARTY_LICENSES.md
+
+  production-release:
+    name: Hand the approved manifest to production-release.yml
+    needs: publish-release
+    uses: ./.github/workflows/production-release.yml
+    with:
+      deploy: true
+    secrets: inherit
+    permissions:
+      contents: read
+      actions: read
+      id-token: write

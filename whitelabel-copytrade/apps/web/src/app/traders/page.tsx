@@ -1,5 +1,6 @@
 // # Passes URL search params into TradersPage
 'use client';
+import type { JSX } from 'react';
 
 import { AuthGuard } from '@/auth/auth.guard';
 import { TradersPage } from '@/features/trading/traders-page';

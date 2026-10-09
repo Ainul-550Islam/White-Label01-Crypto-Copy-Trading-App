@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
 import { FeeAccrualRepository } from './fee-accrual.repository';
 import { FeePolicyService } from './fee-policy.service';
 import { FeeCalculatorService } from './fee-calculator.service';
@@ -22,6 +24,8 @@ export class FeeAccrualService {
     private readonly calculatorService: FeeCalculatorService,
     private readonly ledgerService: FeeLedgerService,
     private readonly auditService: FeeAuditService,
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxService,
   ) {}
 
   async accrueFee(params: {
@@ -88,28 +92,51 @@ export class FeeAccrualService {
     await this.auditService.logFeeCalculated(params.tenantId, params.sourceId, params.feeType, calculation.feeAmount, params.currency, effectiveBps);
 
     // Create accrual
-    const accrual = await this.accrualRepository.create({
-      tenantId: params.tenantId,
-      sourceType: params.sourceType,
-      sourceId: params.sourceId,
-      feeType: params.feeType,
-      feeRateBps: effectiveBps,
-      rateBasis: RateBasis.BPS,
-      grossAmount: calculation.grossAmount,
-      feeAmount: calculation.feeAmount,
-      netAmount: calculation.netAmount,
-      currency: calculation.currency,
-      status: FeeAccrualStatus.ACCRUED,
-      settlementState: SettlementState.DRAFT,
-      payoutState: null,
-      settlementId: null,
-      payoutId: null,
-      ledgerTransactionId: null,
-      idempotencyKey,
-      policySnapshot: policy,
-      calculationTimestamp: calculation.calculatedAt,
-      metadata: params.metadata || null,
-      safeMetadata: this.sanitizeSafeMetadata(params.metadata),
+    const accrual = await this.prisma.withTenantRls(params.tenantId, async (tx) => {
+      const persisted = await this.accrualRepository.create({
+        tenantId: params.tenantId,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        feeType: params.feeType,
+        feeRateBps: effectiveBps,
+        rateBasis: RateBasis.BPS,
+        grossAmount: calculation.grossAmount,
+        feeAmount: calculation.feeAmount,
+        netAmount: calculation.netAmount,
+        currency: calculation.currency,
+        status: FeeAccrualStatus.ACCRUED,
+        settlementState: SettlementState.DRAFT,
+        payoutState: null,
+        settlementId: null,
+        payoutId: null,
+        ledgerTransactionId: null,
+        idempotencyKey,
+        policySnapshot: policy,
+        calculationTimestamp: calculation.calculatedAt,
+        metadata: params.metadata || null,
+        safeMetadata: this.sanitizeSafeMetadata(params.metadata),
+      }, tx);
+      await this.outbox.append(tx, {
+        tenantId: params.tenantId,
+        aggregateType: 'fee.accrual',
+        aggregateId: persisted.id,
+        eventType: 'fee.accrued',
+        idempotencyKey: `fee-accrual:${persisted.id}:accrued`,
+        payload: {
+          accrualId: persisted.id,
+          sourceType: persisted.sourceType,
+          sourceId: persisted.sourceId,
+          feeType: persisted.feeType,
+          grossAmount: persisted.grossAmount,
+          feeAmount: persisted.feeAmount,
+          currency: persisted.currency,
+          feeRateBps: persisted.feeRateBps,
+          // This event describes accrual creation; later settlement/reversal
+          // state must not mutate its idempotent payload on request replay.
+          status: FeeAccrualStatus.ACCRUED,
+        },
+      });
+      return persisted;
     });
 
     await this.auditService.logFeeAccrued(params.tenantId, accrual.id, params.feeType, calculation.feeAmount, params.currency, params.sourceId);

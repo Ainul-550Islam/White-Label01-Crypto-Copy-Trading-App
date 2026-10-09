@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { TradeState, isValidDecimal, parseScaled, formatScaled, add, sub } from './oms.types';
-import { randomUUID } from 'crypto';
 
 /**
  * Trade Lifecycle Service — builds trade lifecycle from canonical orders/fills
@@ -30,25 +29,54 @@ export class TradeLifecycleService {
     fillSide: string; // BUY/SELL
     isSimulated?: boolean;
     correlationId?: string | null;
+  }, options?: {
+    /**
+     * Run against this client instead of the service's own. The caller uses it to apply the trade in
+     * the same transaction that inserts the fill, so the two cannot diverge: a crash between them
+     * would otherwise leave a persisted fill with no trade, and the fill-sync idempotency check would
+     * skip that fill forever on every later run.
+     */
+    client?: unknown;
   }) {
     const { tenantId, accountId, symbol, venue, strategyId, traderId, followerId, orderIntentId, fillId, fillQuantity, fillPrice, fillSide, isSimulated, correlationId } = params;
+    const prisma: any = options?.client ?? this.prisma;
+
+    // Idempotency first. A fill that has already been applied to a trade must not be applied
+    // again: the open-trade lookup below is keyed on account+symbol+strategy, so a re-delivered
+    // fill would find the trade it was already written into and increase the position a second
+    // time - a duplicated fill silently doubling the position and the exposure the position
+    // limiter reads. The fill id is the idempotency key, and it is checked before that lookup.
+    let alreadyApplied: any;
+    try {
+      alreadyApplied = await prisma.omsTrade.findFirst({
+        where: { tenantId, accountId, fillIds: { has: fillId } },
+      });
+    } catch (e) {
+      // A failed read is not "no trade exists". Treating it as one would open a second trade for
+      // a fill that may already be applied, which is the double-count this lookup exists to stop.
+      throw new Error(`Trade lookup by fill ${fillId} failed: ${(e as Error).message}`);
+    }
+    if (alreadyApplied) {
+      this.logger.log(`Fill ${fillId} already applied to trade ${alreadyApplied.id}; returning it unchanged`);
+      return alreadyApplied;
+    }
 
     // Find existing open trade for this account+symbol+strategy
     let trade: any;
     try {
-      trade = await (this.prisma as any).omsTrade.findFirst({
+      trade = await prisma.omsTrade.findFirst({
         where: { tenantId, accountId, symbol, state: { in: [TradeState.OPEN, TradeState.PARTIAL] }, strategyId: strategyId ?? undefined },
         orderBy: { createdAt: 'desc' },
       });
-    } catch {
-      trade = null;
+    } catch (e) {
+      throw new Error(`Open trade lookup for ${symbol} failed: ${(e as Error).message}`);
     }
 
     if (!trade) {
       // Open new trade
       const side = fillSide === 'BUY' ? 'LONG' : 'SHORT';
       try {
-        trade = await (this.prisma as any).omsTrade.create({
+        trade = await prisma.omsTrade.create({
           data: {
             tenantId,
             accountId,
@@ -74,8 +102,11 @@ export class TradeLifecycleService {
         this.logger.log(`Trade OPENED ${trade.id} tenant ${tenantId} ${symbol} ${side} qty ${fillQuantity}`);
         return trade;
       } catch (e) {
-        this.logger.warn(`OmsTrade model missing: ${(e as Error).message}`);
-        return { id: randomUUID(), state: TradeState.OPEN, openQuantity: fillQuantity, averageEntryPrice: fillPrice, side };
+        // Fail closed. Returning an in-memory trade here was a lie about durable state: the caller
+        // feeds this record into position-slot accounting, so a trade that was never written would
+        // occupy no slot, and the exposure it represents would be invisible to every later check.
+        this.logger.error(`Trade OPEN failed for ${symbol} fill ${fillId}: ${(e as Error).message}`);
+        throw e;
       }
     }
 
@@ -95,7 +126,7 @@ export class TradeLifecycleService {
       const avgPrice = totalQty > 0n ? formatScaled((totalNotional * BigInt(1_000_000_000_000)) / totalQty) : fillPrice;
 
       try {
-        trade = await (this.prisma as any).omsTrade.update({
+        trade = await prisma.omsTrade.update({
           where: { id: trade.id },
           data: {
             openQuantity: formatScaled(totalQty),
@@ -107,9 +138,12 @@ export class TradeLifecycleService {
             updatedAt: new Date(),
           },
         });
-      } catch {
-        trade.openQuantity = formatScaled(totalQty);
-        trade.averageEntryPrice = avgPrice;
+      } catch (e) {
+        // The quantity and average entry are recomputed from the persisted row on every call, so
+        // writing them onto this object only made the caller's view disagree with the database:
+        // the position would be reported at the new size while the durable row kept the old one.
+        this.logger.error(`Trade increase failed for ${trade.id}: ${(e as Error).message}`);
+        throw e;
       }
     } else {
       // Opposite side — closing or partial close
@@ -120,7 +154,7 @@ export class TradeLifecycleService {
         const closedQty = formatScaled(existingRemaining);
         const extraQty = closingQty > existingRemaining ? formatScaled(closingQty - existingRemaining) : null;
         try {
-          trade = await (this.prisma as any).omsTrade.update({
+          trade = await prisma.omsTrade.update({
             where: { id: trade.id },
             data: {
               closedQuantity: closedQty,
@@ -133,10 +167,11 @@ export class TradeLifecycleService {
               updatedAt: new Date(),
             },
           });
-        } catch {
-          trade.state = TradeState.CLOSED;
-          trade.closedQuantity = closedQty;
-          trade.averageExitPrice = fillPrice;
+        } catch (e) {
+          // A trade that fails to persist as CLOSED is still open. Reporting it closed in memory
+          // would free its position slot while the venue-facing row still holds the exposure.
+          this.logger.error(`Trade close failed for ${trade.id}: ${(e as Error).message}`);
+          throw e;
         }
         this.logger.log(`Trade CLOSED ${trade.id} ${symbol} qty ${closedQty} exit ${fillPrice}`);
 
@@ -144,7 +179,7 @@ export class TradeLifecycleService {
         if (extraQty && parseScaled(extraQty) > 0n) {
           const newSide = currentSide === 'LONG' ? 'SHORT' : 'LONG';
           try {
-            const newTrade = await (this.prisma as any).omsTrade.create({
+            const newTrade = await prisma.omsTrade.create({
               data: {
                 tenantId,
                 accountId,
@@ -169,13 +204,19 @@ export class TradeLifecycleService {
             });
             this.logger.log(`Trade OPENED (flip) ${newTrade.id} ${symbol} ${newSide} qty ${extraQty}`);
             return newTrade;
-          } catch {}
+          } catch (e) {
+            // An empty catch here dropped the remainder of an over-closing fill entirely: the
+            // caller was told the trade closed, and the opposite position it should have opened
+            // existed nowhere. That is untracked exposure, not a degraded result.
+            this.logger.error(`Trade flip OPEN failed for ${symbol} remainder ${extraQty}: ${(e as Error).message}`);
+            throw e;
+          }
         }
       } else {
         // Partial close
         const remaining = existingRemaining - closingQty;
         try {
-          trade = await (this.prisma as any).omsTrade.update({
+          trade = await prisma.omsTrade.update({
             where: { id: trade.id },
             data: {
               closedQuantity: add(trade.closedQuantity ?? '0', fillQuantity),
@@ -187,9 +228,9 @@ export class TradeLifecycleService {
               updatedAt: new Date(),
             },
           });
-        } catch {
-          trade.state = TradeState.PARTIAL;
-          trade.remainingQuantity = formatScaled(remaining);
+        } catch (e) {
+          this.logger.error(`Trade partial close failed for ${trade.id}: ${(e as Error).message}`);
+          throw e;
         }
         this.logger.log(`Trade PARTIAL ${trade.id} ${symbol} remaining ${formatScaled(remaining)}`);
       }

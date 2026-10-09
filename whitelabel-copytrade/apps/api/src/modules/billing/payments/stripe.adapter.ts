@@ -13,6 +13,7 @@ import type {
 import type { NormalizedPaymentResult, PaymentAmount, PaymentMetadata, PaymentReferences } from './payment.types';
 import type { NormalizedWebhookEvent, WebhookEventCategory } from './webhook.types';
 import { PaymentConfigService } from './payment.config';
+import { Decimal } from '../../../common/decimal-string';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 
@@ -50,6 +51,7 @@ export class StripeAdapter implements IPaymentProvider {
 
   async createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
     this.validateCheckoutInput(input);
+    const amountInMinorUnits = this.parseAmountToMinorUnits(input.price, input.currency);
 
     const stripeSecretKey = this.config.getStripeSecretKey();
 
@@ -72,10 +74,7 @@ export class StripeAdapter implements IPaymentProvider {
     }
 
     try {
-      // Price must come from canonical billing plan catalog, never hardcoded
-      // input.price is already resolved from SubscriptionPlan.price
-      const amountInCents = this.parseAmountToCents(input.price, input.currency);
-
+      // input.price comes from the canonical billing plan catalog and has been exactly scaled above.
       const sessionParams: any = {
         payment_method_types: ['card'],
         line_items: [
@@ -91,7 +90,7 @@ export class StripeAdapter implements IPaymentProvider {
                   tenantId: input.tenantId,
                 },
               },
-              unit_amount: amountInCents,
+              unit_amount: amountInMinorUnits,
               recurring: input.interval !== 'LIFETIME' ? {
                 interval: this.mapIntervalToStripeInterval(input.interval),
               } : undefined,
@@ -238,8 +237,17 @@ export class StripeAdapter implements IPaymentProvider {
       });
     }
 
+    const eventObject = rawEvent.data?.object;
     const eventCategory = this.mapStripeEventToCategory(rawEvent.type);
-    const paymentStatus = this.mapStripeEventToPaymentStatus(rawEvent.type, rawEvent.data?.object);
+    const paymentStatus = this.mapStripeEventToPaymentStatus(rawEvent.type, eventObject);
+    const amountTotal = eventObject?.amount_total;
+    const amount = amountTotal === null || amountTotal === undefined
+      ? undefined
+      : {
+          amount: stripeMinorUnitsToDecimalString(amountTotal, eventObject.currency),
+          currency: normalizeStripeCurrency(eventObject.currency),
+          amountInSmallestUnit: stripeMinorUnitNumber(amountTotal),
+        };
 
     return {
       provider: PaymentProvider.STRIPE,
@@ -247,14 +255,10 @@ export class StripeAdapter implements IPaymentProvider {
       eventType: rawEvent.type,
       eventCategory,
       paymentStatus,
-      providerPaymentId: rawEvent.data?.object?.payment_intent || rawEvent.data?.object?.id,
-      providerCheckoutId: rawEvent.data?.object?.id,
-      providerSessionId: rawEvent.type.includes('checkout') ? rawEvent.data?.object?.id : undefined,
-      amount: rawEvent.data?.object?.amount_total ? {
-        amount: (rawEvent.data.object.amount_total / 100).toString(),
-        currency: rawEvent.data.object.currency?.toUpperCase() || 'USD',
-        amountInSmallestUnit: rawEvent.data.object.amount_total,
-      } : undefined,
+      providerPaymentId: eventObject?.payment_intent || eventObject?.id,
+      providerCheckoutId: eventObject?.id,
+      providerSessionId: rawEvent.type.includes('checkout') ? eventObject?.id : undefined,
+      amount,
       metadata: {
         tenantId: rawEvent.data?.object?.metadata?.tenantId,
         planId: rawEvent.data?.object?.metadata?.planId,
@@ -263,7 +267,9 @@ export class StripeAdapter implements IPaymentProvider {
       },
       rawEvent: this.sanitizeRawResponse(rawEvent),
       receivedAt: new Date(),
-      providerCreatedAt: rawEvent.created ? new Date(rawEvent.created * 1000) : new Date(),
+      providerCreatedAt: typeof rawEvent.created === 'number' && Number.isSafeInteger(rawEvent.created)
+        ? new Date(rawEvent.created * 1000)
+        : null,
     };
   }
 
@@ -322,18 +328,15 @@ export class StripeAdapter implements IPaymentProvider {
     }
   }
 
-  private parseAmountToCents(price: string, currency: string): number {
-    const amount = parseFloat(price);
-    if (isNaN(amount)) {
-      throw new AppException({ code: ErrorCode.VALIDATION_ERROR, message: `Invalid price: ${price}` });
+  private parseAmountToMinorUnits(price: string, currency: string): number {
+    try {
+      return stripeDecimalToMinorUnits(price, currency);
+    } catch {
+      throw new AppException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'Price must be a non-negative exact decimal representable in the currency minor unit',
+      });
     }
-    // For most currencies, smallest unit is cent
-    // For JPY, KRW, etc, smallest unit is the currency itself
-    const zeroDecimalCurrencies = ['JPY', 'KRW', 'VND', 'CLP', 'PYG', 'RWF', 'UGX', 'VUV', 'XAF', 'XOF', 'XPF'];
-    if (zeroDecimalCurrencies.includes(currency.toUpperCase())) {
-      return Math.round(amount);
-    }
-    return Math.round(amount * 100);
   }
 
   private mapIntervalToStripeInterval(interval: string): 'day' | 'week' | 'month' | 'year' {
@@ -408,12 +411,12 @@ export class StripeAdapter implements IPaymentProvider {
   private normalizeStripeObjectToPaymentResult(stripeObject: any, objectType: string): NormalizedPaymentResult {
     const isSession = objectType === 'session';
     const amountTotal = isSession ? stripeObject.amount_total : stripeObject.amount;
-    const currency = (isSession ? stripeObject.currency : stripeObject.currency)?.toUpperCase() || 'USD';
+    const currency = normalizeStripeCurrency(stripeObject.currency);
 
     const amount: PaymentAmount = {
-      amount: amountTotal ? (amountTotal / 100).toString() : '0',
+      amount: stripeMinorUnitsToDecimalString(amountTotal, currency),
       currency,
-      amountInSmallestUnit: amountTotal || 0,
+      amountInSmallestUnit: stripeMinorUnitNumber(amountTotal),
     };
 
     const status = isSession
@@ -480,4 +483,51 @@ export class StripeAdapter implements IPaymentProvider {
       throw new Error('Stripe SDK not installed. Run: npm install stripe');
     }
   }
+}
+
+const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
+  'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG',
+  'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
+]);
+const STRIPE_TWO_DECIMAL_CURRENCIES = new Set(['AUD', 'CAD', 'EUR', 'GBP', 'USD']);
+const STRIPE_THREE_DECIMAL_CURRENCIES = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
+const STRIPE_FOUR_DECIMAL_CURRENCIES = new Set(['CLF', 'UYW']);
+
+function normalizeStripeCurrency(value: unknown): string {
+  if (typeof value !== 'string') throw new TypeError('Stripe currency must be a string');
+  const currency = value.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) throw new TypeError('Stripe currency must be a three-letter code');
+  return currency;
+}
+
+function stripeCurrencyMinorUnitScale(currencyValue: unknown): number {
+  const currency = normalizeStripeCurrency(currencyValue);
+  if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(currency)) return 0;
+  if (STRIPE_FOUR_DECIMAL_CURRENCIES.has(currency)) return 4;
+  if (STRIPE_THREE_DECIMAL_CURRENCIES.has(currency)) return 3;
+  if (STRIPE_TWO_DECIMAL_CURRENCIES.has(currency)) return 2;
+  throw new TypeError('Stripe currency minor-unit exponent is not configured');
+}
+
+function stripeMinorUnitNumber(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError('Stripe amount must be a non-negative safe integer in minor units');
+  }
+  return value;
+}
+
+export function stripeMinorUnitsToDecimalString(value: unknown, currencyValue: unknown): string {
+  const minorUnits = stripeMinorUnitNumber(value);
+  const scale = stripeCurrencyMinorUnitScale(currencyValue);
+  return Decimal.fromUnscaled(BigInt(minorUnits), scale).toString();
+}
+
+function stripeDecimalToMinorUnits(price: string, currencyValue: unknown): number {
+  if (typeof price !== 'string') throw new TypeError('Stripe price must be an exact decimal string');
+  const scale = stripeCurrencyMinorUnitScale(currencyValue);
+  const minorUnits = Decimal.parse(price).toScaledBigInt(scale);
+  if (minorUnits < 0n || minorUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError('Stripe amount exceeds the exact safe integer minor-unit range');
+  }
+  return Number(minorUnits);
 }

@@ -35,6 +35,7 @@ import { ProviderPolicyService } from '../../provider-policy.service';
 import { ProviderRequestService } from '../../provider-request.service';
 import { ProviderObservationService } from '../../provider-observation.service';
 import { ProviderHealthService } from '../../provider-health.service';
+import { paymentAmountToMinorUnits } from '../../../../common/payment-amount';
 
 export interface StripeCreateInput {
   planId: string;
@@ -129,6 +130,30 @@ export class StripeProductionAdapter {
       };
     }
 
+    let amountInMinorUnits: number;
+    try {
+      amountInMinorUnits = paymentAmountToMinorUnits(input.price, input.currency);
+    } catch {
+      return {
+        success: false,
+        provider: this.provider,
+        domain: this.domain,
+        error: {
+          code: ProviderErrorCode.VALIDATION_ERROR,
+          message: 'Price is not exactly representable in Stripe currency minor units',
+          provider: this.provider,
+          domain: this.domain,
+          isRetryable: false,
+          retryClassification: RetryClassification.NO_RETRY,
+          correlationId,
+          safeEvidence: { currency: input.currency },
+        },
+        correlationId,
+        timestamp: new Date().toISOString(),
+        latencyMs: Date.now() - start,
+      };
+    }
+
     try {
       const Stripe = await this.loadStripeSdk();
       const stripe = new Stripe(stripeSecretKey, {
@@ -136,8 +161,6 @@ export class StripeProductionAdapter {
         maxNetworkRetries: 2,
         timeout: this.policyService.getTimeout(this.domain, this.provider),
       });
-
-      const amountInCents = this.parseAmountToCents(input.price, input.currency);
 
       const sessionParams: any = {
         payment_method_types: ['card'],
@@ -153,7 +176,7 @@ export class StripeProductionAdapter {
                   tenantId: input.tenantId,
                 },
               },
-              unit_amount: amountInCents,
+              unit_amount: amountInMinorUnits,
             },
             quantity: 1,
           },
@@ -332,14 +355,6 @@ export class StripeProductionAdapter {
         latencyMs: Date.now() - start,
       };
     }
-  }
-
-  private parseAmountToCents(price: string, currency: string): number {
-    const amount = parseFloat(price);
-    if (isNaN(amount)) throw new Error(`Invalid price: ${price}`);
-    const zeroDecimal = ['JPY', 'KRW', 'VND'];
-    if (zeroDecimal.includes(currency.toUpperCase())) return Math.round(amount);
-    return Math.round(amount * 100);
   }
 
   private async loadStripeSdk(): Promise<any> {

@@ -5,7 +5,7 @@
   "description": "Multi-tenant white-label crypto copy-trading platform (non-custodial, API-key based)",
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=20.11.0",
+    "node": ">=22.0.0",
     "npm": ">=10.0.0"
   },
   "workspaces": [
@@ -40,16 +40,29 @@
     "check:prisma-literals": "node apps/api/scripts/check-prisma-literals.js apps/api/src",
     "check:route-authorization": "node apps/api/scripts/check-route-authorization.js",
     "check:web-api-contract": "node scripts/check-web-api-contract.js",
+    "openapi:export": "npm run openapi:export --workspace=@wlct/api",
+    "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
+    "webhook-docs:generate": "node scripts/gen-webhook-docs.mjs",
+    "webhook-docs:check": "node scripts/gen-webhook-docs.mjs --check",
+    "sbom": "node scripts/generate-sbom.mjs",
+    "sbom:check": "node scripts/generate-sbom.mjs --check whitelabel-sbom.spdx.json",
+    "audit:deps": "node scripts/check-dependency-audit.mjs",
+    "scan:secrets": "node scripts/secret-scan.mjs --tree",
+    "scan:secrets:history": "node scripts/secret-scan.mjs --history",
     "typecheck": "npm run typecheck --workspace=@wlct/api && npm run typecheck --workspace=@wlct/admin-web && npm run typecheck --workspace=@wlct/web && npm run typecheck --workspace=@wlct/notification-service",
     "keys:generate": "node scripts/generate-keys.mjs",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f api",
     "smoke": "bash scripts/smoke-test.sh",
-    "verify": "bash scripts/verify-part1.sh"
+    "verify": "bash scripts/verify-part1.sh",
+    "test:smoke": "jest --config tests/e2e/smoke/jest.config.js",
+    "test:e2e:browser": "playwright test",
+    "test:e2e:browser:stub": "node --test tests/e2e/browser/support/stub-api.test.mjs"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
+    "@playwright/test": "^1.63.0",
     "@types/jest": "^29.5.13",
     "@types/node": "^20.14.10",
     "jest": "^29.7.0",
@@ -60,5 +73,10 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0"
+  },
+  "overrides": {
+    "@nestjs/swagger": {
+      "js-yaml": "5.4.3"
+    }
   }
 }

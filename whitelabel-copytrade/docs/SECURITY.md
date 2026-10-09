@@ -135,7 +135,7 @@ without a venue behind it:
 | --- | --- | --- |
 | `none` (default) | a provider that declines every authenticated lookup | a paper process that turns out to need a key fails loudly instead of trading on nothing |
 | `environment` | exactly two variables (`<PREFIX>_API_KEY` / `<PREFIX>_API_SECRET`) for exactly one tenant/account pair | boot when `NODE_ENV=production` - an environment cannot scope a secret per customer, is copied into every crash dump, and does not rotate |
-| `secret-manager` | a `SecretFetcher` in front of the encrypted store - since Part 19 selectable by configuration as `EXECUTION_CREDENTIAL_FETCHER=vault-kv2` (`app/secret_fetcher.py`), or injected in code by the service that owns the store | boot without a fetcher at all: the API, a queue job and this endpoint's own request body are all refused as places a key provider could be installed, and naming a fetcher for a source that ignores it is refused as a deployment that believes it has plumbing it does not use |
+| `secret-manager` | a `SecretFetcher` in front of the encrypted store - since Part 19 selectable by configuration as `EXECUTION_CREDENTIAL_FETCHER=vault-kv2` (`app/security/secret_fetcher.py`), or injected in code by the service that owns the store | boot without a fetcher at all: the API, a queue job and this endpoint's own request body are all refused as places a key provider could be installed, and naming a fetcher for a source that ignores it is refused as a deployment that believes it has plumbing it does not use |
 
 Cached credentials live for `EXECUTION_CREDENTIAL_CACHE_SECONDS` (default 300)
 and are dropped on expiry rather than served stale; `invalidate()` exists because

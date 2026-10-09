@@ -1,4 +1,5 @@
 "use client";
+import type { JSX } from 'react';
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";

@@ -1,5 +1,6 @@
 // # NEW — Displays trade-level rebate calculations, tier rates, and settlement status
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";

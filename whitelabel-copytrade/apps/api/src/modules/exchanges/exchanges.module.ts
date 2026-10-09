@@ -4,6 +4,10 @@ import { RedisModule } from '../../infrastructure/redis/redis.module';
 import { CryptoModule } from '../../infrastructure/crypto/crypto.module';
 import { EnforcementModule } from '../billing/enforcement/enforcement.module';
 import { ExecutionModule } from '../execution/execution.module';
+// OmsModule exports TradeLifecycleService, which the fill sync applies each created fill to inside
+// the same transaction as the fill insert. OmsModule already imports this module through a
+// forwardRef, so the cycle needs the forwardRef on this side too.
+import { OmsModule } from '../oms/oms.module';
 import { ExchangeRegistryService } from './exchange-registry.service';
 import { ExchangeProviderFactory } from './exchange-provider.factory';
 import { ExchangeCredentialService } from './exchange-credential.service';
@@ -27,7 +31,7 @@ import { ExchangesController } from './exchanges.controller';
  */
 @Global()
 @Module({
-  imports: [PrismaModule, RedisModule, CryptoModule, EnforcementModule, forwardRef(() => ExecutionModule)],
+  imports: [PrismaModule, RedisModule, CryptoModule, EnforcementModule, forwardRef(() => ExecutionModule), forwardRef(() => OmsModule)],
   providers: [
     ExchangeRegistryService,
     ExchangeProviderFactory,

@@ -1,5 +1,6 @@
 // # NEW — Renders reconciliation health status, last checked timestamp, and discrepancy notices
 "use client";
+import type { JSX } from 'react';
 
 import React from "react";
 import type { CopyReconciliationSummary } from "@/api/trading-api";

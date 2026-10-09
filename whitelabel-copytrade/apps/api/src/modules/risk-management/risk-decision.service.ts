@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
 import { PortfolioExposureService } from './portfolio-exposure.service';
 import { PositionRiskService } from './position-risk.service';
@@ -62,6 +63,7 @@ export class RiskDecisionService {
     private readonly killSwitchService: KillSwitchOrchestratorService,
     private readonly snapshotRepo: RiskManagementSnapshotRepository,
     private readonly eventService: RiskEventService,
+    private readonly outbox: OutboxService,
   ) {}
 
   async evaluateUnifiedRisk(params: {
@@ -778,27 +780,50 @@ export class RiskDecisionService {
       killSwitch: hasKillSwitch ? { isEngaged: true, scope: 'DETECTED' } : { isEngaged: false, scope: null },
     };
 
-    // Persist decision
-    await this.prisma.riskDecisionRecord.create({
-      data: {
-        tenantId,
-        userId: userId ?? null,
-        accountId: accountId ?? null,
-        traderId: traderId ?? null,
-        followerId: followerId ?? null,
-        strategyId: strategyId ?? null,
-        symbol: symbol ?? null,
-        venue: venue ?? null,
-        decision: finalDecision as any,
-        state: finalState as any,
-        ruleIds,
-        policyVersion: policy.effectiveVersion,
-        blockingReasons,
-        warnings,
-        decisionJson: decision as any,
-        requestId: requestId ?? null,
-      },
-    });
+    // Persist a kill-switch-required decision and its developer event in one
+    // tenant-RLS transaction. Other non-stop observations remain audit rows
+    // only and do not masquerade as a triggered stop.
+    const decisionData = {
+      tenantId,
+      userId: userId ?? null,
+      accountId: accountId ?? null,
+      traderId: traderId ?? null,
+      followerId: followerId ?? null,
+      strategyId: strategyId ?? null,
+      symbol: symbol ?? null,
+      venue: venue ?? null,
+      decision: finalDecision as any,
+      state: finalState as any,
+      ruleIds,
+      policyVersion: policy.effectiveVersion,
+      blockingReasons,
+      warnings,
+      decisionJson: decision as any,
+      requestId: requestId ?? null,
+    };
+    if (finalDecision === RiskDecision.KILL_SWITCH_REQUIRED) {
+      await this.prisma.withTenantRls(tenantId, async (tx) => {
+        await tx.riskDecisionRecord.create({ data: decisionData });
+        await this.outbox.append(tx, {
+          tenantId,
+          aggregateType: 'risk.decision',
+          aggregateId: decision.id,
+          eventType: 'risk.stop_triggered',
+          idempotencyKey: `risk-stop:${decision.id}`,
+          payload: {
+            decisionId: decision.id,
+            ruleIds,
+            policyVersion: policy.effectiveVersion,
+            scope: RiskPolicyScope.TENANT,
+            scopeId: accountId ?? strategyId ?? tenantId,
+            severity: RiskSeverity.CRITICAL,
+            triggeredAt: nowIso,
+          },
+        });
+      });
+    } else {
+      await this.prisma.riskDecisionRecord.create({ data: decisionData });
+    }
 
     // Emit event if blocked
     if (finalDecision === RiskDecision.BLOCK || finalDecision === RiskDecision.KILL_SWITCH_REQUIRED) {

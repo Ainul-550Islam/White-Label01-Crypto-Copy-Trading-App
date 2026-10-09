@@ -1,5 +1,6 @@
 // # NEW — Submits payout requests and displays approval/settlement timeline
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

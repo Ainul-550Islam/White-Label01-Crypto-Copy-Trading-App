@@ -14,13 +14,19 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   buildEventEnvelope,
+  DEVELOPER_ERROR_CODES,
   DEVELOPER_EVENT_TYPES,
+  DeveloperError,
   eventDefinition,
   eventMatchesFilter,
   idempotencyKey,
   type DeveloperEventEnvelope,
   type EventSubscriptionFilter,
 } from './developer.types';
+import {
+  developerEventPayloadSchema,
+  validateDeveloperEventPayload,
+} from './event-schemas/developer-event-schemas';
 import { WebhookDeliveryService } from './webhook-delivery.service';
 
 /** An observation from an AUTHORITATIVE domain (never built by developers). */
@@ -29,6 +35,8 @@ export interface AuthoritativeEventObservation {
   source: string;
   eventType: string;
   domainRecordId: string;
+  /** Stable outbox-row identity; distinguishes repeated event types for one aggregate. */
+  outboxEventId?: string;
   occurredAt: Date;
   correlationId: string;
   payload: Record<string, unknown>;
@@ -61,11 +69,21 @@ export class EventSubscriptionService {
       // unknown webhook event must not turn into a success mutation.
       return { delivered: false, deliveryIds: [] };
     }
+    const schemaResult = validateDeveloperEventPayload(observation.eventType, observation.payload);
+    if (!schemaResult.valid) {
+      throw new DeveloperError(
+        DEVELOPER_ERROR_CODES.VALIDATION,
+        `event '${observation.eventType}' does not satisfy its v1 payload schema`,
+        { eventType: observation.eventType, schemaErrors: schemaResult.errors },
+      );
+    }
     const envelope = buildEventEnvelope({
       eventId: idempotencyKey(
         observation.tenantId,
         'developer.event',
-        `${observation.eventType}|${observation.domainRecordId}`,
+        observation.outboxEventId
+          ? `outbox|${observation.outboxEventId}`
+          : `${observation.eventType}|${observation.domainRecordId}`,
       ),
       eventType: observation.eventType,
       tenantId: observation.tenantId,
@@ -109,8 +127,20 @@ export class EventSubscriptionService {
     return { delivered: deliveryIds.length > 0, deliveryIds };
   }
 
-  /** Portal-facing list of event types a subscription may choose from. */
-  catalog(): { eventType: string; resourceType: string; eventVersion: string; source: string }[] {
-    return DEVELOPER_EVENT_TYPES.map((definition) => ({ ...definition }));
+  /** Portal-facing event catalog, including the stable payload-schema identifier. */
+  catalog(): {
+    eventType: string;
+    resourceType: string;
+    eventVersion: string;
+    source: string;
+    schemaId: string;
+  }[] {
+    return DEVELOPER_EVENT_TYPES.map((definition) => {
+      const schema = developerEventPayloadSchema(definition.eventType);
+      if (!schema) {
+        throw new Error(`developer event '${definition.eventType}' has no payload schema`);
+      }
+      return { ...definition, schemaId: schema.$id };
+    });
   }
 }

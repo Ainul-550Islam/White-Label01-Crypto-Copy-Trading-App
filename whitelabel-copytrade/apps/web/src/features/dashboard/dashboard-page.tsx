@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { PageContainer } from '@/layout/page-container';
 import { useDashboardData } from './dashboard-query';

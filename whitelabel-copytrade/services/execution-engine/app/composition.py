@@ -67,13 +67,13 @@ from wlct_trading.risk import RiskEngine, RiskLimits
 
 from app.config import Settings
 from app.credential_registry import CredentialRegistryWiring, build_credential_registry
-from app.credentials import CredentialWiring, build_credential_provider
+from app.exchanges.credentials import CredentialWiring, build_credential_provider
 from app.distributed_locks import (
     DistributedLockConfig,
     DistributedLockWiring,
     build_distributed_lock_manager,
 )
-from app.placement import PlacementWiring, build_placement_reviewer
+from app.orders.placement import PlacementWiring, build_placement_reviewer
 from app.venue_attestation import (
     VenueAttestationConfig,
     VenueAttestationError,
@@ -604,7 +604,7 @@ def build_runtime(
                 "adapter": type(trading).__name__,
                 "dryRun": engine_settings.dry_run,
                 "simulatedMidConfigured": settings.simulated_mid is not None,
-                # Named ``providerSource`` for the same reason ``app.credentials``
+                # Named ``providerSource`` for the same reason ``app.exchanges.credentials``
                 # renamed its boot line: a key containing "credential" is scrubbed from
                 # every log record by the platform's redaction filter, and a boot line
                 # whose interesting field reads [REDACTED] is a boot line nobody can

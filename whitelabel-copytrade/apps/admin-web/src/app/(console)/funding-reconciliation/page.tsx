@@ -1,4 +1,5 @@
 // # NEW — Admin console route for funding and custody reconciliation
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
 import { serverFetch } from '@/lib/server-api';
@@ -6,7 +7,7 @@ import { theme } from '@/lib/theme';
 import {
   FundingReconciliationTable,
   type CustodyReconciliationFindingRow,
-} from '@/modules/funding/funding-reconciliation-table';
+} from '@/features/funding/funding-reconciliation-table';
 
 export const dynamic = 'force-dynamic';
 

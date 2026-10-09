@@ -2,7 +2,7 @@
 
 Server-side session handling, the proxy route, and the console screens.
 
-79 files. Part of the complete source dump - see `docs/source/README.md`.
+101 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -98,7 +98,9 @@ FILE: apps/admin-web/package.json
     "build": "next build",
     "start": "next start -p 3000 -H 0.0.0.0",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "dev:e2e": "next dev -p 3102 -H 127.0.0.1"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
@@ -110,7 +112,8 @@ FILE: apps/admin-web/package.json
     "react-dom": "18.3.1",
     "server-only": "^0.0.1",
     "socket.io-client": "^4.8.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@wlct/utils": "1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
@@ -119,6 +122,26 @@ FILE: apps/admin-web/package.json
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.15",
     "typescript": "^5.5.4"
+  },
+  "jest": {
+    "rootDir": "src",
+    "testEnvironment": "node",
+    "testRegex": "\\.test\\.tsx?$",
+    "moduleNameMapper": {
+      "^@/(.*)$": "<rootDir>/$1",
+      "^@wlct/utils/api-error$": "<rootDir>/../../../packages/utils/src/api-error.ts"
+    },
+    "transform": {
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "isolatedModules": true,
+          "tsconfig": {
+            "jsx": "react-jsx"
+          }
+        }
+      ]
+    }
   }
 }
 ```
@@ -137,7 +160,7 @@ FILE: apps/admin-web/src/app/(console)/audit-logs/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, type Column } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme, toneForStatus } from '@/lib/theme';
@@ -410,7 +433,7 @@ FILE: apps/admin-web/src/app/(console)/branding/page.tsx
 import type { Metadata } from 'next';
 
 import { Card, ErrorNotice, PageHeader } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme } from '@/lib/theme';
@@ -558,13 +581,181 @@ export default async function BrandingPage(): Promise<JSX.Element> {
 }
 ```
 
+FILE: apps/admin-web/src/app/(console)/compliance/[caseId]/page.tsx
+
+```tsx
+// # NEW — Admin route for single compliance case review
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { ErrorNotice, PageHeader } from '@/components/ui';
+import { serverFetch } from '@/lib/server-api';
+import { theme } from '@/lib/theme';
+import {
+  ComplianceCaseDetail,
+  type ComplianceCaseRecord,
+} from '@/features/compliance/compliance-case-detail';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Compliance Case Review' };
+
+export default async function ComplianceCaseDetailPage({
+  params,
+}: {
+  params: { caseId: string };
+}): Promise<JSX.Element> {
+  const { caseId } = params;
+  let caseRecord: ComplianceCaseRecord | null = null;
+  let errorMsg: string | null = null;
+
+  try {
+    caseRecord = await serverFetch<ComplianceCaseRecord>(`/compliance/cases/${caseId}`);
+  } catch (err) {
+    errorMsg = (err as Error).message || 'Failed to load compliance case';
+  }
+
+  return (
+    <>
+      <div style={{ marginBottom: theme.space(3) }}>
+        <Link href="/compliance" style={{ fontSize: 12, color: theme.color.textMuted }}>
+          ← Back to Compliance Case Queue
+        </Link>
+      </div>
+
+      <PageHeader
+        title={`Compliance Case Review · ${caseId.slice(0, 12)}`}
+        description="Inspect KYC/AML screening matches, transaction monitoring evidence, and record an audited compliance decision."
+      />
+
+      {errorMsg && (
+        <div style={{ marginTop: theme.space(4) }}>
+          <ErrorNotice title="Could not load compliance case" message={errorMsg} />
+        </div>
+      )}
+
+      {caseRecord && (
+        <div style={{ marginTop: theme.space(5) }}>
+          <ComplianceCaseDetail caseRecord={caseRecord} />
+        </div>
+      )}
+    </>
+  );
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/compliance/page.tsx
+
+```tsx
+// # NEW — Admin console route for compliance cases and KYC/AML queue
+import type { Metadata } from 'next';
+import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
+import { serverFetch } from '@/lib/server-api';
+import { theme } from '@/lib/theme';
+import {
+  ComplianceCaseQueue,
+  type ComplianceCaseQueueItem,
+} from '@/features/compliance/compliance-case-queue';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Compliance & AML Case Queue' };
+
+export default async function ComplianceQueuePage(): Promise<JSX.Element> {
+  const failures: string[] = [];
+  const track = async <T,>(label: string, promise: Promise<T>): Promise<T | null> => {
+    try {
+      return await promise;
+    } catch (err) {
+      failures.push(`${label}: ${(err as Error).message}`);
+      return null;
+    }
+  };
+
+  // Both endpoints answer with the platform's paged envelope - `{ data, total, page, limit }` from
+  // `complianceCase.repository.listTenantCases` and `transactionMonitoringService.listSignals`.
+  // This page asked for `items` and `cases`, neither of which those services return, so the queue
+  // rendered empty against the real API while the console reported no failure at all: a silent
+  // empty page is indistinguishable from a tenant with no cases, which is the worst way for a
+  // compliance screen to be wrong.
+  const [casesRes, signalsRes] = await Promise.all([
+    track(
+      'compliance cases',
+      serverFetch<{ data?: ComplianceCaseQueueItem[]; total?: number }>('/compliance/cases', {
+        searchParams: { limit: 50 },
+      }),
+    ),
+    track(
+      'monitoring signals',
+      serverFetch<{ data?: unknown[]; total?: number }>('/compliance/monitoring/signals', {
+        searchParams: { limit: 25 },
+      }),
+    ),
+  ]);
+
+  const cases = casesRes?.data ?? [];
+  const openCases = cases.filter((c) => c.state !== 'RESOLVED' && c.state !== 'CLOSED');
+  const escalatedCases = openCases.filter(
+    (c) => c.state === 'ESCALATED' || c.riskLevel === 'CRITICAL' || c.riskLevel === 'HIGH',
+  );
+
+  return (
+    <>
+      <PageHeader
+        title="Compliance, KYC/AML & Transaction Monitoring Queue"
+        description="Review KYC/AML screening hits, transaction monitoring alerts, EDD requests, and compliance holds."
+      />
+
+      {failures.length > 0 && (
+        <div style={{ marginTop: theme.space(4) }}>
+          <ErrorNotice title="Compliance data partially degraded" message={failures.join(' · ')} />
+        </div>
+      )}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: theme.space(4),
+          marginTop: theme.space(5),
+        }}
+      >
+        <StatTile
+          label="Open Cases"
+          value={openCases.length}
+          hint={`${cases.length} total cases in queue`}
+        />
+        <StatTile
+          label="High / Escalated"
+          value={escalatedCases.length}
+          hint="Priority MLRO review required"
+        />
+        <StatTile
+          label="Monitoring Signals"
+          value={signalsRes?.total ?? signalsRes?.data?.length ?? 0}
+          hint="Velocity, structuring & jurisdiction alerts"
+        />
+      </div>
+
+      <div style={{ marginTop: theme.space(6) }}>
+        <Card
+          title="Compliance Case Queue"
+          description="Filter cases by workflow state, severity, and SLA. Click a case ID to inspect evidence, AML hits, and record a decision."
+        >
+          <ComplianceCaseQueue cases={cases} />
+        </Card>
+      </div>
+    </>
+  );
+}
+```
+
 FILE: apps/admin-web/src/app/(console)/dashboard/page.tsx
 
 ```tsx
 import type { Metadata } from 'next';
 
 import { Card, ErrorNotice, StatTile, Badge } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, formatLimit, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme, toneForStatus } from '@/lib/theme';
@@ -736,7 +927,7 @@ FILE: apps/admin-web/src/app/(console)/datasets/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, formatRelative, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme, toneForStatus } from '@/lib/theme';
@@ -1214,6 +1405,218 @@ export default async function DatasetsPage(): Promise<JSX.Element> {
 }
 ```
 
+FILE: apps/admin-web/src/app/(console)/execution-incidents/page.tsx
+
+```tsx
+// # NEW — Admin console route for execution incidents and stuck orders
+import type { Metadata } from 'next';
+import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
+import { serverFetch } from '@/lib/server-api';
+import { theme } from '@/lib/theme';
+import {
+  ExecutionIncidentTable,
+  type ExecutionIncidentRow,
+  type ExecutionKillSwitchItem,
+} from '@/features/execution/execution-incident-table';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Execution Incidents & Safety' };
+
+interface IncidentCountsResponse {
+  open: number;
+  critical: number;
+  warning: number;
+  info: number;
+  stale: number;
+}
+
+interface ExecutionSafetyResponse {
+  tradingMode: string;
+  executionEnabled: boolean;
+  liveTradingEnabled: boolean;
+  dryRun: boolean;
+  paperTrading: boolean;
+  sandboxMode: boolean;
+  wouldTransmitLiveOrder: boolean;
+  blockingReasons: string[];
+  killSwitches: ExecutionKillSwitchItem[];
+}
+
+export default async function ExecutionIncidentsPage(): Promise<JSX.Element> {
+  const failures: string[] = [];
+  const track = async <T,>(label: string, promise: Promise<T>): Promise<T | null> => {
+    try {
+      return await promise;
+    } catch (err) {
+      failures.push(`${label}: ${(err as Error).message}`);
+      return null;
+    }
+  };
+
+  const [counts, safety, incidentsPage] = await Promise.all([
+    track('incident counts', serverFetch<IncidentCountsResponse>('/execution/incidents/counts')),
+    track('execution safety', serverFetch<ExecutionSafetyResponse>('/execution/safety')),
+    track(
+      'execution incidents',
+      serverFetch<{ items: ExecutionIncidentRow[] }>('/execution/incidents', {
+        searchParams: { limit: 50, includeResolved: true },
+      }),
+    ),
+  ]);
+
+  const incidents = incidentsPage?.items ?? [];
+  const killSwitches = safety?.killSwitches ?? [];
+
+  return (
+    <>
+      <PageHeader
+        title="Execution Incidents & Kill-Switch Console"
+        description="Operational incident queue, stuck-order diagnostics, deployment safety gate status, and audited kill-switch controls."
+      />
+
+      {failures.length > 0 && (
+        <div style={{ marginTop: theme.space(4) }}>
+          <ErrorNotice title="Some execution panels degraded" message={failures.join(' · ')} />
+        </div>
+      )}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: theme.space(4),
+          marginTop: theme.space(5),
+        }}
+      >
+        <StatTile
+          label="Open Incidents"
+          value={counts?.open ?? 0}
+          hint={`${counts?.critical ?? 0} critical · ${counts?.stale ?? 0} stale (>1h)`}
+        />
+        <StatTile
+          label="Trading Mode"
+          value={safety?.tradingMode ?? 'PAPER'}
+          hint={
+            safety?.wouldTransmitLiveOrder
+              ? 'Live orders armed'
+              : 'Live transmission blocked by safety gate'
+          }
+        />
+        <StatTile
+          label="Active Kill Switches"
+          value={killSwitches.filter((k) => k.isEngaged).length}
+          hint={`${killSwitches.length} total recorded switches`}
+        />
+        <StatTile
+          label="Safety Gate Blockers"
+          value={safety?.blockingReasons.length ?? 0}
+          hint={safety?.blockingReasons[0] ?? 'No blockers'}
+        />
+      </div>
+
+      <div style={{ marginTop: theme.space(6) }}>
+        <Card
+          title="Execution Incidents & Safety Controls"
+          description="Engage or release scoped kill switches and resolve execution incidents with an immutable audit note."
+        >
+          <ExecutionIncidentTable incidents={incidents} killSwitches={killSwitches} />
+        </Card>
+      </div>
+    </>
+  );
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/funding-reconciliation/page.tsx
+
+```tsx
+// # NEW — Admin console route for funding and custody reconciliation
+import type { Metadata } from 'next';
+import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
+import { serverFetch } from '@/lib/server-api';
+import { theme } from '@/lib/theme';
+import {
+  FundingReconciliationTable,
+  type CustodyReconciliationFindingRow,
+} from '@/features/funding/funding-reconciliation-table';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Funding & Custody Reconciliation' };
+
+export default async function FundingReconciliationPage(): Promise<JSX.Element> {
+  let findings: CustodyReconciliationFindingRow[] = [];
+  let errorMsg: string | null = null;
+
+  try {
+    const res = await serverFetch<{
+      items?: CustodyReconciliationFindingRow[];
+      findings?: CustodyReconciliationFindingRow[];
+    }>('/custody/reconciliation/findings', {
+      searchParams: { limit: 50 },
+    });
+    findings = res.items ?? res.findings ?? [];
+  } catch (err) {
+    errorMsg = (err as Error).message || 'Failed to load custody reconciliation findings';
+  }
+
+  const openFindings = findings.filter((f) => !f.resolved);
+  const criticalFindings = openFindings.filter(
+    (f) => f.severity === 'CRITICAL' || f.severity === 'HIGH',
+  );
+
+  return (
+    <>
+      <PageHeader
+        title="Funding & Custody Reconciliation"
+        description="Reconcile internal ledger balances, deposit confirmations, and withdrawal settlements against external custody and payment providers."
+      />
+
+      {errorMsg && (
+        <div style={{ marginTop: theme.space(4) }}>
+          <ErrorNotice title="Reconciliation query failed" message={errorMsg} />
+        </div>
+      )}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: theme.space(4),
+          marginTop: theme.space(5),
+        }}
+      >
+        <StatTile
+          label="Open Findings"
+          value={openFindings.length}
+          hint={`${findings.length} total recorded findings`}
+        />
+        <StatTile
+          label="Critical / High"
+          value={criticalFindings.length}
+          hint="Requires treasury operator review"
+        />
+        <StatTile
+          label="Resolved Findings"
+          value={findings.filter((f) => f.resolved).length}
+          hint="Audited resolution records"
+        />
+      </div>
+
+      <div style={{ marginTop: theme.space(6) }}>
+        <Card
+          title="Custody & Funding Settlement Discrepancies"
+          description="Never rewrites external provider truth; requires explicit operator resolution and audit note."
+        >
+          <FundingReconciliationTable findings={findings} />
+        </Card>
+      </div>
+    </>
+  );
+}
+```
+
 FILE: apps/admin-web/src/app/(console)/layout.tsx
 
 ```tsx
@@ -1293,6 +1696,59 @@ export default function ConsoleLayout({ children }: { children: ReactNode }): JS
 }
 ```
 
+FILE: apps/admin-web/src/app/(console)/lead-trader-applications/page.tsx
+
+```tsx
+// # Responsibility: serves the tenant-scoped lead-trader review queue in the authenticated admin console.
+import type { Metadata } from 'next';
+import { Card, ErrorNotice, PageHeader } from '@/components/ui';
+import { LeadTraderApplicationQueue, type AdminLeadTraderApplication } from '@/features/trading/lead-trader-application-queue';
+import { serverFetch } from '@/lib/server-api';
+import { theme } from '@/lib/theme';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Lead Trader Applications' };
+
+interface LeadTraderApplicationQueueResponse {
+  data: AdminLeadTraderApplication[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export default async function LeadTraderApplicationsPage(): Promise<JSX.Element> {
+  let queue: LeadTraderApplicationQueueResponse = { data: [], total: 0, page: 1, limit: 50 };
+  let errorMessage: string | null = null;
+  try {
+    queue = await serverFetch<LeadTraderApplicationQueueResponse>('/copy-trading/lead-trader-applications/admin', {
+      searchParams: { page: 1, limit: 50 },
+    });
+  } catch (error) {
+    errorMessage = (error as Error).message || 'Could not load lead-trader applications.';
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="Lead Trader Applications"
+        description="Review tenant-scoped qualification declarations. Approval is separate from trader performance verification and live-execution authorization."
+      />
+      {errorMessage && (
+        <div style={{ marginTop: theme.space(4) }}>
+          <ErrorNotice title="Application queue unavailable" message={errorMessage} />
+        </div>
+      )}
+      <div style={{ marginTop: theme.space(5) }}>
+        <Card title="Qualification review queue" description="Claim an application before deciding it. Rejections require a reason and preserve the submitted version.">
+          <LeadTraderApplicationQueue initialQueue={queue} />
+        </Card>
+      </div>
+    </>
+  );
+}
+```
+
 FILE: apps/admin-web/src/app/(console)/observability/alert-controls.tsx
 
 ```tsx
@@ -1302,7 +1758,7 @@ import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { apiClient } from '@/lib/api-client';
 import { theme } from '@/lib/theme';
 
@@ -1469,7 +1925,7 @@ FILE: apps/admin-web/src/app/(console)/observability/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatRelative, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { toneForStatus, type StatusTone } from '@/lib/theme';
@@ -1864,6 +2320,240 @@ export default async function ObservabilityPage(): Promise<JSX.Element> {
 }
 ```
 
+FILE: apps/admin-web/src/app/(console)/partners/[partnerId]/page.tsx
+
+```tsx
+// # NEW — Admin detail route for partner attribution and commission audit
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
+import { serverFetch } from '@/lib/server-api';
+import { formatDateTime } from '@/lib/format';
+import { theme } from '@/lib/theme';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Partner Attribution & Commission Audit' };
+
+interface PartnerDetailDto {
+  id: string;
+  code: string;
+  name: string;
+  legalName: string;
+  type: string;
+  state: string;
+  contactEmail: string;
+  currency: string;
+  createdAt: string;
+}
+
+interface PartnerCommissionDto {
+  id: string;
+  tenantId: string;
+  sourceEventType: string;
+  grossRevenue: string;
+  commissionAmount: string;
+  currency: string;
+  state: string;
+  createdAt: string;
+}
+
+interface PartnerPayoutDto {
+  id: string;
+  settlementId: string;
+  amount: string;
+  currency: string;
+  method: string;
+  state: string;
+  createdAt: string;
+}
+
+export default async function AdminPartnerDetailPage({
+  params,
+}: {
+  params: { partnerId: string };
+}): Promise<JSX.Element> {
+  const { partnerId } = params;
+  const failures: string[] = [];
+  const track = async <T,>(label: string, promise: Promise<T>): Promise<T | null> => {
+    try {
+      return await promise;
+    } catch (err) {
+      failures.push(`${label}: ${(err as Error).message}`);
+      return null;
+    }
+  };
+
+  const [partner, commissionsRes, payoutsRes] = await Promise.all([
+    track('partner profile', serverFetch<PartnerDetailDto>(`/partners/${partnerId}`)),
+    track('commissions', serverFetch<PartnerCommissionDto[]>(`/partners/${partnerId}/commissions`)),
+    track('payouts', serverFetch<PartnerPayoutDto[]>(`/partners/${partnerId}/payouts`)),
+  ]);
+
+  const commissions = Array.isArray(commissionsRes) ? commissionsRes : [];
+  const payouts = Array.isArray(payoutsRes) ? payoutsRes : [];
+
+  return (
+    <>
+      <div style={{ marginBottom: theme.space(3) }}>
+        <Link href="/partners" style={{ fontSize: 12, color: theme.color.textMuted }}>
+          ← Back to Partners Directory
+        </Link>
+      </div>
+
+      <PageHeader
+        title={`Partner Audit · ${partner?.name ?? partnerId}`}
+        description="Inspect partner referral attributions, commission accruals, and payout settlement state."
+      />
+
+      {failures.length > 0 && (
+        <div style={{ marginTop: theme.space(4) }}>
+          <ErrorNotice title="Partner detail partially degraded" message={failures.join(' · ')} />
+        </div>
+      )}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: theme.space(4),
+          marginTop: theme.space(5),
+        }}
+      >
+        <StatTile label="Partner State" value={partner?.state ?? 'UNKNOWN'} hint={partner?.type ?? '—'} />
+        <StatTile
+          label="Commission Entries"
+          value={commissions.length}
+          hint="Trade & fee rebate accruals"
+        />
+        <StatTile label="Payout Requests" value={payouts.length} hint="Disbursement records" />
+      </div>
+
+      <div style={{ marginTop: theme.space(6), display: 'grid', gap: theme.space(5) }}>
+        <Card title="Commission Accrual Audit" description="Partner commission ledger entries.">
+          <DataTable
+            rows={commissions}
+            rowKey={(r) => r.id}
+            emptyTitle="No commission entries"
+            emptyDescription="Zero commissions accrued for this partner."
+            columns={[
+              { key: 'id', header: 'ID', render: (r) => <code>{r.id.slice(0, 10)}</code> },
+              { key: 'tenant', header: 'Tenant', render: (r) => <code>{r.tenantId}</code> },
+              { key: 'event', header: 'Source Event', render: (r) => r.sourceEventType },
+              {
+                key: 'gross',
+                header: 'Gross Revenue',
+                render: (r) => `${r.grossRevenue} ${r.currency}`,
+              },
+              {
+                key: 'commission',
+                header: 'Commission',
+                render: (r) => `${r.commissionAmount} ${r.currency}`,
+              },
+              { key: 'state', header: 'State', render: (r) => <Badge tone="info">{r.state}</Badge> },
+              { key: 'created', header: 'Created', render: (r) => formatDateTime(r.createdAt) },
+            ]}
+          />
+        </Card>
+
+        <Card title="Payout Disbursement Audit" description="Partner payout requests and settlements.">
+          <DataTable
+            rows={payouts}
+            rowKey={(r) => r.id}
+            emptyTitle="No payout records"
+            emptyDescription="Zero payout requests submitted by this partner."
+            columns={[
+              { key: 'id', header: 'Payout ID', render: (r) => <code>{r.id.slice(0, 10)}</code> },
+              {
+                key: 'settlement',
+                header: 'Settlement',
+                render: (r) => <code>{r.settlementId}</code>,
+              },
+              { key: 'amount', header: 'Amount', render: (r) => `${r.amount} ${r.currency}` },
+              { key: 'method', header: 'Method', render: (r) => r.method },
+              { key: 'state', header: 'State', render: (r) => <Badge tone="info">{r.state}</Badge> },
+              { key: 'created', header: 'Requested', render: (r) => formatDateTime(r.createdAt) },
+            ]}
+          />
+        </Card>
+      </div>
+    </>
+  );
+}
+```
+
+FILE: apps/admin-web/src/app/(console)/partners/page.tsx
+
+```tsx
+// # NEW — Admin console route for partner approval, tier assignment, and payout review
+import type { Metadata } from 'next';
+import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
+import { serverFetch } from '@/lib/server-api';
+import { theme } from '@/lib/theme';
+import {
+  PartnerAdminTable,
+  type PartnerAdminRow,
+} from '@/features/partners/partner-admin-table';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Partners & Affiliate Management' };
+
+export default async function AdminPartnersPage(): Promise<JSX.Element> {
+  let partners: PartnerAdminRow[] = [];
+  let errorMsg: string | null = null;
+
+  try {
+    const res = await serverFetch<PartnerAdminRow[] | { items?: PartnerAdminRow[] }>('/partners');
+    partners = Array.isArray(res) ? res : (res.items ?? []);
+  } catch (err) {
+    errorMsg = (err as Error).message || 'Failed to load partner profiles';
+  }
+
+  const activeCount = partners.filter((p) => p.state === 'ACTIVE').length;
+  const pendingCount = partners.filter(
+    (p) => p.state === 'PENDING' || p.state === 'APPLIED' || p.state === 'DRAFT',
+  ).length;
+
+  return (
+    <>
+      <PageHeader
+        title="Partner, IB & Affiliate Management Console"
+        description="Approve partner applications, manage tiered rebate agreements, audit referral attributions, and review commission payouts."
+      />
+
+      {errorMsg && (
+        <div style={{ marginTop: theme.space(4) }}>
+          <ErrorNotice title="Could not load partners" message={errorMsg} />
+        </div>
+      )}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: theme.space(4),
+          marginTop: theme.space(5),
+        }}
+      >
+        <StatTile label="Total Partners" value={partners.length} hint="IBs, Affiliates & Resellers" />
+        <StatTile label="Active Partners" value={activeCount} hint="Eligible for commission accrual" />
+        <StatTile label="Pending Review" value={pendingCount} hint="Awaiting agreement approval" />
+      </div>
+
+      <div style={{ marginTop: theme.space(6) }}>
+        <Card
+          title="Partner & Introducing Broker Directory"
+          description="Activate or suspend partners and inspect individual attribution and payout ledgers."
+        >
+          <PartnerAdminTable partners={partners} />
+        </Card>
+      </div>
+    </>
+  );
+}
+```
+
 FILE: apps/admin-web/src/app/(console)/plans/layout.tsx
 
 ```tsx
@@ -1904,10 +2594,11 @@ export default function PlansPage(): JSX.Element {
 FILE: apps/admin-web/src/app/(console)/risk/page.tsx
 
 ```tsx
+// # Wires kill-switch controls to live execution safety endpoints
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, formatRelative, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme } from '@/lib/theme';
@@ -2418,13 +3109,14 @@ export default async function RiskPage(): Promise<JSX.Element> {
 FILE: apps/admin-web/src/app/(console)/risk/switch-controls.tsx
 
 ```tsx
+// # Renders platform/tenant/venue/symbol kill-switch toggles with mandatory reason and confirmation
 'use client';
 
 import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { apiClient } from '@/lib/api-client';
 import { theme } from '@/lib/theme';
 
@@ -2728,7 +3420,7 @@ FILE: apps/admin-web/src/app/(console)/roles/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, type Column } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { theme } from '@/lib/theme';
 
@@ -3015,7 +3707,7 @@ FILE: apps/admin-web/src/app/(console)/settings/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, type Column } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme, toneForStatus } from '@/lib/theme';
@@ -3261,7 +3953,7 @@ FILE: apps/admin-web/src/app/(console)/slo/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatRelative } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import type { StatusTone } from '@/lib/theme';
@@ -3732,7 +4424,7 @@ FILE: apps/admin-web/src/app/(console)/slo/slo-controls.tsx
 import { useState, useTransition, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { apiClient } from '@/lib/api-client';
 import { theme } from '@/lib/theme';
 
@@ -4134,7 +4826,7 @@ FILE: apps/admin-web/src/app/(console)/strategies/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, formatRelative, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme, toneForStatus } from '@/lib/theme';
@@ -4672,7 +5364,7 @@ FILE: apps/admin-web/src/app/(console)/subscription/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, type Column } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatBasisPoints, formatDateTime, formatLimit, formatMoney, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme, toneForStatus } from '@/lib/theme';
@@ -4888,7 +5580,7 @@ FILE: apps/admin-web/src/app/(console)/tenants/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, type Column } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, formatLimit, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { toneForStatus } from '@/lib/theme';
@@ -5020,7 +5712,7 @@ FILE: apps/admin-web/src/app/(console)/users/page.tsx
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, type Column } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { toneForStatus } from '@/lib/theme';
@@ -5157,7 +5849,7 @@ import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
 
@@ -5348,7 +6040,7 @@ import { randomUUID } from 'node:crypto';
 
 import { NextResponse } from 'next/server';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { clearSession, getCsrfToken, getDeviceId, getRefreshToken, persistSession } from '@/lib/session';
 
@@ -5423,7 +6115,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverFetch } from '@/lib/server-api';
 import { persistSession } from '@/lib/session';
 
@@ -6560,12 +7252,2106 @@ export function PageHeader({
 }
 ```
 
+FILE: apps/admin-web/src/features/compliance/aml-screening-panel.tsx
+
+```tsx
+// # NEW — Displays screening match details and disposition controls
+// # NEW — initiate/rescreen/disposition UI
+'use client';
+
+import React, { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { Badge } from '@/components/ui';
+import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@wlct/utils/api-error';
+import { theme } from '@/lib/theme';
+
+export interface AmlScreeningMatch {
+  id: string;
+  listName: string;
+  matchCategory: 'SANCTIONS' | 'PEP' | 'WATCHLIST' | 'ADVERSE_MEDIA';
+  confidenceScore: number;
+  matchedEntityLabel: string;
+  jurisdiction?: string | null;
+  disposition: 'PENDING_REVIEW' | 'TRUE_MATCH' | 'FALSE_POSITIVE' | 'ESCALATED';
+}
+
+export interface AmlScreeningPanelProps {
+  userId: string;
+  providerReference?: string | null;
+  screeningStatus: string;
+  matches: AmlScreeningMatch[];
+}
+
+export function hasUnresolvedSanctionsHit(matches: ReadonlyArray<AmlScreeningMatch>): boolean {
+  return matches.some(
+    (m) => m.disposition === 'PENDING_REVIEW' || m.disposition === 'TRUE_MATCH',
+  );
+}
+
+export function AmlScreeningPanel({
+  userId,
+  providerReference,
+  screeningStatus,
+  matches,
+}: AmlScreeningPanelProps): JSX.Element {
+  const router = useRouter();
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const handleRescreen = () => {
+    if (!providerReference) return;
+    setErrorMessage(null);
+    setStatusMessage(null);
+    startTransition(async () => {
+      try {
+        await apiClient.post(`/compliance/aml/rescreen/${providerReference}`, {
+          userId,
+        });
+        setStatusMessage('AML/Sanctions rescreen request submitted.');
+        router.refresh();
+      } catch (err) {
+        setErrorMessage(
+          err instanceof ApiError ? err.message : (err as Error).message || 'AML rescreen failed.',
+        );
+      }
+    });
+  };
+
+  return (
+    <div
+      data-testid="aml-screening-panel"
+      style={{
+        border: `1px solid ${theme.color.border}`,
+        borderRadius: theme.radius.md,
+        padding: theme.space(4),
+        display: 'grid',
+        gap: theme.space(3),
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>
+            AML / Sanctions / PEP Screening Status: <Badge tone="info">{screeningStatus}</Badge>
+          </div>
+          <div style={{ fontSize: 12, color: theme.color.textMuted, marginTop: 2 }}>
+            Subject User: <code>{userId}</code> · Provider Ref:{' '}
+            <code>{providerReference ?? 'NONE'}</code>
+          </div>
+        </div>
+        {providerReference && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={handleRescreen}
+            style={{
+              fontSize: 12,
+              padding: '6px 12px',
+              borderRadius: theme.radius.md,
+              border: `1px solid ${theme.color.border}`,
+              cursor: 'pointer',
+            }}
+          >
+            {pending ? 'Rescreening…' : 'Trigger AML Rescreen'}
+          </button>
+        )}
+      </div>
+
+      {errorMessage && (
+        <p role="alert" style={{ color: 'var(--wlct-color-danger)', fontSize: 12, margin: 0 }}>
+          {errorMessage}
+        </p>
+      )}
+      {statusMessage && (
+        <p role="status" style={{ fontSize: 12, margin: 0 }}>
+          {statusMessage}
+        </p>
+      )}
+
+      {matches.length === 0 ? (
+        <div style={{ fontSize: 12, color: theme.color.textMuted }}>
+          No sanctions, PEP, or watchlist hits recorded for this subject.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: theme.space(2) }}>
+          {matches.map((m) => (
+            <div
+              key={m.id}
+              data-testid={`aml-match-${m.id}`}
+              style={{
+                padding: theme.space(3),
+                border: `1px solid ${theme.color.border}`,
+                borderRadius: theme.radius.sm,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  {m.matchCategory} · {m.listName} ({m.confidenceScore}% confidence)
+                </div>
+                <div style={{ fontSize: 12, color: theme.color.textMuted }}>
+                  Matched Label: {m.matchedEntityLabel}
+                  {m.jurisdiction ? ` · Jurisdiction: ${m.jurisdiction}` : ''}
+                </div>
+              </div>
+              <Badge tone={m.disposition === 'TRUE_MATCH' ? 'danger' : 'warning'}>
+                {m.disposition}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default AmlScreeningPanel;
+```
+
+FILE: apps/admin-web/src/features/compliance/compliance-audit-timeline.tsx
+
+```tsx
+// # NEW — Renders chronological compliance audit timeline
+// # NEW — immutable audit timeline component
+'use client';
+
+import React from 'react';
+import { Badge } from '@/components/ui';
+import { formatDateTime } from '@/lib/format';
+import { theme } from '@/lib/theme';
+
+export interface ComplianceAuditTimelineEvent {
+  id: string;
+  eventType: string;
+  actorId: string | null;
+  decision?: string | null;
+  rationale?: string | null;
+  createdAt: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ComplianceAuditTimelineProps {
+  events: ComplianceAuditTimelineEvent[];
+}
+
+export function sortComplianceAuditEventsChronologically(
+  events: ReadonlyArray<ComplianceAuditTimelineEvent>,
+): ComplianceAuditTimelineEvent[] {
+  return [...events].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+}
+
+export function ComplianceAuditTimeline({ events }: ComplianceAuditTimelineProps): JSX.Element {
+  const sorted = sortComplianceAuditEventsChronologically(events);
+
+  return (
+    <div data-testid="compliance-audit-timeline" style={{ display: 'grid', gap: theme.space(3) }}>
+      {sorted.length === 0 ? (
+        <div style={{ fontSize: 13, color: theme.color.textMuted }}>
+          No compliance audit events recorded yet.
+        </div>
+      ) : (
+        <ol
+          style={{
+            listStyle: 'none',
+            padding: 0,
+            margin: 0,
+            display: 'grid',
+            gap: theme.space(3),
+          }}
+        >
+          {sorted.map((ev) => (
+            <li
+              key={ev.id}
+              data-testid={`compliance-audit-event-${ev.id}`}
+              style={{
+                borderLeft: `3px solid ${theme.color.border}`,
+                paddingLeft: theme.space(3),
+                display: 'grid',
+                gap: 4,
+              }}
+            >
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Badge tone="neutral">{ev.eventType}</Badge>
+                {ev.decision && <Badge tone="info">{ev.decision}</Badge>}
+                <span style={{ fontSize: 12, color: theme.color.textMuted }}>
+                  {formatDateTime(ev.createdAt)} · Actor: <code>{ev.actorId ?? 'SYSTEM'}</code>
+                </span>
+              </div>
+              {ev.rationale && (
+                <div style={{ fontSize: 13 }}>
+                  <strong>Rationale:</strong> {ev.rationale}
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+export default ComplianceAuditTimeline;
+```
+
+FILE: apps/admin-web/src/features/compliance/compliance-case-detail.tsx
+
+```tsx
+// # NEW — Displays case evidence, screening hits, notes, and approve/reject/escalate actions
+// # NEW — evidence, notes, decision, escalation UI
+'use client';
+
+import React, { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { Badge, Card } from '@/components/ui';
+import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@wlct/utils/api-error';
+import { formatDateTime } from '@/lib/format';
+import { theme } from '@/lib/theme';
+import { AmlScreeningPanel, type AmlScreeningMatch } from './aml-screening-panel';
+import {
+  ComplianceAuditTimeline,
+  type ComplianceAuditTimelineEvent,
+} from './compliance-audit-timeline';
+
+export interface ComplianceCaseEvidenceItem {
+  id: string;
+  evidenceType: string;
+  referenceId: string;
+  referenceType: string;
+  safeDescription: string;
+  addedBy: string | null;
+  createdAt: string;
+}
+
+export interface ComplianceCaseNoteItem {
+  id: string;
+  safeNote: string;
+  authorId: string | null;
+  createdAt: string;
+}
+
+export interface ComplianceCaseRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  caseType: string;
+  state: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  severity: string;
+  safeSummary: string;
+  assignedTo: string | null;
+  jurisdiction: string | null;
+  ruleIds?: string[];
+  evidence?: ComplianceCaseEvidenceItem[];
+  notes?: ComplianceCaseNoteItem[];
+  screeningMatches?: AmlScreeningMatch[];
+  auditEvents?: ComplianceAuditTimelineEvent[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ComplianceCaseDetailProps {
+  caseRecord: ComplianceCaseRecord;
+}
+
+export function validateComplianceDecisionRationale(rationale: string): {
+  valid: boolean;
+  error?: string;
+} {
+  if (!rationale || rationale.trim().length < 10) {
+    return {
+      valid: false,
+      error: 'Compliance review decisions require a rationale of at least 10 characters.',
+    };
+  }
+  return { valid: true };
+}
+
+export function ComplianceCaseDetail({ caseRecord }: ComplianceCaseDetailProps): JSX.Element {
+  const router = useRouter();
+  const [noteText, setNoteText] = useState<string>('');
+  const [decision, setDecision] = useState<'APPROVE' | 'REJECT' | 'HOLD' | 'ESCALATE'>('APPROVE');
+  const [rationale, setRationale] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const handleAddNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (noteText.trim().length < 5) return;
+    setErrorMessage(null);
+    setStatusMessage(null);
+    startTransition(async () => {
+      try {
+        await apiClient.post(`/compliance/cases/${caseRecord.id}/notes`, {
+          safeNote: noteText.trim(),
+        });
+        setNoteText('');
+        setStatusMessage('Case note saved and audited.');
+        router.refresh();
+      } catch (err) {
+        setErrorMessage(
+          err instanceof ApiError ? err.message : (err as Error).message || 'Failed to add note.',
+        );
+      }
+    });
+  };
+
+  const handleSubmitDecision = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (rationale.trim().length < 10) return;
+    setErrorMessage(null);
+    setStatusMessage(null);
+    startTransition(async () => {
+      try {
+        if (decision === 'ESCALATE') {
+          await apiClient.post(`/compliance/cases/${caseRecord.id}/escalate`, {
+            reason: rationale.trim(),
+          });
+        } else {
+          await apiClient.post(`/compliance/cases/${caseRecord.id}/decision`, {
+            decision,
+            reason: rationale.trim(),
+          });
+        }
+        setRationale('');
+        setStatusMessage(`Case decision (${decision}) recorded with immutable audit entry.`);
+        router.refresh();
+      } catch (err) {
+        setErrorMessage(
+          err instanceof ApiError
+            ? err.message
+            : (err as Error).message || 'Failed to record case decision.',
+        );
+      }
+    });
+  };
+
+  return (
+    <div data-testid="compliance-case-detail" style={{ display: 'grid', gap: theme.space(5) }}>
+      {errorMessage && (
+        <p role="alert" style={{ color: 'var(--wlct-color-danger)', fontSize: 13, margin: 0 }}>
+          {errorMessage}
+        </p>
+      )}
+      {statusMessage && (
+        <p role="status" style={{ fontSize: 13, margin: 0 }}>
+          {statusMessage}
+        </p>
+      )}
+
+      <Card
+        title={`Case ${caseRecord.id} · ${caseRecord.caseType}`}
+        description={caseRecord.safeSummary}
+      >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: theme.space(3),
+            fontSize: 13,
+          }}
+        >
+          <div>
+            <strong>Status:</strong> <Badge tone="info">{caseRecord.state}</Badge>
+          </div>
+          <div>
+            <strong>Risk / Severity:</strong>{' '}
+            <Badge tone="danger">
+              {caseRecord.riskLevel} · {caseRecord.severity}
+            </Badge>
+          </div>
+          <div>
+            <strong>Subject User:</strong> <code>{caseRecord.userId}</code>
+          </div>
+          <div>
+            <strong>Assigned Reviewer:</strong> {caseRecord.assignedTo ?? 'Unassigned'}
+          </div>
+          <div>
+            <strong>Jurisdiction:</strong> {caseRecord.jurisdiction ?? 'GLOBAL'}
+          </div>
+          <div>
+            <strong>Opened:</strong> {formatDateTime(caseRecord.createdAt)}
+          </div>
+        </div>
+      </Card>
+
+      {/* AML / Sanctions Screening Panel */}
+      <AmlScreeningPanel
+        userId={caseRecord.userId}
+        providerReference={`case-${caseRecord.id}`}
+        screeningStatus={caseRecord.state}
+        matches={caseRecord.screeningMatches ?? []}
+      />
+
+      {/* Evidence & Notes */}
+      <Card
+        title="Case Evidence & Reviewer Notes"
+        description="PII-safe case evidence links and reviewer annotations."
+      >
+        <div style={{ display: 'grid', gap: theme.space(4) }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Evidence Items</div>
+            {(caseRecord.evidence ?? []).length === 0 ? (
+              <div style={{ fontSize: 12, color: theme.color.textMuted }}>
+                No external evidence attachments linked yet.
+              </div>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                {(caseRecord.evidence ?? []).map((ev) => (
+                  <li key={ev.id}>
+                    <strong>{ev.evidenceType}</strong> ({ev.referenceType}:{ev.referenceId}) —{' '}
+                    {ev.safeDescription}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Reviewer Notes</div>
+            {(caseRecord.notes ?? []).length === 0 ? (
+              <div style={{ fontSize: 12, color: theme.color.textMuted }}>
+                No reviewer notes recorded yet.
+              </div>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                {(caseRecord.notes ?? []).map((n) => (
+                  <li key={n.id}>
+                    {n.safeNote} — <em>{n.authorId ?? 'Reviewer'}</em> ({formatDateTime(n.createdAt)})
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <form onSubmit={handleAddNote} style={{ display: 'flex', gap: 8 }}>
+            <input
+              aria-label="Add case note"
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add PII-safe reviewer note (min 5 chars)..."
+              style={{ flex: 1, fontSize: 12, padding: '6px 8px' }}
+            />
+            <button
+              type="submit"
+              disabled={pending || noteText.trim().length < 5}
+              style={{ fontSize: 12, padding: '6px 12px' }}
+            >
+              Add Note
+            </button>
+          </form>
+        </div>
+      </Card>
+
+      {/* Approve / Reject / Hold / Escalate Decision Form */}
+      <Card
+        title="Compliance Review Decision"
+        description="Every compliance decision requires a mandatory rationale and writes an immutable audit event."
+      >
+        <form
+          onSubmit={handleSubmitDecision}
+          data-testid="compliance-decision-form"
+          style={{ display: 'grid', gap: theme.space(3) }}
+        >
+          <div style={{ display: 'flex', gap: theme.space(3), flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 12 }}>
+              Decision Action:{' '}
+              <select
+                aria-label="Decision action"
+                value={decision}
+                onChange={(e) =>
+                  setDecision(e.target.value as 'APPROVE' | 'REJECT' | 'HOLD' | 'ESCALATE')
+                }
+                style={{ fontSize: 12, padding: '6px 8px', marginLeft: 6 }}
+              >
+                <option value="APPROVE">APPROVE (Clear Restrictions)</option>
+                <option value="REJECT">REJECT (Enforce Account Block)</option>
+                <option value="HOLD">HOLD (Freeze Withdrawals)</option>
+                <option value="ESCALATE">ESCALATE (Senior MLRO Review)</option>
+              </select>
+            </label>
+          </div>
+          <label style={{ fontSize: 12 }}>
+            Mandatory Rationale (min 10 chars)
+            <textarea
+              aria-label="Decision rationale"
+              value={rationale}
+              onChange={(e) => setRationale(e.target.value)}
+              rows={3}
+              placeholder="Document the regulatory and factual basis for this decision..."
+              style={{ width: '100%', fontSize: 12, padding: '6px 8px', marginTop: 4 }}
+            />
+          </label>
+          <div>
+            <button
+              type="submit"
+              disabled={pending || rationale.trim().length < 10}
+              style={{
+                fontSize: 12,
+                padding: '6px 14px',
+                borderRadius: theme.radius.md,
+                border: `1px solid ${theme.color.border}`,
+                cursor: 'pointer',
+              }}
+            >
+              {pending ? 'Recording…' : `Submit ${decision} Decision`}
+            </button>
+          </div>
+        </form>
+      </Card>
+
+      {/* Chronological Compliance Audit Timeline */}
+      <Card
+        title="Compliance Audit Timeline"
+        description="Chronological immutable audit log for this case."
+      >
+        <ComplianceAuditTimeline events={caseRecord.auditEvents ?? []} />
+      </Card>
+    </div>
+  );
+}
+
+export default ComplianceCaseDetail;
+```
+
+FILE: apps/admin-web/src/features/compliance/compliance-case-queue.tsx
+
+```tsx
+// # NEW — Renders filterable compliance case queue by severity, status, and SLA
+// # NEW — case list with filters
+'use client';
+
+import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Badge, DataTable } from '@/components/ui';
+import { formatDateTime, formatRelative } from '@/lib/format';
+import { theme } from '@/lib/theme';
+
+export interface ComplianceCaseQueueItem {
+  id: string;
+  tenantId: string;
+  userId: string;
+  caseType: string;
+  state: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  severity: string;
+  safeSummary: string;
+  assignedTo: string | null;
+  jurisdiction: string | null;
+  slaDueAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ComplianceCaseQueueProps {
+  cases: ComplianceCaseQueueItem[];
+  initialStateFilter?: string;
+  initialSeverityFilter?: string;
+}
+
+const riskTone: Record<string, 'danger' | 'warning' | 'info' | 'neutral'> = {
+  CRITICAL: 'danger',
+  HIGH: 'danger',
+  MEDIUM: 'warning',
+  LOW: 'info',
+};
+
+const stateTone: Record<string, 'danger' | 'warning' | 'info' | 'neutral'> = {
+  OPEN: 'warning',
+  IN_REVIEW: 'info',
+  ESCALATED: 'danger',
+  EDD_REQUIRED: 'danger',
+  ON_HOLD: 'danger',
+  RESOLVED: 'neutral',
+  CLOSED: 'neutral',
+};
+
+export function filterComplianceCases(
+  cases: ReadonlyArray<ComplianceCaseQueueItem>,
+  filters: { state?: string; severity?: string },
+): ComplianceCaseQueueItem[] {
+  return cases.filter((item) => {
+    if (filters.state && filters.state !== 'ALL' && item.state !== filters.state) {
+      return false;
+    }
+    if (
+      filters.severity &&
+      filters.severity !== 'ALL' &&
+      item.riskLevel !== filters.severity &&
+      item.severity !== filters.severity
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+export function ComplianceCaseQueue({
+  cases,
+  initialStateFilter = 'ALL',
+  initialSeverityFilter = 'ALL',
+}: ComplianceCaseQueueProps): JSX.Element {
+  const [stateFilter, setStateFilter] = useState<string>(initialStateFilter);
+  const [severityFilter, setSeverityFilter] = useState<string>(initialSeverityFilter);
+
+  const filtered = useMemo(() => {
+    return filterComplianceCases(cases, { state: stateFilter, severity: severityFilter });
+  }, [cases, stateFilter, severityFilter]);
+
+  return (
+    <div data-testid="compliance-case-queue" style={{ display: 'grid', gap: theme.space(4) }}>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: theme.space(3),
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ display: 'flex', gap: theme.space(3), alignItems: 'center' }}>
+          <label style={{ fontSize: 12, color: theme.color.textMuted }}>
+            Case Status:{' '}
+            <select
+              aria-label="Filter by status"
+              data-testid="compliance-status-filter"
+              value={stateFilter}
+              onChange={(e) => setStateFilter(e.target.value)}
+              style={{ fontSize: 12, padding: '4px 8px', marginLeft: 4 }}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="OPEN">OPEN</option>
+              <option value="IN_REVIEW">IN_REVIEW</option>
+              <option value="ESCALATED">ESCALATED</option>
+              <option value="EDD_REQUIRED">EDD_REQUIRED</option>
+              <option value="ON_HOLD">ON_HOLD</option>
+              <option value="RESOLVED">RESOLVED</option>
+              <option value="CLOSED">CLOSED</option>
+            </select>
+          </label>
+
+          <label style={{ fontSize: 12, color: theme.color.textMuted }}>
+            Risk / Severity:{' '}
+            <select
+              aria-label="Filter by severity"
+              data-testid="compliance-severity-filter"
+              value={severityFilter}
+              onChange={(e) => setSeverityFilter(e.target.value)}
+              style={{ fontSize: 12, padding: '4px 8px', marginLeft: 4 }}
+            >
+              <option value="ALL">All Risk Levels</option>
+              <option value="CRITICAL">CRITICAL</option>
+              <option value="HIGH">HIGH</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="LOW">LOW</option>
+            </select>
+          </label>
+        </div>
+
+        <div style={{ fontSize: 12, color: theme.color.textMuted }}>
+          Showing {filtered.length} of {cases.length} cases
+        </div>
+      </div>
+
+      <DataTable
+        rows={filtered}
+        rowKey={(row) => row.id}
+        emptyTitle="No compliance cases match filter"
+        emptyDescription="Zero compliance cases in the selected status or risk bucket."
+        columns={[
+          {
+            key: 'caseId',
+            header: 'Case ID',
+            render: (row) => (
+              <Link
+                href={`/compliance/${row.id}`}
+                style={{ fontWeight: 600, fontSize: 12, textDecoration: 'underline' }}
+              >
+                {row.id.slice(0, 10)}
+              </Link>
+            ),
+          },
+          {
+            key: 'state',
+            header: 'Status',
+            render: (row) => <Badge tone={stateTone[row.state] ?? 'neutral'}>{row.state}</Badge>,
+          },
+          {
+            key: 'risk',
+            header: 'Risk / Severity',
+            render: (row) => (
+              <Badge tone={riskTone[row.riskLevel] ?? 'neutral'}>
+                {row.riskLevel} · {row.severity}
+              </Badge>
+            ),
+          },
+          {
+            key: 'type',
+            header: 'Case Type',
+            render: (row) => <code style={{ fontSize: 12 }}>{row.caseType}</code>,
+          },
+          {
+            key: 'user',
+            header: 'Subject User',
+            render: (row) => <code style={{ fontSize: 12 }}>{row.userId}</code>,
+          },
+          {
+            key: 'summary',
+            header: 'Safe Summary',
+            render: (row) => <span style={{ fontSize: 12 }}>{row.safeSummary}</span>,
+          },
+          {
+            key: 'assigned',
+            header: 'Reviewer / SLA',
+            render: (row) => (
+              <span style={{ fontSize: 12 }}>
+                {row.assignedTo ?? 'Unassigned'}
+                {row.slaDueAt ? ` · Due ${formatRelative(row.slaDueAt)}` : ''}
+              </span>
+            ),
+          },
+          {
+            key: 'created',
+            header: 'Opened',
+            align: 'right',
+            render: (row) => (
+              <span title={formatDateTime(row.createdAt)}>{formatRelative(row.createdAt)}</span>
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+export default ComplianceCaseQueue;
+```
+
+FILE: apps/admin-web/src/features/execution/exchange-rate-limit-health.tsx
+
+```tsx
+// # Responsibility: shows each exchange account's rate-limit budget, remaining headroom, and pressure, and says plainly when the state is unavailable.
+//
+// Two things this panel must not do, both because it is the screen an operator checks when orders
+// stop moving:
+//
+//   1. It must not render an unknown budget as a healthy one. `getRateLimitState` returns null when
+//      the state cannot be read, and the routing decision refuses in that case - so the panel shows
+//      UNKNOWN with the reason, not a bar at zero percent pressure. A dashboard that draws an empty
+//      bar for "we could not read this" tells an operator the opposite of what is true.
+//   2. It must not invent a limit. `remaining` is nullable server-side and `currentUsage` /
+//      `pressure` are reported as measured; when the server withheld a number the cell says so.
+'use client';
+
+import React from 'react';
+import { Badge, DataTable } from '@/components/ui';
+import { formatDateTime } from '@/lib/format';
+import { theme, type StatusTone } from '@/lib/theme';
+
+export interface ExchangeRateLimitRow {
+  accountId: string | null;
+  venue: string;
+  environment: string;
+  endpointClass: string;
+  /** Null when the server could not establish the budget. Not the same as zero. */
+  currentUsage: number | null;
+  /** Null when the server withheld it. */
+  remaining: number | null;
+  /** 0-100 as measured. Null when unavailable, never defaulted to 0. */
+  pressure: number | null;
+  isWeightBased: boolean;
+  requestsPerInterval: number | null;
+  scope: string;
+  retryAfterMs: number | null;
+  resetAtMs: number | null;
+  /** Populated when the state could not be read, so the operator sees why traffic stopped. */
+  unavailableReason: string | null;
+}
+
+export interface ExchangeRateLimitHealthProps {
+  rows: ExchangeRateLimitRow[];
+}
+
+/** The server's RateLimitState, as returned by GET /v1/exchanges/rate-limits/:accountId. */
+export interface ServerRateLimitState {
+  venue: string;
+  environment: string;
+  accountId: string | null;
+  endpointClass: string;
+  currentUsage: number;
+  remaining: number | null;
+  pressure: number;
+  isWeightBased: boolean;
+  requestsPerInterval: number;
+  scope: string;
+  retryAfterMs: number | null;
+  resetAtMs: number | null;
+}
+
+const PRESSURE_WARNING = 70;
+const PRESSURE_CRITICAL = 90;
+
+/**
+ * The pressure band, or null when the measurement is unavailable. Returning null rather than a
+ * default band is the point: an unknown budget has no tone.
+ */
+export function pressureTone(pressure: number | null): StatusTone | null {
+  if (pressure === null || !Number.isFinite(pressure)) return null;
+  if (pressure >= PRESSURE_CRITICAL) return 'danger';
+  if (pressure >= PRESSURE_WARNING) return 'warning';
+  return 'neutral';
+}
+
+export function summarizeRateLimitHealth(rows: ReadonlyArray<ExchangeRateLimitRow>): {
+  total: number;
+  unavailable: number;
+  atOrAboveWarning: number;
+  worstPressure: number | null;
+} {
+  let unavailable = 0;
+  let atOrAboveWarning = 0;
+  let worst: number | null = null;
+  for (const row of rows) {
+    if (row.pressure === null) {
+      unavailable += 1;
+      continue;
+    }
+    if (row.pressure >= PRESSURE_WARNING) atOrAboveWarning += 1;
+    worst = worst === null ? row.pressure : Math.max(worst, row.pressure);
+  }
+  return { total: rows.length, unavailable, atOrAboveWarning, worstPressure: worst };
+}
+
+/**
+ * Maps the server's state onto a row. A null state becomes an explicit unavailable row rather than
+ * a dropped account: an account missing from the panel reads as "not monitored", which is a
+ * different and false claim.
+ */
+export function toRateLimitRow(
+  accountId: string | null,
+  state: ServerRateLimitState | null,
+  fallback: { venue: string; endpointClass: string },
+): ExchangeRateLimitRow {
+  if (!state) {
+    return {
+      accountId,
+      venue: fallback.venue,
+      environment: 'UNKNOWN',
+      endpointClass: fallback.endpointClass,
+      currentUsage: null,
+      remaining: null,
+      pressure: null,
+      isWeightBased: false,
+      requestsPerInterval: null,
+      scope: 'UNKNOWN',
+      retryAfterMs: null,
+      resetAtMs: null,
+      unavailableReason: 'The exchange rate-limit state could not be read.',
+    };
+  }
+
+  return {
+    accountId: state.accountId ?? accountId,
+    venue: state.venue,
+    environment: state.environment,
+    endpointClass: state.endpointClass,
+    currentUsage: state.currentUsage,
+    remaining: state.remaining,
+    pressure: state.pressure,
+    isWeightBased: state.isWeightBased,
+    requestsPerInterval: state.requestsPerInterval,
+    scope: state.scope,
+    retryAfterMs: state.retryAfterMs,
+    resetAtMs: state.resetAtMs,
+    unavailableReason: null,
+  };
+}
+
+function panelStyle(): React.CSSProperties {
+  return {
+    border: `1px solid ${theme.color.border}`,
+    borderRadius: theme.radius.md,
+    padding: theme.space(4),
+    display: 'grid',
+    gap: theme.space(3),
+    background: theme.color.surface,
+  };
+}
+
+export function ExchangeRateLimitHealth({ rows }: ExchangeRateLimitHealthProps): JSX.Element {
+  const summary = summarizeRateLimitHealth(rows);
+  const muted = { fontSize: 12, color: theme.color.textMuted };
+  const unavailableRows = rows.filter((row) => row.unavailableReason);
+
+  return (
+    <section style={panelStyle()} aria-label="Exchange rate-limit health" data-testid="exchange-rate-limit-health">
+      <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: theme.space(2) }}>
+        <div>
+          <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Exchange rate-limit budget</h2>
+          <p style={{ ...muted, margin: '4px 0 0' }}>
+            Per account and endpoint class over the current minute window. {summary.total} account
+            {summary.total === 1 ? '' : 's'} monitored
+            {summary.unavailable > 0
+              ? `, ${summary.unavailable} with an unreadable budget - routing refuses for those accounts rather than risk a venue ban`
+              : ''}
+            {summary.atOrAboveWarning > 0 ? `, ${summary.atOrAboveWarning} at or above ${PRESSURE_WARNING}% pressure` : ''}
+            .
+          </p>
+        </div>
+        {summary.unavailable > 0 ? <Badge tone="danger">BUDGET UNKNOWN</Badge> : null}
+      </header>
+
+      <DataTable<ExchangeRateLimitRow>
+        rows={rows}
+        rowKey={(row) => `${row.accountId ?? 'global'}:${row.venue}:${row.environment}:${row.endpointClass}`}
+        emptyTitle="No exchange accounts are being monitored"
+        emptyDescription="This tenant has no exchange accounts reporting a rate-limit budget."
+        columns={[
+          {
+            key: 'account',
+            header: 'Account',
+            render: (row) => <code style={{ fontSize: 12 }}>{row.accountId ?? 'global'}</code>,
+          },
+          {
+            key: 'venue',
+            header: 'Venue',
+            render: (row) => (
+              <span style={{ fontSize: 12 }}>
+                {row.venue} <span style={{ color: theme.color.textMuted }}>({row.environment})</span>
+              </span>
+            ),
+          },
+          {
+            key: 'endpoint',
+            header: 'Endpoint Class',
+            render: (row) => (
+              <span style={{ fontSize: 12 }}>
+                {row.endpointClass}
+                {row.isWeightBased ? ' · weighted' : ''}
+              </span>
+            ),
+          },
+          {
+            key: 'usage',
+            header: 'Used / limit',
+            render: (row) =>
+              row.pressure === null ? (
+                <span style={{ fontSize: 12, color: theme.color.danger }}>UNKNOWN</span>
+              ) : (
+                <span style={{ fontSize: 12 }}>
+                  {row.currentUsage} /{' '}
+                  {row.requestsPerInterval === null
+                    ? 'UNKNOWN'
+                    : `${row.requestsPerInterval}${row.isWeightBased ? ' weight/min' : ' req/s'}`}
+                </span>
+              ),
+          },
+          {
+            key: 'remaining',
+            header: 'Remaining',
+            render: (row) => (
+              <span style={{ fontSize: 12 }}>
+                {row.remaining === null ? 'UNKNOWN' : row.remaining}
+              </span>
+            ),
+          },
+          {
+            key: 'pressure',
+            header: 'Pressure',
+            // UNKNOWN rather than a zero-width bar: a budget nobody could read is not an empty one.
+            render: (row) =>
+              row.pressure === null ? (
+                <Badge tone="danger">UNKNOWN</Badge>
+              ) : (
+                <Badge tone={pressureTone(row.pressure) ?? 'neutral'}>{row.pressure}%</Badge>
+              ),
+          },
+          {
+            key: 'retry',
+            header: 'Retry After',
+            render: (row) => <span style={{ fontSize: 12 }}>{row.retryAfterMs === null ? '—' : `${row.retryAfterMs} ms`}</span>,
+          },
+          {
+            key: 'reset',
+            header: 'Window Resets',
+            render: (row) => (
+              <span style={{ fontSize: 12 }}>
+                {row.resetAtMs === null ? 'UNKNOWN' : formatDateTime(new Date(row.resetAtMs).toISOString())}
+              </span>
+            ),
+          },
+        ]}
+      />
+
+      {unavailableRows.length > 0 ? (
+        <ul style={{ ...muted, color: theme.color.danger, margin: 0, paddingLeft: theme.space(4) }} data-testid="rate-limit-unavailable-reasons">
+          {unavailableRows.map((row) => (
+            <li key={`${row.accountId ?? 'global'}:${row.venue}:${row.endpointClass}`}>
+              {row.venue} {row.endpointClass} ({row.accountId ?? 'global'}): {row.unavailableReason}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+```
+
+FILE: apps/admin-web/src/features/execution/execution-incident-table.tsx
+
+```tsx
+// # NEW — Displays execution incidents, venue outages, and manual resolution actions
+// # NEW — incidents table/detail UI
+'use client';
+
+import React, { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { Badge, DataTable } from '@/components/ui';
+import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@wlct/utils/api-error';
+import { formatDateTime, formatRelative } from '@/lib/format';
+import { theme } from '@/lib/theme';
+
+export interface ExecutionIncidentRow {
+  id: string;
+  accountId: string | null;
+  orderId: string | null;
+  clientOrderId: string | null;
+  incidentType: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  venue: string | null;
+  symbol: string | null;
+  errorCode: string | null;
+  summary: string;
+  details: Record<string, unknown> | null;
+  occurredAtMicros: string | null;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+}
+
+export interface ExecutionKillSwitchItem {
+  id: string;
+  scope: 'GLOBAL' | 'EXCHANGE' | 'STRATEGY' | 'SYMBOL';
+  target: string | null;
+  isEngaged: boolean;
+  reason: string | null;
+  engagedAt: string | null;
+  releasedAt: string | null;
+}
+
+export interface ExecutionIncidentTableProps {
+  incidents: ExecutionIncidentRow[];
+  killSwitches?: ExecutionKillSwitchItem[];
+}
+
+const severityTone: Record<string, 'danger' | 'warning' | 'info' | 'neutral'> = {
+  CRITICAL: 'danger',
+  WARNING: 'warning',
+  INFO: 'info',
+};
+
+export function summarizeExecutionIncidents(incidents: ReadonlyArray<ExecutionIncidentRow>): {
+  openCount: number;
+  criticalCount: number;
+  resolvedCount: number;
+} {
+  let openCount = 0;
+  let criticalCount = 0;
+  let resolvedCount = 0;
+  for (const inc of incidents) {
+    if (inc.resolvedAt) {
+      resolvedCount++;
+    } else {
+      openCount++;
+      if (inc.severity === 'CRITICAL') {
+        criticalCount++;
+      }
+    }
+  }
+  return { openCount, criticalCount, resolvedCount };
+}
+
+export function ExecutionIncidentTable({
+  incidents,
+  killSwitches = [],
+}: ExecutionIncidentTableProps): JSX.Element {
+  const router = useRouter();
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [resolutionNote, setResolutionNote] = useState<string>('');
+  const [ksScope, setKsScope] = useState<'GLOBAL' | 'EXCHANGE' | 'STRATEGY' | 'SYMBOL'>('EXCHANGE');
+  const [ksTarget, setKsTarget] = useState<string>('');
+  const [ksEngaged, setKsEngaged] = useState<boolean>(true);
+  const [ksReason, setKsReason] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const handleResolveIncident = (incidentId: string) => {
+    if (resolutionNote.trim().length < 5) return;
+    setErrorMessage(null);
+    setStatusMessage(null);
+    startTransition(async () => {
+      try {
+        await apiClient.post(`/execution/incidents/${incidentId}/resolve`, {
+          note: resolutionNote.trim(),
+        });
+        setResolvingId(null);
+        setResolutionNote('');
+        setStatusMessage(`Incident ${incidentId.slice(0, 8)} resolved and audited.`);
+        router.refresh();
+      } catch (err) {
+        setErrorMessage(
+          err instanceof ApiError ? err.message : (err as Error).message || 'Failed to resolve incident.',
+        );
+      }
+    });
+  };
+
+  const handleSetKillSwitch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (ksReason.trim().length < 10) return;
+    if (ksScope !== 'GLOBAL' && !ksTarget.trim()) return;
+    setErrorMessage(null);
+    setStatusMessage(null);
+    startTransition(async () => {
+      try {
+        await apiClient.post('/execution/kill-switches', {
+          scope: ksScope,
+          ...(ksScope !== 'GLOBAL' ? { target: ksTarget.trim() } : {}),
+          engaged: ksEngaged,
+          reason: ksReason.trim(),
+        });
+        setKsReason('');
+        setKsTarget('');
+        setStatusMessage(
+          `Kill switch (${ksScope}${ksTarget ? `:${ksTarget}` : ''}) ${ksEngaged ? 'engaged' : 'released'}.`,
+        );
+        router.refresh();
+      } catch (err) {
+        setErrorMessage(
+          err instanceof ApiError ? err.message : (err as Error).message || 'Kill switch update failed.',
+        );
+      }
+    });
+  };
+
+  return (
+    <div data-testid="execution-incident-console" style={{ display: 'grid', gap: theme.space(5) }}>
+      {errorMessage && (
+        <p role="alert" style={{ color: 'var(--wlct-color-danger)', fontSize: 13, margin: 0 }}>
+          {errorMessage}
+        </p>
+      )}
+      {statusMessage && (
+        <p role="status" style={{ color: 'var(--wlct-color-success, inherit)', fontSize: 13, margin: 0 }}>
+          {statusMessage}
+        </p>
+      )}
+
+      {/* Execution Kill Switch Operator Panel */}
+      <form
+        onSubmit={handleSetKillSwitch}
+        data-testid="execution-kill-switch-form"
+        style={{
+          border: `1px solid ${theme.color.border}`,
+          borderRadius: theme.radius.md,
+          padding: theme.space(4),
+          display: 'grid',
+          gap: theme.space(3),
+        }}
+      >
+        <div style={{ fontWeight: 600, fontSize: 14 }}>
+          Execution Safety Kill-Switch Control (GLOBAL / EXCHANGE / STRATEGY / SYMBOL)
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: theme.space(3),
+          }}
+        >
+          <label style={{ fontSize: 12, color: theme.color.textMuted }}>
+            Scope
+            <select
+              aria-label="Kill switch scope"
+              value={ksScope}
+              onChange={(e) =>
+                setKsScope(e.target.value as 'GLOBAL' | 'EXCHANGE' | 'STRATEGY' | 'SYMBOL')
+              }
+              style={{ width: '100%', padding: '6px 8px', marginTop: 4 }}
+            >
+              <option value="GLOBAL">GLOBAL</option>
+              <option value="EXCHANGE">EXCHANGE</option>
+              <option value="STRATEGY">STRATEGY</option>
+              <option value="SYMBOL">SYMBOL</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 12, color: theme.color.textMuted }}>
+            Target (Venue / Strategy / Symbol)
+            <input
+              aria-label="Kill switch target"
+              disabled={ksScope === 'GLOBAL'}
+              value={ksTarget}
+              onChange={(e) => setKsTarget(e.target.value)}
+              placeholder={ksScope === 'GLOBAL' ? 'Not required for GLOBAL' : 'e.g. BINANCE or BTC-USDT'}
+              style={{ width: '100%', padding: '6px 8px', marginTop: 4 }}
+            />
+          </label>
+          <label style={{ fontSize: 12, color: theme.color.textMuted }}>
+            Action
+            <select
+              aria-label="Kill switch action"
+              value={ksEngaged ? 'ENGAGE' : 'RELEASE'}
+              onChange={(e) => setKsEngaged(e.target.value === 'ENGAGE')}
+              style={{ width: '100%', padding: '6px 8px', marginTop: 4 }}
+            >
+              <option value="ENGAGE">ENGAGE (Halt Orders)</option>
+              <option value="RELEASE">RELEASE (Resume Orders)</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 12, color: theme.color.textMuted }}>
+            Mandatory Reason (min 10 chars)
+            <input
+              aria-label="Kill switch reason"
+              value={ksReason}
+              onChange={(e) => setKsReason(e.target.value)}
+              placeholder="Explain why this switch is being changed..."
+              style={{ width: '100%', padding: '6px 8px', marginTop: 4 }}
+            />
+          </label>
+        </div>
+        <div>
+          <button
+            type="submit"
+            disabled={
+              pending ||
+              ksReason.trim().length < 10 ||
+              (ksScope !== 'GLOBAL' && !ksTarget.trim())
+            }
+            style={{
+              fontSize: 12,
+              padding: '6px 14px',
+              borderRadius: theme.radius.md,
+              border: `1px solid ${theme.color.border}`,
+              cursor: 'pointer',
+            }}
+          >
+            {pending ? 'Applying…' : ksEngaged ? 'Engage Kill Switch' : 'Release Kill Switch'}
+          </button>
+        </div>
+
+        {killSwitches.length > 0 && (
+          <div style={{ fontSize: 12, color: theme.color.textMuted }}>
+            Active / Recorded Switches:{' '}
+            {killSwitches.map((sw) => (
+              <span key={sw.id} style={{ marginRight: 12 }}>
+                <strong>
+                  {sw.scope}
+                  {sw.target ? `:${sw.target}` : ''}
+                </strong>{' '}
+                ({sw.isEngaged ? 'ENGAGED' : 'RELEASED'})
+              </span>
+            ))}
+          </div>
+        )}
+      </form>
+
+      {/* Execution Incidents Table */}
+      <DataTable
+        rows={incidents}
+        rowKey={(row) => row.id}
+        emptyTitle="No execution incidents recorded"
+        emptyDescription="Zero unresolved execution incidents or stuck orders in this tenant."
+        columns={[
+          {
+            key: 'severity',
+            header: 'Severity',
+            render: (row) => (
+              <Badge tone={severityTone[row.severity] ?? 'neutral'}>{row.severity}</Badge>
+            ),
+          },
+          {
+            key: 'type',
+            header: 'Incident Type',
+            render: (row) => <code style={{ fontSize: 12 }}>{row.incidentType}</code>,
+          },
+          {
+            key: 'venue',
+            header: 'Venue / Symbol',
+            render: (row) => (
+              <span style={{ fontSize: 12 }}>
+                {row.venue ?? '—'} {row.symbol ? `· ${row.symbol}` : ''}
+              </span>
+            ),
+          },
+          {
+            key: 'order',
+            header: 'Order / Client ID',
+            render: (row) => (
+              <code style={{ fontSize: 12 }}>
+                {row.clientOrderId ?? row.orderId?.slice(0, 8) ?? '—'}
+              </code>
+            ),
+          },
+          {
+            key: 'summary',
+            header: 'Summary',
+            render: (row) => <span style={{ fontSize: 12 }}>{row.summary}</span>,
+          },
+          {
+            key: 'when',
+            header: 'Occurred',
+            render: (row) => (
+              <span title={formatDateTime(row.createdAt)}>{formatRelative(row.createdAt)}</span>
+            ),
+          },
+          {
+            key: 'status',
+            header: 'Resolution',
+            align: 'right',
+            render: (row) => {
+              if (row.resolvedAt) {
+                return (
+                  <Badge tone="neutral">
+                    Resolved ({row.resolutionNote?.slice(0, 24) ?? 'noted'})
+                  </Badge>
+                );
+              }
+              if (resolvingId === row.id) {
+                return (
+                  <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      aria-label="Resolution note"
+                      value={resolutionNote}
+                      onChange={(e) => setResolutionNote(e.target.value)}
+                      placeholder="Resolution note (min 5 chars)"
+                      style={{ fontSize: 12, padding: '4px 6px' }}
+                    />
+                    <button
+                      type="button"
+                      disabled={pending || resolutionNote.trim().length < 5}
+                      onClick={() => handleResolveIncident(row.id)}
+                      style={{ fontSize: 12, padding: '4px 8px' }}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResolvingId(null);
+                        setResolutionNote('');
+                      }}
+                      style={{ fontSize: 12, padding: '4px 8px' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                );
+              }
+              return (
+                <button
+                  type="button"
+                  data-testid={`resolve-incident-${row.id}`}
+                  onClick={() => setResolvingId(row.id)}
+                  style={{
+                    fontSize: 12,
+                    padding: '4px 10px',
+                    borderRadius: theme.radius.md,
+                    border: `1px solid ${theme.color.border}`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Resolve…
+                </button>
+              );
+            },
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+export default ExecutionIncidentTable;
+```
+
+FILE: apps/admin-web/src/features/funding/funding-reconciliation-table.tsx
+
+```tsx
+// # NEW — Displays balance/settlement discrepancies and resolution controls
+// # NEW — reconciliation findings and actions
+'use client';
+
+import React, { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { Badge, DataTable } from '@/components/ui';
+import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@wlct/utils/api-error';
+import { formatDateTime, formatRelative } from '@/lib/format';
+import { theme } from '@/lib/theme';
+
+export interface CustodyReconciliationFindingRow {
+  id: string;
+  type: string;
+  reconciliationType?: string;
+  discrepancyType?: string;
+  assetId: string | null;
+  networkId: string | null;
+  walletId?: string | null;
+  description: string | null;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  resolved: boolean;
+  resolutionNote: string | null;
+  correctiveAction: string | null;
+  createdAt: string;
+}
+
+export interface FundingReconciliationTableProps {
+  findings: CustodyReconciliationFindingRow[];
+}
+
+const severityTone: Record<string, 'danger' | 'warning' | 'info' | 'neutral'> = {
+  CRITICAL: 'danger',
+  HIGH: 'danger',
+  MEDIUM: 'warning',
+  LOW: 'info',
+};
+
+export function summarizeFundingReconciliationFindings(
+  findings: ReadonlyArray<CustodyReconciliationFindingRow>,
+): { unresolvedCount: number; criticalCount: number; resolvedCount: number } {
+  let unresolvedCount = 0;
+  let criticalCount = 0;
+  let resolvedCount = 0;
+  for (const row of findings) {
+    if (row.resolved) {
+      resolvedCount++;
+    } else {
+      unresolvedCount++;
+      if (row.severity === 'CRITICAL' || row.severity === 'HIGH') {
+        criticalCount++;
+      }
+    }
+  }
+  return { unresolvedCount, criticalCount, resolvedCount };
+}
+
+export function FundingReconciliationTable({
+  findings,
+}: FundingReconciliationTableProps): JSX.Element {
+  const router = useRouter();
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [resolutionNote, setResolutionNote] = useState<string>('');
+  const [correctiveAction, setCorrectiveAction] = useState<string>('MANUAL_VERIFICATION');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const handleRunReconciliation = () => {
+    setErrorMessage(null);
+    setStatusMessage(null);
+    startTransition(async () => {
+      try {
+        await apiClient.post('/custody/reconciliation/run', {});
+        setStatusMessage('Funding & custody reconciliation pass triggered.');
+        router.refresh();
+      } catch (err) {
+        setErrorMessage(
+          err instanceof ApiError ? err.message : (err as Error).message || 'Reconciliation run failed.',
+        );
+      }
+    });
+  };
+
+  const handleResolveFinding = (findingId: string) => {
+    if (resolutionNote.trim().length < 5) return;
+    setErrorMessage(null);
+    setStatusMessage(null);
+    startTransition(async () => {
+      try {
+        await apiClient.post('/custody/reconciliation/resolve', {
+          findingId,
+          resolutionNote: resolutionNote.trim(),
+          correctiveAction,
+        });
+        setResolvingId(null);
+        setResolutionNote('');
+        setStatusMessage(`Finding ${findingId.slice(0, 8)} resolved.`);
+        router.refresh();
+      } catch (err) {
+        setErrorMessage(
+          err instanceof ApiError ? err.message : (err as Error).message || 'Failed to resolve finding.',
+        );
+      }
+    });
+  };
+
+  return (
+    <div data-testid="funding-reconciliation-console" style={{ display: 'grid', gap: theme.space(4) }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: 13, color: theme.color.textMuted }}>
+          Compares internal ledger deposit/withdrawal requests against authoritative custody and payment settlement records.
+        </div>
+        <button
+          type="button"
+          data-testid="run-custody-reconciliation-btn"
+          disabled={pending}
+          onClick={handleRunReconciliation}
+          style={{
+            fontSize: 12,
+            padding: '6px 14px',
+            borderRadius: theme.radius.md,
+            border: `1px solid ${theme.color.border}`,
+            cursor: 'pointer',
+          }}
+        >
+          {pending ? 'Running…' : 'Run Custody & Funding Reconciliation'}
+        </button>
+      </div>
+
+      {errorMessage && (
+        <p role="alert" style={{ color: 'var(--wlct-color-danger)', fontSize: 13, margin: 0 }}>
+          {errorMessage}
+        </p>
+      )}
+      {statusMessage && (
+        <p role="status" style={{ fontSize: 13, margin: 0 }}>
+          {statusMessage}
+        </p>
+      )}
+
+      <DataTable
+        rows={findings}
+        rowKey={(row) => row.id}
+        emptyTitle="No funding or custody discrepancies"
+        emptyDescription="Internal ledger balances and settlement records match custody and payment providers."
+        columns={[
+          {
+            key: 'severity',
+            header: 'Severity',
+            render: (row) => (
+              <Badge tone={severityTone[row.severity] ?? 'neutral'}>{row.severity}</Badge>
+            ),
+          },
+          {
+            key: 'type',
+            header: 'Discrepancy Type',
+            render: (row) => (
+              <code style={{ fontSize: 12 }}>
+                {row.type || row.discrepancyType || row.reconciliationType || 'UNKNOWN'}
+              </code>
+            ),
+          },
+          {
+            key: 'asset',
+            header: 'Asset / Network',
+            render: (row) => (
+              <span style={{ fontSize: 12 }}>
+                {row.assetId ?? '—'} {row.networkId ? `(${row.networkId})` : ''}
+              </span>
+            ),
+          },
+          {
+            key: 'description',
+            header: 'Finding Details',
+            render: (row) => <span style={{ fontSize: 12 }}>{row.description ?? '—'}</span>,
+          },
+          {
+            key: 'createdAt',
+            header: 'Detected',
+            render: (row) => (
+              <span title={formatDateTime(row.createdAt)}>{formatRelative(row.createdAt)}</span>
+            ),
+          },
+          {
+            key: 'actions',
+            header: 'Resolution',
+            align: 'right',
+            render: (row) => {
+              if (row.resolved) {
+                return (
+                  <Badge tone="neutral">
+                    Resolved ({row.correctiveAction ?? 'REVIEWED'})
+                  </Badge>
+                );
+              }
+              if (resolvingId === row.id) {
+                return (
+                  <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <select
+                      aria-label="Corrective action"
+                      value={correctiveAction}
+                      onChange={(e) => setCorrectiveAction(e.target.value)}
+                      style={{ fontSize: 12, padding: '4px 6px' }}
+                    >
+                      <option value="MANUAL_VERIFICATION">MANUAL_VERIFICATION</option>
+                      <option value="PROVIDER_RESYNC">PROVIDER_RESYNC</option>
+                      <option value="ESCALATED_TO_TREASURY">ESCALATED_TO_TREASURY</option>
+                    </select>
+                    <input
+                      aria-label="Resolution note"
+                      value={resolutionNote}
+                      onChange={(e) => setResolutionNote(e.target.value)}
+                      placeholder="Mandatory note (min 5 chars)"
+                      style={{ fontSize: 12, padding: '4px 6px' }}
+                    />
+                    <button
+                      type="button"
+                      disabled={pending || resolutionNote.trim().length < 5}
+                      onClick={() => handleResolveFinding(row.id)}
+                      style={{ fontSize: 12, padding: '4px 8px' }}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResolvingId(null);
+                        setResolutionNote('');
+                      }}
+                      style={{ fontSize: 12, padding: '4px 8px' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                );
+              }
+              return (
+                <button
+                  type="button"
+                  onClick={() => setResolvingId(row.id)}
+                  style={{
+                    fontSize: 12,
+                    padding: '4px 10px',
+                    borderRadius: theme.radius.md,
+                    border: `1px solid ${theme.color.border}`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Resolve…
+                </button>
+              );
+            },
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+export default FundingReconciliationTable;
+```
+
+FILE: apps/admin-web/src/features/partners/partner-admin-table.tsx
+
+```tsx
+// # NEW — Renders partner list, tier override controls, and payout approval actions
+// # NEW — partner list, agreements, settlements, payouts, reconciliation UI
+'use client';
+
+import React, { useState, useTransition } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Badge, DataTable } from '@/components/ui';
+import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@wlct/utils/api-error';
+import { formatDateTime } from '@/lib/format';
+import { theme } from '@/lib/theme';
+
+export interface PartnerAdminRow {
+  id: string;
+  code: string;
+  name: string;
+  legalName: string;
+  type: string;
+  state: string;
+  contactEmail: string;
+  currency: string;
+  createdAt: string;
+}
+
+export interface PartnerAdminTableProps {
+  partners: PartnerAdminRow[];
+}
+
+export function isPartnerStateTransitionAllowed(fromState: string, toState: string): boolean {
+  const allowed: Record<string, string[]> = {
+    PENDING: ['UNDER_REVIEW', 'ACTIVE', 'TERMINATED'],
+    UNDER_REVIEW: ['ACTIVE', 'SUSPENDED', 'TERMINATED'],
+    ACTIVE: ['SUSPENDED', 'TERMINATION_PENDING', 'TERMINATED'],
+    SUSPENDED: ['REACTIVATION_REVIEW', 'ACTIVE', 'TERMINATED'],
+    REACTIVATION_REVIEW: ['ACTIVE', 'SUSPENDED', 'TERMINATED'],
+    TERMINATION_PENDING: ['TERMINATED'],
+    TERMINATED: [],
+  };
+  return (allowed[fromState] ?? []).includes(toState);
+}
+
+export function PartnerAdminTable({ partners }: PartnerAdminTableProps): JSX.Element {
+  const router = useRouter();
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const handleTransitionPartner = (partnerId: string, targetState: string) => {
+    setErrorMessage(null);
+    setStatusMessage(null);
+    startTransition(async () => {
+      try {
+        await apiClient.post(`/partners/${partnerId}/transition`, {
+          partnerId,
+          targetState,
+          correlationId: `corr_${Date.now()}`,
+          actorId: 'platform-admin',
+          actorRole: 'PLATFORM_ADMIN',
+          reason: `Operator transitioned partner ${partnerId} to ${targetState}`,
+        });
+        setStatusMessage(`Partner ${partnerId} transitioned to ${targetState}.`);
+        router.refresh();
+      } catch (err) {
+        setErrorMessage(
+          err instanceof ApiError
+            ? err.message
+            : (err as Error).message || 'Partner state transition failed.',
+        );
+      }
+    });
+  };
+
+  return (
+    <div data-testid="partner-admin-table" style={{ display: 'grid', gap: theme.space(4) }}>
+      {errorMessage && (
+        <p role="alert" style={{ color: 'var(--wlct-color-danger)', fontSize: 13, margin: 0 }}>
+          {errorMessage}
+        </p>
+      )}
+      {statusMessage && (
+        <p role="status" style={{ fontSize: 13, margin: 0 }}>
+          {statusMessage}
+        </p>
+      )}
+
+      <DataTable
+        rows={partners}
+        rowKey={(row) => row.id}
+        emptyTitle="No partner or IB profiles registered"
+        emptyDescription="Create or onboard an Introducing Broker, Affiliate, or White-Label Reseller profile."
+        columns={[
+          {
+            key: 'partner',
+            header: 'Partner / Code',
+            render: (row) => (
+              <div>
+                <Link
+                  href={`/partners/${row.id}`}
+                  style={{ fontWeight: 600, fontSize: 13, textDecoration: 'underline' }}
+                >
+                  {row.name}
+                </Link>
+                <div style={{ fontSize: 11, color: theme.color.textMuted }}>
+                  <code>{row.code}</code> · {row.legalName}
+                </div>
+              </div>
+            ),
+          },
+          {
+            key: 'type',
+            header: 'Tier / Type',
+            render: (row) => <Badge tone="info">{row.type}</Badge>,
+          },
+          {
+            key: 'state',
+            header: 'State',
+            render: (row) => (
+              <Badge tone={row.state === 'ACTIVE' ? 'info' : 'warning'}>{row.state}</Badge>
+            ),
+          },
+          {
+            key: 'contact',
+            header: 'Contact / Currency',
+            render: (row) => (
+              <span style={{ fontSize: 12 }}>
+                {row.contactEmail} ({row.currency})
+              </span>
+            ),
+          },
+          {
+            key: 'created',
+            header: 'Created',
+            render: (row) => <span style={{ fontSize: 12 }}>{formatDateTime(row.createdAt)}</span>,
+          },
+          {
+            key: 'actions',
+            header: 'Admin Actions',
+            align: 'right',
+            render: (row) => (
+              <div style={{ display: 'inline-flex', gap: 6 }}>
+                <button
+                  type="button"
+                  disabled={pending || row.state === 'ACTIVE'}
+                  onClick={() => handleTransitionPartner(row.id, 'ACTIVE')}
+                  style={{ fontSize: 12, padding: '4px 8px' }}
+                >
+                  Approve / Activate
+                </button>
+                <button
+                  type="button"
+                  disabled={pending || row.state === 'SUSPENDED'}
+                  onClick={() => handleTransitionPartner(row.id, 'SUSPENDED')}
+                  style={{ fontSize: 12, padding: '4px 8px' }}
+                >
+                  Suspend
+                </button>
+                <Link
+                  href={`/partners/${row.id}`}
+                  style={{ fontSize: 12, padding: '4px 8px', textDecoration: 'underline' }}
+                >
+                  Audit →
+                </Link>
+              </div>
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+export default PartnerAdminTable;
+```
+
+FILE: apps/admin-web/src/features/trading/lead-trader-application-queue.tsx
+
+```tsx
+// # Responsibility: lets tenant-authorized operators inspect declarations, claim applications, and record auditable decisions.
+'use client';
+
+import React, { useCallback, useEffect, useState } from 'react';
+import { Badge } from '@/components/ui';
+import { ApiError } from '@wlct/utils/api-error';
+import { apiClient } from '@/lib/api-client';
+import { theme } from '@/lib/theme';
+
+export type AdminApplicationStatus = 'SUBMITTED' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
+
+export interface AdminLeadTraderApplication {
+  id: string;
+  traderId: string;
+  applicantUserId: string | null;
+  reviewerUserId: string | null;
+  status: AdminApplicationStatus;
+  version: number;
+  declaration: {
+    yearsExperience?: number;
+    markets?: string[];
+    strategySummary?: string;
+    evidenceReferences?: string[];
+    riskAcknowledged?: boolean;
+  };
+  submittedAt: string;
+  reviewedAt: string | null;
+  decisionReason: string | null;
+}
+
+interface QueueResponse {
+  data: AdminLeadTraderApplication[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+const STATUS_TONES: Record<AdminApplicationStatus, 'warning' | 'info' | 'success' | 'danger'> = {
+  SUBMITTED: 'warning',
+  IN_REVIEW: 'info',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+};
+
+function parseQueueResponse(input: unknown): QueueResponse {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Application queue returned an invalid response.');
+  }
+  const root = input as Record<string, unknown>;
+  if (!Array.isArray(root.data)) throw new Error('Application queue did not contain a data list.');
+  const rows = root.data.filter((entry): entry is Record<string, unknown> =>
+    Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry));
+  const data: AdminLeadTraderApplication[] = rows.map((row) => {
+    const declaration = row.declaration && typeof row.declaration === 'object' && !Array.isArray(row.declaration)
+      ? row.declaration as AdminLeadTraderApplication['declaration']
+      : {};
+    const status = row.status;
+    if (status !== 'SUBMITTED' && status !== 'IN_REVIEW' && status !== 'APPROVED' && status !== 'REJECTED') {
+      throw new Error('Application queue returned an unknown review status.');
+    }
+    if (typeof row.id !== 'string' || typeof row.traderId !== 'string' || typeof row.submittedAt !== 'string') {
+      throw new Error('Application queue row is missing its tenant-scoped identifiers.');
+    }
+    return {
+      id: row.id,
+      traderId: row.traderId,
+      applicantUserId: typeof row.applicantUserId === 'string' ? row.applicantUserId : null,
+      reviewerUserId: typeof row.reviewerUserId === 'string' ? row.reviewerUserId : null,
+      status,
+      version: typeof row.version === 'number' ? row.version : 1,
+      declaration,
+      submittedAt: row.submittedAt,
+      reviewedAt: typeof row.reviewedAt === 'string' ? row.reviewedAt : null,
+      decisionReason: typeof row.decisionReason === 'string' ? row.decisionReason : null,
+    };
+  });
+  return {
+    data,
+    total: typeof root.total === 'number' ? root.total : data.length,
+    page: typeof root.page === 'number' ? root.page : 1,
+    limit: typeof root.limit === 'number' ? root.limit : data.length,
+  };
+}
+
+export function LeadTraderApplicationQueue({ initialQueue }: { initialQueue: QueueResponse }): JSX.Element {
+  const [queue, setQueue] = useState(initialQueue);
+  const [filter, setFilter] = useState<AdminApplicationStatus | 'ACTIVE'>('ACTIVE');
+  const [decisionReasons, setDecisionReasons] = useState<Record<string, string>>({});
+  const [pendingApplicationId, setPendingApplicationId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const loadQueue = useCallback(async () => {
+    const params = filter === 'ACTIVE' ? {} : { status: filter };
+    const raw = await apiClient.get<unknown>('/copy-trading/lead-trader-applications/admin', {
+      searchParams: { ...params, page: 1, limit: 50 },
+    });
+    setQueue(parseQueueResponse(raw));
+  }, [filter]);
+
+  useEffect(() => {
+    let active = true;
+    void apiClient.get<unknown>('/copy-trading/lead-trader-applications/admin', {
+      searchParams: { ...(filter === 'ACTIVE' ? {} : { status: filter }), page: 1, limit: 50 },
+    }).then((raw) => {
+      if (active) setQueue(parseQueueResponse(raw));
+    }).catch((error: unknown) => {
+      if (active) setErrorMessage(error instanceof ApiError ? error.message : 'Could not refresh the application queue.');
+    });
+    return () => { active = false; };
+  }, [filter]);
+
+  const runAction = async (applicationId: string, action: 'claim' | 'approve' | 'reject') => {
+    setPendingApplicationId(applicationId);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      if (action === 'claim') {
+        await apiClient.post(`/copy-trading/lead-trader-applications/${encodeURIComponent(applicationId)}/start-review`);
+        setStatusMessage('Application claimed for review.');
+      } else {
+        const reason = decisionReasons[applicationId]?.trim() ?? '';
+        if (action === 'reject' && reason.length < 20) {
+          setErrorMessage('A rejection reason of at least 20 characters is required.');
+          return;
+        }
+        await apiClient.post(`/copy-trading/lead-trader-applications/${encodeURIComponent(applicationId)}/decision`, {
+          decision: action === 'approve' ? 'APPROVE' : 'REJECT',
+          ...(reason ? { decisionReason: reason } : {}),
+        });
+        setStatusMessage(`Application ${action === 'approve' ? 'approved' : 'rejected'}; the decision has been recorded.`);
+      }
+      await loadQueue();
+    } catch (error) {
+      setErrorMessage(error instanceof ApiError ? error.message : 'The application action failed. Verify your tenant role and current review assignment.');
+    } finally {
+      setPendingApplicationId(null);
+    }
+  };
+
+  const rows = queue.data;
+  return (
+    <div data-testid="lead-trader-application-queue" style={{ display: 'grid', gap: theme.space(4) }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: theme.space(3) }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: theme.space(2), fontSize: 13 }}>
+          Application status
+          <select aria-label="Filter application status" value={filter} onChange={(event) => setFilter(event.target.value as AdminApplicationStatus | 'ACTIVE')} style={{ padding: '6px 8px' }}>
+            <option value="ACTIVE">Active review queue</option>
+            <option value="SUBMITTED">Submitted</option>
+            <option value="IN_REVIEW">In review</option>
+            <option value="APPROVED">Approved history</option>
+            <option value="REJECTED">Rejected history</option>
+          </select>
+        </label>
+        <span style={{ color: theme.color.textMuted, fontSize: 12 }}>{queue.total} application{queue.total === 1 ? '' : 's'} in this result</span>
+      </div>
+
+      {errorMessage && <p role="alert" style={{ margin: 0, color: 'var(--wlct-color-danger)', fontSize: 13 }}>{errorMessage}</p>}
+      {statusMessage && <p role="status" style={{ margin: 0, fontSize: 13 }}>{statusMessage}</p>}
+
+      {rows.length === 0 ? (
+        <div style={{ border: `1px solid ${theme.color.border}`, borderRadius: theme.radius.md, padding: theme.space(6), color: theme.color.textMuted, fontSize: 13 }}>
+          No applications match this status. Queue counts reflect persisted application records only.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: theme.space(3) }}>
+          {rows.map((application) => {
+            const declaration = application.declaration;
+            const isPending = pendingApplicationId === application.id;
+            return (
+              <article key={application.id} style={{ border: `1px solid ${theme.color.border}`, borderRadius: theme.radius.md, padding: theme.space(4), display: 'grid', gap: theme.space(3) }}>
+                <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: theme.space(3) }}>
+                  <div>
+                    <strong>Application version {application.version}</strong>
+                    <div style={{ color: theme.color.textMuted, fontSize: 11, marginTop: 3 }}>Trader {application.traderId} · Applicant {application.applicantUserId ?? 'deleted account'} · Submitted {new Date(application.submittedAt).toLocaleString()}</div>
+                  </div>
+                  <Badge tone={STATUS_TONES[application.status]}>{application.status.replace('_', ' ')}</Badge>
+                </header>
+
+                <dl style={{ margin: 0, display: 'grid', gap: theme.space(2), fontSize: 13 }}>
+                  <div><dt style={{ color: theme.color.textMuted }}>Experience / markets</dt><dd style={{ margin: '3px 0 0' }}>{declaration.yearsExperience ?? 'Not stated'} years · {(declaration.markets ?? []).join(', ') || 'No market selected'}</dd></div>
+                  <div><dt style={{ color: theme.color.textMuted }}>Strategy and risk summary</dt><dd style={{ margin: '3px 0 0', whiteSpace: 'pre-wrap' }}>{declaration.strategySummary ?? 'No summary supplied'}</dd></div>
+                  <div><dt style={{ color: theme.color.textMuted }}>Evidence reference IDs</dt><dd style={{ margin: '3px 0 0' }}>{(declaration.evidenceReferences ?? []).join(', ') || 'None supplied'} · IDs are not verification evidence by themselves.</dd></div>
+                  <div><dt style={{ color: theme.color.textMuted }}>Risk disclosure</dt><dd style={{ margin: '3px 0 0' }}>{declaration.riskAcknowledged === true ? 'Acknowledged' : 'Not acknowledged'}</dd></div>
+                </dl>
+
+                {application.decisionReason && <p style={{ margin: 0, fontSize: 13 }}><strong>Recorded decision reason: </strong>{application.decisionReason}</p>}
+                {application.status === 'SUBMITTED' && (
+                  <button type="button" disabled={isPending || pendingApplicationId !== null} onClick={() => void runAction(application.id, 'claim')} style={{ width: 'fit-content', padding: '7px 12px' }}>
+                    {isPending ? 'Claiming…' : 'Claim for review'}
+                  </button>
+                )}
+                {application.status === 'IN_REVIEW' && (
+                  <div style={{ display: 'grid', gap: theme.space(2) }}>
+                    <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                      Decision reason (required for rejection; 20–1000 characters)
+                      <textarea maxLength={1000} rows={3} value={decisionReasons[application.id] ?? ''} onChange={(event) => setDecisionReasons((current) => ({ ...current, [application.id]: event.target.value }))} />
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: theme.space(2) }}>
+                      <button type="button" disabled={isPending || pendingApplicationId !== null} onClick={() => void runAction(application.id, 'approve')} style={{ padding: '7px 12px' }}>Approve</button>
+                      <button type="button" disabled={isPending || pendingApplicationId !== null} onClick={() => void runAction(application.id, 'reject')} style={{ padding: '7px 12px' }}>Reject</button>
+                    </div>
+                    {application.reviewerUserId && <p style={{ margin: 0, color: theme.color.textMuted, fontSize: 11 }}>Claimed by reviewer {application.reviewerUserId}; only the claimant can decide this application.</p>}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
 FILE: apps/admin-web/src/lib/api-client.ts
 
 ```typescript
 'use client';
 
-import { ApiError } from './api-error';
+import { ApiError } from '@wlct/utils/api-error';
 
 /**
  * Browser-side API client.
@@ -6660,68 +9446,6 @@ export const apiClient = {
   delete: <T>(path: string, options: ClientFetchOptions = {}) =>
     request<T>(path, { ...options, method: 'DELETE' }, true),
 };
-```
-
-FILE: apps/admin-web/src/lib/api-error.ts
-
-```typescript
-/**
- * The error envelope produced by the API. Mirrors
- * `common/filters/global-exception.filter.ts` so both sides agree on shape.
- */
-export interface ApiErrorBody {
-  success: false;
-  error: {
-    code: string;
-    message: string;
-    details?: Array<{ field: string; message: string }>;
-    requestId?: string;
-    timestamp?: string;
-    path?: string;
-  };
-}
-
-export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-    public readonly details?: Array<{ field: string; message: string }>,
-    public readonly requestId?: string,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-
-  static fromBody(status: number, body: unknown): ApiError {
-    const envelope = body as Partial<ApiErrorBody>;
-
-    if (envelope?.error?.code) {
-      return new ApiError(
-        status,
-        envelope.error.code,
-        envelope.error.message ?? 'The request could not be completed.',
-        envelope.error.details,
-        envelope.error.requestId,
-      );
-    }
-
-    return new ApiError(status, 'UNKNOWN_ERROR', 'The request could not be completed.');
-  }
-
-  get isAuthError(): boolean {
-    return this.status === 401 || this.code === 'TOKEN_EXPIRED' || this.code === 'TOKEN_INVALID';
-  }
-
-  /** Field errors keyed by field name, ready to bind to form inputs. */
-  get fieldErrors(): Record<string, string> {
-    const map: Record<string, string> = {};
-    for (const detail of this.details ?? []) {
-      map[detail.field] = detail.message;
-    }
-    return map;
-  }
-}
 ```
 
 FILE: apps/admin-web/src/lib/console-claims.ts
@@ -6931,7 +9655,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { ApiError } from './api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverEnv, publicEnv } from './env';
 import { getAccessToken } from './session';
 
@@ -7553,7 +10277,7 @@ FILE: apps/admin-web/src/modules/billing/entitlements/tenant-entitlements-panel.
 
 import React, { useEffect, useState } from 'react';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 
 import { checkTenantFeature, getTenantFeatureAccess } from './entitlement-api';
 import type { FeatureCheckResult, TenantFeatureAccess } from './entitlement-types';
@@ -7833,7 +10557,7 @@ FILE: apps/admin-web/src/modules/billing/plans/plan-catalog-management.tsx
 
 import React, { useEffect, useState } from 'react';
 
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 
 import { activatePlan, archivePlan, createPlan, deactivatePlan, getPlans, updatePlan } from './plan-api';
 import { formatAudience, formatBps, formatInterval, formatPrice, formatStatus, LIMIT_LABELS } from './plan-formatters';
@@ -10800,6 +13524,53 @@ export default function TenantBrandingDomainPage({ tenantId }: { tenantId: strin
 }
 ```
 
+FILE: apps/admin-web/src/modules/risk/kill-switch-controls.tsx
+
+```tsx
+// # Renders platform/tenant/venue/symbol kill-switch toggles with mandatory reason and confirmation
+'use client';
+
+import {
+  RiskSwitchControls,
+  RiskSwitchRowActions,
+  type SwitchRow,
+} from '@/app/(console)/risk/switch-controls';
+
+export {
+  RiskSwitchControls,
+  RiskSwitchControls as KillSwitchControls,
+  RiskSwitchRowActions,
+  type SwitchRow,
+};
+
+export type KillSwitchScopeType = 'GLOBAL' | 'EXCHANGE' | 'STRATEGY' | 'SYMBOL';
+
+export interface KillSwitchAuditValidation {
+  valid: boolean;
+  error?: string;
+}
+
+export function validateKillSwitchMutationInput(params: {
+  scope: KillSwitchScopeType;
+  target?: string;
+  reason: string;
+}): KillSwitchAuditValidation {
+  if (!params.reason || params.reason.trim().length < 10) {
+    return {
+      valid: false,
+      error: 'Kill-switch reason must be at least 10 characters for audit compliance.',
+    };
+  }
+  if (params.scope !== 'GLOBAL' && (!params.target || !params.target.trim())) {
+    return {
+      valid: false,
+      error: `Target identifier is required when scope is ${params.scope}.`,
+    };
+  }
+  return { valid: true };
+}
+```
+
 FILE: apps/admin-web/src/styles/billing-utilities.css
 
 ```css
@@ -11131,6 +13902,439 @@ code {
   white-space: nowrap;
   border: 0;
 }
+```
+
+FILE: apps/admin-web/src/tests/api-error.test.ts
+
+```typescript
+// # Verifies admin-web consumes the same shared ApiError implementation as customer web
+import { ApiError } from '@wlct/utils/api-error';
+
+describe('shared ApiError in admin-web', () => {
+  it('preserves the API code, request id, and form field details', () => {
+    const error = ApiError.fromBody(400, {
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'The request is invalid.',
+        details: [{ field: 'tenantId', message: 'Required.' }],
+        requestId: 'admin-request-456',
+      },
+    });
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.code).toBe('INVALID_INPUT');
+    expect(error.requestId).toBe('admin-request-456');
+    expect(error.fieldErrors).toEqual({ tenantId: 'Required.' });
+  });
+});
+```
+
+FILE: apps/admin-web/src/tests/compliance-audit-timeline.test.tsx
+
+```tsx
+// # NEW — Verifies compliance audit timeline rendering
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ComplianceAuditTimeline } from '../features/compliance/compliance-audit-timeline';
+
+describe('ComplianceAuditTimeline (GAP-34)', () => {
+  test('renders chronological compliance audit events with actor and rationale', () => {
+    const html = renderToStaticMarkup(
+      <ComplianceAuditTimeline
+        events={[
+          {
+            id: 'ev-2',
+            eventType: 'CASE_DECISION_RECORDED',
+            actorId: 'mlro-1',
+            decision: 'HOLD',
+            rationale: 'Account withdrawals placed on hold pending secondary OFAC verification',
+            createdAt: '2026-10-01T11:00:00.000Z',
+          },
+          {
+            id: 'ev-1',
+            eventType: 'CASE_OPENED',
+            actorId: 'SYSTEM',
+            decision: null,
+            rationale: 'Auto-opened by transaction monitoring rule STRUCTURING_24H',
+            createdAt: '2026-10-01T10:00:00.000Z',
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain('data-testid="compliance-audit-timeline"');
+    expect(html).toContain('CASE_OPENED');
+    expect(html).toContain('CASE_DECISION_RECORDED');
+    expect(html).toContain('Account withdrawals placed on hold pending secondary OFAC verification');
+    // Chronological order: ev-1 appears before ev-2
+    expect(html.indexOf('ev-1')).toBeLessThan(html.indexOf('ev-2'));
+  });
+});
+```
+
+FILE: apps/admin-web/src/tests/compliance-case-queue.test.tsx
+
+```tsx
+// # NEW — Verifies compliance case queue rendering and status filtering
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import {
+  ComplianceCaseQueue,
+  type ComplianceCaseQueueItem,
+} from '../features/compliance/compliance-case-queue';
+
+const SAMPLE_CASES: ComplianceCaseQueueItem[] = [
+  {
+    id: 'case-open-101',
+    tenantId: 'tenant-1',
+    userId: 'user-alpha',
+    caseType: 'AML_SANCTIONS_HIT',
+    state: 'ESCALATED',
+    riskLevel: 'CRITICAL',
+    severity: 'CRITICAL',
+    safeSummary: 'Potential OFAC watchlist match on withdrawal address',
+    assignedTo: 'mlro-1',
+    jurisdiction: 'US',
+    createdAt: '2026-10-01T10:00:00.000Z',
+    updatedAt: '2026-10-01T10:05:00.000Z',
+  },
+  {
+    id: 'case-resolved-202',
+    tenantId: 'tenant-1',
+    userId: 'user-beta',
+    caseType: 'VELOCITY_ALERT',
+    state: 'RESOLVED',
+    riskLevel: 'LOW',
+    severity: 'LOW',
+    safeSummary: 'Cleared rapid deposit velocity after source-of-funds review',
+    assignedTo: 'reviewer-2',
+    jurisdiction: 'SG',
+    createdAt: '2026-09-29T08:00:00.000Z',
+    updatedAt: '2026-09-30T12:00:00.000Z',
+  },
+];
+
+describe('ComplianceCaseQueue (GAP-31)', () => {
+  test('renders all compliance cases with severity, state, and subject user', () => {
+    const html = renderToStaticMarkup(<ComplianceCaseQueue cases={SAMPLE_CASES} />);
+    expect(html).toContain('data-testid="compliance-case-queue"');
+    expect(html).toContain('Potential OFAC watchlist match on withdrawal address');
+    expect(html).toContain('Cleared rapid deposit velocity after source-of-funds review');
+    expect(html).toContain('Showing 2 of 2 cases');
+  });
+
+  test('filters compliance cases by initialStateFilter and initialSeverityFilter', () => {
+    const html = renderToStaticMarkup(
+      <ComplianceCaseQueue
+        cases={SAMPLE_CASES}
+        initialStateFilter="ESCALATED"
+        initialSeverityFilter="CRITICAL"
+      />,
+    );
+    expect(html).toContain('Potential OFAC watchlist match on withdrawal address');
+    expect(html).not.toContain('Cleared rapid deposit velocity after source-of-funds review');
+    expect(html).toContain('Showing 1 of 2 cases');
+  });
+});
+```
+
+FILE: apps/admin-web/src/tests/compliance-queue-envelope.test.tsx
+
+```tsx
+// # Responsibility: pins the admin compliance page to the envelope the API actually answers with, so the queue cannot silently render empty again while the console reports success.
+
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: jest.fn(), push: jest.fn() }),
+}));
+
+jest.mock('../lib/server-api', () => ({
+  serverFetch: jest.fn(),
+}));
+
+import { serverFetch } from '../lib/server-api';
+import ComplianceQueuePage from '../app/(console)/compliance/page';
+
+const serverFetchMock = serverFetch as unknown as jest.Mock;
+
+/**
+ * Why this test exists.
+ *
+ * `GET /v1/compliance/cases` answers with the platform's paged envelope - `{ data, total, page,
+ * limit }` from `complianceCase.repository.listTenantCases` - and `GET
+ * /v1/compliance/monitoring/signals` answers `{ data, total }`. The page asked for `items` and
+ * `cases` instead, so against the real API the compliance queue rendered its empty state and the
+ * console reported success: a compliance screen that shows no cases looks exactly like a tenant
+ * with no cases. Nothing failed, nothing was logged, and no test existed.
+ *
+ * These tests are deliberately written against the *envelope*, not the rendered strings alone: the
+ * first one fails if the page reads `items` (it would render zero rows and the case id would be
+ * absent), and the second fails if a future edit reintroduces a shape the API does not send.
+ */
+describe('admin compliance queue page', () => {
+  const endpointPayloads = () => ({
+    cases: {
+      data: [
+        {
+          id: 'case-envelope-1',
+          tenantId: 'tenant-1',
+          userId: 'user-1',
+          caseType: 'KYC_REVIEW',
+          state: 'OPEN',
+          severity: 'HIGH',
+          riskLevel: 'HIGH',
+          decision: null,
+          assignedTo: null,
+          assignedAt: null,
+          escalatedAt: null,
+          resolvedAt: null,
+          closedAt: null,
+          idempotencyKey: 'case-envelope-1-key',
+          safeSummary: 'Identity document requires manual review.',
+          jurisdiction: 'BD',
+          policyVersion: 'v1',
+          ruleIds: [],
+          sourceRefs: [],
+          metadata: {},
+          createdAt: '2026-10-01T09:00:00.000Z',
+          updatedAt: '2026-10-06T09:00:00.000Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 50,
+    },
+    signals: { data: [{ id: 'signal-1' }], total: 1 },
+  });
+
+  beforeEach(() => {
+    serverFetchMock.mockReset();
+    const payloads = endpointPayloads();
+    serverFetchMock.mockImplementation(async (path: string) => {
+      if (path === '/compliance/cases') return payloads.cases;
+      if (path === '/compliance/monitoring/signals') return payloads.signals;
+      throw new Error(`unexpected path ${path}`);
+    });
+  });
+
+  it('renders a case delivered in the API paged envelope', async () => {
+    const html = renderToStaticMarkup(await ComplianceQueuePage());
+
+    expect(html).toContain('Identity document requires manual review.');
+    expect(html).toContain('case-envelo');
+    expect(html).toContain('compliance-case-queue');
+    // One case in the queue, so the "Showing 1 of 1" counter line must not be the empty state.
+    expect(html).not.toContain('No compliance cases match filter');
+  });
+
+  it('asks for the two endpoints with the query limits the API accepts', async () => {
+    await ComplianceQueuePage();
+
+    expect(serverFetchMock).toHaveBeenCalledWith('/compliance/cases', {
+      searchParams: { limit: 50 },
+    });
+    expect(serverFetchMock).toHaveBeenCalledWith('/compliance/monitoring/signals', {
+      searchParams: { limit: 25 },
+    });
+  });
+
+  it('shows the failure notice and no rows when an endpoint fails, rather than inventing cases', async () => {
+    serverFetchMock.mockImplementation(async (path: string) => {
+      if (path === '/compliance/cases') throw new Error('compliance API unreachable');
+      return { data: [], total: 0 };
+    });
+
+    const html = renderToStaticMarkup(await ComplianceQueuePage());
+
+    expect(html).toContain('Compliance data partially degraded');
+    expect(html).toContain('compliance API unreachable');
+    expect(html).toContain('No compliance cases match filter');
+  });
+
+  it('does not read an `items` field the API never sends', async () => {
+    // The guard against the exact regression: give the page a payload that has `items` populated
+    // and `data` empty, and require that nothing is rendered from `items`.
+    serverFetchMock.mockImplementation(async (path: string) => {
+      if (path === '/compliance/cases') {
+        return {
+          data: [],
+          total: 0,
+          page: 1,
+          limit: 50,
+          // A field from a different API version, or from the shape this page used to guess.
+          items: endpointPayloads().cases.data,
+        } as unknown;
+      }
+      return { data: [], total: 0 };
+    });
+
+    const html = renderToStaticMarkup(await ComplianceQueuePage());
+
+    expect(html).not.toContain('Identity document requires manual review.');
+    expect(html).toContain('No compliance cases match filter');
+  });
+});
+```
+
+FILE: apps/admin-web/src/tests/exchange-rate-limit-health.test.tsx
+
+```tsx
+// # Responsibility: protects the operator budget panel from rendering an unreadable rate-limit state as a healthy one.
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import {
+  ExchangeRateLimitHealth,
+  pressureTone,
+  summarizeRateLimitHealth,
+  toRateLimitRow,
+  type ExchangeRateLimitRow,
+  type ServerRateLimitState,
+} from '../features/execution/exchange-rate-limit-health';
+
+const measuredState: ServerRateLimitState = {
+  venue: 'BINANCE',
+  environment: 'LIVE',
+  accountId: 'account-a',
+  endpointClass: 'ORDER',
+  currentUsage: 300,
+  remaining: 300,
+  pressure: 50,
+  isWeightBased: true,
+  requestsPerInterval: 10,
+  scope: 'ACCOUNT',
+  retryAfterMs: null,
+  resetAtMs: 1767000000000,
+};
+
+function row(overrides: Partial<ExchangeRateLimitRow>): ExchangeRateLimitRow {
+  return { ...toRateLimitRow('account-a', measuredState, { venue: 'BINANCE', endpointClass: 'ORDER' }), ...overrides };
+}
+
+describe('exchange rate-limit health', () => {
+  test('a readable budget is shown with its measured usage, headroom and pressure', () => {
+    const html = renderToStaticMarkup(<ExchangeRateLimitHealth rows={[row({})]} />);
+    expect(html).toContain('300');
+    expect(html).toContain('50%');
+    expect(html).toContain('BINANCE');
+    expect(html).toContain('ORDER');
+    expect(html).not.toContain('UNKNOWN');
+    expect(html).not.toContain('BUDGET UNKNOWN');
+  });
+
+  // The failure this panel exists to prevent: an unreadable budget rendered as an empty, healthy bar.
+  test('an unreadable budget is UNKNOWN with its reason, never a healthy reading', () => {
+    const unavailable = toRateLimitRow('account-a', null, { venue: 'BINANCE', endpointClass: 'ORDER' });
+    const html = renderToStaticMarkup(<ExchangeRateLimitHealth rows={[unavailable]} />);
+
+    expect(html).toContain('UNKNOWN');
+    expect(html).toContain('BUDGET UNKNOWN');
+    expect(html).toContain('could not be read');
+    // No invented numbers: no zero pressure, no zero remaining.
+    expect(html).not.toContain('>0%<');
+    expect(unavailable.pressure).toBeNull();
+    expect(unavailable.remaining).toBeNull();
+    expect(unavailable.currentUsage).toBeNull();
+  });
+
+  test('the summary counts unreadable budgets separately from busy ones and withholds the worst pressure', () => {
+    const summary = summarizeRateLimitHealth([
+      row({ pressure: 95 }),
+      row({ pressure: 75 }),
+      toRateLimitRow('account-b', null, { venue: 'OKX', endpointClass: 'PRIVATE' }),
+    ]);
+
+    expect(summary).toEqual({ total: 3, unavailable: 1, atOrAboveWarning: 2, worstPressure: 95 });
+
+    // With every budget unreadable there is no worst pressure to report - null, not 0.
+    const allUnknown = summarizeRateLimitHealth([
+      toRateLimitRow('account-a', null, { venue: 'BINANCE', endpointClass: 'ORDER' }),
+    ]);
+    expect(allUnknown.worstPressure).toBeNull();
+    expect(allUnknown.unavailable).toBe(1);
+  });
+
+  test('pressure tones band at the documented thresholds and an unknown pressure has no tone', () => {
+    expect(pressureTone(null)).toBeNull();
+    expect(pressureTone(69)).toBe('neutral');
+    expect(pressureTone(70)).toBe('warning');
+    expect(pressureTone(89)).toBe('warning');
+    expect(pressureTone(90)).toBe('danger');
+    expect(pressureTone(100)).toBe('danger');
+  });
+
+  test('an account with no reported state stays in the list as unavailable rather than disappearing', () => {
+    const rows = [
+      row({}),
+      toRateLimitRow('account-c', null, { venue: 'KRAKEN', endpointClass: 'PUBLIC' }),
+    ];
+    const html = renderToStaticMarkup(<ExchangeRateLimitHealth rows={rows} />);
+
+    expect(html).toContain('account-c');
+    expect(html).toContain('KRAKEN');
+    expect(html).toContain('2 accounts monitored');
+  });
+});
+```
+
+FILE: apps/admin-web/src/tests/execution-incidents-page.test.tsx
+
+```tsx
+// # NEW — Verifies admin execution incident console and kill-switch actions
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ExecutionIncidentTable } from '../features/execution/execution-incident-table';
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: jest.fn(), push: jest.fn() }),
+}));
+
+describe('ExecutionIncidentTable (GAP-26)', () => {
+  test('renders execution incidents, severity badges, and kill-switch controls', () => {
+    const html = renderToStaticMarkup(
+      <ExecutionIncidentTable
+        incidents={[
+          {
+            id: 'inc-101',
+            accountId: 'acct-1',
+            orderId: 'ord-1',
+            clientOrderId: 'oms12345',
+            incidentType: 'UNKNOWN_ORDER_RESULT',
+            severity: 'CRITICAL',
+            venue: 'BINANCE',
+            symbol: 'BTC-USDT',
+            errorCode: 'TIMEOUT',
+            summary: 'Order submit timed out waiting for venue acknowledgement',
+            details: {},
+            occurredAtMicros: '1700000000000000',
+            resolvedAt: null,
+            resolvedBy: null,
+            resolutionNote: null,
+            createdAt: '2026-10-01T10:00:00.000Z',
+          },
+        ]}
+        killSwitches={[
+          {
+            id: 'ks-1',
+            scope: 'EXCHANGE',
+            target: 'BINANCE',
+            isEngaged: true,
+            reason: 'Elevated timeout rate on Binance spot',
+            engagedAt: '2026-10-01T10:01:00.000Z',
+            releasedAt: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain('data-testid="execution-incident-console"');
+    expect(html).toContain('data-testid="execution-kill-switch-form"');
+    expect(html).toContain('UNKNOWN_ORDER_RESULT');
+    expect(html).toContain('Order submit timed out waiting for venue acknowledgement');
+    expect(html).toContain('EXCHANGE:BINANCE');
+  });
+});
 ```
 
 FILE: apps/admin-web/tsconfig.json

@@ -33,8 +33,8 @@ from wlct_trading.execution.credentials import (
 )
 
 from app.config import Settings
-from app.credentials import build_credential_provider
-from app.secret_fetcher import (
+from app.exchanges.credentials import build_credential_provider
+from app.security.secret_fetcher import (
     MAX_VAULT_PATH_LENGTH,
     VaultKvConfig,
     VaultKvSecretFetcher,
@@ -506,11 +506,11 @@ class TestSelection:
         # test that fails in the other.
         from app.logging_config import RedactionFilter
 
-        log = logging.getLogger("app.credentials")
+        log = logging.getLogger("app.exchanges.credentials")
         scrubber = RedactionFilter()
         log.addFilter(scrubber)
         try:
-            with caplog.at_level(logging.INFO, logger="app.credentials"):
+            with caplog.at_level(logging.INFO, logger="app.exchanges.credentials"):
                 build_credential_provider(
                     settings_for(),
                     environ={"EXECUTION_VAULT_TOKEN": VAULT_TOKEN},

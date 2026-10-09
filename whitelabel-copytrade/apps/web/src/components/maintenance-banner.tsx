@@ -1,4 +1,5 @@
 "use client";
+import type { JSX } from 'react';
 
 import { useEffect, useState } from "react";
 import { operationsApi, type MaintenanceNotice } from "@/api/operations-api";

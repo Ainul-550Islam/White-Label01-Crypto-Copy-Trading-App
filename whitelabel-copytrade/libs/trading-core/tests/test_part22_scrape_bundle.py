@@ -135,12 +135,13 @@ def test_rendered_plus_refused_is_exactly_the_catalog(bundle: ModuleType) -> Non
     }
 
 
-def test_the_rendered_set_is_the_four_rules_the_tree_can_actually_support(
+def test_the_rendered_set_is_the_five_rules_the_tree_can_actually_support(
     bundle: ModuleType,
 ) -> None:
     families = bundle.collect_families(REPO, sources={})
     rendered, refused = bundle.derive_rules(families, bundle.collect_help_texts(REPO))
     assert sorted(rule.rule_id for rule in rendered) == [
+        "OUTBOX_LAG_HIGH",
         "SLO_BUDGET_EXHAUSTED",
         "SLO_BURN_FAST",
         "SLO_BURN_SLOW",
@@ -170,7 +171,7 @@ def test_thresholds_are_the_catalog_numbers_and_no_others(bundle: ModuleType) ->
 
 
 
-        The narrowing is explicit because `AlertRule.threshold` is `float | None`: 17 of the 24 rules
+        The narrowing is explicit because `AlertRule.threshold` is `float | None`: 17 of the 25 rules
 
         have no threshold, and a test that multiplied through the `None` would be a test that assumes
 
@@ -235,6 +236,13 @@ def test_thresholds_are_the_catalog_numbers_and_no_others(bundle: ModuleType) ->
     assert budget is not None and budget.threshold == 0.0
 
     assert exprs["SLO_BUDGET_EXHAUSTED"] == "wlct_slo_error_budget_remaining_ppm <= 0"
+
+    # Outbox lag is already measured in seconds; the rule carries the 60-second
+    # threshold in ALERT_RULES and must not apply a second unit conversion.
+    outbox = rule_for("OUTBOX_LAG_HIGH")
+    assert outbox is not None and outbox.threshold == 60.0
+    assert exprs["OUTBOX_LAG_HIGH"] == "wlct_outbox_lag_seconds > 60"
+    assert "60" in allowed["OUTBOX_LAG_HIGH"]
 
 
 def test_invented_numbers_are_refused_even_inside_an_expression(
@@ -732,7 +740,7 @@ def test_cli_check_succeeds_against_the_committed_bundle() -> None:
 def test_cli_rules_reports_the_census() -> None:
     result = run_cli("--rules")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.count("rendered ") == 4
+    assert result.stdout.count("rendered ") == 5
     assert result.stdout.count("refused ") == 20
 
 
@@ -743,7 +751,7 @@ def test_cli_catalog_json_is_the_document_the_files_came_from() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     payload = json.loads(result.stdout)
     assert payload["schema"] == "wlct.observability.scrape-bundle/1"
-    assert len(payload["rules"]["rendered"]) == 4
+    assert len(payload["rules"]["rendered"]) == 5
     assert [t["service"] for t in payload["targets"]] == [
         "api",
         "trading-engine",

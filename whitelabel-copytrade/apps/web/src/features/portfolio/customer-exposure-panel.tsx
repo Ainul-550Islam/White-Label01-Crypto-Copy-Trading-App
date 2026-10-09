@@ -1,6 +1,7 @@
 // # Responsibility: presents the signed-in user's own current exposure while withholding stale, unknown, and cross-currency totals.
 
 'use client';
+import type { JSX } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 import { customerExposureApi, type CustomerExposureLine, type CustomerExposureState, type CustomerExposureValueState } from '@/api/customer-exposure-api';

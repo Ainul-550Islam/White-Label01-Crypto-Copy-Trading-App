@@ -1,5 +1,6 @@
 // # Responsibility: discloses the canonical period-linking method, source versions, observation age boundary, and evidence.
 
+import type { JSX } from 'react';
 export interface PerformanceMethodologyProps {
   methodology?: string | null;
   flowBoundary?: string | null;

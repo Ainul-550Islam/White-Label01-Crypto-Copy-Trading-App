@@ -1,5 +1,6 @@
 // # Responsibility: shows the server-resolved leverage and margin policy with explicit unavailable states.
 
+import type { JSX } from 'react';
 export interface LeveragePolicyPanelResult {
   allowed: boolean;
   effectiveMaximum: number | null;

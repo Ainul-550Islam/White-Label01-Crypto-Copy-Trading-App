@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { AuthGuard } from '@/auth/auth.guard';
 import { CheckoutPage } from '@/features/billing/checkout-page';
 import { AppShell } from '@/layout/app-shell';

@@ -32,7 +32,7 @@ describe('TradeLifecycleService position-limit accounting contract', () => {
     };
     const service = new TradeLifecycleService(prisma as unknown as PrismaService);
 
-    const result = await service.buildOrUpdateTradeFromFill({ ...FILL, requirePersistence: true });
+    const result = await service.buildOrUpdateTradeFromFill({ ...FILL });
 
     expect(result).toBe(existingTrade);
     expect(prisma.omsTrade.findFirst).toHaveBeenCalledWith({
@@ -55,7 +55,7 @@ describe('TradeLifecycleService position-limit accounting contract', () => {
     };
     const service = new TradeLifecycleService(prisma as unknown as PrismaService);
 
-    await expect(service.buildOrUpdateTradeFromFill({ ...FILL, requirePersistence: true })).rejects.toBe(writeFailure);
+    await expect(service.buildOrUpdateTradeFromFill({ ...FILL })).rejects.toBe(writeFailure);
     expect(prisma.omsTrade.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         tenantId: FILL.tenantId,
@@ -80,7 +80,7 @@ describe('TradeLifecycleService position-limit accounting contract', () => {
     };
     const service = new TradeLifecycleService(prisma as unknown as PrismaService);
 
-    const result = await service.buildOrUpdateTradeFromFill({ ...FILL, requirePersistence: true });
+    const result = await service.buildOrUpdateTradeFromFill({ ...FILL });
 
     expect(result).toBe(persisted);
     expect(prisma.omsTrade.create).toHaveBeenCalledTimes(1);

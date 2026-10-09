@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TerminusModule } from '@nestjs/terminus';
 
 import { HealthController } from './health.controller';
+import { HealthProbeAliasController } from './health-probe-alias.controller';
 import { HealthService } from './health.service';
 import { PrismaHealthIndicator } from './indicators/prisma.health';
 import { RedisHealthIndicator } from './indicators/redis.health';
@@ -16,13 +17,15 @@ import { TradingReadinessService } from './trading-readiness.service';
  *   /health        - cheap liveness; is the process alive?
  *   /health/ready  - readiness; can it serve traffic (DB + Redis reachable)?
  *   /health/deep   - operator view; includes downstream services and queues.
+ *   /healthz       - alias of /health  (Kubernetes-style liveness)
+ *   /readyz        - alias of /health/ready (Kubernetes-style readiness)
  *   /health/trading - trading-readiness verdict: the merged gate table the
  *                    operations panel shows, fail-closed on missing evidence.
  *                    Reporting only - the risk gate decides, not this probe.
  */
 @Module({
   imports: [TerminusModule],
-  controllers: [HealthController],
+  controllers: [HealthController, HealthProbeAliasController],
   providers: [
     HealthService,
     PrismaHealthIndicator,

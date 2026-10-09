@@ -126,6 +126,38 @@ describe('FollowerRiskService copy policy enforcement coverage (GAP-08)', () => 
     });
   });
 
+  // The platform policy blocks `*WITHDRAWAL*`. Enforcement compared with Array.includes, so no
+  // symbol could ever equal that literal and the rule never fired: withdrawal-like instruments were
+  // copyable on every venue. These tests fail if the matcher reverts to exact equality.
+  it('fires the platform deny glob instead of treating it as an unmatchable literal', async () => {
+    await expect(
+      service.checkRisk(input({}, { symbol: 'BTC-WITHDRAWAL-TEST', copyPolicy: { blockedSymbols: ['*WITHDRAWAL*'] } })),
+    ).resolves.toMatchObject({
+      decision: CopyRiskDecision.BLOCK,
+      allowed: false,
+      ruleId: 'BLOCKED_SYMBOL',
+    });
+
+    // The same rule must not block an ordinary symbol, or the fix would be worse than the bug.
+    await expect(
+      service.checkRisk(input({}, { copyPolicy: { blockedSymbols: ['*WITHDRAWAL*'] } })),
+    ).resolves.toMatchObject({ decision: CopyRiskDecision.ALLOW, allowed: true });
+  });
+
+  it('matches symbol rules case-insensitively and as globs on both lists', async () => {
+    await expect(
+      service.checkRisk(input({}, { symbol: 'btc-usdt', copyPolicy: { blockedSymbols: ['BTC-USDT'] } })),
+    ).resolves.toMatchObject({ ruleId: 'BLOCKED_SYMBOL', allowed: false });
+
+    await expect(
+      service.checkRisk(input({}, { symbol: 'PEPE-USDT', copyPolicy: { allowedSymbols: ['*USDT'] } })),
+    ).resolves.toMatchObject({ decision: CopyRiskDecision.ALLOW, allowed: true });
+
+    await expect(
+      service.checkRisk(input({}, { symbol: 'PEPE-BTC', copyPolicy: { allowedSymbols: ['*USDT'] } })),
+    ).resolves.toMatchObject({ ruleId: 'UNALLOWED_SYMBOL', allowed: false });
+  });
+
   it('enforces maxOrderNotional, maxDailyNotional, and maxConcurrentCopies', async () => {
     await expect(
       service.checkRisk(input({}, { copyPolicy: { maxOrderNotional: '10000' } })),

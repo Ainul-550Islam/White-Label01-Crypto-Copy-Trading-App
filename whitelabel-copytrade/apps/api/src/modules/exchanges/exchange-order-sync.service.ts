@@ -6,7 +6,21 @@ import { ExchangeCredentialService } from './exchange-credential.service';
 import { ExchangeAccountRepository } from './exchange-account.repository';
 import { ExchangeAuditService } from './exchange-audit.service';
 import { ExchangeProviderContext } from './exchange-provider.interface';
+import { TradeLifecycleService } from '../oms/trade-lifecycle.service';
 import { randomUUID } from 'crypto';
+
+/**
+ * The order fields the fill sync reads. Declared narrowly on purpose: `ReturnType<typeof
+ * prisma.order.findFirst>` resolves through a heavily overloaded generic and makes type inference
+ * dramatically more expensive for the whole project, for no extra safety over naming the fields.
+ */
+interface SyncOrderContext {
+  id: string;
+  accountId: string;
+  symbol: string;
+  venue: any;
+  strategyId: string | null;
+}
 
 /**
  * Synchronize orders, fills, trades with idempotent upsert, valid status transitions, no duplicate fills, provider reference uniqueness, preserve provider raw status safely.
@@ -21,6 +35,9 @@ export class ExchangeOrderSyncService {
     private readonly credentialService: ExchangeCredentialService,
     private readonly accountRepo: ExchangeAccountRepository,
     private readonly auditService: ExchangeAuditService,
+    // Applying the fill to the canonical OMS trade and inserting the fill are one unit of work, so the
+    // trade builder's transactional entry point is used below.
+    private readonly tradeLifecycleService: TradeLifecycleService,
   ) {}
 
   private toDecimalString(value: string | number | null | undefined): string | null {
@@ -307,25 +324,70 @@ export class ExchangeOrderSyncService {
         }
 
         // Find order by providerOrderId or clientOrderId
-        let orderId: string | null = null;
+        let order: SyncOrderContext | null = null;
         if (fill.providerOrderId) {
-          const order = await this.prisma.order.findFirst({ where: { tenantId: input.tenantId, exchangeOrderId: fill.providerOrderId } });
-          orderId = order?.id || null;
+          order = await this.prisma.order.findFirst({ where: { tenantId: input.tenantId, exchangeOrderId: fill.providerOrderId } });
         }
-        if (!orderId && fill.clientOrderId) {
-          const order = await this.prisma.order.findFirst({ where: { tenantId: input.tenantId, clientOrderId: fill.clientOrderId } });
-          orderId = order?.id || null;
+        if (!order && fill.clientOrderId) {
+          order = await this.prisma.order.findFirst({ where: { tenantId: input.tenantId, clientOrderId: fill.clientOrderId } });
         }
+        const orderId: string | null = order?.id ?? null;
 
-        if (!orderId) {
+        if (!order || !orderId) {
           this.logger.warn(`Order not found for fill tradeId=${fill.providerTradeId} tenant=${input.tenantId}`);
           skipped++;
           continue;
         }
 
-        await this.prisma.fill.create({
+        // Copied out of the row before the transaction callback closes over it. The trade is built from
+        // the ORDER's identity, and these fields are read once here rather than inside the callback,
+        // where the narrowing above does not survive.
+        const orderContext = {
+          id: orderId,
+          accountId: order.accountId,
+          symbol: order.symbol,
+          venue: order.venue,
+          strategyId: order.strategyId ?? null,
+        };
+
+        // The copy-trading context is read from the execution record that produced this order rather
+        // than guessed from the order row, which carries only the strategy. A missing record leaves the
+        // attribution null: an unattributed trade is honest, an invented follower is not.
+        let traderId: string | null = null;
+        let followerId: string | null = null;
+        try {
+          const execution = await (this.prisma as any).copyExecution?.findFirst({
+            where: { tenantId: input.tenantId, followerOrderId: orderContext.id },
+            select: { traderId: true, followerId: true },
+          });
+          traderId = execution?.traderId ?? null;
+          followerId = execution?.followerId ?? null;
+        } catch (e: any) {
+          this.logger.warn(`Copy-execution lookup failed for order ${orderContext.id}: ${e.message}`);
+        }
+
+        const fillId = randomUUID();
+        const fillQuantity = this.toDecimalString(fill.quantity);
+        const fillPrice = this.toDecimalString(fill.price);
+        // A trade cannot be built from a size or price that is not an exact decimal, and substituting
+        // zero would put a fabricated price into the PnL of every downstream reader. The fill row is
+        // still written - it is the venue's statement, kept for reconciliation - but no trade is built
+        // from it, and the omission is logged rather than silently accepted.
+        const tradeApplyable = fillQuantity !== null && fillPrice !== null;
+        if (!tradeApplyable) {
+          this.logger.warn(
+            `Fill ${fill.providerTradeId} has a non-decimal quantity=${fill.quantity} price=${fill.price}; recording the fill without a trade`,
+          );
+        }
+
+        // One transaction. The fill row and the trade it belongs to are written together or not at
+        // all: a fill committed without its trade would be skipped by the idempotency check on every
+        // later sync, so the trade would never be built and the position it represents would never
+        // reach the exposure the risk limiter reads.
+        await this.prisma.$transaction(async (tx) => {
+          await tx.fill.create({
           data: {
-            id: randomUUID(),
+            id: fillId,
             orderId,
             venueTradeId: fill.providerTradeId,
             price: this.toDecimalString(fill.price) as any || (0 as any),
@@ -344,6 +406,29 @@ export class ExchangeOrderSyncService {
             source: 'PRIVATE_STREAM' as any,
             createdAt: new Date(),
           },
+          });
+
+          if (tradeApplyable) {
+            await this.tradeLifecycleService.buildOrUpdateTradeFromFill(
+              {
+                tenantId: input.tenantId,
+                accountId: orderContext.accountId,
+                symbol: orderContext.symbol,
+                venue: orderContext.venue,
+                strategyId: orderContext.strategyId,
+                traderId,
+                followerId,
+                // The trade's `orderIds` list is the order that produced it.
+                orderIntentId: orderContext.id,
+                fillId,
+                fillQuantity: fillQuantity!,
+                fillPrice: fillPrice!,
+                fillSide: fill.side,
+                isSimulated: fill.isSimulated,
+              },
+              { client: tx },
+            );
+          }
         });
         created++;
       } catch (e: any) {

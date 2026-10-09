@@ -1,12 +1,13 @@
 // # NEW — Displays case evidence, screening hits, notes, and approve/reject/escalate actions
 // # NEW — evidence, notes, decision, escalation UI
 'use client';
+import type { JSX } from 'react';
 
 import React, { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge, Card } from '@/components/ui';
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { AmlScreeningPanel, type AmlScreeningMatch } from './aml-screening-panel';

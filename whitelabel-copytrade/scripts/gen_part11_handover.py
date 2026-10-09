@@ -151,7 +151,7 @@ NEW: Final[list[tuple[str, str]]] = [
         "structured logging through the shared Part 9 redactor and correlation filter - the same one place policy every service delegates to.",
     ),
     (
-        "services/execution-engine/app/security.py",
+        "services/execution-engine/app/security/internal_auth.py",
         "internal token (constant-time) + required tenant header + body/header divergence refused at the router boundary.",
     ),
     (

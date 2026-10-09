@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Tenant } from './tenant.types';
@@ -49,15 +50,13 @@ export function TenantProvider({ children }: TenantProviderProps): JSX.Element {
   const [isCustomDomain, setIsCustomDomain] = useState<boolean>(false);
   const [resolvedVia, setResolvedVia] = useState<string | null>(null);
 
-  const resolveTenant = async () => {
-    setIsLoading(true);
-    setError(null);
+  const loadTenant = async () => {
     try {
       // Never resolve tenant solely from localStorage, query param, client header, or path param
       // Always verify via backend authoritative resolution
       const host = typeof window !== 'undefined' ? window.location.host : undefined;
       const resolution = await tenantApi.resolve(host);
-      
+
       // Validate tenant ownership via authenticated session is done server-side
       // Frontend only displays backend-verified tenant
       setTenant(resolution.tenant as unknown as Tenant);
@@ -79,8 +78,15 @@ export function TenantProvider({ children }: TenantProviderProps): JSX.Element {
     }
   };
 
+  const resolveTenant = async () => {
+    setIsLoading(true);
+    setError(null);
+    await loadTenant();
+  };
+
   useEffect(() => {
-    resolveTenant();
+    const timer = window.setTimeout(() => void loadTenant(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   return (

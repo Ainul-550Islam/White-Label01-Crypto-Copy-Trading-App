@@ -40,6 +40,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
 import { MobileReleaseModule } from './modules/mobile-release/mobile-release.module';
 import { PartnerModule } from './modules/partners/partner.module';
 import { ProviderModule } from './modules/providers/provider.module';
+import { OutboxModule } from './infrastructure/outbox/outbox.module';
 
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -112,6 +113,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     MobileReleaseModule,
     PartnerModule,
     ProviderModule,
+    OutboxModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: GlobalValidationPipe },

@@ -124,8 +124,13 @@ const CATALOGUE: Array<[Method, string]> = [
 ];
 
 describe('CopyTradingController authorization (real guard, real roles)', () => {
-  it('discovers all 35 routes and every one carries handler-level permission metadata', () => {
-    expect(routes).toHaveLength(35);
+  // The route count is a deliberate tripwire: adding a route must force a
+  // conscious re-review of its permission metadata rather than letting it slip
+  // in unreviewed. It moved 35 -> 37 when the two performance-evidence routes
+  // were added, and the assertion below (every handler carries PERMISSIONS_KEY)
+  // still holds for all of them.
+  it('discovers all 37 routes and every one carries handler-level permission metadata', () => {
+    expect(routes).toHaveLength(37);
     const undecorated = routes.filter((r) => {
       const required = Reflect.getMetadata(PERMISSIONS_KEY, proto[r.handler] as object) as
         string[] | undefined;
@@ -223,7 +228,16 @@ describe('CopyTradingController catalogue visibility', () => {
   }
 
   function build() {
-    const traderProfileService = { getProfile: jest.fn() };
+    // The public profile route projects through `getSafePublicStatistics` as well as reading the
+    // profile, so a double that stubs only `getProfile` reports the projection as a crash rather
+    // than testing the visibility rules this suite is about.
+    const traderProfileService = {
+      getProfile: jest.fn(),
+      getSafePublicStatistics: jest.fn(async () => ({
+        traderId: 'trader-1',
+        activeFollowers: { status: 'UNAVAILABLE', value: null },
+      })),
+    };
     const traderStrategyService = {
       getStrategy: jest.fn(),
       listByTenant: jest.fn(),

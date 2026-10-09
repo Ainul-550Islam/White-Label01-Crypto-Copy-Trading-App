@@ -33,7 +33,6 @@ export function isSafeReturnPath(value: unknown): value is string {
     return false;
   if (!value.startsWith("/") || value.startsWith("//")) return false;
   if (value.includes("\\")) return false;
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(value)) return false;
   return !/^\/[a-z][a-z0-9+.-]*:/i.test(value);
 }

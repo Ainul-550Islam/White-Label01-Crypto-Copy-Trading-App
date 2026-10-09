@@ -1,5 +1,8 @@
 'use client';
+
+import type { JSX } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { exchangeApi } from '@/api/exchange-api';
 import { ApiError } from '@/api/api-errors';
 import { StatusBadge } from '@/components/status-badge';
@@ -9,6 +12,7 @@ import { ConfirmationDialog } from '@/components/confirmation-dialog';
 import { ExchangeCapabilities } from './exchange-capabilities';
 import { useState } from 'react';
 export function ExchangeAccountDetail({ id }: { id: string }): JSX.Element {
+  const router = useRouter();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['exchange', 'account', id],
     queryFn: () => exchangeApi.getAccount(id),
@@ -57,7 +61,7 @@ export function ExchangeAccountDetail({ id }: { id: string }): JSX.Element {
           <button onClick={() => setConfirmOpen(true)} className="rounded bg-red-600 px-3 py-1 text-xs text-white">Disconnect</button>
         </div>
         <ConfirmationDialog open={disableOpen} title="Disable Exchange Account" description="Pause this exchange account? Copy trading on it stops until it is enabled again." variant="destructive" confirmLabel="Disable" onConfirm={async () => { setDisableOpen(false); await act(() => exchangeApi.disableAccount(id, 'Disabled by the account owner'), 'Account disabled.'); }} onCancel={() => setDisableOpen(false)} />
-        <ConfirmationDialog open={confirmOpen} title="Disconnect Exchange" description="Are you sure you want to disconnect this exchange account? This will stop trading." variant="destructive" confirmLabel="Disconnect" onConfirm={async () => { setConfirmOpen(false); try { await exchangeApi.disconnectAccount(id); window.location.href='/exchanges'; } catch (err) { setNotice(err instanceof ApiError ? err.getUserMessage() : 'Disconnect failed.'); } }} onCancel={() => setConfirmOpen(false)} />
+        <ConfirmationDialog open={confirmOpen} title="Disconnect Exchange" description="Are you sure you want to disconnect this exchange account? This will stop trading." variant="destructive" confirmLabel="Disconnect" onConfirm={async () => { setConfirmOpen(false); try { await exchangeApi.disconnectAccount(id); router.push('/exchanges'); } catch (err) { setNotice(err instanceof ApiError ? err.getUserMessage() : 'Disconnect failed.'); } }} onCancel={() => setConfirmOpen(false)} />
       </div>
 
       <ExchangeCapabilities

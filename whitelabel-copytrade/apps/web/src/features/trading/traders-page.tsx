@@ -1,15 +1,19 @@
 // # Adds search, verification state, featured, venue, symbol, min win-rate, max drawdown, and sort controls
 // # Uses shared TradingState
 "use client";
+import type { JSX } from 'react';
 
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
+  TRADER_RANKING_TIMEFRAMES,
   filterTradersByDiscovery,
   tradingApi,
   type TraderPerformance,
   type TraderProfile,
+  type TraderRankingMethodology,
+  type TraderRankingTimeframe,
   type TraderVerificationState,
 } from "@/api/trading-api";
 import { PageContainer } from "@/layout/page-container";
@@ -25,7 +29,8 @@ export interface TradersPageInitialFilters {
   symbol?: string;
   minWinRate?: number;
   maxDrawdown?: number;
-  sortBy?: "followers" | "volume" | "pnl" | "winRate";
+  sortBy?: "followers" | "volume" | "pnl" | "winRate" | "trades" | "score" | "performance";
+  timeframe?: TraderRankingTimeframe;
 }
 
 export function TradersPage({
@@ -46,8 +51,11 @@ export function TradersPage({
   const [maxDrawdown, setMaxDrawdown] = useState<string>(
     initialFilters?.maxDrawdown !== undefined ? String(initialFilters.maxDrawdown) : "",
   );
-  const [sortBy, setSortBy] = useState<"followers" | "volume" | "pnl" | "winRate">(
+  const [sortBy, setSortBy] = useState<"followers" | "volume" | "pnl" | "winRate" | "trades" | "score" | "performance">(
     initialFilters?.sortBy ?? "followers",
+  );
+  const [timeframe, setTimeframe] = useState<TraderRankingTimeframe>(
+    initialFilters?.timeframe ?? "30D",
   );
   const [compareIds, setCompareIds] = useState<string[]>([]);
 
@@ -61,24 +69,35 @@ export function TradersPage({
       }),
   });
 
+  // The discovery list shows ranking performance, so the window it was ranked over belongs in the
+  // query key: without it, switching the window would serve the previous window's results from cache.
   const rankingsQuery = useQuery({
-    queryKey: ["trader-rankings-discovery", search, verificationState, onlyFeatured],
+    queryKey: ["trader-rankings-discovery", search, verificationState, onlyFeatured, timeframe],
     queryFn: () =>
       tradingApi.getLeaderboard({
         search: search || undefined,
         verificationState: verificationState || undefined,
         isFeatured: onlyFeatured ? true : undefined,
         limit: 50,
+        timeframe,
       }),
   });
 
+  const rankingMethodology: TraderRankingMethodology | null =
+    (rankingsQuery.data as { methodology?: TraderRankingMethodology } | undefined)?.methodology ??
+    null;
+
   const performanceByTraderId = useMemo(() => {
-    const map: Record<string, TraderPerformance> = {};
+    const map: Record<string, TraderPerformance | null> = {};
     for (const r of rankingsQuery.data?.data ?? []) {
       map[r.traderId] = r.performance;
     }
     return map;
   }, [rankingsQuery.data]);
+
+  // A ranking the server marked UNAVAILABLE carries no comparable performance for this window, so
+  // the page says that instead of showing the traders unranked as if they had simply not qualified.
+  const rankingUnavailable = rankingMethodology?.status === "UNAVAILABLE";
 
   const rawTraders: TraderProfile[] = useMemo(() => data?.data ?? [], [data]);
 
@@ -198,10 +217,29 @@ export function TradersPage({
               className="w-36 rounded border px-3 py-1.5 text-xs"
             />
             <select
+              aria-label="Ranking timeframe"
+              value={timeframe}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "7D" || value === "30D" || value === "90D") {
+                  setTimeframe(value);
+                }
+              }}
+              className="rounded border px-3 py-1.5 text-xs"
+            >
+              {TRADER_RANKING_TIMEFRAMES.map((option) => (
+                <option key={option} value={option}>
+                  Ranking window: {option}
+                </option>
+              ))}
+            </select>
+            <select
               aria-label="Sort traders"
               value={sortBy}
               onChange={(e) =>
-                setSortBy(e.target.value as "followers" | "volume" | "pnl" | "winRate")
+                setSortBy(
+                  e.target.value as "followers" | "volume" | "pnl" | "winRate" | "trades" | "score" | "performance",
+                )
               }
               className="rounded border px-3 py-1.5 text-xs"
             >
@@ -226,6 +264,18 @@ export function TradersPage({
           </div>
         </div>
       </div>
+
+      {rankingUnavailable && (
+        <p
+          role="status"
+          data-testid="ranking-unavailable"
+          className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        >
+          Performance figures are unavailable for the {timeframe} ranking window
+          {rankingMethodology?.asOf ? ` (last reconciled period ended ${rankingMethodology.asOf})` : ""}. The
+          traders below are listed without a ranking rather than ranked on a partial window.
+        </p>
+      )}
 
       <TradingStateBoundary
         isLoading={isLoading}

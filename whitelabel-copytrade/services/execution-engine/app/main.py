@@ -40,7 +40,7 @@ from app.routers import (
 from app.routers import (
     observability as observability_router,
 )
-from app.security import REQUEST_ID_HEADER
+from app.security.internal_auth import REQUEST_ID_HEADER
 
 logger = logging.getLogger(__name__)
 

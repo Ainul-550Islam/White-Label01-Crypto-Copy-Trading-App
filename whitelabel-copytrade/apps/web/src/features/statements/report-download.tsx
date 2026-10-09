@@ -1,4 +1,6 @@
 "use client";
+
+import type { JSX } from 'react';
 import { useState } from "react";
 import { reportingApi, type StatementExportFormat } from "@/api/reporting-api";
 import { ApiError } from "@/api/api-errors";

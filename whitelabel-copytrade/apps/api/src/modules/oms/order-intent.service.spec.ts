@@ -9,6 +9,22 @@ import { OrderIntentService } from './order-intent.service';
 const TENANT_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const ACCOUNT_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3302';
 
+/**
+ * The user position-limit guard reaches the order path here.
+ *
+ * This suite was parked with `describe.skip` while the guard was dead: the call it asserts
+ * (`PositionLimitService.persistOrderIntentWithLimits`) existed only in specs, the service was in
+ * no module's `providers`, the controller was in no module's `controllers`, and
+ * `OrderIntentService` did not import it at all. A customer could set a ceiling, read it back, and
+ * never have it consulted.
+ *
+ * The finding is closed by wiring the guard back into intent creation rather than by retiring it,
+ * so the suite is live again and the third constructor argument it always described is real. The
+ * assertion that has no equivalent elsewhere is the savepoint one: the intent write has a fallback
+ * to the canonical Order table, and inside a transaction a failed statement aborts the whole
+ * transaction, so the fallback is unreachable unless the write is wrapped in a savepoint. Remove
+ * those two statements and the fallback silently stops working.
+ */
 describe('OrderIntentService user-position-limit integration', () => {
   it('persists the reduce-only order through the shared limit transaction without forwarding reduceOnly to the guard', async () => {
     const createdIntent = { id: 'intent-1', state: 'CREATED' };
@@ -70,10 +86,12 @@ describe('OrderIntentService user-position-limit integration', () => {
         persist: (tx: Prisma.TransactionClient) => Promise<unknown>;
       }) => input.persist(transaction as unknown as Prisma.TransactionClient)),
     };
+    const outbox = { append: jest.fn(async () => undefined) };
     const service = new OrderIntentService(
       prisma as unknown as PrismaService,
       riskDecisionService as unknown as RiskDecisionService,
       positionLimitService as unknown as PositionLimitService,
+      outbox as never,
     );
 
     const result = await service.createIntent({
@@ -112,5 +130,19 @@ describe('OrderIntentService user-position-limit integration', () => {
         environment: 'PAPER',
       }),
     });
+    expect(outbox.append).toHaveBeenCalledWith(transaction, expect.objectContaining({
+      tenantId: TENANT_ID,
+      aggregateType: 'order',
+      aggregateId: 'intent-1',
+      eventType: 'order.created',
+      payload: expect.objectContaining({
+        orderId: 'intent-1',
+        status: 'CREATED',
+        symbol: 'BTC-USDT',
+        side: 'SELL',
+        quantity: '0.01',
+        price: null,
+      }),
+    }));
   });
 });

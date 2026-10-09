@@ -161,14 +161,17 @@ describe('fail-soft reads now propagate', () => {
   });
 });
 
-describe('update methods keep "not found" only for P2025', () => {
-  it('CopySubscriptionRepository.updateState answers null for a missing row', async () => {
-    const prisma = { copySubscription: { update: jest.fn().mockRejectedValue({ code: 'P2025' }) } };
+describe('CopySubscriptionRepository.updateState is tenant-scoped and distinguishes a missing row from storage failure', () => {
+  it('answers null when no row matches the tenant and expected state', async () => {
+    const prisma = { copySubscription: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) } };
     await expect(new CopySubscriptionRepository(prisma as any).updateState('s1', 't1', 'PAUSED' as any)).resolves.toBeNull();
+    expect(prisma.copySubscription.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 's1', tenantId: 't1' } }),
+    );
   });
 
-  it('CopySubscriptionRepository.updateState propagates any other failure', async () => {
-    const prisma = { copySubscription: { update: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+  it('propagates any storage failure instead of claiming that the row is missing', async () => {
+    const prisma = { copySubscription: { updateMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
     await expect(new CopySubscriptionRepository(prisma as any).updateState('s1', 't1', 'PAUSED' as any)).rejects.toBe(
       STORAGE_DOWN,
     );

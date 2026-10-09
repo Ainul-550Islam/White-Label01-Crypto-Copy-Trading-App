@@ -18,6 +18,7 @@ import {
 import { ProviderPolicyService } from '../../provider-policy.service';
 import { ProviderRequestService } from '../../provider-request.service';
 import { ProviderObservationService } from '../../provider-observation.service';
+import { nowPaymentsInvoiceAmountToNumber } from '../../../../common/payment-amount';
 
 export interface NowPaymentsCreateInput {
   planId: string;
@@ -85,12 +86,36 @@ export class NowPaymentsProductionAdapter {
       };
     }
 
+    let invoicePriceAmount: number;
+    try {
+      invoicePriceAmount = nowPaymentsInvoiceAmountToNumber(input.price);
+    } catch {
+      return {
+        success: false,
+        provider: this.provider,
+        domain: this.domain,
+        error: {
+          code: ProviderErrorCode.VALIDATION_ERROR,
+          message: 'Price cannot be represented losslessly as a NOWPayments invoice amount',
+          provider: this.provider,
+          domain: this.domain,
+          isRetryable: false,
+          retryClassification: RetryClassification.NO_RETRY,
+          correlationId,
+          safeEvidence: { field: 'price_amount' },
+        },
+        correlationId,
+        timestamp: new Date().toISOString(),
+        latencyMs: Date.now() - start,
+      };
+    }
+
     const apiKey = process.env['NOWPAYMENTS_API_KEY']!;
     const baseUrl = this.policyService.getPolicy(this.domain, this.provider)?.baseUrl || 'https://api.nowpayments.io';
 
     try {
       const payload = {
-        price_amount: parseFloat(input.price),
+        price_amount: invoicePriceAmount,
         price_currency: input.currency.toLowerCase(),
         pay_currency: (input.payCurrency || 'btc').toLowerCase(),
         order_id: input.idempotencyKey,

@@ -1,7 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { SecurityEventType, SecurityRisk, sanitizeSecurityMetadata } from './security.types';
 import { randomUUID } from 'crypto';
+
+const TENANT_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function requireSecurityRisk(value: SecurityRisk | string): SecurityRisk {
+  if ((Object.values(SecurityRisk) as string[]).includes(value)) {
+    return value as SecurityRisk;
+  }
+  throw new Error('Security event severity is invalid; refusing to persist the event');
+}
 
 /**
  * Canonical security event recording for login, logout, MFA, SSO, API key, session, device, policy, and privileged administrative events.
@@ -11,7 +21,10 @@ import { randomUUID } from 'crypto';
 export class SecurityEventService {
   private readonly logger = new Logger(SecurityEventService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly outbox?: OutboxService,
+  ) {}
 
   async record(input: {
     tenantId: string | null;
@@ -28,30 +41,63 @@ export class SecurityEventService {
     const rawMeta = (input as any).safeMetadata || (input as any).metadata || {};
     const safeMeta = rawMeta ? sanitizeSecurityMetadata(rawMeta) : {};
 
-    try {
-      // Try new enterprise SecurityAuditLog first, then legacy SecurityEvent
-      const eventData = {
-        id: randomUUID(),
-        tenantId: input.tenantId,
-        userId: input.userId || null,
-        type: input.type as any,
-        severity: (input.severity as any) || 'LOW',
-        description: input.description.substring(0, 500),
-        metadata: safeMeta,
-        ipHash: input.ipHash || null,
-        userAgent: input.userAgent ? input.userAgent.substring(0, 512) : null,
-        requestId: input.requestId || null,
-        createdAt: new Date(),
-      };
+    const tenantScoped = input.tenantId !== null;
+    if (tenantScoped && !TENANT_UUID_PATTERN.test(input.tenantId as string)) {
+      throw new Error('Security event tenantId must be a UUID or null; refusing to persist the event');
+    }
+    const severity = requireSecurityRisk(input.severity);
+    const eventData = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      userId: input.userId || null,
+      type: input.type as any,
+      severity,
+      description: input.description.substring(0, 500),
+      metadata: safeMeta,
+      ipHash: input.ipHash || null,
+      userAgent: input.userAgent ? input.userAgent.substring(0, 512) : null,
+      requestId: input.requestId || null,
+      createdAt: new Date(),
+    };
 
-      // Persist to legacy SecurityEvent table for backward compatibility
-      try {
-        await (this.prisma as any).securityEvent?.create({ data: eventData });
-      } catch (e: any) {
-        this.logger.warn(`Failed to persist to securityEvent table: ${e.message}`);
+    try {
+      if (tenantScoped) {
+        if (!this.outbox) {
+          throw new Error('Transactional outbox is unavailable; refusing tenant security event without its security.event event');
+        }
+        const publicSeverity = severity === SecurityRisk.CRITICAL
+          ? 'CRITICAL'
+          : severity === SecurityRisk.HIGH || severity === SecurityRisk.MEDIUM
+            ? 'WARNING'
+            : 'INFO';
+        await this.prisma.withTenantRls(input.tenantId!, async (tx) => {
+          await (tx as any).securityEvent.create({ data: eventData });
+          await this.outbox!.append(tx, {
+            tenantId: input.tenantId!,
+            aggregateType: 'security_event',
+            aggregateId: eventData.id,
+            eventType: 'security.event',
+            idempotencyKey: `security-event:${eventData.id}:recorded`,
+            correlationId: input.requestId && input.requestId.length <= 64 ? input.requestId : null,
+            occurredAt: eventData.createdAt,
+            payload: {
+              securityEventId: eventData.id,
+              category: String(input.type).slice(0, 96),
+              severity: publicSeverity,
+            },
+          });
+        });
+      } else {
+        // Platform-level events have no tenant webhook audience, but remain persisted locally.
+        try {
+          await (this.prisma as any).securityEvent?.create({ data: eventData });
+        } catch (error) {
+          this.logger.warn(`Failed to persist platform security event: ${(error as Error).message}`);
+        }
       }
 
-      // Also persist to new SecurityAuditLog for enterprise
+      // The enterprise audit mirror remains best-effort; the tenant SecurityEvent row and outbox
+      // record above are the atomic developer-webhook source of truth.
       try {
         await (this.prisma as any).securityAuditLog?.create({
           data: {
@@ -61,7 +107,7 @@ export class SecurityEventService {
             actorId: input.userId || null,
             actorType: 'USER',
             event: this.mapToEnterpriseCategory(input.type as any),
-            result: input.severity === 'CRITICAL' || input.type.includes('FAILURE') ? 'FAILURE' : 'SUCCESS',
+            result: severity === SecurityRisk.CRITICAL || input.type.includes('FAILURE') ? 'FAILURE' : 'SUCCESS',
             safeMetadata: safeMeta,
             ipHash: input.ipHash || null,
             requestId: input.requestId || null,
@@ -73,21 +119,21 @@ export class SecurityEventService {
       const logPayload = {
         event: 'security.event',
         type: input.type,
-        severity: input.severity,
+        severity,
         tenantId: input.tenantId,
         userId: input.userId,
         requestId: input.requestId,
       };
-
-      if (input.severity === SecurityRisk.CRITICAL || input.severity === 'CRITICAL') {
+      if (severity === SecurityRisk.CRITICAL) {
         this.logger.error(logPayload, input.description);
-      } else if (input.severity === SecurityRisk.HIGH || input.severity === 'HIGH') {
+      } else if (severity === SecurityRisk.HIGH) {
         this.logger.warn(logPayload, input.description);
       } else {
         this.logger.log(`${input.type} tenant=${input.tenantId} user=${input.userId} ${input.description}`);
       }
-    } catch (e: any) {
-      this.logger.error(`Failed to record security event ${input.type}: ${e.message}`);
+    } catch (error) {
+      this.logger.error(`Failed to record security event ${input.type}: ${(error as Error).message}`);
+      if (tenantScoped) throw error;
     }
   }
 

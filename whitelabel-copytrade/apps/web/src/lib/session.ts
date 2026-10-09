@@ -24,8 +24,8 @@ function baseCookieOptions(maxAge: number) {
   };
 }
 
-export function persistSession(tokens: SessionTokens, deviceId: string, csrfToken: string): void {
-  const store = cookies();
+export async function persistSession(tokens: SessionTokens, deviceId: string, csrfToken: string): Promise<void> {
+  const store = await cookies();
   store.set(ACCESS_TOKEN_COOKIE, tokens.accessToken, baseCookieOptions(tokens.expiresIn));
   store.set(REFRESH_TOKEN_COOKIE, tokens.refreshToken, baseCookieOptions(tokens.refreshExpiresIn));
   store.set(DEVICE_ID_COOKIE, deviceId, baseCookieOptions(tokens.refreshExpiresIn));
@@ -38,27 +38,27 @@ export function persistSession(tokens: SessionTokens, deviceId: string, csrfToke
   });
 }
 
-export function clearSession(): void {
-  const store = cookies();
+export async function clearSession(): Promise<void> {
+  const store = await cookies();
   for (const name of [ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, DEVICE_ID_COOKIE, CSRF_COOKIE]) {
     store.delete(name);
   }
 }
 
-export function getAccessToken(): string | null {
-  return cookies().get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+export async function getAccessToken(): Promise<string | null> {
+  return (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value ?? null;
 }
 
-export function getRefreshToken(): string | null {
-  return cookies().get(REFRESH_TOKEN_COOKIE)?.value ?? null;
+export async function getRefreshToken(): Promise<string | null> {
+  return (await cookies()).get(REFRESH_TOKEN_COOKIE)?.value ?? null;
 }
 
-export function getDeviceId(): string {
-  return cookies().get(DEVICE_ID_COOKIE)?.value ?? '';
+export async function getDeviceId(): Promise<string> {
+  return (await cookies()).get(DEVICE_ID_COOKIE)?.value ?? '';
 }
 
-export function getCsrfToken(): string | null {
-  return cookies().get(CSRF_COOKIE)?.value ?? null;
+export async function getCsrfToken(): Promise<string | null> {
+  return (await cookies()).get(CSRF_COOKIE)?.value ?? null;
 }
 
 export function decodeAccessTokenClaims(

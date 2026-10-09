@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 /**
  * Exchange accounts list
  * Security: Never exposes exchange secrets, only backend-verified status

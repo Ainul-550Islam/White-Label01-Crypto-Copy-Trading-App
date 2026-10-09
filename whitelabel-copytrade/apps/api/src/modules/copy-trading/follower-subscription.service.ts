@@ -15,6 +15,7 @@ import { CopySubscriptionState, CopySizingMode } from './copy-trading.types';
 import { PlanLimitFollowersGuard } from '../billing/enforcement/plan-limit-followers.guard';
 import { PlanLimitCopySubscriptionsGuard } from '../billing/enforcement/plan-limit-copy-subscriptions.guard';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { MaintenanceModeService } from '../operations/maintenance-mode.service';
 import { OperationalMaintenanceScope } from '../operations/operations.types';
 import { randomUUID } from 'crypto';
@@ -54,6 +55,7 @@ export class FollowerSubscriptionService {
     private readonly followersGuard: PlanLimitFollowersGuard,
     private readonly copySubsGuard: PlanLimitCopySubscriptionsGuard,
     private readonly maintenance: MaintenanceModeService,
+    private readonly outbox: OutboxService,
   ) {}
 
   /**
@@ -68,6 +70,52 @@ export class FollowerSubscriptionService {
       tenantId,
       scope: OperationalMaintenanceScope.TRADING_CAPABILITY,
       operation,
+    });
+  }
+
+  private async transitionWithOutbox(input: {
+    tenantId: string;
+    subscription: Record<string, any>;
+    expectedState: CopySubscriptionState;
+    nextState: CopySubscriptionState;
+    eventType: string;
+    timestamps?: { startedAt?: Date; pausedAt?: Date; stoppedAt?: Date; cancelledAt?: Date };
+  }): Promise<any> {
+    const subscriptionId =
+      typeof input.subscription.id === 'string' ? input.subscription.id : input.subscription.subscriptionId;
+    if (typeof subscriptionId !== 'string' || subscriptionId.length === 0) {
+      throw new ConflictException('Copy subscription id is unavailable; refusing to record a lifecycle event');
+    }
+
+    const transitionEventId = randomUUID();
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const updated = await this.subscriptionRepo.updateState(
+        subscriptionId,
+        input.tenantId,
+        input.nextState,
+        input.timestamps,
+        { tx, expectedState: input.expectedState },
+      );
+      if (!updated) {
+        throw new ConflictException('Copy subscription state changed concurrently; reload and retry');
+      }
+
+      const updatedId = typeof updated.id === 'string' ? updated.id : subscriptionId;
+      await this.outbox.append(tx, {
+        tenantId: input.tenantId,
+        aggregateType: 'copy.subscription',
+        aggregateId: updatedId,
+        eventType: input.eventType,
+        idempotencyKey: `copy-subscription:${updatedId}:${input.eventType}:${transitionEventId}`,
+        payload: {
+          subscriptionId: updatedId,
+          followerId: updated.followerId ?? input.subscription.followerId ?? null,
+          traderId: updated.traderId ?? input.subscription.traderId ?? null,
+          strategyId: updated.strategyId ?? input.subscription.strategyId ?? null,
+          state: input.nextState,
+        },
+      });
+      return updated;
     });
   }
 
@@ -141,24 +189,55 @@ export class FollowerSubscriptionService {
         );
       }
 
-      // Create subscription
-      subscription = await this.subscriptionRepo.create({
-        tenantId: input.tenantId,
-        followerId: input.followerId,
-        traderId: input.traderId,
-        strategyId: input.strategyId,
-        allocationMode: input.allocationMode,
-        allocationAmount: input.allocationAmount,
-        maxAllocation: input.maxAllocation || null,
-        minAllocation: input.minAllocation || null,
-        copyPolicy: input.copyPolicy || {},
-        riskPolicy: input.riskPolicy || {},
-        followerAccountId: input.followerAccountId || null,
-        idempotencyKey: input.idempotencyKey || null,
-      });
+      // Creation, activation and the durable domain event share one tenant-RLS
+      // transaction. A commit cannot expose ACTIVE without its outbox row.
+      subscription = await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+        const created = await this.subscriptionRepo.create(
+          {
+            tenantId: input.tenantId,
+            followerId: input.followerId,
+            traderId: input.traderId,
+            strategyId: input.strategyId,
+            allocationMode: input.allocationMode,
+            allocationAmount: input.allocationAmount,
+            maxAllocation: input.maxAllocation || null,
+            minAllocation: input.minAllocation || null,
+            copyPolicy: input.copyPolicy || {},
+            riskPolicy: input.riskPolicy || {},
+            followerAccountId: input.followerAccountId || null,
+            idempotencyKey: input.idempotencyKey || null,
+          },
+          tx,
+        );
+        const activatedAt = new Date();
+        const expectedState = (created.state as CopySubscriptionState | undefined) ?? CopySubscriptionState.PENDING;
+        const activated = await this.subscriptionRepo.updateState(
+          created.id,
+          input.tenantId,
+          CopySubscriptionState.ACTIVE,
+          { startedAt: activatedAt },
+          { tx, expectedState },
+        );
+        if (!activated) {
+          throw new ConflictException('Copy subscription could not be activated from its current state');
+        }
 
-      // Activate
-      const activated = await this.subscriptionRepo.updateState(subscription.id, input.tenantId, CopySubscriptionState.ACTIVE, { startedAt: new Date() });
+        await this.outbox.append(tx, {
+          tenantId: input.tenantId,
+          aggregateType: 'copy.subscription',
+          aggregateId: activated.id,
+          eventType: 'copy.subscription.created',
+          idempotencyKey: `copy-subscription:${activated.id}:copy.subscription.created`,
+          payload: {
+            subscriptionId: activated.id,
+            followerId: activated.followerId,
+            traderId: activated.traderId,
+            strategyId: activated.strategyId,
+            state: CopySubscriptionState.ACTIVE,
+          },
+        });
+        return activated;
+      });
 
       // Increment trader follower count
       await this.traderProfileService.incrementFollowerCount(input.tenantId, input.traderId);
@@ -183,7 +262,7 @@ export class FollowerSubscriptionService {
 
       this.logger.log(`Subscription created and activated id=${subscription.id} tenant=${input.tenantId} follower=${input.followerId} trader=${input.traderId}`);
 
-      return activated || subscription;
+      return subscription;
     } catch (e: any) {
       // Release both slots on failure
       try {
@@ -195,8 +274,19 @@ export class FollowerSubscriptionService {
 
       if (subscription) {
         try {
-          await this.subscriptionRepo.updateState(subscription.id, input.tenantId, CopySubscriptionState.CANCELLED, { cancelledAt: new Date() });
-        } catch {}
+          await this.transitionWithOutbox({
+            tenantId: input.tenantId,
+            subscription,
+            expectedState: subscription.state as CopySubscriptionState,
+            nextState: CopySubscriptionState.CANCELLED,
+            eventType: 'copy.subscription.cancelled',
+            timestamps: { cancelledAt: new Date() },
+          });
+        } catch {
+          // Preserve the original subscribe failure. The failed transaction
+          // remains visible through its own error and is never marked cancelled
+          // unless the state transition and event committed together.
+        }
       }
 
       throw e;
@@ -229,7 +319,14 @@ export class FollowerSubscriptionService {
 
     if (sub.state !== CopySubscriptionState.ACTIVE) throw new ConflictException(`Only ACTIVE subscription can be paused, current=${sub.state}`);
 
-    const updated = await this.subscriptionRepo.updateState(subscriptionId, tenantId, CopySubscriptionState.PAUSED, { pausedAt: new Date() });
+    const updated = await this.transitionWithOutbox({
+      tenantId,
+      subscription: sub,
+      expectedState: CopySubscriptionState.ACTIVE,
+      nextState: CopySubscriptionState.PAUSED,
+      eventType: 'copy.subscription.paused',
+      timestamps: { pausedAt: new Date() },
+    });
 
     await (this.prisma as any).copyTradingAuditLog?.create({
       data: { id: randomUUID(), tenantId, event: 'SUBSCRIPTION_PAUSED', actorId, traderId: sub.traderId, followerId: sub.followerId, strategyId: sub.strategyId, subscriptionId, result: 'SUCCESS', safeMetadata: {}, requestId, createdAt: new Date() },
@@ -248,7 +345,14 @@ export class FollowerSubscriptionService {
     if (sub.state !== CopySubscriptionState.PAUSED) throw new ConflictException(`Only PAUSED subscription can be resumed, current=${sub.state}`);
     await this.assertTradingOpen(tenantId, 'copy_trading.resume');
 
-    const updated = await this.subscriptionRepo.updateState(subscriptionId, tenantId, CopySubscriptionState.ACTIVE, { startedAt: new Date() });
+    const updated = await this.transitionWithOutbox({
+      tenantId,
+      subscription: sub,
+      expectedState: CopySubscriptionState.PAUSED,
+      nextState: CopySubscriptionState.ACTIVE,
+      eventType: 'copy.subscription.resumed',
+      timestamps: { startedAt: new Date() },
+    });
 
     await (this.prisma as any).copyTradingAuditLog?.create({
       data: { id: randomUUID(), tenantId, event: 'SUBSCRIPTION_RESUMED', actorId, traderId: sub.traderId, followerId: sub.followerId, strategyId: sub.strategyId, subscriptionId, result: 'SUCCESS', safeMetadata: {}, requestId, createdAt: new Date() },
@@ -265,7 +369,14 @@ export class FollowerSubscriptionService {
     // Pausing/stopping copy must prevent future copy actions without corrupting already-executed orders
     if (sub.state === CopySubscriptionState.STOPPED || sub.state === CopySubscriptionState.CANCELLED) throw new ConflictException(`Subscription already ${sub.state}`);
 
-    const updated = await this.subscriptionRepo.updateState(subscriptionId, tenantId, CopySubscriptionState.STOPPED, { stoppedAt: new Date() });
+    const updated = await this.transitionWithOutbox({
+      tenantId,
+      subscription: sub,
+      expectedState: sub.state as CopySubscriptionState,
+      nextState: CopySubscriptionState.STOPPED,
+      eventType: 'copy.subscription.stopped',
+      timestamps: { stoppedAt: new Date() },
+    });
 
     // Release plan limits
     try {
@@ -289,7 +400,14 @@ export class FollowerSubscriptionService {
     if (!sub) return null;
     if (followerId && sub.followerId !== followerId) throw new ForbiddenException('Not authorized');
 
-    const updated = await this.subscriptionRepo.updateState(subscriptionId, tenantId, CopySubscriptionState.CANCELLED, { cancelledAt: new Date() });
+    const updated = await this.transitionWithOutbox({
+      tenantId,
+      subscription: sub,
+      expectedState: sub.state as CopySubscriptionState,
+      nextState: CopySubscriptionState.CANCELLED,
+      eventType: 'copy.subscription.cancelled',
+      timestamps: { cancelledAt: new Date() },
+    });
 
     try {
       const actor = { tenantId, userId: actorId } as any;

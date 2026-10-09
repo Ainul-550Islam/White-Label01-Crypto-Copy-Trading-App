@@ -1,13 +1,14 @@
 // # NEW — Renders partner list, tier override controls, and payout approval actions
 // # NEW — partner list, agreements, settlements, payouts, reconciliation UI
 'use client';
+import type { JSX } from 'react';
 
 import React, { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Badge, DataTable } from '@/components/ui';
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime } from '@/lib/format';
 import { theme } from '@/lib/theme';
 

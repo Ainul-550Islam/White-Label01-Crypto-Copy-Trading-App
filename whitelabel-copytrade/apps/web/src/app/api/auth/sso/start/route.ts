@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { ApiError } from "@/lib/api-error";
+import { ApiError } from "@wlct/utils/api-error";
 import { serverFetch } from "@/lib/server-api";
 import {
   SSO_BINDING_COOKIE,

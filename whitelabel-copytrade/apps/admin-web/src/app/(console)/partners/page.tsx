@@ -1,4 +1,5 @@
 // # NEW — Admin console route for partner approval, tier assignment, and payout review
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
 import { serverFetch } from '@/lib/server-api';
@@ -6,7 +7,7 @@ import { theme } from '@/lib/theme';
 import {
   PartnerAdminTable,
   type PartnerAdminRow,
-} from '@/modules/partners/partner-admin-table';
+} from '@/features/partners/partner-admin-table';
 
 export const dynamic = 'force-dynamic';
 

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CopySubscriptionState, CopySizingMode } from './copy-trading.types';
 import { randomUUID } from 'crypto';
@@ -27,13 +28,15 @@ export class CopySubscriptionRepository {
     riskPolicy?: Record<string, any>;
     followerAccountId?: string | null;
     idempotencyKey?: string | null;
-  }): Promise<any> {
+  }, tx?: Prisma.TransactionClient): Promise<any> {
+    const client = (tx ?? this.prisma) as any;
+
     // Idempotent replay first: a retried request (same tenant, same key) gets
     // its original subscription back. Checked before the duplicate-active rule,
     // because the original subscription IS the active one - checking the rule
     // first turned every retry into a "duplicate" error.
     if (input.idempotencyKey) {
-      const existingByKey = await (this.prisma as any).copySubscription?.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
+      const existingByKey = await client.copySubscription.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
       if (existingByKey) {
         this.logger.log(`Idempotent subscription return key=${input.idempotencyKey}`);
         return existingByKey;
@@ -41,7 +44,7 @@ export class CopySubscriptionRepository {
     }
 
     // Prevent duplicate active subscription where business rules prohibit it
-    const existingActive = await (this.prisma as any).copySubscription?.findFirst({
+    const existingActive = await client.copySubscription.findFirst({
       where: { tenantId: input.tenantId, followerId: input.followerId, strategyId: input.strategyId, state: { in: ['PENDING', 'ACTIVE', 'PAUSED'] } },
     });
 
@@ -72,23 +75,28 @@ export class CopySubscriptionRepository {
       totalCopiedVolume: '0',
       totalCopies: 0,
       failedCopies: 0,
-      idempotencyKey: input.idempotencyKey || null,
+      idempotencyKey: input.idempotencyKey || randomUUID(),
       createdAt: now,
       updatedAt: now,
     };
 
     try {
-      const created = await (this.prisma as any).copySubscription.create({ data });
+      const created = await client.copySubscription.create({ data });
       this.logger.log(`Copy subscription created id=${created.id} tenant=${input.tenantId} follower=${input.followerId} trader=${input.traderId} strategy=${input.strategyId}`);
       return created;
     } catch (e: any) {
+      if (e.code === 'P2002' && tx) {
+        // PostgreSQL marks the surrounding transaction failed after a unique
+        // violation; do not attempt a read through the aborted transaction.
+        throw e;
+      }
       if (e.code === 'P2002') {
         if (input.idempotencyKey) {
-          const existing = await (this.prisma as any).copySubscription.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
+          const existing = await client.copySubscription.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } });
           if (existing) return existing;
         }
         // Unique follower+strategy
-        const existing = await (this.prisma as any).copySubscription.findFirst({ where: { tenantId: input.tenantId, followerId: input.followerId, strategyId: input.strategyId } });
+        const existing = await client.copySubscription.findFirst({ where: { tenantId: input.tenantId, followerId: input.followerId, strategyId: input.strategyId } });
         if (existing) return existing;
       }
       throw e;
@@ -151,16 +159,25 @@ export class CopySubscriptionRepository {
     return { data, total };
   }
 
-  async updateState(id: string, tenantId: string, state: CopySubscriptionState, timestamps?: { startedAt?: Date; pausedAt?: Date; stoppedAt?: Date; cancelledAt?: Date }): Promise<any | null> {
-    try {
-      return await (this.prisma as any).copySubscription.update({
-        where: { id },
-        data: { state, ...timestamps, updatedAt: new Date() },
-      });
-    } catch (error) {
-      if (isRecordNotFound(error)) return null;
-      throw error;
-    }
+  async updateState(
+    id: string,
+    tenantId: string,
+    state: CopySubscriptionState,
+    timestamps?: { startedAt?: Date; pausedAt?: Date; stoppedAt?: Date; cancelledAt?: Date },
+    options: { tx?: Prisma.TransactionClient; expectedState?: CopySubscriptionState } = {},
+  ): Promise<any | null> {
+    const client = (options.tx ?? this.prisma) as any;
+    const where = {
+      id,
+      tenantId,
+      ...(options.expectedState ? { state: options.expectedState } : {}),
+    };
+    const result = await client.copySubscription.updateMany({
+      where,
+      data: { state, ...timestamps, updatedAt: new Date() },
+    });
+    if (result.count !== 1) return null;
+    return client.copySubscription.findFirst({ where: { id, tenantId } });
   }
 
   async updateAllocation(id: string, tenantId: string, allocation: { allocationAmount?: string; maxAllocation?: string | null; minAllocation?: string | null; allocationMode?: CopySizingMode }): Promise<any | null> {

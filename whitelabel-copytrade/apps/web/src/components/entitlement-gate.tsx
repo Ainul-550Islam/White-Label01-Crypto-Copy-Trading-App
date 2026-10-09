@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { ReactNode } from 'react';
 import { useTenant } from '@/tenant/tenant-context';

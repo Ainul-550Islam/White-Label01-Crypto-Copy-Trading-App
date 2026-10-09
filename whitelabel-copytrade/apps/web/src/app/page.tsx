@@ -1,11 +1,12 @@
+import type { JSX } from 'react';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { LandingPage } from '@/features/landing/landing-page';
 
 export const dynamic = 'force-dynamic';
 
-export default function IndexPage(): JSX.Element {
-  const cookieStore = cookies();
+export default async function IndexPage(): Promise<JSX.Element> {
+  const cookieStore = await cookies();
   const hasSession =
     cookieStore.get('wlct_session') ||
     cookieStore.get('wlct_at') ||

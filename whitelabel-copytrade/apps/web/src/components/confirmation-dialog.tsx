@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { useEffect, useRef, ReactNode } from 'react';
 

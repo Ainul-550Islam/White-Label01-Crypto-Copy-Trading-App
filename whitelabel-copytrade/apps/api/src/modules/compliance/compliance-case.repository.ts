@@ -1,6 +1,7 @@
 // # Persists compliance cases, notes, and decisions
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { ComplianceCaseState, ComplianceCaseType, RiskLevel, ComplianceDecision } from './compliance.types';
 import { randomUUID } from 'crypto';
 
@@ -12,7 +13,29 @@ import { randomUUID } from 'crypto';
 export class ComplianceCaseRepository {
   private readonly logger = new Logger(ComplianceCaseRepository.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly outbox?: OutboxService,
+  ) {}
+
+  private async appendReviewRequired(tx: any, complianceCase: any): Promise<void> {
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing compliance review without its compliance.review.required event');
+    }
+    const occurredAt = complianceCase.createdAt ?? new Date();
+    await this.outbox.append(tx, {
+      tenantId: complianceCase.tenantId,
+      aggregateType: 'compliance_review',
+      aggregateId: complianceCase.id,
+      eventType: 'compliance.review.required',
+      idempotencyKey: `compliance-review:${complianceCase.id}:required`,
+      occurredAt,
+      payload: {
+        reviewId: complianceCase.id,
+        reasonCode: String(complianceCase.caseType),
+      },
+    });
+  }
 
   async createCase(input: {
     tenantId: string;
@@ -28,33 +51,8 @@ export class ComplianceCaseRepository {
     idempotencyKey: string;
     metadata?: Record<string, any>;
   }): Promise<any> {
-    // Idempotency check
-    const existing = await this.findByIdempotencyKey(input.idempotencyKey, input.tenantId);
-    if (existing) {
-      this.logger.log(`Idempotent case return key=${input.idempotencyKey}`);
-      return existing;
-    }
-
-    // Duplicate case prevention: check if open case for same user/type exists
-    try {
-      const openCase = await (this.prisma as any).complianceCase?.findFirst({
-        where: {
-          tenantId: input.tenantId,
-          userId: input.userId,
-          caseType: input.caseType,
-          state: { in: [ComplianceCaseState.OPEN, ComplianceCaseState.IN_REVIEW, ComplianceCaseState.ESCALATED] },
-        },
-      });
-
-      if (openCase) {
-        this.logger.log(`Duplicate open case prevented tenant=${input.tenantId} user=${input.userId} type=${input.caseType} existing=${openCase.id}`);
-        return openCase;
-      }
-    } catch {}
-
     const id = randomUUID();
     const now = new Date();
-
     const data = {
       id,
       tenantId: input.tenantId,
@@ -74,23 +72,54 @@ export class ComplianceCaseRepository {
       updatedAt: now,
     };
 
-    try {
-      const created = await (this.prisma as any).complianceCase?.create({ data });
-      if (created) {
-        this.logger.log(`Compliance case created id=${created.id} tenant=${input.tenantId} type=${input.caseType}`);
-        return created;
+    const persist = async () => this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const store = tx as any;
+      const existing = await store.complianceCase.findFirst({
+        where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey },
+      });
+      if (existing) {
+        this.logger.log(`Idempotent case return key=${input.idempotencyKey}`);
+        await this.appendReviewRequired(tx, existing);
+        return existing;
       }
-    } catch (e: any) {
-      if (e.code === 'P2002' || e.message?.includes('Unique constraint')) {
-        // Idempotency race
-        const existingByKey = await this.findByIdempotencyKey(input.idempotencyKey, input.tenantId);
-        if (existingByKey) return existingByKey;
-      }
-      this.logger.warn(`Failed to create compliance case in DB, fallback: ${e.message}`);
-    }
 
-    // Fallback in-memory representation when table missing
-    return { ...data, reviews: [], evidences: [], auditLogs: [] };
+      const openCase = await store.complianceCase.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          userId: input.userId,
+          caseType: input.caseType,
+          state: { in: [ComplianceCaseState.OPEN, ComplianceCaseState.IN_REVIEW, ComplianceCaseState.ESCALATED] },
+        },
+      });
+      if (openCase) {
+        this.logger.log(`Duplicate open case prevented tenant=${input.tenantId} user=${input.userId} type=${input.caseType} existing=${openCase.id}`);
+        await this.appendReviewRequired(tx, openCase);
+        return openCase;
+      }
+
+      const created = await store.complianceCase.create({ data });
+      if (!created?.id) throw new Error('Compliance case persistence returned no durable record');
+      await this.appendReviewRequired(tx, created);
+      this.logger.log(`Compliance case created id=${created.id} tenant=${input.tenantId} type=${input.caseType}`);
+      return created;
+    });
+
+    try {
+      return await persist();
+    } catch (error) {
+      const candidate = error as { code?: string; message?: string };
+      if (candidate.code === 'P2002' || candidate.message?.includes('Unique constraint')) {
+        return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+          const existing = await (tx as any).complianceCase.findFirst({
+            where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey },
+          });
+          if (!existing) throw error;
+          await this.appendReviewRequired(tx, existing);
+          return existing;
+        });
+      }
+      throw error;
+    }
   }
 
   async findById(id: string, tenantId: string): Promise<any | null> {

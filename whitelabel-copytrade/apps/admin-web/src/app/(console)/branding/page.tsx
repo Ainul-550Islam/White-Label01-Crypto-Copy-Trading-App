@@ -1,7 +1,8 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 
 import { Card, ErrorNotice, PageHeader } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatDateTime } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { theme } from '@/lib/theme';

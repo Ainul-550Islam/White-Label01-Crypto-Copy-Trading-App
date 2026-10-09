@@ -2,8 +2,9 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { ApiError } from './api-error';
-import { serverEnv, publicEnv } from './env';
+import { ApiError } from '@wlct/utils/api-error';
+import { serverEnv } from './env';
+import { runtimeConfig } from '@/config/runtime-config';
 import { getAccessToken } from './session';
 
 export interface ServerFetchOptions {
@@ -21,7 +22,7 @@ function buildUrl(path: string, searchParams?: ServerFetchOptions['searchParams'
   const env = serverEnv();
   const base = env.API_BASE_URL.replace(/\/+$/, '');
   const normalised = path.startsWith('/') ? path : `/${path}`;
-  const versioned = normalised.startsWith(`/${publicEnv.apiVersion}/`) ? normalised : `/${publicEnv.apiVersion}${normalised}`;
+  const versioned = normalised.startsWith(`/${runtimeConfig.apiVersion}/`) ? normalised : `/${runtimeConfig.apiVersion}${normalised}`;
   const url = new URL(`${base}${versioned}`);
   for (const [key, value] of Object.entries(searchParams ?? {})) {
     if (value !== undefined && value !== '') {
@@ -48,7 +49,7 @@ export async function serverFetch<T>(path: string, options: ServerFetchOptions =
   }
 
   if (authenticated) {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     if (!token) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Your session has expired. Please sign in again.');
     }

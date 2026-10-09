@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { serverEnv, publicEnv } from '@/lib/env';
+import { serverEnv } from '@/lib/env';
+import { runtimeConfig } from '@/config/runtime-config';
 import { getAccessToken, getCsrfToken } from '@/lib/session';
 import { buildUpstreamPath, isAnonymousRoute, isUnsafeSegment } from '@/lib/proxy-path';
 
@@ -26,11 +27,11 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
     );
   }
 
-  const anonymous = isAnonymousRoute(request.method, segments, publicEnv.apiVersion);
+  const anonymous = isAnonymousRoute(request.method, segments, runtimeConfig.apiVersion);
 
   if (MUTATING_METHODS.has(request.method)) {
     const submitted = request.headers.get('x-csrf-token');
-    const expected = getCsrfToken();
+    const expected = await getCsrfToken();
     if (!expected || submitted !== expected) {
       return NextResponse.json(
         { success: false, error: { code: 'FORBIDDEN', message: 'Invalid CSRF token.' } },
@@ -39,7 +40,7 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
     }
   }
 
-  const token = getAccessToken();
+  const token = await getAccessToken();
   if (!token && !anonymous) {
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'No active session.' } },
@@ -49,7 +50,7 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
 
   const incoming = new URL(request.url);
   const base = env.API_BASE_URL.replace(/\/+$/, '');
-  const target = new URL(`${base}/${buildUpstreamPath(segments, publicEnv.apiVersion)}`);
+  const target = new URL(`${base}/${buildUpstreamPath(segments, runtimeConfig.apiVersion)}`);
   target.search = incoming.search;
 
   const headers: Record<string, string> = {
@@ -106,21 +107,21 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
 }
 
 interface RouteContext {
-  params: { path: string[] };
+  params: Promise<{ path: string[] }>;
 }
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
-  return handle(request, context.params.path);
+  return handle(request, (await context.params).path);
 }
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
-  return handle(request, context.params.path);
+  return handle(request, (await context.params).path);
 }
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
-  return handle(request, context.params.path);
+  return handle(request, (await context.params).path);
 }
 export async function PUT(request: Request, context: RouteContext): Promise<NextResponse> {
-  return handle(request, context.params.path);
+  return handle(request, (await context.params).path);
 }
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
-  return handle(request, context.params.path);
+  return handle(request, (await context.params).path);
 }

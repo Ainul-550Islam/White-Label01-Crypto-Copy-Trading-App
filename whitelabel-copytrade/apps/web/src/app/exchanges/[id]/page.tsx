@@ -1,8 +1,9 @@
 // # Displays venue capabilities on exchange detail page
 // # MODIFY — capability integration
 'use client';
+import type { JSX } from 'react';
 
-import React from 'react';
+import React, { use } from 'react';
 import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { ExchangeAccountDetail } from '@/features/exchanges/exchange-account-detail';
@@ -11,13 +12,11 @@ import { AppShell } from '@/layout/app-shell';
 import { PageContainer } from '@/layout/page-container';
 
 export interface ExchangeDetailRouteProps {
-  params: {
-    id: string;
-  };
+  params: Promise<{ id: string }>;
 }
 
 export default function Page({ params }: ExchangeDetailRouteProps): JSX.Element {
-  const accountId = params.id;
+  const accountId = use(params).id;
 
   return (
     <AuthGuard>

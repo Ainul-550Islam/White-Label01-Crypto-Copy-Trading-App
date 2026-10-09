@@ -2,16 +2,40 @@
   "name": "@wlct/sdk-typescript",
   "version": "1.0.0",
   "description": "Typed TypeScript SDK for the white-label developer platform API",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ainul-550Islam/White-Label01-Crypto-Copy-Trading-App.git",
+    "directory": "whitelabel-copytrade/packages/sdk-typescript"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "CHANGELOG.md"],
+  "publishConfig": {
+    "access": "restricted",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test dist/__tests__/sdk.test.js"
+    "generate": "node scripts/generate.mjs",
+    "generate:check": "node scripts/generate.mjs --check",
+    "build": "npm run generate:check && tsc -p tsconfig.json",
+    "typecheck": "npm run generate:check && tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/__tests__/*.test.js",
+    "prepublishOnly": "npm run build && npm test && npm run generate:check"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.6.0"
   }
 }

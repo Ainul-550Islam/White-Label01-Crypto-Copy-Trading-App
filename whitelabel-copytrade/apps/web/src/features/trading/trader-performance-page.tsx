@@ -1,6 +1,7 @@
 // # NEW — Renders canonical trader performance metrics, Actual vs Estimated provenance badge, and strategy/trade breakdown
 // # Integrates performance charts and metric definition tooltips
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";

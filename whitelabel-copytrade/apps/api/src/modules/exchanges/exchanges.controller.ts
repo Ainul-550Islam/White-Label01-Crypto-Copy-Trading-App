@@ -430,6 +430,7 @@ export class ExchangesController {
     if (!account) throw new BadRequestException('Account not found');
 
     return this.rateLimitService.getRateLimitState({
+      tenantId,
       venue: (venue as any) || account.venue,
       environment: (environment as any) || account.environment,
       accountId: account.accountId,

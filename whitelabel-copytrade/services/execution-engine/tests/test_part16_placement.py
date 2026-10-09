@@ -49,11 +49,11 @@ from wlct_trading.execution.placement_review import (
 )
 
 from app.composition import ExecutionUnavailable, build_runtime
-from app.credentials import (
+from app.exchanges.credentials import (
     build_credential_provider,
     credential_env_names,
 )
-from app.placement import build_placement_reviewer, review_placement
+from app.orders.placement import build_placement_reviewer, review_placement
 from app.routers import placement as placement_router
 from app.schemas import (
     PlacementAttestRequest,
@@ -717,7 +717,7 @@ class TestStatusExposesTheWiring:
 
     def test_the_view_refuses_a_key_the_contract_does_not_have(self) -> None:
         """A credential cannot be smuggled in through the pass-through dict."""
-        from app.placement import REVIEW_ENDPOINT_LABEL
+        from app.orders.placement import REVIEW_ENDPOINT_LABEL
 
         with pytest.raises(ValidationError, match="apiSecret"):
             PlacementStatusView(

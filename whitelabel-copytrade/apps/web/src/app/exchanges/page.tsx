@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { AuthGuard } from '@/auth/auth.guard';
 import { ExchangeAccountsPage } from '@/features/exchanges/exchange-accounts-page';
 import { AppShell } from '@/layout/app-shell';

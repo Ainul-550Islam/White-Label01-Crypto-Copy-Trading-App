@@ -1,0 +1,1333 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:91c3bdf7-f577-5e9c-a577-99c467c61fbd",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-08T00:00:00Z",
+    "tools": [
+      {
+        "vendor": "White-Label Crypto Copy Trading",
+        "name": "whitelabel-sbom-generator",
+        "version": "1.1.0"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:generic/whitelabel-copytrading-python-projects@1.0.0",
+      "name": "whitelabel-copytrading-python-projects",
+      "version": "1.0.0"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:163a897aad65b128b2e1e0b4512b6851e32fa543e0370f56c352ae7105baa51c",
+      "name": "ruff",
+      "purl": "pkg:pypi/ruff",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "libs/trading-core/pyproject.toml"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "UNKNOWN"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "libs/trading-core/pyproject.toml (extra dev): declared as ruff>=0.3 (range, no lockfile)"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:1c53d73942a949f2c3ae29d1941c469f22d024a9703f17f65ea60de31b6bfb1e",
+      "name": "pydantic",
+      "purl": "pkg:pypi/pydantic@2.9.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata pydantic==2.9.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "2.9.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:1cc1632fdc195fbe0c90daffa815f003989e7a417a89097a600b6c00d0134a63",
+      "name": "starlette",
+      "purl": "pkg:pypi/starlette@1.7.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata starlette==1.7.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt"
+        }
+      ],
+      "version": "1.7.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:1de142df33e91ad37a1016b05d847843ac356111c2c76bbbcbe77cb77256fede",
+      "name": "pydantic-settings",
+      "purl": "pkg:pypi/pydantic-settings@2.5.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata pydantic-settings==2.5.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "2.5.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:23cc1823371f3f63fe9fce962846b99f0d4bc0fa48ff292d00109efeaaedb1cd",
+      "name": "httpx",
+      "purl": "pkg:pypi/httpx@0.27.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for httpx==0.27.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "0.27.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:28147670066b7efc70e85ee094238ac6b0aba9690fc2899679075a498a7a2cda",
+      "name": "mypy",
+      "purl": "pkg:pypi/mypy",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "libs/trading-core/pyproject.toml"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "UNKNOWN"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "libs/trading-core/pyproject.toml (extra dev): declared as mypy>=1.8 (range, no lockfile)"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:32f886ba9b6609d863496a1980d5a7b6bdda77894aaaa8bc545f38ec80dc63fb",
+      "name": "tenacity",
+      "purl": "pkg:pypi/tenacity@9.0.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata tenacity==9.0.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "9.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:40e6cbb61811b1d5ae0d3e89ebccb3dffc03874b7cb0e02ea4a8b7d1c9c6f16d",
+      "name": "httpx",
+      "purl": "pkg:pypi/httpx",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "libs/trading-core/pyproject.toml"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "UNKNOWN"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "libs/trading-core/pyproject.toml (extra live): declared as httpx>=0.27,<0.29 (range, no lockfile) (declaration-only; the pinned runtime package is listed from requirements.txt)"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:5dc707a3e97da9d88634efe87646a28a2ff1ae86fdd69469bbb8de81b9b801ee",
+      "name": "starlette",
+      "purl": "pkg:pypi/starlette@1.7.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata starlette==1.7.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "1.7.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:669ddaf6260f7297228e17e1ffdfbab9934213e23fa761987a2b60b89f57cde1",
+      "name": "websockets",
+      "purl": "pkg:pypi/websockets",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "libs/trading-core/pyproject.toml"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "UNKNOWN"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "libs/trading-core/pyproject.toml (extra live): declared as websockets>=13.1,<18 (range, no lockfile) (declaration-only; the pinned runtime package is listed from requirements.txt)"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:72f833b4eb5dda661115f0768c605b9c78f01540bc7b4d8bf75f84b46ffc2a17",
+      "name": "fastapi",
+      "purl": "pkg:pypi/fastapi@0.143.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata fastapi==0.143.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt"
+        }
+      ],
+      "version": "0.143.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:7559741b10fc66246204add4d183735b708c17da163681903560fb1169eb7a14",
+      "name": "uvicorn",
+      "purl": "pkg:pypi/uvicorn@0.31.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for uvicorn==0.31.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt (extras [standard])"
+        }
+      ],
+      "version": "0.31.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:79d4da6ea90e046478998adff1dab29b5af7e294c76c458af52999e95bdfa095",
+      "name": "pydantic",
+      "purl": "pkg:pypi/pydantic@2.9.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata pydantic==2.9.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "2.9.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:866503225bb77a82847976852e71f90adc280f8236f68279a0e1076136147516",
+      "name": "asyncpg",
+      "purl": "pkg:pypi/asyncpg@0.29.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata asyncpg==0.29.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "0.29.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:8f7a5a8b622e75c65663f6f2442f5a4ee523949912a5a54bc054aa3c3662b82b",
+      "name": "python-json-logger",
+      "purl": "pkg:pypi/python-json-logger@2.0.7",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for python-json-logger==2.0.7"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "2.0.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:901754508f4e96bd68fd311325bcde5ed458bb475f5e84bc95a657749e198919",
+      "name": "websockets",
+      "purl": "pkg:pypi/websockets@13.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata websockets==13.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "13.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:9493e7d46c488d4eaf83054c701dd9535957fe81729ded39640eac27691e2bc1",
+      "name": "pydantic-settings",
+      "purl": "pkg:pypi/pydantic-settings@2.5.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata pydantic-settings==2.5.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt"
+        }
+      ],
+      "version": "2.5.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:962618376c713365dbb94b26caddc3f4b9a21c8bc99ad9ec4fcb2a776536a751",
+      "name": "tenacity",
+      "purl": "pkg:pypi/tenacity@9.0.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata tenacity==9.0.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "9.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:97087e37b1bc5bb1ad6ab8e516d078d67ed9411d32006a0f5fdbb35f2e152829",
+      "name": "pydantic",
+      "purl": "pkg:pypi/pydantic@2.9.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata pydantic==2.9.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt"
+        }
+      ],
+      "version": "2.9.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:99017fef5cca81eb843f7172ad737971c4f085c2d560446585c664eaafd43184",
+      "name": "python-json-logger",
+      "purl": "pkg:pypi/python-json-logger@2.0.7",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for python-json-logger==2.0.7"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "2.0.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:9ddcdfcd12180ccdc0d9b7951d39a95cc17c13dc8ca5cab98420ca297ccfcbcb",
+      "name": "fastapi",
+      "purl": "pkg:pypi/fastapi@0.143.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata fastapi==0.143.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "0.143.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:9e54be1f3026521ac975c7fb951779614eb469c0f1eded6086e32a6e48fa7124",
+      "name": "uvicorn",
+      "purl": "pkg:pypi/uvicorn@0.31.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for uvicorn==0.31.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt (extras [standard])"
+        }
+      ],
+      "version": "0.31.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:9f361cff2c46414fc45cd34e1c40b00f987424e810727bb556f84f46d4cd2a44",
+      "name": "httpx",
+      "purl": "pkg:pypi/httpx@0.27.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for httpx==0.27.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt"
+        }
+      ],
+      "version": "0.27.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:a30e23e1d5f35aee1f606cfd4fb9374152550d23c0a2b6c7650abd6ff7d32a69",
+      "name": "httpx",
+      "purl": "pkg:pypi/httpx@0.27.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for httpx==0.27.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "0.27.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:a311a9b25d9955cd95b8e7f23dedf8664e04d60f0b57b244fa46427d3152d317",
+      "name": "uvicorn",
+      "purl": "pkg:pypi/uvicorn@0.31.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for uvicorn==0.31.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt (extras [standard])"
+        }
+      ],
+      "version": "0.31.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:a41adab246e992602ebcc84e2420d81df9b060bd5720abc2dd8f3d81061b7cbb",
+      "name": "structlog",
+      "purl": "pkg:pypi/structlog@24.4.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata structlog==24.4.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "24.4.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:a85f7d92acb814c13638a0e82c7f92d1dfe745bab7daeff15b964a40f4e32c9a",
+      "name": "ccxt",
+      "purl": "pkg:pypi/ccxt@4.4.10",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata ccxt==4.4.10"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "4.4.10",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:b585241b497ce725ab5427e3b1ca2504a9739471f6c68631250d765aedaa32b6",
+      "name": "fastapi",
+      "purl": "pkg:pypi/fastapi@0.143.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata fastapi==0.143.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "0.143.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:c3ce5563bd9131f2553d1f8899069241930da4260cb4f39183ac5c130cda40fc",
+      "name": "redis",
+      "purl": "pkg:pypi/redis@5.1.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata redis==5.1.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "5.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:c3d9ea15c9b004055c11442eb172c0940ca25b2f050ae461e8cbb8114dfd51bb",
+      "name": "redis",
+      "purl": "pkg:pypi/redis@5.1.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/market-data/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata redis==5.1.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/market-data/requirements.txt"
+        }
+      ],
+      "version": "5.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:c576551d0307c1d00a2c3392365e70c3f92e74eb3dab2e5302388e53deb1f66a",
+      "name": "pytest",
+      "purl": "pkg:pypi/pytest",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "libs/trading-core/pyproject.toml"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "UNKNOWN"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "libs/trading-core/pyproject.toml (extra dev): declared as pytest>=8.0 (range, no lockfile)"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:d24bb4ce48950692a76c9f64142cc0ba72fd57614ca14b0a49e9240364a1ab0d",
+      "name": "pydantic-settings",
+      "purl": "pkg:pypi/pydantic-settings@2.5.2",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata pydantic-settings==2.5.2"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "2.5.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:d2b9cc4c6e2629e2f5f81070db92e5a535a8061b2cb64a3763163123c97ef446",
+      "name": "ccxt",
+      "purl": "pkg:pypi/ccxt@4.4.10",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata ccxt==4.4.10"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "4.4.10",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:f4d27a3366ca759b748800df71ea9ed121f0f04d20b2ffa062011c67d57640ce",
+      "name": "asyncpg",
+      "purl": "pkg:pypi/asyncpg@0.29.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata asyncpg==0.29.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt"
+        }
+      ],
+      "version": "0.29.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:f658f3f393c651e431618c34d7612533e5a88cf9508713aef396991b288b8924",
+      "name": "starlette",
+      "purl": "pkg:pypi/starlette@1.7.0",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/trading-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata starlette==1.7.0"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/trading-engine/requirements.txt"
+        }
+      ],
+      "version": "1.7.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:f7f5d88ace3d760cf164aa5ddf750eb2da2bcb804bfbff89ca089f9d4d7e46e0",
+      "name": "redis",
+      "purl": "pkg:pypi/redis@5.1.1",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI metadata redis==5.1.1"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt"
+        }
+      ],
+      "version": "5.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:wlct:component:fb2eccfd70ff11a5bf3a053b11af4aea7e490b0facb9b1d53f65fedb4ae9abe6",
+      "name": "python-json-logger",
+      "purl": "pkg:pypi/python-json-logger@2.0.7",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "wlct:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "wlct:source-manifest",
+          "value": "services/execution-engine/requirements.txt"
+        },
+        {
+          "name": "wlct:version-status",
+          "value": "pinned"
+        },
+        {
+          "name": "wlct:license-source",
+          "value": "PyPI source archive verified by its JSON digest for python-json-logger==2.0.7"
+        },
+        {
+          "name": "wlct:source-note",
+          "value": "services/execution-engine/requirements.txt"
+        }
+      ],
+      "version": "2.0.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ]
+    }
+  ]
+}

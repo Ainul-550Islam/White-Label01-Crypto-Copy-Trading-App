@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -26,16 +28,20 @@ export default function LoginPage(): JSX.Element {
   // confirm the sign-out (this app's session was already ended before the IdP was involved).
   useEffect(() => {
     const sso = new URLSearchParams(window.location.search).get('sso');
-    if (sso === 'mfa') {
-      setMfaMethods(['TOTP', 'RECOVERY_CODE']);
-      setMfaRequired(true);
-    } else if (sso === 'failed') {
-      setError('Single sign-on could not be completed. Please try again or contact your administrator.');
-    } else if (sso === 'logout_unconfirmed') {
-      setError(
-        'You are signed out of this app, but your identity provider did not confirm the sign-out. Close your browser to end that session too.',
-      );
-    }
+    const updateSsoState = () => {
+      if (sso === 'mfa') {
+        setMfaMethods(['TOTP', 'RECOVERY_CODE']);
+        setMfaRequired(true);
+      } else if (sso === 'failed') {
+        setError('Single sign-on could not be completed. Please try again or contact your administrator.');
+      } else if (sso === 'logout_unconfirmed') {
+        setError(
+          'You are signed out of this app, but your identity provider did not confirm the sign-out. Close your browser to end that session too.',
+        );
+      }
+    };
+    const timer = window.setTimeout(updateSsoState, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const handleSso = async () => {

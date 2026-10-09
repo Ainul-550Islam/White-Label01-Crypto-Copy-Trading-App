@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { ApiError } from './api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { serverEnv, publicEnv } from './env';
 import { getAccessToken } from './session';
 
@@ -57,7 +57,7 @@ export async function serverFetch<T>(path: string, options: ServerFetchOptions =
   }
 
   if (authenticated) {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     if (!token) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Your session has expired. Please sign in again.');
     }

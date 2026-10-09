@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Permission } from '@wlct/shared-types';
 import { securityApi } from '@/api/security-api';

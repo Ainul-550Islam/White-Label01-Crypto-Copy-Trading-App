@@ -10,6 +10,7 @@ import { ConcentrationRiskService } from './concentration-risk.service';
 import { DrawdownRiskService } from './drawdown-risk.service';
 import { DailyLossLimitService } from './daily-loss-limit.service';
 import { LeverageRiskService } from './leverage-risk.service';
+import { LeveragePolicyService } from '../risk/leverage-policy.service';
 import { CorrelationRiskService } from './correlation-risk.service';
 import { VarRiskService } from './var-risk.service';
 import { StressTestService } from './stress-test.service';
@@ -19,6 +20,9 @@ import { CircuitBreakerService } from './circuit-breaker.service';
 import { KillSwitchOrchestratorService } from './kill-switch-orchestrator.service';
 import { RiskDecisionService } from './risk-decision.service';
 import { RiskReconciliationService } from './risk-reconciliation.service';
+import { UserPositionLimitController } from './user-position-limit.controller';
+import { PositionLimitService } from '../risk/position-limit.service';
+import { CustomerExposureService } from './customer-exposure.service';
 
 /**
  * Part 16 — Institutional Risk Management Module
@@ -38,7 +42,13 @@ import { RiskReconciliationService } from './risk-reconciliation.service';
  */
 
 @Module({
-  controllers: [RiskManagementController],
+  controllers: [
+    RiskManagementController,
+    // Self-service user-wide position/open-order ceilings. The controller existed and was
+    // decorated for permissions, but was never listed here, so no route was mounted and a
+    // customer's configured limit was unreachable.
+    UserPositionLimitController,
+  ],
   providers: [
     InstitutionalRiskPolicyService,
     PortfolioExposureService,
@@ -50,6 +60,12 @@ import { RiskReconciliationService } from './risk-reconciliation.service';
     DrawdownRiskService,
     DailyLossLimitService,
     LeverageRiskService,
+    // `LeveragePolicyService` decides the effective leverage ceiling from the
+    // platform floor, the venue maximum and the tenant policy. It was written
+    // with a spec and injected nowhere until `RiskManagementController` gained
+    // the route that reads it; without this line the API cannot boot, which is
+    // what `npm run check:api-di` reports.
+    LeveragePolicyService,
     CorrelationRiskService,
     VarRiskService,
     StressTestService,
@@ -59,6 +75,13 @@ import { RiskReconciliationService } from './risk-reconciliation.service';
     KillSwitchOrchestratorService,
     RiskDecisionService,
     RiskReconciliationService,
+    // The one implementation of the user position/open-order ceiling. Provided here and
+    // exported so the order path reserves through the same service the settings route
+    // writes to - a second instance would mean two locks for one policy.
+    PositionLimitService,
+    // Owner-scoped customer exposure. It was implemented and unit-tested and in no module, so the
+    // two routes below had nothing to inject.
+    CustomerExposureService,
   ],
   exports: [
     InstitutionalRiskPolicyService,
@@ -80,6 +103,8 @@ import { RiskReconciliationService } from './risk-reconciliation.service';
     KillSwitchOrchestratorService,
     RiskDecisionService,
     RiskReconciliationService,
+    PositionLimitService,
+    CustomerExposureService,
   ],
 })
 export class RiskManagementModule {}

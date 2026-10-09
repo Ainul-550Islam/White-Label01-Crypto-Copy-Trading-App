@@ -4,6 +4,10 @@ import { TraderStrategyService } from './trader-strategy.service';
 import { FollowerSubscriptionService } from './follower-subscription.service';
 import { CopyExecutionService } from './copy-execution.service';
 import { CopyPolicyService } from './copy-policy.service';
+import {
+  toTraderProfileListingView,
+  toTraderProfilePublicView,
+} from './trader-profile.public-view';
 import { TraderPerformanceService } from './trader-performance.service';
 import { TraderRankingService } from './trader-ranking.service';
 import { CopyReconciliationService } from './copy-reconciliation.service';
@@ -108,8 +112,14 @@ export class CopyTradingController {
   @RequirePermissions(Permission.STRATEGY_READ)
   async getTraderProfile(@Request() req: any, @Param('traderId') traderId: string) {
     const { tenantId, userId, roles } = this.getContext(req);
-    // Safe public stats - no fake profit/ROI
-    return this.assertTraderVisible(tenantId, traderId, userId, roles);
+    const profile = await this.assertTraderVisible(tenantId, traderId, userId, roles);
+
+    // The visibility check above proves the caller may see this profile; this projection decides
+    // what they may see of it. Returning the record itself would publish the owner's user id, the
+    // tenant id and the platform's internal risk assessment to every tenant member who opened the
+    // page, and `viewerIsOwner` is derived from the token rather than from any request field.
+    const metrics = await this.traderProfileService.getSafePublicStatistics(tenantId, traderId);
+    return toTraderProfilePublicView({ profile, viewerUserId: userId, metrics });
   }
 
   @Put('traders/:traderId/profile')
@@ -127,7 +137,11 @@ export class CopyTradingController {
   async listTraders(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
     const filters = { verificationState: query.verificationState as TraderVerificationState, isFeatured: query.isFeatured ? query.isFeatured === 'true' : undefined, search: query.search, page: pageParam(query.page), limit: limitParam(query.limit, 20) };
-    return this.traderProfileService.listPublicProfiles(tenantId, filters);
+    const { data, total } = await this.traderProfileService.listPublicProfiles(tenantId, filters);
+    // Projected per entry: a public listing is read by anyone in the tenant, so each row is reduced
+    // to the public shape rather than serialized as stored. Metrics are not fetched here - a list
+    // view that resolved statistics per row would be one query per trader on a paged route.
+    return { data: data.map((profile) => toTraderProfileListingView(profile)), total };
   }
 
   @Post('traders/:traderId/verify')
@@ -436,7 +450,11 @@ export class CopyTradingController {
   @RequirePermissions(Permission.STRATEGY_READ)
   async getRankings(@Request() req: any, @Query() query: any) {
     const { tenantId } = this.getContext(req);
-    return this.traderRankingService.getRanking(tenantId, { verificationState: query.verificationState, isFeatured: query.isFeatured ? query.isFeatured === 'true' : undefined, search: query.search, page: pageParam(query.page), limit: limitParam(query.limit, 20), sortBy: query.sortBy });
+    // `timeframe` is forwarded. The service accepted it, defaulted it, and reported it back in the
+    // response's methodology - but the route never passed it on, so the ranking window was either
+    // the default or whatever an unrecognised value happened to fall back to, and the response's
+    // own `timeframe` field described a window the caller had not asked for.
+    return this.traderRankingService.getRanking(tenantId, { verificationState: query.verificationState, isFeatured: query.isFeatured ? query.isFeatured === 'true' : undefined, search: query.search, page: pageParam(query.page), limit: limitParam(query.limit, 20), sortBy: query.sortBy, timeframe: query.timeframe });
   }
 
   @Get('rankings/featured')

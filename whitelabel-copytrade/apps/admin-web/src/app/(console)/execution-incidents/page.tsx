@@ -1,4 +1,5 @@
 // # NEW — Admin console route for execution incidents and stuck orders
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
 import { serverFetch } from '@/lib/server-api';
@@ -7,7 +8,7 @@ import {
   ExecutionIncidentTable,
   type ExecutionIncidentRow,
   type ExecutionKillSwitchItem,
-} from '@/modules/execution/execution-incident-table';
+} from '@/features/execution/execution-incident-table';
 
 export const dynamic = 'force-dynamic';
 

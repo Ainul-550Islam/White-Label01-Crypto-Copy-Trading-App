@@ -8,9 +8,7 @@ const nextConfig = {
   // The admin console is a first-party app; transpile the workspace packages
   // rather than publishing build artefacts for them.
   transpilePackages: ['@wlct/shared-types', '@wlct/validation'],
-  experimental: {
-    typedRoutes: false,
-  },
+  typedRoutes: false,
   async headers() {
     return [
       {

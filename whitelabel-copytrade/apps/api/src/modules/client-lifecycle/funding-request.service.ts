@@ -1,6 +1,7 @@
 // # Integrates deposit address provisioning and deposit status transitions
-import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { ClientPolicyService } from './client-policy.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
 import { AccountRestrictionService } from './account-restriction.service';
@@ -21,6 +22,7 @@ export class FundingRequestService {
     private readonly policyService: ClientPolicyService,
     private readonly auditService: LifecycleAuditService,
     private readonly restrictionService: AccountRestrictionService,
+    @Optional() private readonly outbox?: OutboxService,
   ) {}
 
   async createFundingRequest(params: {
@@ -79,29 +81,48 @@ export class FundingRequestService {
       externalRef: externalReference ?? `${requestedAmount}:${currency}:${Date.now()}`,
     });
 
-    try {
-      const existing = await (this.prisma as any).fundingRequest.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing funding request without its funding.requested event');
+    }
+    const fundingRequest = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const store = tx as any;
+      const existing = await store.fundingRequest.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log({ event: 'client.funding.idempotent_hit', idempotencyKey });
         return existing;
       }
-    } catch {}
-
-    const fundingRequest = await (this.prisma as any).fundingRequest.create({
-      data: {
+      const created = await store.fundingRequest.create({
+        data: {
+          tenantId,
+          accountId,
+          clientProfileId: clientProfileId ?? account.clientProfileId ?? null,
+          state: 'REQUESTED',
+          requestedAmount,
+          currency,
+          externalReference: externalReference ?? null,
+          sourceType: sourceType ?? null,
+          requestedBy: requestedBy ?? null,
+          idempotencyKey,
+          metadata,
+          requestedAt: new Date(),
+        },
+      });
+      await this.outbox!.append(tx, {
         tenantId,
-        accountId,
-        clientProfileId: clientProfileId ?? account.clientProfileId ?? null,
-        state: 'REQUESTED',
-        requestedAmount,
-        currency,
-        externalReference: externalReference ?? null,
-        sourceType: sourceType ?? null,
-        requestedBy: requestedBy ?? null,
-        idempotencyKey,
-        metadata,
-        requestedAt: new Date(),
-      },
+        aggregateType: 'funding_request',
+        aggregateId: created.id,
+        eventType: 'funding.requested',
+        idempotencyKey: `funding-request:${created.id}:requested`,
+        correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+        occurredAt: created.requestedAt,
+        payload: {
+          fundingRequestId: created.id,
+          amount: created.requestedAmount,
+          currency: created.currency,
+          status: created.state,
+        },
+      });
+      return created;
     });
 
     await this.auditService.log({
@@ -168,21 +189,49 @@ export class FundingRequestService {
       throw new BadRequestException('Failed request cannot be directly transitioned to CONFIRMED — requires reversal and new request');
     }
 
-    const updated = await (this.prisma as any).fundingRequest.update({
-      where: { id: fundingRequestId },
-      data: {
-        state: toState as any,
-        ...(approvedAmount ? { approvedAmount } : {}),
-        ...(submittedAmount ? { submittedAmount } : {}),
-        ...(confirmedAmount ? { confirmedAmount } : {}),
-        ...(settledAmount ? { settledAmount } : {}),
-        ...(externalReference ? { externalReference } : {}),
-        ...(toState === FundingRequestState.APPROVED ? { approvedAt: new Date(), approvedBy: operatorId } : {}),
-        ...(toState === FundingRequestState.SUBMITTED ? { submittedAt: new Date() } : {}),
-        ...(toState === FundingRequestState.CONFIRMED ? { confirmedAt: new Date() } : {}),
-        ...(toState === FundingRequestState.FAILED ? { failedAt: new Date(), failureReason: reason } : {}),
-        ...(toState === FundingRequestState.REVERSED ? { reversalReason: reason } : {}),
-      },
+    if (toState === FundingRequestState.CONFIRMED && !this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing funding confirmation without its funding.confirmed event');
+    }
+    const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const store = tx as any;
+      const current = await store.fundingRequest.findFirst({ where: { id: fundingRequestId, tenantId } });
+      if (!current || current.state !== currentState) {
+        throw new BadRequestException('Funding request changed during transition; reload and retry');
+      }
+      const changed = await store.fundingRequest.update({
+        where: { id: fundingRequestId },
+        data: {
+          state: toState as any,
+          ...(approvedAmount ? { approvedAmount } : {}),
+          ...(submittedAmount ? { submittedAmount } : {}),
+          ...(confirmedAmount ? { confirmedAmount } : {}),
+          ...(settledAmount ? { settledAmount } : {}),
+          ...(externalReference ? { externalReference } : {}),
+          ...(toState === FundingRequestState.APPROVED ? { approvedAt: new Date(), approvedBy: operatorId } : {}),
+          ...(toState === FundingRequestState.SUBMITTED ? { submittedAt: new Date() } : {}),
+          ...(toState === FundingRequestState.CONFIRMED ? { confirmedAt: new Date() } : {}),
+          ...(toState === FundingRequestState.FAILED ? { failedAt: new Date(), failureReason: reason } : {}),
+          ...(toState === FundingRequestState.REVERSED ? { reversalReason: reason } : {}),
+        },
+      });
+      if (toState === FundingRequestState.CONFIRMED) {
+        await this.outbox!.append(tx, {
+          tenantId,
+          aggregateType: 'funding_request',
+          aggregateId: changed.id,
+          eventType: 'funding.confirmed',
+          idempotencyKey: `funding-request:${changed.id}:confirmed`,
+          correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+          occurredAt: changed.confirmedAt ?? changed.updatedAt,
+          payload: {
+            fundingRequestId: changed.id,
+            amount: changed.confirmedAmount,
+            currency: changed.currency,
+            status: changed.state,
+          },
+        });
+      }
+      return changed;
     });
 
     await this.auditService.log({

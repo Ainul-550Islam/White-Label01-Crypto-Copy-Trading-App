@@ -1,4 +1,6 @@
 "use client";
+
+import type { JSX } from 'react';
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { billingApi } from "@/api/billing-api";

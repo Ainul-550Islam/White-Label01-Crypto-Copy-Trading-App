@@ -66,6 +66,14 @@ TOKEN: Final[re.Pattern[str]] = re.compile(
     r"[`'\"]((?:[A-Za-z0-9_.\-]+/)*[A-Za-z0-9_.\-]+\.(?:" + ARTEFACT_SUFFIXES + r"))[`'\"]"
 )
 
+#: A member expression on the receiver - ``this.prisma`` - is not a claim about a file. It needs
+#: excluding because a client property can share its name with an artefact suffix (``.prisma`` is a
+#: database schema here, and ``.ts`` a TypeScript module), so a backticked property read looks
+#: exactly like a path. The exclusion is deliberately one shape wide - the receiver must be the
+#: literal ``this`` - and ``test_the_reference_check_still_reports_a_named_file_that_is_absent``
+#: keeps the check biting, so this cannot become a hole that hides a missing artefact.
+RECEIVER_MEMBER: Final[re.Pattern[str]] = re.compile(r"^this\.")
+
 #: Placeholders, globs, URLs and ellipses are not claims about one named file.
 UNRESOLVABLE: Final[tuple[str, ...]] = ("*", "...", "<", ">", "$", "{", "}", "|", "://", "::")
 
@@ -253,6 +261,8 @@ def claims_in(path: Path, text: str) -> list[tuple[int, str]]:
                     continue
                 if Path(token).name.startswith("."):
                     continue
+                if RECEIVER_MEMBER.match(token):
+                    continue
                 seen.add(token)
                 out.append((lineno, token))
     return out
@@ -309,3 +319,45 @@ def test_the_rls_directory_stays_reproducible_from_the_one_generator() -> None:
         first = sql.read_text(encoding="utf-8").splitlines()[0]
         assert "gen_part11_rls.py" in first, f"{sql.name} sits in a generated directory without the banner"
         assert f'"{sql.name}"' in generator, f"{sql.name} is not written by the generator that owns the directory"
+
+
+def _probe(name: str, text: str):
+    """A throwaway file inside the tree, because the checker resolves paths relative to it.
+
+    Yields the path; the file is removed afterwards whether the test passed or not.
+    """
+    probe_dir = REPO / "tests" / ".probe-artefacts"
+    probe_dir.mkdir(exist_ok=True)
+    probe = probe_dir / name
+    probe.write_text(text, encoding="utf-8")
+    try:
+        yield probe
+    finally:
+        probe.unlink(missing_ok=True)
+        if not any(probe_dir.iterdir()):
+            probe_dir.rmdir()
+
+
+def test_a_member_expression_is_not_a_path_claim() -> None:
+    """`this.prisma` is a property read, not a file.
+
+    The comment that produced this test is real (apps/api/src/modules/oms/order-intent.service.ts
+    explains that a write on the Prisma client would commit outside the advisory lock). It was
+    reported as a missing file only because `.prisma` is an artefact suffix in this repository.
+    """
+    text = "// a write on `this.prisma` would commit outside the lock\n"
+    for probe in _probe("member.ts", text):
+        assert claims_in(probe, text) == []
+
+
+def test_the_reference_check_still_reports_a_named_file_that_is_absent() -> None:
+    """The narrow exclusion above must not have opened a hole.
+
+    This is the guard on the fix: a comment naming a document that is not in the tree is still a
+    finding, and the token is still unresolvable.
+    """
+    missing = "docs/NO_SUCH_ARTEFACT_1234.md"
+    assert not resolves(missing, all_tree_paths())
+    text = f"// the procedure lives in `{missing}`\n"
+    for probe in _probe("absent.ts", text):
+        assert missing in [token for _, token in claims_in(probe, text)]

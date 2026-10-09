@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { JOB_NAMES, QUEUE_NAMES } from '@wlct/config';
 import { AuditAction, AuditActorType, AuditOutcome } from '@wlct/shared-types';
@@ -6,6 +7,7 @@ import { sanitiseForLog } from '@wlct/utils';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { AuditService } from '../audit/audit.service';
 import { QueueService } from '../queue/queue.service';
 import {
@@ -91,6 +93,7 @@ export class RiskProtectionService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly queue: QueueService,
+    private readonly outbox: OutboxService,
     @InjectPinoLogger(RiskProtectionService.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -130,47 +133,63 @@ export class RiskProtectionService {
     }
     await this.validateTargetOwnership(tenantId, dto.scope, target);
 
-    const existing = await this.prisma.killSwitch.findFirst({
-      where: { tenantId, scope: dto.scope, target },
-      select: RiskProtectionService.SWITCH_SELECT,
-    });
-    if (existing && existing.isEngaged) {
-      throw new ConflictException('This kill switch is already engaged.');
-    }
-    // Re-engaging is allowed from any NOT-engaged status (INACTIVE, CLEARED)
-    // - the transition table governs releases of engaged switches, and the
-    // Python state machine behaves the same way. An engaged TRIGGERED switch
-    // was refused above, so "engage" can never double-pull a live halt.
-
+    // Re-engaging is allowed from any NOT-engaged status (INACTIVE, CLEARED).
+    // The state transition and durable event are one tenant-RLS commit.
     const now = new Date();
-    const saved = existing
-      ? await this.prisma.killSwitch.update({
-          where: { id: existing.id },
-          data: {
-            isEngaged: true,
-            status: 'ACTIVE',
-            reason: sanitiseForLog(dto.reason, 500),
-            engagedByUserId: actor.userId,
-            engagedAt: now,
-            requiresExplicitClear: false,
-            triggeredByRule: null,
-            severity: null,
-          },
-          select: RiskProtectionService.SWITCH_SELECT,
-        })
-      : await this.prisma.killSwitch.create({
-          data: {
-            tenantId,
-            scope: dto.scope,
-            target,
-            isEngaged: true,
-            status: 'ACTIVE',
-            reason: sanitiseForLog(dto.reason, 500),
-            engagedByUserId: actor.userId,
-            engagedAt: now,
-          },
-          select: RiskProtectionService.SWITCH_SELECT,
-        });
+    const transitionEventId = randomUUID();
+    const result = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const existing = await tx.killSwitch.findFirst({
+        where: { tenantId, scope: dto.scope, target },
+        select: RiskProtectionService.SWITCH_SELECT,
+      });
+      if (existing?.isEngaged) {
+        throw new ConflictException('This kill switch is already engaged.');
+      }
+      const saved = existing
+        ? await tx.killSwitch.update({
+            where: { id: existing.id },
+            data: {
+              isEngaged: true,
+              status: 'ACTIVE',
+              reason: sanitiseForLog(dto.reason, 500),
+              engagedByUserId: actor.userId,
+              engagedAt: now,
+              requiresExplicitClear: false,
+              triggeredByRule: null,
+              severity: null,
+            },
+            select: RiskProtectionService.SWITCH_SELECT,
+          })
+        : await tx.killSwitch.create({
+            data: {
+              tenantId,
+              scope: dto.scope,
+              target,
+              isEngaged: true,
+              status: 'ACTIVE',
+              reason: sanitiseForLog(dto.reason, 500),
+              engagedByUserId: actor.userId,
+              engagedAt: now,
+            },
+            select: RiskProtectionService.SWITCH_SELECT,
+          });
+      await this.outbox.append(tx, {
+        tenantId,
+        aggregateType: 'kill_switch',
+        aggregateId: saved.id,
+        eventType: 'kill_switch.activated',
+        idempotencyKey: `kill-switch:${saved.id}:activated:${transitionEventId}`,
+        payload: {
+          killSwitchId: saved.id,
+          scope: saved.scope,
+          target: saved.target,
+          isEngaged: true,
+          activatedAt: now.toISOString(),
+        },
+      });
+      return { saved, wasEngaged: existing?.isEngaged ?? false };
+    });
+    const { saved } = result;
 
     await this.audit.recordImmediate({
       tenantId,
@@ -181,7 +200,7 @@ export class RiskProtectionService {
       resourceType: 'kill_switch',
       resourceId: saved.id,
       description: sanitiseForLog(dto.reason, 500),
-      changes: { isEngaged: { before: existing?.isEngaged ?? false, after: true } },
+      changes: { isEngaged: { before: result.wasEngaged, after: true } },
       metadata: { scope: dto.scope, target, surface: 'risk-console' },
       requestId: actor.requestId ?? null,
     });
@@ -288,47 +307,70 @@ export class RiskProtectionService {
       throw new ConflictException(`Transition ${from} -> ${to} is refused by the lifecycle table.`);
     }
     const now = new Date();
-    const saved = await this.prisma.killSwitch.update({
-      where: { id: row.id },
-      data: {
-        isEngaged: false,
-        status: to,
-        clearedByUserId: actor.userId,
-        clearedAt: now,
-        clearedReason: sanitiseForLog(dto.reason, 500),
-        reason: sanitiseForLog(dto.reason, 500),
-      },
-      select: RiskProtectionService.SWITCH_SELECT,
-    });
-
-    if (row.requiresExplicitClear || row.status !== 'ACTIVE') {
-      // Close the protection trip record(s) this switch was backing.
-      await this.prisma.riskProtectionTrip.updateMany({
-        where: {
-          tenantId,
-          status: 'ACTIVE',
-          // A RISK-scoped switch (`account:<id>`) has no RiskLimitScope
-          // counterpart; it closes the trips recorded against that account.
-          // Other scopes match on (scope, target) directly.
-          ...(row.scope === 'RISK'
-            ? {
-                accountId: String(row.target ?? '').startsWith('account:')
-                  ? String(row.target).slice('account:'.length)
-                  : String(row.target ?? ''),
-              }
-            : {
-                scope: row.scope as 'GLOBAL' | 'EXCHANGE' | 'ACCOUNT' | 'STRATEGY' | 'SYMBOL',
-                target: String(row.target ?? ''),
-              }),
-        },
+    const transitionEventId = randomUUID();
+    const saved = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const current = await tx.killSwitch.findFirst({
+        where: { id: row.id, tenantId },
+        select: RiskProtectionService.SWITCH_SELECT,
+      });
+      if (!current || !current.isEngaged || current.status !== from) {
+        throw new ConflictException('Kill-switch state changed concurrently; reload and retry.');
+      }
+      const updated = await tx.killSwitch.update({
+        where: { id: current.id },
         data: {
-          status: 'CLEARED',
+          isEngaged: false,
+          status: to,
           clearedByUserId: actor.userId,
           clearedAt: now,
           clearedReason: sanitiseForLog(dto.reason, 500),
+          reason: sanitiseForLog(dto.reason, 500),
+        },
+        select: RiskProtectionService.SWITCH_SELECT,
+      });
+
+      if (current.requiresExplicitClear || current.status !== 'ACTIVE') {
+        // Close the protection trip record(s) this switch was backing.
+        await tx.riskProtectionTrip.updateMany({
+          where: {
+            tenantId,
+            status: 'ACTIVE',
+            ...(current.scope === 'RISK'
+              ? {
+                  accountId: String(current.target ?? '').startsWith('account:')
+                    ? String(current.target).slice('account:'.length)
+                    : String(current.target ?? ''),
+                }
+              : {
+                  scope: current.scope as 'GLOBAL' | 'EXCHANGE' | 'ACCOUNT' | 'STRATEGY' | 'SYMBOL',
+                  target: String(current.target ?? ''),
+                }),
+          },
+          data: {
+            status: 'CLEARED',
+            clearedByUserId: actor.userId,
+            clearedAt: now,
+            clearedReason: sanitiseForLog(dto.reason, 500),
+          },
+        });
+      }
+
+      await this.outbox.append(tx, {
+        tenantId,
+        aggregateType: 'kill_switch',
+        aggregateId: current.id,
+        eventType: 'kill_switch.released',
+        idempotencyKey: `kill-switch:${current.id}:released:${transitionEventId}`,
+        payload: {
+          killSwitchId: current.id,
+          scope: current.scope,
+          target: current.target,
+          isEngaged: false,
+          releasedAt: now.toISOString(),
         },
       });
-    }
+      return updated;
+    });
 
     await this.audit.recordImmediate({
       tenantId,

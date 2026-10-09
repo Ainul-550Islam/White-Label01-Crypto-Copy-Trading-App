@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { useAuth } from '@/auth/auth.store';
 import { useTenant } from '@/tenant/tenant-context';

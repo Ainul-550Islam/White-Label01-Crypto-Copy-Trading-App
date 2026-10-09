@@ -5,6 +5,10 @@
 
 export const runtimeConfig = {
   appName: process.env.NEXT_PUBLIC_APP_NAME ?? 'Copy Trading',
+  // Absolute public origin of this deployment, used by robots.txt and sitemap.xml. Blank by
+  // default so the crawler policy resolves one from the platform domain - or refuses to be
+  // indexed when that domain names a bare machine.
+  siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? '',
   apiVersion: process.env.NEXT_PUBLIC_API_VERSION ?? 'v1',
   wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? '',
   wsPath: process.env.NEXT_PUBLIC_WS_PATH ?? '/socket.io',

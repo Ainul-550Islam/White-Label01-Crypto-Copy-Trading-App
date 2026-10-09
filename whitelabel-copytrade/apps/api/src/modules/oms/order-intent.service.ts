@@ -1,8 +1,10 @@
 // # Validates order intent against symbol trading rules and account balance
-import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { RiskDecisionService } from '../risk-management/risk-decision.service';
 import { OrderIntentState, isValidDecimal, parseScaled } from './oms.types';
+import { PositionLimitService } from '../risk/position-limit.service';
 import { randomUUID } from 'crypto';
 
 /**
@@ -21,7 +23,42 @@ export class OrderIntentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly riskDecisionService: RiskDecisionService,
+    // Every intent is reserved under the user's own concurrent-position and open-order ceilings.
+    // This reaches the canonical limiter rather than a copy of it, so the count a customer reads
+    // from their settings page is the count this path enforces.
+    private readonly positionLimitService: PositionLimitService,
+    @Optional() private readonly outbox?: OutboxService,
   ) {}
+
+  private async appendOrderCreated(tx: any, created: any, input: {
+    tenantId: string;
+    symbol: string;
+    side: string;
+    quantity: string;
+    price?: string | null;
+    correlationId?: string | null;
+  }): Promise<void> {
+    if (!this.outbox) {
+      throw new Error('Transactional outbox is unavailable; refusing order intent without its order.created event');
+    }
+    await this.outbox.append(tx, {
+      tenantId: input.tenantId,
+      aggregateType: 'order',
+      aggregateId: created.id,
+      eventType: 'order.created',
+      idempotencyKey: `order:${created.id}:created`,
+      correlationId: input.correlationId && input.correlationId.length <= 64 ? input.correlationId : null,
+      occurredAt: created.createdAt ?? new Date(),
+      payload: {
+        orderId: created.id,
+        status: 'CREATED',
+        symbol: input.symbol,
+        side: input.side,
+        quantity: input.quantity,
+        price: input.price ?? null,
+      },
+    });
+  }
 
   private async validateAccountOwnership(params: { tenantId: string; accountId: string; userId?: string | null }) {
     const account = await this.prisma.tradingAccount.findFirst({
@@ -257,70 +294,97 @@ export class OrderIntentService {
       metadata: { strategyId, traderId, followerId, subscriptionId, environment, signalId },
     };
 
-    // Persist as OmsOrderIntent if model exists, else fallback to Order with metadata
-    try {
-      const created = await (this.prisma as any).omsOrderIntent.create({
-        data: {
-          tenantId,
-          accountId,
-          strategyId: strategyId ?? undefined,
-          traderId: traderId ?? undefined,
-          followerId: followerId ?? undefined,
-          subscriptionId: subscriptionId ?? undefined,
-          symbol,
-          venue: exchange.venue,
-          side,
-          orderType,
-          timeInForce: timeInForce ?? 'GTC',
-          quantity,
-          price: price ?? undefined,
-          stopPrice: stopPrice ?? undefined,
-          reduceOnly: reduceOnly ?? false,
-          environment,
-          state: OrderIntentState.CREATED,
-          clientOrderId,
-          signalId: signalId ?? undefined,
-          riskDecisionId,
-          riskPolicyVersion: riskPolicyVersion ?? undefined,
-          correlationId: correlationId ?? undefined,
-          requestId: requestId ?? undefined,
-          source,
-          metadata: { ...safeProducerMetadata, transitions: [transition], symbolId: symbolRecord.id },
-          filledQuantity: '0',
-          cumulativeFee: '0',
-          isSimulated: environment === 'PAPER',
-          wasDryRun: false,
-        },
-      });
-      this.logger.log(`OMS intent ${created.id} CREATED tenant ${tenantId} symbol ${symbol} qty ${quantity}`);
-      return created;
-    } catch (e) {
-      // Fallback if OmsOrderIntent model not yet migrated — use Order table as intent holder with special metadata
-      this.logger.warn(`OmsOrderIntent model missing, falling back to Order table: ${(e as Error).message}`);
-      const created = await this.prisma.order.create({
-        data: {
-          tenantId,
-          accountId,
-          strategyId: strategyId ?? undefined,
-          symbolId: symbolRecord.id,
-          clientOrderId,
-          venue: exchange.venue,
-          symbol,
-          side: side as any,
-          orderType: orderType as any,
-          timeInForce: (timeInForce as any) ?? 'GTC',
-          status: 'PENDING' as any,
-          quantity: quantity as any,
-          price: price as any,
-          stopPrice: stopPrice as any,
-          reduceOnly: reduceOnly ?? false,
-          isSimulated: environment === 'PAPER',
-          wasDryRun: false,
-          metadata: { ...safeProducerMetadata, omsIntent: true, transitions: [transition], source, correlationId, riskDecisionId, environment, signalId } as any,
-        },
-      });
-      return created;
-    }
+    // The ceiling check and the write are one atomic unit: the limiter takes the per-user
+    // advisory lock, measures canonical active reservations, and only then runs this callback.
+    // The callback must write through the supplied client - a write on `this.prisma` would commit
+    // outside the lock, and two intents racing would both observe the pre-insert count and pass a
+    // ceiling they jointly exceed.
+    return this.positionLimitService.persistOrderIntentWithLimits({
+      tenantId,
+      accountId,
+      symbol,
+      persist: async (tx) => {
+        // The write is wrapped in a savepoint because it has a fallback. A failed statement aborts
+        // the surrounding transaction in PostgreSQL, so without the savepoint the fallback insert
+        // would run inside an aborted transaction and fail too - the fallback would look defensive
+        // and be unreachable. Rolling back to the savepoint restores the transaction to a usable
+        // state first.
+        await (tx as any).$executeRaw`SAVEPOINT oms_order_intent_persist`;
+        // Persist as OmsOrderIntent if model exists, else fallback to Order with metadata
+        try {
+          const created = await (tx as any).omsOrderIntent.create({
+            data: {
+              tenantId,
+              accountId,
+              strategyId: strategyId ?? undefined,
+              traderId: traderId ?? undefined,
+              followerId: followerId ?? undefined,
+              subscriptionId: subscriptionId ?? undefined,
+              symbol,
+              venue: exchange.venue,
+              side,
+              orderType,
+              timeInForce: timeInForce ?? 'GTC',
+              quantity,
+              price: price ?? undefined,
+              stopPrice: stopPrice ?? undefined,
+              reduceOnly: reduceOnly ?? false,
+              environment,
+              state: OrderIntentState.CREATED,
+              clientOrderId,
+              signalId: signalId ?? undefined,
+              riskDecisionId,
+              riskPolicyVersion: riskPolicyVersion ?? undefined,
+              correlationId: correlationId ?? undefined,
+              requestId: requestId ?? undefined,
+              source,
+              metadata: { ...safeProducerMetadata, transitions: [transition], symbolId: symbolRecord.id },
+              filledQuantity: '0',
+              cumulativeFee: '0',
+              isSimulated: environment === 'PAPER',
+              wasDryRun: false,
+            },
+          });
+          await this.appendOrderCreated(tx, created, { tenantId, symbol, side, quantity, price, correlationId });
+          await (tx as any).$executeRaw`RELEASE SAVEPOINT oms_order_intent_persist`;
+          this.logger.log(`OMS intent ${created.id} CREATED tenant ${tenantId} symbol ${symbol} qty ${quantity}`);
+          return created;
+        } catch (e) {
+          await (tx as any).$executeRaw`ROLLBACK TO SAVEPOINT oms_order_intent_persist`;
+          const error = e as { code?: string; meta?: { modelName?: string }; message?: string };
+          const missingIntentModel = !(tx as any).omsOrderIntent?.create ||
+            ((error.code === 'P2021' || error.code === 'P2022') && error.meta?.modelName === 'OmsOrderIntent');
+          if (!missingIntentModel) throw e;
+          // Fallback only when the OmsOrderIntent model/table is unavailable; event validation and
+          // outbox failures must never be mistaken for a persistence-model migration gap.
+          this.logger.warn(`OmsOrderIntent model missing, falling back to Order table: ${error.message ?? 'model unavailable'}`);
+          const created = await (tx as any).order.create({
+            data: {
+              tenantId,
+              accountId,
+              strategyId: strategyId ?? undefined,
+              symbolId: symbolRecord.id,
+              clientOrderId,
+              venue: exchange.venue,
+              symbol,
+              side: side as any,
+              orderType: orderType as any,
+              timeInForce: (timeInForce as any) ?? 'GTC',
+              status: 'PENDING' as any,
+              quantity: quantity as any,
+              price: price as any,
+              stopPrice: stopPrice as any,
+              reduceOnly: reduceOnly ?? false,
+              isSimulated: environment === 'PAPER',
+              wasDryRun: false,
+              metadata: { ...safeProducerMetadata, omsIntent: true, transitions: [transition], source, correlationId, riskDecisionId, environment, signalId } as any,
+            },
+          });
+          await this.appendOrderCreated(tx, created, { tenantId, symbol, side, quantity, price, correlationId });
+          return created;
+        }
+      },
+    });
   }
 
   async getIntent(tenantId: string, intentId: string) {

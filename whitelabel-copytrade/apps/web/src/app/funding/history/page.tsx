@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { AuthGuard } from '@/auth/auth.guard';
 import { TransactionHistory } from '@/features/funding/transaction-history';
 import { AppShell } from '@/layout/app-shell';

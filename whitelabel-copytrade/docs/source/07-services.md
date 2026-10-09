@@ -2,7 +2,7 @@
 
 The Python trading-engine, market-data and execution-engine services, the low-latency gateway, and the TypeScript notification worker. The execution engine runs simulated only; live mode is refused by code.
 
-149 files. Part of the complete source dump - see `docs/source/README.md`.
+152 files. Part of the complete source dump - see `docs/source/README.md`.
 
 ---
 
@@ -330,13 +330,13 @@ from wlct_trading.risk import RiskEngine, RiskLimits
 
 from app.config import Settings
 from app.credential_registry import CredentialRegistryWiring, build_credential_registry
-from app.credentials import CredentialWiring, build_credential_provider
+from app.exchanges.credentials import CredentialWiring, build_credential_provider
 from app.distributed_locks import (
     DistributedLockConfig,
     DistributedLockWiring,
     build_distributed_lock_manager,
 )
-from app.placement import PlacementWiring, build_placement_reviewer
+from app.orders.placement import PlacementWiring, build_placement_reviewer
 from app.venue_attestation import (
     VenueAttestationConfig,
     VenueAttestationError,
@@ -867,7 +867,7 @@ def build_runtime(
                 "adapter": type(trading).__name__,
                 "dryRun": engine_settings.dry_run,
                 "simulatedMidConfigured": settings.simulated_mid is not None,
-                # Named ``providerSource`` for the same reason ``app.credentials``
+                # Named ``providerSource`` for the same reason ``app.exchanges.credentials``
                 # renamed its boot line: a key containing "credential" is scrubbed from
                 # every log record by the platform's redaction filter, and a boot line
                 # whose interesting field reads [REDACTED] is a boot line nobody can
@@ -935,6 +935,7 @@ def build_runtime(
 FILE: services/execution-engine/app/config.py
 
 ```python
+# Adds secret backend configuration and validation
 """Configuration for the execution engine.
 
 Every value comes from the environment. There are no defaults for secrets:
@@ -974,7 +975,7 @@ from wlct_trading.execution.placement_review import (
 )
 from wlct_trading.retention import RetentionError, RetentionPolicy
 
-from app.secret_fetcher import VaultKvConfig
+from app.security.secret_fetcher import VaultKvConfig
 
 __all__ = ["Settings", "get_settings"]
 
@@ -1195,7 +1196,7 @@ class Settings(BaseSettings):
     #: Which fetcher backs ``EXECUTION_CREDENTIAL_SOURCE=secret-manager``. ``none`` is
     #: the default and keeps every existing deployment byte-identical: the source then
     #: has no reader, and the boot refusal says so. ``vault-kv2`` is this service's own
-    #: implementation over HashiCorp Vault's KV v2 API (see app/secret_fetcher.py); a
+    #: implementation over HashiCorp Vault's KV v2 API (see app/security/secret_fetcher.py); a
     #: deployment on a different KMS injects its own fetcher instead, which is the
     #: choice Part 16 left open and Part 19 deliberately did not close for anybody.
     EXECUTION_CREDENTIAL_FETCHER: Literal["none", "vault-kv2"] = "none"
@@ -1235,7 +1236,7 @@ class Settings(BaseSettings):
     EXECUTION_OPERATOR_CONFIRMATION_FILE: str | None = None
     #: NAME of the environment variable holding the HMAC key that verifies the record.
     #: Env-only, for the same reason as the Vault token, and checked for presence at
-    #: boot by app/placement.py, which is where the verifier is assembled.
+    #: boot by app/orders/placement.py, which is where the verifier is assembled.
     EXECUTION_CONFIRMATION_KEY_ENV: str = "EXECUTION_CONFIRMATION_HMAC_KEY"
 
     @model_validator(mode="after")
@@ -1487,7 +1488,7 @@ class Settings(BaseSettings):
         Deliberately NOT checked here, with the reasons:
 
         * **Presence of the Vault token.** That is the fetcher's boot check, in
-          ``app/credentials.py``, which is also where an injectable ``environ`` lets a
+          ``app/exchanges/credentials.py``, which is also where an injectable ``environ`` lets a
           test prove it. Two places reading the same variable means two opinions about
           whether it is set.
         * **Whether the confirmation has expired.** A deployment whose record lapsed
@@ -1805,7 +1806,7 @@ FILE: services/execution-engine/app/credential_registry.py
 """Credential registry wiring for the execution engine (Part 23).
 
 The credential provider (:mod:`wlct_trading.execution.credentials`, built by
-:mod:`app.credentials`) already refuses to hand out secrets to anything that
+:mod:`app.exchanges.credentials`) already refuses to hand out secrets to anything that
 cannot sign with them. What the registry adds is the *accounting* around that
 provider: lifecycle metadata (when the wiring was built, from which source),
 capability declarations (what this deployment's credential path can and
@@ -1901,9 +1902,186 @@ def build_credential_registry(
     return CredentialRegistryWiring(settings, provider)
 ```
 
-FILE: services/execution-engine/app/credentials.py
+FILE: services/execution-engine/app/distributed_locks.py
 
 ```python
+"""Distributed lock wiring for the execution engine (Part 21).
+
+The core (:mod:`wlct_trading.execution.locks`) ships the lock managers; this
+module is the wiring decision. ``build_distributed_lock_manager`` inspects the
+configuration and either constructs a real Redis-backed manager with fencing
+tokens, or returns an honest in-memory manager for simulated mode. The wiring
+is derived from the objects actually built, not from a configuration flag:
+``is_distributed`` on the constructed manager is the fact live-enablement
+reads, so a deployment that claims distributed locks in settings but never
+builds one is reported as exactly what it is.
+
+Fail-closed rules, in the order they are checked:
+
+1. ``enabled=True`` with no ``redis_url`` is a configuration error, not a
+   silent fallback to memory - an operator who asked for distributed locks and
+   silently got process-local ones would run a live-runtime claim protocol on
+   a lie.
+2. ``fencing_required=True`` (always, from the composition root) is honoured
+   by wrapping the manager in :class:`FencedLockManager`: a lock released by a
+   partitioned holder must not let a stale writer keep writing.
+3. ``enabled=False`` builds memory and says so in ``describe()`` - absence
+   stated, never implied.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import redis.asyncio
+from wlct_trading.execution.locks import (
+    FencedLockManager,
+    InMemoryLockManager,
+    LockManager,
+    RedisLockClient,
+    RedisLockManager,
+)
+
+__all__ = [
+    "DistributedLockConfig",
+    "DistributedLockConfigError",
+    "DistributedLockWiring",
+    "build_distributed_lock_manager",
+]
+
+
+def _build_redis_client(url: str) -> RedisLockClient:
+    """The Redis client the manager locks through, from a redis:// URL.
+
+    ``redis.asyncio.Redis`` satisfies the core's :class:`RedisLockClient`
+    protocol exactly (``set`` with ``nx``/``px``, ``get``, ``eval``), which is
+    why this module - the only place the engine turns a URL into a lock
+    client - is also the only place that imports the driver. Constructed
+    eagerly at wiring time so a bad URL fails at boot, in the same refusal
+    that validated it, rather than at the first contended order.
+    """
+    client: RedisLockClient = redis.asyncio.Redis.from_url(url)
+    return client
+
+
+class DistributedLockConfigError(ValueError):
+    """Raised when the lock configuration cannot be honoured as asked."""
+
+
+@dataclass(frozen=True)
+class DistributedLockConfig:
+    """What the operator asked for, straight from the settings object.
+
+    Every field is the composed value the runtime would have to honour; the
+    builder's job is to make the object that honours it or refuse.
+    """
+
+    enabled: bool
+    redis_url: str
+    lock_ttl_ms: int
+    lock_acquisition_timeout_ms: int
+    lock_renewal_ratio: float
+    instance_id: str
+    fencing_required: bool = True
+
+    def describe(self) -> dict[str, object]:
+        """Configuration without the URL's credentials (there should not be
+        any - the secret-fetching rules ban user:pass authorities - but a
+        describe() that renders URLs verbatim is one misconfig away from a
+        leaked password in /status)."""
+        return {
+            "enabled": self.enabled,
+            "lockTtlMs": self.lock_ttl_ms,
+            "lockAcquisitionTimeoutMs": self.lock_acquisition_timeout_ms,
+            "lockRenewalRatio": self.lock_renewal_ratio,
+            "instanceId": self.instance_id,
+            "fencingRequired": self.fencing_required,
+        }
+
+
+class DistributedLockWiring:
+    """The manager plus the facts /status publishes about it."""
+
+    def __init__(self, manager: LockManager, config: DistributedLockConfig) -> None:
+        self._manager = manager
+        self._config = config
+
+    @property
+    def manager(self) -> LockManager:
+        return self._manager
+
+    @property
+    def is_distributed(self) -> bool:
+        return bool(getattr(self._manager, "is_distributed", False))
+
+    def describe(self) -> dict[str, object]:
+        """The wiring view: what was built, from what, and whether it is
+        actually distributed - derived from the object, not the flag."""
+        manager_type = type(self._manager).__name__
+        return {
+            "distributed": self.is_distributed,
+            "manager": manager_type,
+            "mode": "redis" if self.is_distributed else "memory",
+            "ttlMs": self._config.lock_ttl_ms,
+            "acquisitionTimeoutMs": self._config.lock_acquisition_timeout_ms,
+            "renewalRatio": self._config.lock_renewal_ratio,
+            "instanceId": self._config.instance_id,
+            "fencingRequired": self._config.fencing_required,
+            "fenced": isinstance(self._manager, FencedLockManager),
+        }
+
+
+def build_distributed_lock_manager(
+    config: DistributedLockConfig,
+) -> DistributedLockWiring:
+    """Build the lock manager the configuration names, or refuse.
+
+    ``enabled=True`` with a blank URL refuses here, at the composition root,
+    where the sentence reaches the operator - not at the first lock acquire
+    three days into live trading.
+    """
+    if not isinstance(config, DistributedLockConfig):
+        raise DistributedLockConfigError(
+            "build_distributed_lock_manager requires a DistributedLockConfig"
+        )
+    if not config.enabled:
+        return DistributedLockWiring(InMemoryLockManager(), config)
+
+    url = (config.redis_url or "").strip()
+    if not url:
+        raise DistributedLockConfigError(
+            "EXECUTION_DISTRIBUTED_LOCKS=true requires EXECUTION_REDIS_URL: "
+            "falling back to process-local locks would run the claim protocol "
+            "on a lie, so the composition refuses instead of guessing"
+        )
+    if url.startswith("redis://") is False and url.startswith("rediss://") is False:
+        raise DistributedLockConfigError(
+            "EXECUTION_REDIS_URL must be a redis:// or rediss:// URL; embed no "
+            "credentials in it - authentication belongs to the URL's password "
+            "component supplied by the secret manager, not to a describe()-visible string"
+        )
+
+    manager: LockManager
+    inner = RedisLockManager(_build_redis_client(url))
+    if config.fencing_required:
+        manager = FencedLockManager(inner)
+    else:
+        # The composition root always requires fencing; a future caller that
+        # does not gets the plain manager it asked for, stated in describe().
+        manager = inner
+    return DistributedLockWiring(manager, config)
+```
+
+FILE: services/execution-engine/app/exchanges/__init__.py
+
+```python
+"""Execution-engine exchanges package."""
+```
+
+FILE: services/execution-engine/app/exchanges/credentials.py
+
+```python
+# Resolves KMS/Vault envelope credentials at runtime without caching plaintext to disk
 """The credential seam (Part 16): where key material comes from, and what this
 process is willing to say about it.
 
@@ -1967,7 +2145,7 @@ from wlct_trading.execution.credentials import (
 )
 
 from app.config import Settings
-from app.secret_fetcher import VaultKvConfig, VaultKvSecretFetcher
+from app.security.secret_fetcher import VaultKvConfig, VaultKvSecretFetcher
 
 __all__ = [
     "CREDENTIAL_ENV_SUFFIXES",
@@ -2223,176 +2401,6 @@ def build_credential_provider(
             else "deployment-provided fetcher; per-tenant scoped by (tenant, account)"
         ),
     )
-```
-
-FILE: services/execution-engine/app/distributed_locks.py
-
-```python
-"""Distributed lock wiring for the execution engine (Part 21).
-
-The core (:mod:`wlct_trading.execution.locks`) ships the lock managers; this
-module is the wiring decision. ``build_distributed_lock_manager`` inspects the
-configuration and either constructs a real Redis-backed manager with fencing
-tokens, or returns an honest in-memory manager for simulated mode. The wiring
-is derived from the objects actually built, not from a configuration flag:
-``is_distributed`` on the constructed manager is the fact live-enablement
-reads, so a deployment that claims distributed locks in settings but never
-builds one is reported as exactly what it is.
-
-Fail-closed rules, in the order they are checked:
-
-1. ``enabled=True`` with no ``redis_url`` is a configuration error, not a
-   silent fallback to memory - an operator who asked for distributed locks and
-   silently got process-local ones would run a live-runtime claim protocol on
-   a lie.
-2. ``fencing_required=True`` (always, from the composition root) is honoured
-   by wrapping the manager in :class:`FencedLockManager`: a lock released by a
-   partitioned holder must not let a stale writer keep writing.
-3. ``enabled=False`` builds memory and says so in ``describe()`` - absence
-   stated, never implied.
-"""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-import redis.asyncio
-from wlct_trading.execution.locks import (
-    FencedLockManager,
-    InMemoryLockManager,
-    LockManager,
-    RedisLockClient,
-    RedisLockManager,
-)
-
-__all__ = [
-    "DistributedLockConfig",
-    "DistributedLockConfigError",
-    "DistributedLockWiring",
-    "build_distributed_lock_manager",
-]
-
-
-def _build_redis_client(url: str) -> RedisLockClient:
-    """The Redis client the manager locks through, from a redis:// URL.
-
-    ``redis.asyncio.Redis`` satisfies the core's :class:`RedisLockClient`
-    protocol exactly (``set`` with ``nx``/``px``, ``get``, ``eval``), which is
-    why this module - the only place the engine turns a URL into a lock
-    client - is also the only place that imports the driver. Constructed
-    eagerly at wiring time so a bad URL fails at boot, in the same refusal
-    that validated it, rather than at the first contended order.
-    """
-    client: RedisLockClient = redis.asyncio.Redis.from_url(url)
-    return client
-
-
-class DistributedLockConfigError(ValueError):
-    """Raised when the lock configuration cannot be honoured as asked."""
-
-
-@dataclass(frozen=True)
-class DistributedLockConfig:
-    """What the operator asked for, straight from the settings object.
-
-    Every field is the composed value the runtime would have to honour; the
-    builder's job is to make the object that honours it or refuse.
-    """
-
-    enabled: bool
-    redis_url: str
-    lock_ttl_ms: int
-    lock_acquisition_timeout_ms: int
-    lock_renewal_ratio: float
-    instance_id: str
-    fencing_required: bool = True
-
-    def describe(self) -> dict[str, object]:
-        """Configuration without the URL's credentials (there should not be
-        any - the secret-fetching rules ban user:pass authorities - but a
-        describe() that renders URLs verbatim is one misconfig away from a
-        leaked password in /status)."""
-        return {
-            "enabled": self.enabled,
-            "lockTtlMs": self.lock_ttl_ms,
-            "lockAcquisitionTimeoutMs": self.lock_acquisition_timeout_ms,
-            "lockRenewalRatio": self.lock_renewal_ratio,
-            "instanceId": self.instance_id,
-            "fencingRequired": self.fencing_required,
-        }
-
-
-class DistributedLockWiring:
-    """The manager plus the facts /status publishes about it."""
-
-    def __init__(self, manager: LockManager, config: DistributedLockConfig) -> None:
-        self._manager = manager
-        self._config = config
-
-    @property
-    def manager(self) -> LockManager:
-        return self._manager
-
-    @property
-    def is_distributed(self) -> bool:
-        return bool(getattr(self._manager, "is_distributed", False))
-
-    def describe(self) -> dict[str, object]:
-        """The wiring view: what was built, from what, and whether it is
-        actually distributed - derived from the object, not the flag."""
-        manager_type = type(self._manager).__name__
-        return {
-            "distributed": self.is_distributed,
-            "manager": manager_type,
-            "mode": "redis" if self.is_distributed else "memory",
-            "ttlMs": self._config.lock_ttl_ms,
-            "acquisitionTimeoutMs": self._config.lock_acquisition_timeout_ms,
-            "renewalRatio": self._config.lock_renewal_ratio,
-            "instanceId": self._config.instance_id,
-            "fencingRequired": self._config.fencing_required,
-            "fenced": isinstance(self._manager, FencedLockManager),
-        }
-
-
-def build_distributed_lock_manager(
-    config: DistributedLockConfig,
-) -> DistributedLockWiring:
-    """Build the lock manager the configuration names, or refuse.
-
-    ``enabled=True`` with a blank URL refuses here, at the composition root,
-    where the sentence reaches the operator - not at the first lock acquire
-    three days into live trading.
-    """
-    if not isinstance(config, DistributedLockConfig):
-        raise DistributedLockConfigError(
-            "build_distributed_lock_manager requires a DistributedLockConfig"
-        )
-    if not config.enabled:
-        return DistributedLockWiring(InMemoryLockManager(), config)
-
-    url = (config.redis_url or "").strip()
-    if not url:
-        raise DistributedLockConfigError(
-            "EXECUTION_DISTRIBUTED_LOCKS=true requires EXECUTION_REDIS_URL: "
-            "falling back to process-local locks would run the claim protocol "
-            "on a lie, so the composition refuses instead of guessing"
-        )
-    if url.startswith("redis://") is False and url.startswith("rediss://") is False:
-        raise DistributedLockConfigError(
-            "EXECUTION_REDIS_URL must be a redis:// or rediss:// URL; embed no "
-            "credentials in it - authentication belongs to the URL's password "
-            "component supplied by the secret manager, not to a describe()-visible string"
-        )
-
-    manager: LockManager
-    inner = RedisLockManager(_build_redis_client(url))
-    if config.fencing_required:
-        manager = FencedLockManager(inner)
-    else:
-        # The composition root always requires fencing; a future caller that
-        # does not gets the plain manager it asked for, stated in describe().
-        manager = inner
-    return DistributedLockWiring(manager, config)
 ```
 
 FILE: services/execution-engine/app/incidents_sql.py
@@ -2842,7 +2850,7 @@ from app.routers import (
 from app.routers import (
     observability as observability_router,
 )
-from app.security import REQUEST_ID_HEADER
+from app.security.internal_auth import REQUEST_ID_HEADER
 
 logger = logging.getLogger(__name__)
 
@@ -3326,121 +3334,16 @@ def _truthy(raw: object) -> bool:
     return bool(raw)
 ```
 
-FILE: services/execution-engine/app/pg_store.py
+FILE: services/execution-engine/app/orders/__init__.py
 
 ```python
-"""The one module that imports the driver (Part 13).
-
-The store itself (``app.store_sql``) speaks a two-method protocol and is
-unit-testable without Postgres anywhere in sight. This module is the seam
-between that protocol and ``asyncpg``: pool creation, the schema check that
-keeps "migrations applied" from becoming a runtime discovery, and shutdown.
-Three facts decided here, deliberately:
-
-* **The tables must exist before the first request.** ``to_regclass`` on
-  each engine table; a missing one is a startup refusal naming the
-  migration. An engine that comes up ready and then fails every durable
-  write with ``relation does not exist`` would report its own health as
-  healthy while losing orders - strictly worse than not starting.
-* **The pool is small.** max_size 5: the single-process simulated runtime
-  serves short commands with one store call each; a big pool here just
-  multiplies connections held against the same Postgres the API and the
-  other engines use, and connection pressure on a shared database is an
-  availability problem for everyone.
-* **Connection failure is startup failure.** No retry-with-backoff loop at
-  boot, because the platform's orchestrator (compose restart / k8s
-  backoff) already retries process starts with visibility; a process that
-  sleeps through retries looks alive to a supervisor and answers nothing.
-"""
-
-from __future__ import annotations
-
-import logging
-from typing import Any, Final
-
-import asyncpg
-
-from app.config import Settings
-from app.incidents_sql import TABLE_INCIDENTS
-from app.store_sql import TABLE_EVENTS, TABLE_FILLS, TABLE_ORDERS, PostgresOrderStore
-
-__all__ = ["DURABLE_TABLES", "open_durable_store"]
-
-#: Every table the durable plane needs, checked in one loop at startup. Part 17
-#: added the fourth: an engine that came up ready to serve commands whose orders
-#: would be kept and whose incidents would not is a deployment whose audit trail
-#: silently stops at the last restart, so the incidents table is a STARTUP
-#: requirement here rather than a runtime discovery.
-DURABLE_TABLES: Final[tuple[str, ...]] = (
-    TABLE_ORDERS,
-    TABLE_EVENTS,
-    TABLE_FILLS,
-    TABLE_INCIDENTS,
-)
-
-logger = logging.getLogger(__name__)
-
-#: Driver defaults worth pinning rather than inheriting: a 10s connect
-#: timeout means a dead database is known in ten seconds, not when a
-#: statement's own timeout finally fires mid-command.
-_CONNECT_TIMEOUT_SECONDS = 10.0
-
-
-async def open_durable_store(
-    settings: Settings,
-) -> tuple[Any, PostgresOrderStore]:
-    """Create the pool, verify the schema, return (pool, store).
-
-    Returns the pool as well because the lifespan owns its shutdown; the
-    store must never be the only handle to it. Any failure raises through
-    startup (see module docstring): the caller's contract is "either a
-    working durable store or no service at all".
-    """
-    dsn = settings.EXECUTION_POSTGRES_DSN
-    if dsn is None:  # config validator makes this unreachable; the type needs it
-        raise RuntimeError("postgres store backend without a DSN cannot be opened")
-    pool = await asyncpg.create_pool(
-        dsn=dsn,
-        min_size=1,
-        max_size=5,
-        timeout=_CONNECT_TIMEOUT_SECONDS,
-    )
-    missing: list[str] = []
-    try:
-        async with pool.acquire() as conn:
-            for table in DURABLE_TABLES:
-                present = await conn.fetchval(
-                    "SELECT to_regclass($1)", f"public.{table}"
-                )
-                if present is None:
-                    missing.append(table)
-    except BaseException:
-        await pool.close()
-        raise
-    if missing:
-        await pool.close()
-        raise RuntimeError(
-            "EXECUTION_STORE_BACKEND=postgres but these engine tables are "
-            f"missing: {', '.join(sorted(missing))}. Apply the execution-store "
-            "migration (owned by apps/api/prisma) before starting a durable "
-            "engine - refusing to serve commands whose records cannot be kept. "
-            "The incidents table is on this list because a durable deployment "
-            "that loses its incident log has the same amnesia as one that never "
-            "had a store."
-        )
-    logger.info(
-        "execution_engine.durable_store_open",
-        extra={
-            "event": "execution_engine.durable_store_open",
-            "tables": list(DURABLE_TABLES),
-        },
-    )
-    return pool, PostgresOrderStore(pool)
+"""Execution-engine orders package."""
 ```
 
-FILE: services/execution-engine/app/placement.py
+FILE: services/execution-engine/app/orders/placement.py
 
 ```python
+# Validates and executes order placement against venue adapter
 """The placement-review seam (Part 16): which venue the review asks, and what a
 simulated runtime is allowed to assert.
 
@@ -3651,7 +3554,7 @@ def build_placement_reviewer(
     the object this function has no business creating, and which a simulated
     runtime must not have at all.
 
-    ``credential_provider`` is the one built by :mod:`app.credentials`: reading
+    ``credential_provider`` is the one built by :mod:`app.exchanges.credentials`: reading
     key *metadata* is the review's job, and the provider is the only sanctioned
     path to it. It is passed to the local gatherer as a partial of ``resolve``,
     which is the seam's way of keeping the exchange choice in one place instead
@@ -3782,6 +3685,343 @@ async def review_placement(
         time_in_force=time_in_force,
     )
     return await wiring.review(request)
+```
+
+FILE: services/execution-engine/app/orders/submission.py
+
+```python
+# Tracks submission state, exchange order ID, and idempotency
+"""Server-side assembly of one OMS submission (Phase 3).
+
+The worker forwards WHAT to trade; this module decides everything the engine
+needs to judge it, from objects this process owns:
+
+* the reference price comes from ``runtime.book_provider`` - the very function
+  the paper adapter fills against - so validation, the price-deviation check and
+  the simulated fill all read one number;
+* every health input starts as unknown (``ComponentHealth()`` blocks) and is
+  raised to healthy only when this process has positively observed it;
+* the rate window is counted here, per tenant and account, not taken from the
+  caller;
+* exposure comes from the API's canonical ledger and carries its own
+  ``complete`` flag, which maps straight onto ``RiskSnapshot.is_complete``.
+
+Nothing here talks to a venue. The runtime's adapter is the paper simulator
+(build_runtime refuses EXECUTION_MODE=live), and this module never constructs
+an adapter of its own.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+
+from wlct_trading.adapters.base import SymbolSpecification
+from wlct_trading.enums import MarketType, OrderSide, OrderType, TimeInForce
+from wlct_trading.execution.engine import ExecutionContext
+from wlct_trading.execution.safety import ComponentHealth
+from wlct_trading.orders import OrderIntent
+from wlct_trading.risk import KillSwitchState, RiskSnapshot
+
+from app.composition import EngineRuntime
+from app.schemas import SubmitOrderRequest
+
+__all__ = [
+    "RATE_WINDOW_MICROS",
+    "PreparedSubmission",
+    "prepare_submission",
+    "record_submission",
+]
+
+#: One minute, the unit ``RiskLimits.max_orders_per_minute`` is expressed in.
+RATE_WINDOW_MICROS = 60_000_000
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedSubmission:
+    intent: OrderIntent
+    context: ExecutionContext
+    #: Human-readable reasons any input was left unknown; empty when every
+    #: input was positively observed. Logged by the route, never used to
+    #: override a verdict.
+    unknowns: tuple[str, ...]
+
+
+def _now_micros() -> int:
+    import time
+
+    return time.time_ns() // 1_000
+
+
+def _orders_in_last_minute(runtime: EngineRuntime, key: tuple[str, str], now: int) -> int:
+    window = runtime.submission_windows.get(key)
+    if not window:
+        return 0
+    cutoff = now - RATE_WINDOW_MICROS
+    kept = [stamp for stamp in window if stamp > cutoff]
+    runtime.submission_windows[key] = kept
+    return len(kept)
+
+
+def record_submission(runtime: EngineRuntime, tenant_id: str, account_id: str, now: int | None = None) -> None:
+    """Count a submission that reached the engine (whatever its verdict)."""
+    stamp = _now_micros() if now is None else now
+    runtime.submission_windows.setdefault((tenant_id, account_id), []).append(stamp)
+
+
+async def prepare_submission(
+    runtime: EngineRuntime,
+    body: SubmitOrderRequest,
+    *,
+    now_micros: int | None = None,
+) -> PreparedSubmission:
+    """Build the intent and a fail-closed execution context for ``body``."""
+    now = _now_micros() if now_micros is None else now_micros
+    unknowns: list[str] = []
+    exchange = runtime.trading_adapter.exchange
+
+    intent = OrderIntent(
+        tenant_id=body.tenant_id,
+        account_id=body.account_id,
+        strategy_id=body.strategy_id,
+        exchange=exchange,
+        symbol=body.symbol,
+        side=OrderSide(body.side),
+        order_type=OrderType(body.order_type),
+        quantity=Decimal(body.quantity),
+        price=Decimal(body.price) if body.price is not None else None,
+        time_in_force=TimeInForce(body.time_in_force),
+        reduce_only=body.reduce_only,
+        client_order_id=body.client_order_id,
+        metadata={
+            **dict(body.metadata),
+            "platformOrderId": body.order_id,
+            "riskDecisionId": body.risk_decision_id,
+        },
+    )
+
+    spec_view = body.specification
+    specification = SymbolSpecification(
+        symbol=body.symbol,
+        venue_symbol=body.symbol,
+        exchange=exchange,
+        market_type=MarketType(spec_view.market_type),
+        base_asset=spec_view.base_asset,
+        quote_asset=spec_view.quote_asset,
+        price_tick=Decimal(spec_view.price_tick),
+        quantity_step=Decimal(spec_view.quantity_step),
+        min_quantity=Decimal(spec_view.min_quantity),
+        max_quantity=Decimal(spec_view.max_quantity) if spec_view.max_quantity is not None else None,
+        min_notional=Decimal(spec_view.min_notional),
+        is_tradeable=spec_view.is_tradeable,
+        price_precision=spec_view.price_precision,
+        quantity_precision=spec_view.quantity_precision,
+    )
+
+    # --- reference price: the simulator's own book, or nothing ---------------
+    reference_price: Decimal | None = None
+    market_data_health = ComponentHealth.down("No reference book is configured for this runtime.")
+    provider = runtime.book_provider
+    if provider is not None:
+        try:
+            book = provider(exchange, body.symbol)
+        except Exception as error:  # a broken provider is "no data", never a price
+            book = None
+            unknowns.append(f"book provider raised {type(error).__name__}")
+        if book is not None:
+            reference_price = book.mid_price
+    if reference_price is not None and reference_price > 0:
+        market_data_health = ComponentHealth.ok(
+            "Simulated reference book (EXECUTION_SIMULATED_MID).", age_micros=0
+        )
+    else:
+        reference_price = None
+        unknowns.append("no reference price: EXECUTION_SIMULATED_MID is not configured")
+
+    # --- open orders from this runtime's store --------------------------------
+    open_orders: tuple = ()
+    store_ok = True
+    try:
+        open_orders = await runtime.store.list_open_orders(body.tenant_id, body.account_id)
+    except Exception as error:  # an unreadable store is an unknown risk state
+        store_ok = False
+        unknowns.append(f"order store unreadable: {type(error).__name__}")
+
+    exposure = body.exposure
+    snapshot = RiskSnapshot(
+        position_quantity=Decimal(exposure.position_quantity),
+        symbol_exposure_notional=Decimal(exposure.symbol_exposure_notional),
+        account_exposure_notional=Decimal(exposure.account_exposure_notional),
+        open_order_count=len(open_orders),
+        orders_in_last_minute=_orders_in_last_minute(
+            runtime, (body.tenant_id, body.account_id), now
+        ),
+        # The API's unified risk decision (named by riskDecisionId) owns the
+        # daily-loss limit; when it does not forward a figure the engine's own
+        # daily-loss rule sees zero and the API decision remains the gate.
+        realised_pnl_today=(
+            Decimal(exposure.realised_pnl_today)
+            if exposure.realised_pnl_today is not None
+            else Decimal(0)
+        ),
+        strategy_realised_pnl_today=Decimal(0),
+        reference_price=reference_price,
+        market_data_age_micros=0 if reference_price is not None else None,
+        book_usable=reference_price is not None,
+        is_complete=bool(exposure.complete) and store_ok,
+        known_client_order_ids=frozenset(order.client_order_id for order in open_orders),
+    )
+    if not exposure.complete:
+        unknowns.append("API reported the exposure ledger as incomplete")
+
+    risk_health = (
+        ComponentHealth.ok("Risk state assembled for this submission.", age_micros=0)
+        if snapshot.is_complete
+        else ComponentHealth.down("Risk state incomplete; refusing to evaluate against it.")
+    )
+
+    # The paper adapter is in-process: reachable by construction. A runtime
+    # whose adapter is not simulated never reaches this route (live refuses to
+    # boot), and if one ever did it would be reported as unknown here.
+    exchange_health = (
+        ComponentHealth.ok("In-process paper simulator.")
+        if runtime.trading_adapter.is_simulated
+        else ComponentHealth.down("Non-simulated adapter: venue health is not observed here.")
+    )
+
+    context = ExecutionContext(
+        snapshot=snapshot,
+        # Kill switches are owned by the API's risk/kill-switch plane and are
+        # part of the decision named by riskDecisionId; this runtime holds no
+        # switch state of its own to add.
+        kill_switches=KillSwitchState(
+            global_engaged=False,
+            engaged_exchanges=frozenset(),
+            engaged_strategies=frozenset(),
+            engaged_symbols=frozenset(),
+            reason=None,
+        ),
+        specification=specification,
+        reference_price=reference_price,
+        risk_health=risk_health,
+        market_data_health=market_data_health,
+        exchange_health=exchange_health,
+        credentials=None,
+        market_data_required=True,
+    )
+    return PreparedSubmission(intent=intent, context=context, unknowns=tuple(unknowns))
+```
+
+FILE: services/execution-engine/app/pg_store.py
+
+```python
+"""The one module that imports the driver (Part 13).
+
+The store itself (``app.store_sql``) speaks a two-method protocol and is
+unit-testable without Postgres anywhere in sight. This module is the seam
+between that protocol and ``asyncpg``: pool creation, the schema check that
+keeps "migrations applied" from becoming a runtime discovery, and shutdown.
+Three facts decided here, deliberately:
+
+* **The tables must exist before the first request.** ``to_regclass`` on
+  each engine table; a missing one is a startup refusal naming the
+  migration. An engine that comes up ready and then fails every durable
+  write with ``relation does not exist`` would report its own health as
+  healthy while losing orders - strictly worse than not starting.
+* **The pool is small.** max_size 5: the single-process simulated runtime
+  serves short commands with one store call each; a big pool here just
+  multiplies connections held against the same Postgres the API and the
+  other engines use, and connection pressure on a shared database is an
+  availability problem for everyone.
+* **Connection failure is startup failure.** No retry-with-backoff loop at
+  boot, because the platform's orchestrator (compose restart / k8s
+  backoff) already retries process starts with visibility; a process that
+  sleeps through retries looks alive to a supervisor and answers nothing.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Final
+
+import asyncpg
+
+from app.config import Settings
+from app.incidents_sql import TABLE_INCIDENTS
+from app.store_sql import TABLE_EVENTS, TABLE_FILLS, TABLE_ORDERS, PostgresOrderStore
+
+__all__ = ["DURABLE_TABLES", "open_durable_store"]
+
+#: Every table the durable plane needs, checked in one loop at startup. Part 17
+#: added the fourth: an engine that came up ready to serve commands whose orders
+#: would be kept and whose incidents would not is a deployment whose audit trail
+#: silently stops at the last restart, so the incidents table is a STARTUP
+#: requirement here rather than a runtime discovery.
+DURABLE_TABLES: Final[tuple[str, ...]] = (
+    TABLE_ORDERS,
+    TABLE_EVENTS,
+    TABLE_FILLS,
+    TABLE_INCIDENTS,
+)
+
+logger = logging.getLogger(__name__)
+
+#: Driver defaults worth pinning rather than inheriting: a 10s connect
+#: timeout means a dead database is known in ten seconds, not when a
+#: statement's own timeout finally fires mid-command.
+_CONNECT_TIMEOUT_SECONDS = 10.0
+
+
+async def open_durable_store(
+    settings: Settings,
+) -> tuple[Any, PostgresOrderStore]:
+    """Create the pool, verify the schema, return (pool, store).
+
+    Returns the pool as well because the lifespan owns its shutdown; the
+    store must never be the only handle to it. Any failure raises through
+    startup (see module docstring): the caller's contract is "either a
+    working durable store or no service at all".
+    """
+    dsn = settings.EXECUTION_POSTGRES_DSN
+    if dsn is None:  # config validator makes this unreachable; the type needs it
+        raise RuntimeError("postgres store backend without a DSN cannot be opened")
+    pool = await asyncpg.create_pool(
+        dsn=dsn,
+        min_size=1,
+        max_size=5,
+        timeout=_CONNECT_TIMEOUT_SECONDS,
+    )
+    missing: list[str] = []
+    try:
+        async with pool.acquire() as conn:
+            for table in DURABLE_TABLES:
+                present = await conn.fetchval(
+                    "SELECT to_regclass($1)", f"public.{table}"
+                )
+                if present is None:
+                    missing.append(table)
+    except BaseException:
+        await pool.close()
+        raise
+    if missing:
+        await pool.close()
+        raise RuntimeError(
+            "EXECUTION_STORE_BACKEND=postgres but these engine tables are "
+            f"missing: {', '.join(sorted(missing))}. Apply the execution-store "
+            "migration (owned by apps/api/prisma) before starting a durable "
+            "engine - refusing to serve commands whose records cannot be kept. "
+            "The incidents table is on this list because a durable deployment "
+            "that loses its incident log has the same amnesia as one that never "
+            "had a store."
+        )
+    logger.info(
+        "execution_engine.durable_store_open",
+        extra={
+            "event": "execution_engine.durable_store_open",
+            "tables": list(DURABLE_TABLES),
+        },
+    )
+    return pool, PostgresOrderStore(pool)
 ```
 
 FILE: services/execution-engine/app/retention.py
@@ -4484,7 +4724,7 @@ from app.schemas import (
     EnablementRequest,
     EnablementRoleView,
 )
-from app.security import ServiceCaller, require_internal_auth, require_tenant_match
+from app.security.internal_auth import ServiceCaller, require_internal_auth, require_tenant_match
 
 router = APIRouter(prefix="/internal/v1", tags=["enablement"])
 
@@ -4680,7 +4920,7 @@ from wlct_trading.execution.incidents import ExecutionIncident, IncidentRecorder
 
 from app.incidents_sql import IncidentReadError
 from app.schemas import IncidentListRequest, IncidentListResponse, IncidentView
-from app.security import ServiceCaller, require_internal_auth, require_tenant_match
+from app.security.internal_auth import ServiceCaller, require_internal_auth, require_tenant_match
 
 router = APIRouter(prefix="/internal/v1", tags=["incidents"])
 
@@ -4815,8 +5055,8 @@ from app.schemas import (
     SubmitOrderResponse,
     VerifyResponse,
 )
-from app.submission import prepare_submission, record_submission
-from app.security import (
+from app.orders.submission import prepare_submission, record_submission
+from app.security.internal_auth import (
     ServiceCaller,
     require_internal_auth,
     require_internal_auth_readonly,
@@ -5075,7 +5315,7 @@ async def submit_order(
     Validation, placement review, safety gates, risk, idempotency, the adapter
     call and position bookkeeping all happen inside ``ExecutionEngine.submit``,
     which never raises for an expected failure. The context it judges is
-    assembled HERE (app.submission), fail-closed: every input this process has
+    assembled HERE (app.orders.submission), fail-closed: every input this process has
     not positively observed is reported as unknown, and unknown blocks.
 
     A retried job (same clientOrderId) comes back as DUPLICATE from the store's
@@ -5234,13 +5474,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from wlct_trading.execution.placement_attestor import PlacementReviewRequest
 from wlct_trading.execution.placement_review import PlacementVerdict, ReviewFinding
 
-from app.placement import PlacementWiring, review_placement
+from app.orders.placement import PlacementWiring, review_placement
 from app.schemas import (
     PlacementAttestRequest,
     PlacementAttestResponse,
     PlacementFindingView,
 )
-from app.security import ServiceCaller, require_internal_auth, require_tenant_match
+from app.security.internal_auth import ServiceCaller, require_internal_auth, require_tenant_match
 
 router = APIRouter(prefix="/internal/v1", tags=["placement"])
 
@@ -5383,7 +5623,7 @@ from app.schemas import (
     RetentionRunResponse,
     RetentionRunView,
 )
-from app.security import ServiceCaller, require_internal_auth, require_tenant_match
+from app.security.internal_auth import ServiceCaller, require_internal_auth, require_tenant_match
 
 router = APIRouter(prefix="/internal/v1", tags=["retention"])
 
@@ -6332,14 +6572,219 @@ class IncidentListResponse(_WireModel):
     incidents: list[IncidentView]
 ```
 
-FILE: services/execution-engine/app/secret_fetcher.py
+FILE: services/execution-engine/app/security/__init__.py
 
 ```python
+"""Execution-engine security package."""
+```
+
+FILE: services/execution-engine/app/security/internal_auth.py
+
+```python
+"""Authentication for service-to-service calls.
+
+The execution engine is never exposed to the public internet. It accepts
+only requests carrying the shared internal token (constant-time compared),
+and it requires an explicit tenant header on every command so no action is
+ever tenantless: the worker's job payload names a tenant, the header is
+where the HTTP surface enforces it, and a mismatch between the two is
+rejected rather than resolved by trust. The cross-check lives in the router
+because it needs the parsed body; this module guarantees the caller IS an
+internal service speaking for A tenant.
+
+One route reads instead of acting, and says so by depending on
+:func:`require_internal_auth_readonly` (Part 20). The distinction is the whole
+argument, so it is stated here rather than only at the route: the tenant law
+exists so that no money operation can run without an owner, and a read of this
+process's own wiring has no owner to name because it has no effect to attribute.
+The exemption also cannot disclose anything - every key ``GET /internal/v1/status``
+returns is published on ``GET /health/ready``, which asks for nothing at all, and
+that superset relation is a test in the service suite rather than a claim here.
+The token is still required, because the point is not to hide that a posture
+exists but to keep a stranger from learning which deployment has which one -
+the same reason ``/status`` is a document and an environment file is not.
+"""
+
+from __future__ import annotations
+
+import hmac
+from typing import Annotated
+
+from fastapi import Depends, Header, HTTPException, status
+
+from app.config import Settings, get_settings
+
+__all__ = [
+    "CALLER_AUTH_HEADER",
+    "TENANT_HEADER",
+    "TENANT_REQUIRED_CODE",
+    "REQUEST_ID_HEADER",
+    "ServiceCaller",
+    "require_internal_auth",
+    "require_internal_auth_readonly",
+    "require_tenant_match",
+]
+
+#: The header NAME - not a secret, it never holds one. Named away from
+#: the word "token" deliberately: flake8-S105 rightly hunts string
+#: literals assigned to token-shaped constants, and a header label is
+#: not a credential; the config validator guards the value.
+CALLER_AUTH_HEADER = "x-internal-token"
+TENANT_HEADER = "x-tenant-id"
+
+#: The refusal code for a command with no tenant. A name rather than a literal
+#: because the worker matches on this string and the read scope below must not be
+#: able to raise it by accident: `_tenant_or_none` is the only place it appears.
+TENANT_REQUIRED_CODE = "TENANT_HEADER_REQUIRED"
+REQUEST_ID_HEADER = "x-request-id"
+
+
+class ServiceCaller:
+    """The authenticated context of an internal request."""
+
+    def __init__(self, tenant_id: str, request_id: str | None) -> None:
+        self.tenant_id = tenant_id
+        self.request_id = request_id
+
+
+def _authenticate(settings: Settings, x_internal_token: str | None) -> None:
+    """The token half, shared by both scopes.
+
+    Extracted rather than copied because a constant-time comparison has exactly one
+    correct spelling, and a second copy in this file would be a second place for
+    somebody to get wrong - the failure mode being a function that looks timing-safe
+    and quietly stopped being one.
+    """
+    if not x_internal_token or not hmac.compare_digest(
+        x_internal_token, settings.EXECUTION_INTERNAL_TOKEN or ""
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "UNAUTHORIZED", "message": "Invalid internal service credentials."},
+        )
+
+
+def _tenant_or_none(x_tenant_id: str | None, *, required: bool) -> str:
+    """The tenant half, with the presence question asked by the caller.
+
+    ``required=False`` does not mean "the header is ignored": a tenant that IS sent is
+    validated exactly as strictly, so a caller cannot answer a read with
+    ``x-tenant-id: ../../etc`` and have the anomaly pass because the route is exempt.
+    Absence is tolerated; a bad value never is.
+    """
+    if not x_tenant_id:
+        if required:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": TENANT_REQUIRED_CODE,
+                    "message": (
+                        f"Every execution command must name its tenant via the "
+                        f"{TENANT_HEADER} header; tenantless money operations are refused."
+                    ),
+                },
+            )
+        return ""
+    if len(x_tenant_id) > 64 or not _tenant_ok(x_tenant_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "TENANT_HEADER_INVALID",
+                "message": "The tenant header is not a plausible identifier.",
+            },
+        )
+    return x_tenant_id
+
+
+def _request_id(x_request_id: str | None) -> str | None:
+    return x_request_id if x_request_id and len(x_request_id) <= 128 else None
+
+
+async def require_internal_auth(
+    settings: Annotated[Settings, Depends(get_settings)],
+    x_internal_token: Annotated[str | None, Header(alias=CALLER_AUTH_HEADER)] = None,
+    x_tenant_id: Annotated[str | None, Header(alias=TENANT_HEADER)] = None,
+    x_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
+) -> ServiceCaller:
+    """Validates the internal token and the tenant scope of the caller.
+
+    The command scope: every route that can act on a tenant's money uses this. The
+    refusal text is a pinned contract - the worker's client and the API suite match on
+    ``TENANT_HEADER_REQUIRED`` and on the word "tenantless" - which is why the code is
+    a named constant and the sentence is kept verbatim below.
+    """
+    _authenticate(settings, x_internal_token)
+    return ServiceCaller(
+        tenant_id=_tenant_or_none(x_tenant_id, required=True),
+        request_id=_request_id(x_request_id),
+    )
+
+
+async def require_internal_auth_readonly(
+    settings: Annotated[Settings, Depends(get_settings)],
+    x_internal_token: Annotated[str | None, Header(alias=CALLER_AUTH_HEADER)] = None,
+    x_tenant_id: Annotated[str | None, Header(alias=TENANT_HEADER)] = None,
+    x_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
+) -> ServiceCaller:
+    """The read scope: token required, tenant optional, a sent header still validated.
+
+    Used by exactly one route - ``GET /internal/v1/status`` - and a test in the Part 20
+    service suite walks the application's own route table to assert it stays the only
+    one, because the way a scoping exemption rots is by becoming the convenient
+    dependency to reach for on the next route somebody adds.
+
+    ``tenant_id`` is the empty string when no header was sent. Not a sentinel naming a
+    tenant: the status route never reads the field - it takes a caller only to make the
+    dependency run - and an empty value is the shape of "nobody", which is what a
+    process-level read actually has. A pseudo-tenant such as ``"system"`` would put a
+    fake identifier into the one object whose purpose is to name a real one, and
+    somebody would eventually compare it to one.
+    """
+    _authenticate(settings, x_internal_token)
+    return ServiceCaller(
+        tenant_id=_tenant_or_none(x_tenant_id, required=False),
+        request_id=_request_id(x_request_id),
+    )
+
+
+def _tenant_ok(candidate: str) -> bool:
+    # Wire-token grammar, same shape the platform uses for ids everywhere:
+    # alphanumerics with '-' and '_'. This is header sanity, not lookup:
+    # existence of the tenant is the store's business on the effects side.
+    return all(
+        ch.isascii() and (ch.isalnum() or ch in "-_") for ch in candidate
+    )
+
+
+def require_tenant_match(tenant_body: str, caller: ServiceCaller) -> None:
+    """Reject a body naming a different tenant than the authenticated header.
+
+    The API stamps both from the same job payload, so divergence here means
+    either a misroute or a caller trying to cross tenants through a
+    correctly authenticated connection. Both are 403, loudly.
+    """
+    if tenant_body != caller.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "TENANT_MISMATCH",
+                "message": (
+                    "The request body names a different tenant than the "
+                    "authenticated header; the command was refused."
+                ),
+            },
+        )
+```
+
+FILE: services/execution-engine/app/security/secret_fetcher.py
+
+```python
+# Adds AWS Secrets Manager and Vault Kubernetes/IAM auth fetcher
 """The one concrete secret fetcher this service ships: HashiCorp Vault, KV v2.
 
 Part 16 left the multi-tenant credential path half-open on purpose. The core's
 :class:`~wlct_trading.execution.credentials.SecretManagerCredentialProvider` is complete
-and tested, and ``app/credentials.py`` refused ``EXECUTION_CREDENTIAL_SOURCE=secret-manager``
+and tested, and ``app/exchanges/credentials.py`` refused ``EXECUTION_CREDENTIAL_SOURCE=secret-manager``
 without an injected fetcher, because key custody is a deployment decision and an
 execution engine that hard-codes a backend silently decides which customers may trade.
 
@@ -6591,7 +7036,7 @@ class VaultKvConfig:
 class VaultKvSecretFetcher:
     """``SecretFetcher`` over ``GET {addr}/v1/{mount}/data/{path}``.
 
-    Constructed once at boot by ``app.credentials.build_credential_provider`` and
+    Constructed once at boot by ``app.exchanges.credentials.build_credential_provider`` and
     called by the core's provider beneath ``CachingCredentialProvider``, so the
     expected rate is one request per cache TTL per (tenant, account) - not one per
     order. That is also why there is no retry logic here: a retry loop in front of a
@@ -6818,204 +7263,6 @@ def _expires(data: dict[str, object]) -> int | None:
             )
         return int(raw)
     return int(raw)
-```
-
-FILE: services/execution-engine/app/security.py
-
-```python
-"""Authentication for service-to-service calls.
-
-The execution engine is never exposed to the public internet. It accepts
-only requests carrying the shared internal token (constant-time compared),
-and it requires an explicit tenant header on every command so no action is
-ever tenantless: the worker's job payload names a tenant, the header is
-where the HTTP surface enforces it, and a mismatch between the two is
-rejected rather than resolved by trust. The cross-check lives in the router
-because it needs the parsed body; this module guarantees the caller IS an
-internal service speaking for A tenant.
-
-One route reads instead of acting, and says so by depending on
-:func:`require_internal_auth_readonly` (Part 20). The distinction is the whole
-argument, so it is stated here rather than only at the route: the tenant law
-exists so that no money operation can run without an owner, and a read of this
-process's own wiring has no owner to name because it has no effect to attribute.
-The exemption also cannot disclose anything - every key ``GET /internal/v1/status``
-returns is published on ``GET /health/ready``, which asks for nothing at all, and
-that superset relation is a test in the service suite rather than a claim here.
-The token is still required, because the point is not to hide that a posture
-exists but to keep a stranger from learning which deployment has which one -
-the same reason ``/status`` is a document and an environment file is not.
-"""
-
-from __future__ import annotations
-
-import hmac
-from typing import Annotated
-
-from fastapi import Depends, Header, HTTPException, status
-
-from app.config import Settings, get_settings
-
-__all__ = [
-    "CALLER_AUTH_HEADER",
-    "TENANT_HEADER",
-    "TENANT_REQUIRED_CODE",
-    "REQUEST_ID_HEADER",
-    "ServiceCaller",
-    "require_internal_auth",
-    "require_internal_auth_readonly",
-    "require_tenant_match",
-]
-
-#: The header NAME - not a secret, it never holds one. Named away from
-#: the word "token" deliberately: flake8-S105 rightly hunts string
-#: literals assigned to token-shaped constants, and a header label is
-#: not a credential; the config validator guards the value.
-CALLER_AUTH_HEADER = "x-internal-token"
-TENANT_HEADER = "x-tenant-id"
-
-#: The refusal code for a command with no tenant. A name rather than a literal
-#: because the worker matches on this string and the read scope below must not be
-#: able to raise it by accident: `_tenant_or_none` is the only place it appears.
-TENANT_REQUIRED_CODE = "TENANT_HEADER_REQUIRED"
-REQUEST_ID_HEADER = "x-request-id"
-
-
-class ServiceCaller:
-    """The authenticated context of an internal request."""
-
-    def __init__(self, tenant_id: str, request_id: str | None) -> None:
-        self.tenant_id = tenant_id
-        self.request_id = request_id
-
-
-def _authenticate(settings: Settings, x_internal_token: str | None) -> None:
-    """The token half, shared by both scopes.
-
-    Extracted rather than copied because a constant-time comparison has exactly one
-    correct spelling, and a second copy in this file would be a second place for
-    somebody to get wrong - the failure mode being a function that looks timing-safe
-    and quietly stopped being one.
-    """
-    if not x_internal_token or not hmac.compare_digest(
-        x_internal_token, settings.EXECUTION_INTERNAL_TOKEN or ""
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "UNAUTHORIZED", "message": "Invalid internal service credentials."},
-        )
-
-
-def _tenant_or_none(x_tenant_id: str | None, *, required: bool) -> str:
-    """The tenant half, with the presence question asked by the caller.
-
-    ``required=False`` does not mean "the header is ignored": a tenant that IS sent is
-    validated exactly as strictly, so a caller cannot answer a read with
-    ``x-tenant-id: ../../etc`` and have the anomaly pass because the route is exempt.
-    Absence is tolerated; a bad value never is.
-    """
-    if not x_tenant_id:
-        if required:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": TENANT_REQUIRED_CODE,
-                    "message": (
-                        f"Every execution command must name its tenant via the "
-                        f"{TENANT_HEADER} header; tenantless money operations are refused."
-                    ),
-                },
-            )
-        return ""
-    if len(x_tenant_id) > 64 or not _tenant_ok(x_tenant_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "TENANT_HEADER_INVALID",
-                "message": "The tenant header is not a plausible identifier.",
-            },
-        )
-    return x_tenant_id
-
-
-def _request_id(x_request_id: str | None) -> str | None:
-    return x_request_id if x_request_id and len(x_request_id) <= 128 else None
-
-
-async def require_internal_auth(
-    settings: Annotated[Settings, Depends(get_settings)],
-    x_internal_token: Annotated[str | None, Header(alias=CALLER_AUTH_HEADER)] = None,
-    x_tenant_id: Annotated[str | None, Header(alias=TENANT_HEADER)] = None,
-    x_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
-) -> ServiceCaller:
-    """Validates the internal token and the tenant scope of the caller.
-
-    The command scope: every route that can act on a tenant's money uses this. The
-    refusal text is a pinned contract - the worker's client and the API suite match on
-    ``TENANT_HEADER_REQUIRED`` and on the word "tenantless" - which is why the code is
-    a named constant and the sentence is kept verbatim below.
-    """
-    _authenticate(settings, x_internal_token)
-    return ServiceCaller(
-        tenant_id=_tenant_or_none(x_tenant_id, required=True),
-        request_id=_request_id(x_request_id),
-    )
-
-
-async def require_internal_auth_readonly(
-    settings: Annotated[Settings, Depends(get_settings)],
-    x_internal_token: Annotated[str | None, Header(alias=CALLER_AUTH_HEADER)] = None,
-    x_tenant_id: Annotated[str | None, Header(alias=TENANT_HEADER)] = None,
-    x_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
-) -> ServiceCaller:
-    """The read scope: token required, tenant optional, a sent header still validated.
-
-    Used by exactly one route - ``GET /internal/v1/status`` - and a test in the Part 20
-    service suite walks the application's own route table to assert it stays the only
-    one, because the way a scoping exemption rots is by becoming the convenient
-    dependency to reach for on the next route somebody adds.
-
-    ``tenant_id`` is the empty string when no header was sent. Not a sentinel naming a
-    tenant: the status route never reads the field - it takes a caller only to make the
-    dependency run - and an empty value is the shape of "nobody", which is what a
-    process-level read actually has. A pseudo-tenant such as ``"system"`` would put a
-    fake identifier into the one object whose purpose is to name a real one, and
-    somebody would eventually compare it to one.
-    """
-    _authenticate(settings, x_internal_token)
-    return ServiceCaller(
-        tenant_id=_tenant_or_none(x_tenant_id, required=False),
-        request_id=_request_id(x_request_id),
-    )
-
-
-def _tenant_ok(candidate: str) -> bool:
-    # Wire-token grammar, same shape the platform uses for ids everywhere:
-    # alphanumerics with '-' and '_'. This is header sanity, not lookup:
-    # existence of the tenant is the store's business on the effects side.
-    return all(
-        ch.isascii() and (ch.isalnum() or ch in "-_") for ch in candidate
-    )
-
-
-def require_tenant_match(tenant_body: str, caller: ServiceCaller) -> None:
-    """Reject a body naming a different tenant than the authenticated header.
-
-    The API stamps both from the same job payload, so divergence here means
-    either a misroute or a caller trying to cross tenants through a
-    correctly authenticated connection. Both are 403, loudly.
-    """
-    if tenant_body != caller.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "TENANT_MISMATCH",
-                "message": (
-                    "The request body names a different tenant than the "
-                    "authenticated header; the command was refused."
-                ),
-            },
-        )
 ```
 
 FILE: services/execution-engine/app/store_sql.py
@@ -7819,230 +8066,6 @@ class _TenantTransaction:
             await self._cm.__aexit__(exc_type, exc, tb)
 ```
 
-FILE: services/execution-engine/app/submission.py
-
-```python
-"""Server-side assembly of one OMS submission (Phase 3).
-
-The worker forwards WHAT to trade; this module decides everything the engine
-needs to judge it, from objects this process owns:
-
-* the reference price comes from ``runtime.book_provider`` - the very function
-  the paper adapter fills against - so validation, the price-deviation check and
-  the simulated fill all read one number;
-* every health input starts as unknown (``ComponentHealth()`` blocks) and is
-  raised to healthy only when this process has positively observed it;
-* the rate window is counted here, per tenant and account, not taken from the
-  caller;
-* exposure comes from the API's canonical ledger and carries its own
-  ``complete`` flag, which maps straight onto ``RiskSnapshot.is_complete``.
-
-Nothing here talks to a venue. The runtime's adapter is the paper simulator
-(build_runtime refuses EXECUTION_MODE=live), and this module never constructs
-an adapter of its own.
-"""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-from decimal import Decimal
-
-from wlct_trading.adapters.base import SymbolSpecification
-from wlct_trading.enums import MarketType, OrderSide, OrderType, TimeInForce
-from wlct_trading.execution.engine import ExecutionContext
-from wlct_trading.execution.safety import ComponentHealth
-from wlct_trading.orders import OrderIntent
-from wlct_trading.risk import KillSwitchState, RiskSnapshot
-
-from app.composition import EngineRuntime
-from app.schemas import SubmitOrderRequest
-
-__all__ = [
-    "RATE_WINDOW_MICROS",
-    "PreparedSubmission",
-    "prepare_submission",
-    "record_submission",
-]
-
-#: One minute, the unit ``RiskLimits.max_orders_per_minute`` is expressed in.
-RATE_WINDOW_MICROS = 60_000_000
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedSubmission:
-    intent: OrderIntent
-    context: ExecutionContext
-    #: Human-readable reasons any input was left unknown; empty when every
-    #: input was positively observed. Logged by the route, never used to
-    #: override a verdict.
-    unknowns: tuple[str, ...]
-
-
-def _now_micros() -> int:
-    import time
-
-    return time.time_ns() // 1_000
-
-
-def _orders_in_last_minute(runtime: EngineRuntime, key: tuple[str, str], now: int) -> int:
-    window = runtime.submission_windows.get(key)
-    if not window:
-        return 0
-    cutoff = now - RATE_WINDOW_MICROS
-    kept = [stamp for stamp in window if stamp > cutoff]
-    runtime.submission_windows[key] = kept
-    return len(kept)
-
-
-def record_submission(runtime: EngineRuntime, tenant_id: str, account_id: str, now: int | None = None) -> None:
-    """Count a submission that reached the engine (whatever its verdict)."""
-    stamp = _now_micros() if now is None else now
-    runtime.submission_windows.setdefault((tenant_id, account_id), []).append(stamp)
-
-
-async def prepare_submission(
-    runtime: EngineRuntime,
-    body: SubmitOrderRequest,
-    *,
-    now_micros: int | None = None,
-) -> PreparedSubmission:
-    """Build the intent and a fail-closed execution context for ``body``."""
-    now = _now_micros() if now_micros is None else now_micros
-    unknowns: list[str] = []
-    exchange = runtime.trading_adapter.exchange
-
-    intent = OrderIntent(
-        tenant_id=body.tenant_id,
-        account_id=body.account_id,
-        strategy_id=body.strategy_id,
-        exchange=exchange,
-        symbol=body.symbol,
-        side=OrderSide(body.side),
-        order_type=OrderType(body.order_type),
-        quantity=Decimal(body.quantity),
-        price=Decimal(body.price) if body.price is not None else None,
-        time_in_force=TimeInForce(body.time_in_force),
-        reduce_only=body.reduce_only,
-        client_order_id=body.client_order_id,
-        metadata={
-            **dict(body.metadata),
-            "platformOrderId": body.order_id,
-            "riskDecisionId": body.risk_decision_id,
-        },
-    )
-
-    spec_view = body.specification
-    specification = SymbolSpecification(
-        symbol=body.symbol,
-        venue_symbol=body.symbol,
-        exchange=exchange,
-        market_type=MarketType(spec_view.market_type),
-        base_asset=spec_view.base_asset,
-        quote_asset=spec_view.quote_asset,
-        price_tick=Decimal(spec_view.price_tick),
-        quantity_step=Decimal(spec_view.quantity_step),
-        min_quantity=Decimal(spec_view.min_quantity),
-        max_quantity=Decimal(spec_view.max_quantity) if spec_view.max_quantity is not None else None,
-        min_notional=Decimal(spec_view.min_notional),
-        is_tradeable=spec_view.is_tradeable,
-        price_precision=spec_view.price_precision,
-        quantity_precision=spec_view.quantity_precision,
-    )
-
-    # --- reference price: the simulator's own book, or nothing ---------------
-    reference_price: Decimal | None = None
-    market_data_health = ComponentHealth.down("No reference book is configured for this runtime.")
-    provider = runtime.book_provider
-    if provider is not None:
-        try:
-            book = provider(exchange, body.symbol)
-        except Exception as error:  # a broken provider is "no data", never a price
-            book = None
-            unknowns.append(f"book provider raised {type(error).__name__}")
-        if book is not None:
-            reference_price = book.mid_price
-    if reference_price is not None and reference_price > 0:
-        market_data_health = ComponentHealth.ok(
-            "Simulated reference book (EXECUTION_SIMULATED_MID).", age_micros=0
-        )
-    else:
-        reference_price = None
-        unknowns.append("no reference price: EXECUTION_SIMULATED_MID is not configured")
-
-    # --- open orders from this runtime's store --------------------------------
-    open_orders: tuple = ()
-    store_ok = True
-    try:
-        open_orders = await runtime.store.list_open_orders(body.tenant_id, body.account_id)
-    except Exception as error:  # an unreadable store is an unknown risk state
-        store_ok = False
-        unknowns.append(f"order store unreadable: {type(error).__name__}")
-
-    exposure = body.exposure
-    snapshot = RiskSnapshot(
-        position_quantity=Decimal(exposure.position_quantity),
-        symbol_exposure_notional=Decimal(exposure.symbol_exposure_notional),
-        account_exposure_notional=Decimal(exposure.account_exposure_notional),
-        open_order_count=len(open_orders),
-        orders_in_last_minute=_orders_in_last_minute(
-            runtime, (body.tenant_id, body.account_id), now
-        ),
-        # The API's unified risk decision (named by riskDecisionId) owns the
-        # daily-loss limit; when it does not forward a figure the engine's own
-        # daily-loss rule sees zero and the API decision remains the gate.
-        realised_pnl_today=(
-            Decimal(exposure.realised_pnl_today)
-            if exposure.realised_pnl_today is not None
-            else Decimal(0)
-        ),
-        strategy_realised_pnl_today=Decimal(0),
-        reference_price=reference_price,
-        market_data_age_micros=0 if reference_price is not None else None,
-        book_usable=reference_price is not None,
-        is_complete=bool(exposure.complete) and store_ok,
-        known_client_order_ids=frozenset(order.client_order_id for order in open_orders),
-    )
-    if not exposure.complete:
-        unknowns.append("API reported the exposure ledger as incomplete")
-
-    risk_health = (
-        ComponentHealth.ok("Risk state assembled for this submission.", age_micros=0)
-        if snapshot.is_complete
-        else ComponentHealth.down("Risk state incomplete; refusing to evaluate against it.")
-    )
-
-    # The paper adapter is in-process: reachable by construction. A runtime
-    # whose adapter is not simulated never reaches this route (live refuses to
-    # boot), and if one ever did it would be reported as unknown here.
-    exchange_health = (
-        ComponentHealth.ok("In-process paper simulator.")
-        if runtime.trading_adapter.is_simulated
-        else ComponentHealth.down("Non-simulated adapter: venue health is not observed here.")
-    )
-
-    context = ExecutionContext(
-        snapshot=snapshot,
-        # Kill switches are owned by the API's risk/kill-switch plane and are
-        # part of the decision named by riskDecisionId; this runtime holds no
-        # switch state of its own to add.
-        kill_switches=KillSwitchState(
-            global_engaged=False,
-            engaged_exchanges=frozenset(),
-            engaged_strategies=frozenset(),
-            engaged_symbols=frozenset(),
-            reason=None,
-        ),
-        specification=specification,
-        reference_price=reference_price,
-        risk_health=risk_health,
-        market_data_health=market_data_health,
-        exchange_health=exchange_health,
-        credentials=None,
-        market_data_required=True,
-    )
-    return PreparedSubmission(intent=intent, context=context, unknowns=tuple(unknowns))
-```
-
 FILE: services/execution-engine/app/venue_attestation.py
 
 ```python
@@ -8485,7 +8508,7 @@ uvicorn[standard]==0.31.0
 pydantic==2.9.2
 pydantic-settings==2.5.2
 python-json-logger==2.0.7
-# Live credential fetching (Part 19). app/secret_fetcher.py is the one module in this
+# Live credential fetching (Part 19). app/security/secret_fetcher.py is the one module in this
 # service that talks HTTP to a secret store, and it is a RUNTIME dependency, not a
 # test one: previously httpx appeared only in requirements-dev.txt (pulled in for
 # fastapi.testclient), so a production image built from this file had no HTTP client at
@@ -8588,6 +8611,7 @@ def client() -> Iterator[TestClient]:
 FILE: services/execution-engine/tests/test_execution_engine.py
 
 ```python
+# Verifies order placement, submission idempotency, and live safety gate
 """Execution engine: startup, auth, validation and the four commands.
 
 These tests run the complete stack - FastAPI app, lifespan, composition
@@ -8617,7 +8641,7 @@ from wlct_trading.orders import Order
 from app.composition import SUPPORTED_COMMANDS, ExecutionUnavailable, build_runtime
 from app.config import Settings
 from app.main import CORRELATION_HEADER
-from app.security import CALLER_AUTH_HEADER, TENANT_HEADER
+from app.security.internal_auth import CALLER_AUTH_HEADER, TENANT_HEADER
 from tests.conftest import BASE_ENV, auth_headers
 
 
@@ -13188,11 +13212,11 @@ from wlct_trading.execution.placement_review import (
 )
 
 from app.composition import ExecutionUnavailable, build_runtime
-from app.credentials import (
+from app.exchanges.credentials import (
     build_credential_provider,
     credential_env_names,
 )
-from app.placement import build_placement_reviewer, review_placement
+from app.orders.placement import build_placement_reviewer, review_placement
 from app.routers import placement as placement_router
 from app.schemas import (
     PlacementAttestRequest,
@@ -13856,7 +13880,7 @@ class TestStatusExposesTheWiring:
 
     def test_the_view_refuses_a_key_the_contract_does_not_have(self) -> None:
         """A credential cannot be smuggled in through the pass-through dict."""
-        from app.placement import REVIEW_ENDPOINT_LABEL
+        from app.orders.placement import REVIEW_ENDPOINT_LABEL
 
         with pytest.raises(ValidationError, match="apiSecret"):
             PlacementStatusView(
@@ -15433,7 +15457,7 @@ from wlct_trading.execution.live_enablement import LivePrerequisite
 from wlct_trading.execution.placement_review import PlacementReviewPolicy, ReviewArea
 
 from app.config import Settings
-from app.placement import build_confirmation_verifier, build_placement_reviewer
+from app.orders.placement import build_confirmation_verifier, build_placement_reviewer
 from tests.conftest import BASE_ENV
 from tests.test_execution_engine import settings_for
 from tests.test_part16_placement import CREDENTIAL_SHAPED_KEYS, json_keys, runtime_for
@@ -15796,7 +15820,7 @@ class TestReviewerWiring:
     def test_the_boot_log_carries_presence_and_no_material(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with caplog.at_level(logging.INFO, logger="app.placement"):
+        with caplog.at_level(logging.INFO, logger="app.orders.placement"):
             self.describe(
                 ("EXECUTION_REQUIRE_OPERATOR_CONFIRMATION", "true"),
                 ("EXECUTION_CONFIRMATION_KEY_ENV", "EXECUTION_TEST_CONFIRMATION_KEY"),
@@ -16067,6 +16091,7 @@ def _far_future_micros() -> int:
 FILE: services/execution-engine/tests/test_part19_vault_fetcher.py
 
 ```python
+# Verifies Vault and AWS Secrets Manager credential resolution and fail-closed errors
 """Part 19: the concrete live-credential fetcher, and the selection that installs it.
 
 Two halves, because the gap Part 19 closed had two halves: the reader that did not
@@ -16101,8 +16126,8 @@ from wlct_trading.execution.credentials import (
 )
 
 from app.config import Settings
-from app.credentials import build_credential_provider
-from app.secret_fetcher import (
+from app.exchanges.credentials import build_credential_provider
+from app.security.secret_fetcher import (
     MAX_VAULT_PATH_LENGTH,
     VaultKvConfig,
     VaultKvSecretFetcher,
@@ -16574,11 +16599,11 @@ class TestSelection:
         # test that fails in the other.
         from app.logging_config import RedactionFilter
 
-        log = logging.getLogger("app.credentials")
+        log = logging.getLogger("app.exchanges.credentials")
         scrubber = RedactionFilter()
         log.addFilter(scrubber)
         try:
-            with caplog.at_level(logging.INFO, logger="app.credentials"):
+            with caplog.at_level(logging.INFO, logger="app.exchanges.credentials"):
                 build_credential_provider(
                     settings_for(),
                     environ={"EXECUTION_VAULT_TOKEN": VAULT_TOKEN},
@@ -16688,7 +16713,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.main import CORRELATION_HEADER
-from app.security import (
+from app.security.internal_auth import (
     CALLER_AUTH_HEADER,
     TENANT_HEADER,
     TENANT_REQUIRED_CODE,
@@ -16741,7 +16766,7 @@ def _code_of(exc: HTTPException) -> str:
     """The `code` of a raised HTTPException, typed.
 
     `detail` is declared `str | None` by the framework while every raise site in
-    `app/security.py` passes a dict, so an `isinstance(detail, dict)` here would be
+    `app/security/internal_auth.py` passes a dict, so an `isinstance(detail, dict)` here would be
     provably false to a type checker - and unreachable code is exactly how an assertion
     stops being one. The cast states the known shape and the runtime check below keeps
     it honest: a raise that lost its code fails here instead of comparing `None` to a

@@ -4,3 +4,4 @@ export * from './strings';
 export * from './crypto';
 export * from './time';
 export * from './result';
+export * from './api-error';

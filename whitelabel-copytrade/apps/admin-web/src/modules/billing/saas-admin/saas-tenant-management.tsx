@@ -29,11 +29,11 @@ export default function SaasTenantManagementPage() {
   // The list loads on mount and on search submit, not on every keystroke:
   // fetchTenants reads the current search term from a ref.
   const searchRef = useRef(search);
-  searchRef.current = search;
+  useEffect(() => {
+    searchRef.current = search;
+  }, [search]);
 
   const fetchTenants = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const [tenantsRes, plansRes] = await Promise.all([listTenants({ search: searchRef.current || undefined, limit: 50 }), getPlanCatalog().catch(() => ({ items: [] }))]);
       setTenants(tenantsRes.items || []);
@@ -46,13 +46,19 @@ export default function SaasTenantManagementPage() {
     }
   }, []);
 
+  const refreshTenants = async () => {
+    setLoading(true);
+    setError(null);
+    await fetchTenants();
+  };
+
   useEffect(() => {
     void fetchTenants();
   }, [fetchTenants]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchTenants();
+    void refreshTenants();
   };
 
   const handleSelectTenant = async (tenantId: string) => {
@@ -78,7 +84,7 @@ export default function SaasTenantManagementPage() {
       setMessage(`Tenant provisioned: ${result.tenantSlug} (${result.tenantId}) ${result.idempotent ? '[idempotent]' : ''}`);
       setShowProvision(false);
       setProvisionForm({ slug: '', name: '', contactEmail: '', planId: '' });
-      await fetchTenants();
+      await refreshTenants();
     } catch (e: any) {
       setMessage(`Provision failed: ${e.message}`);
     } finally {
@@ -110,7 +116,7 @@ export default function SaasTenantManagementPage() {
       <form onSubmit={handleSearch} className="flex gap-2">
         <input type="text" placeholder="Search tenants..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 border rounded px-3 py-2 text-sm" />
         <button type="submit" className="px-4 py-2 bg-gray-800 text-white rounded text-sm">Search</button>
-        <button type="button" onClick={fetchTenants} className="px-3 py-2 border rounded text-sm">Refresh</button>
+        <button type="button" onClick={() => void refreshTenants()} className="px-3 py-2 border rounded text-sm">Refresh</button>
       </form>
 
       <div className="bg-white border rounded-lg p-4">

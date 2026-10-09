@@ -6,12 +6,13 @@
  * - DELIVERED requires an actually received 2xx response (CHECK 36/59).
  * - 4xx (except 429) is NEVER retried blindly (CHECK 37).
  * - 5xx / timeout / network errors / 429 follow policy backoff (38/39).
- * - One delivery row per (subscriptionId, eventId, attempt) — idempotent
- *   enqueue (CHECK 34).
+ * - Enqueue is idempotent by tenant-scoped delivery key; replay uses a
+ *   distinct replay-scoped key while preserving the original event id.
  * - Exhaustion is tracked and observable (CHECK 40).
  */
 
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
@@ -48,6 +49,9 @@ export interface DeliveryRecord {
   eventId: string;
   eventType: string;
   eventVersion: string;
+  source: string;
+  occurredAt: Date;
+  payload: Record<string, unknown>;
   attempt: number;
   state: DeliveryState;
   outcomeClass: DeliveryOutcomeClass | null;
@@ -68,7 +72,7 @@ export class WebhookDeliveryService {
     @Inject(DEVELOPER_SECRET_CIPHER) private readonly cipher: DeveloperSecretCipher,
   ) {}
 
-  /** Enqueue is idempotent per (subscription, event): one QUEUED row. */
+  /** Enqueue is idempotent by tenant-scoped delivery idempotency key. */
   async enqueue(input: {
     tenantId: string;
     subscriptionId: string;
@@ -77,6 +81,14 @@ export class WebhookDeliveryService {
     idempotencyKey: string;
     environment: string;
   }): Promise<DeliveryRecord> {
+    // Take an immutable JSON snapshot before the first await. The outbox path
+    // validates event schemas, while enqueue remains independently usable by
+    // replay; either way, later caller mutation cannot rewrite a queued body.
+    const payloadJson = JSON.stringify(input.envelope.payload);
+    if (typeof payloadJson !== 'string') {
+      throw new Error('webhook event payload must be a JSON-serializable object');
+    }
+    const payload = JSON.parse(payloadJson) as Prisma.InputJsonValue;
     const existing = await this.prisma.developerWebhookDelivery.findFirst({
       where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey },
     });
@@ -91,6 +103,9 @@ export class WebhookDeliveryService {
         eventId: input.envelope.eventId,
         eventType: input.envelope.eventType,
         eventVersion: input.envelope.eventVersion,
+        source: input.envelope.source,
+        occurredAt: new Date(input.envelope.occurredAt),
+        payload,
         attempt: 0,
         state: 'QUEUED',
         correlationId: input.envelope.correlationId,
@@ -144,8 +159,10 @@ export class WebhookDeliveryService {
       eventId: delivery.eventId,
       eventType: delivery.eventType,
       eventVersion: delivery.eventVersion,
-      occurredAt: delivery.createdAt,
+      occurredAt: delivery.occurredAt,
       correlationId: delivery.correlationId,
+      source: delivery.source,
+      payload: delivery.payload,
     });
     const timestamp = Math.floor(Date.now() / 1000);
     let observation: Awaited<ReturnType<WebhookHttpClient['post']>> = {};

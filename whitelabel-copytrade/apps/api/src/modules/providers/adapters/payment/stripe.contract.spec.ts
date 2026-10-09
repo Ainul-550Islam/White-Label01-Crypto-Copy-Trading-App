@@ -63,6 +63,40 @@ describe('Stripe Production Adapter Contract', () => {
     if (originalKey) process.env['STRIPE_SECRET_KEY'] = originalKey;
   });
 
+  test('rejects lossy minor-unit amounts before loading the Stripe SDK', async () => {
+    const originalSecretKey = process.env['STRIPE_SECRET_KEY'];
+    const originalApiKey = process.env['STRIPE_API_KEY'];
+    process.env['STRIPE_SECRET_KEY'] = 'sk_test_contract';
+    delete process.env['STRIPE_API_KEY'];
+    const loadStripeSdk = jest.spyOn(adapter as any, 'loadStripeSdk');
+
+    try {
+      const result = await adapter.createCheckout({
+        planId: 'plan_123',
+        planCode: 'BASIC',
+        planName: 'Basic Plan',
+        price: '10.001',
+        currency: 'USD',
+        interval: 'MONTHLY',
+        tenantId: 'tenant_123',
+        idempotencyKey: 'idem_456',
+        successUrl: 'https://example.com/success',
+        cancelUrl: 'https://example.com/cancel',
+        correlationId: 'corr_456',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe(ProviderErrorCode.VALIDATION_ERROR);
+      expect(loadStripeSdk).not.toHaveBeenCalled();
+    } finally {
+      loadStripeSdk.mockRestore();
+      if (originalSecretKey === undefined) delete process.env['STRIPE_SECRET_KEY'];
+      else process.env['STRIPE_SECRET_KEY'] = originalSecretKey;
+      if (originalApiKey === undefined) delete process.env['STRIPE_API_KEY'];
+      else process.env['STRIPE_API_KEY'] = originalApiKey;
+    }
+  });
+
   test('provider credential never logged', () => {
     const obs = observationService as any;
     const evidence = obs.redactEvidence({ apiKey: 'sk_test_123', secret: 'secret_123', tenantId: 'tenant_123' });

@@ -150,7 +150,7 @@ export class PaymentService {
       });
     }
 
-    const updated = await this.repository.updateStatus(paymentId, newStatus, additionalData);
+    const updated = await this.repository.updateStatus(paymentId, newStatus, additionalData, currentPayment.tenantId);
 
     await this.audit.logPaymentEvent({
       tenantId: updated.tenantId,
@@ -244,7 +244,7 @@ export class PaymentService {
       updateInput.failedAt = new Date(providerResult.failedAt);
     }
 
-    const updated = await this.repository.update(paymentId, updateInput);
+    const updated = await this.repository.update(paymentId, updateInput, currentPayment.tenantId);
 
     await this.audit.logPaymentEvent({
       tenantId: updated.tenantId,

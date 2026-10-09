@@ -46,6 +46,9 @@ export class ExecutionAckService {
     try {
       intent = await (this.prisma as any).omsOrderIntent.findFirst({ where: { tenantId, clientOrderId } });
     } catch {
+      intent = null;
+    }
+    if (!intent) {
       intent = await this.prisma.order.findFirst({ where: { tenantId, clientOrderId } });
     }
     if (!intent) {
@@ -55,22 +58,26 @@ export class ExecutionAckService {
 
     const ackType = status === 'REJECTED' || status === 'FAILED' ? ExecutionAckType.REJECTED : ExecutionAckType.ACCEPTED;
 
-    // Idempotency: check if ack already processed for this clientOrderId + exchangeOrderId
+    // Idempotency: reuse the ack row, but still complete the lifecycle transition. The ack row and
+    // state/outbox write do not share a database transaction; returning early here after an outbox
+    // failure would permanently suppress the retry that should finish delivery.
+    let ackRecord: any;
+    let ackAlreadyPersisted = false;
     try {
       const existing = await (this.prisma as any).omsExecutionAck.findFirst({
         where: { tenantId, clientOrderId, exchangeOrderId: exchangeOrderId ?? undefined },
       });
       if (existing) {
-        this.logger.log(`Duplicate ack ignored for clientOrderId ${clientOrderId} exchangeOrderId ${exchangeOrderId}`);
-        return existing;
+        ackRecord = existing;
+        ackAlreadyPersisted = true;
+        this.logger.log(`Duplicate ack row reused for lifecycle recovery clientOrderId ${clientOrderId} exchangeOrderId ${exchangeOrderId}`);
       }
     } catch {
       // model may not exist yet
     }
 
-    // Persist ack
-    let ackRecord: any;
-    try {
+    // Persist ack only once; retry the authoritative lifecycle transition below even on a hit.
+    if (!ackAlreadyPersisted) try {
       ackRecord = await (this.prisma as any).omsExecutionAck.create({
         data: {
           tenantId,

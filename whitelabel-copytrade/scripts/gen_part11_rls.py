@@ -94,7 +94,31 @@ def header(what: str, stamp: str) -> str:
 """
 
 
-def build_migration(covered: list[tuple[str, str]], excluded: list[tuple[str, str]], stamp: str) -> str:
+def prior_policy_tables(stamp: str) -> set[str]:
+    """Return tables already covered by earlier additive Part 11 migrations."""
+    covered: set[str] = set()
+    migration_pattern = re.compile(r"^(\d{14})_part11_row_level_security$")
+    policy_pattern = re.compile(r'CREATE\s+POLICY\s+\w+\s+ON\s+"([^"]+)"', re.IGNORECASE)
+    for migration_dir in MIGRATIONS.glob("*_part11_row_level_security"):
+        match = migration_pattern.match(migration_dir.name)
+        if match is None or match.group(1) >= stamp:
+            continue
+        migration_file = migration_dir / "migration.sql"
+        if not migration_file.is_file():
+            continue
+        for policy_match in policy_pattern.finditer(migration_file.read_text(encoding="utf-8")):
+            covered.add(policy_match.group(1))
+    return covered
+
+
+def build_migration(
+    covered: list[tuple[str, str]],
+    excluded: list[tuple[str, str]],
+    stamp: str,
+    already_covered_tables: set[str] | None = None,
+) -> str:
+    already_covered_tables = already_covered_tables or set()
+    new_covered = [(table, model) for table, model in covered if table not in already_covered_tables]
     lines = [header("migration: functions + policies (NOT enabling)", stamp)]
     lines.append(f"""
 -- The single source of the request's tenant, read from the transaction-local
@@ -104,7 +128,7 @@ CREATE OR REPLACE FUNCTION {FUNCTION_NAME}() RETURNS uuid
 LANGUAGE sql STABLE
 AS $$ SELECT nullif(current_setting('app.tenant_id', true), '')::uuid $$;
 """)
-    for table, model in covered:
+    for table, model in new_covered:
         lines.append(f"""
 -- {model}
 CREATE POLICY {POLICY_NAME} ON "{table}"
@@ -254,9 +278,15 @@ def main() -> int:
     if len(covered) < 20:
         raise SystemExit(f"schema parse produced only {len(covered)} covered tables - refusing")
 
+    previously_covered = prior_policy_tables(args.stamp)
+    policy_delta = [(table, model) for table, model in covered if table not in previously_covered]
+
     mig_dir = MIGRATIONS / f"{args.stamp}_part11_row_level_security"
     mig_dir.mkdir(parents=True, exist_ok=True)
-    (mig_dir / "migration.sql").write_text(build_migration(covered, excluded, args.stamp), encoding="utf-8")
+    (mig_dir / "migration.sql").write_text(
+        build_migration(covered, excluded, args.stamp, previously_covered),
+        encoding="utf-8",
+    )
     RLS_DIR.mkdir(parents=True, exist_ok=True)
     (RLS_DIR / "enable.sql").write_text(build_enable(covered, excluded, args.stamp), encoding="utf-8")
     (RLS_DIR / "disable.sql").write_text(build_disable(covered, args.stamp), encoding="utf-8")
@@ -277,6 +307,7 @@ def main() -> int:
         encoding="utf-8",
     )
     print(f"covered: {len(covered)} tables, excluded: {len(excluded)}")
+    print(f"additive migration policies: {len(policy_delta)} new tables")
     print(f"wrote {mig_dir}/migration.sql, {RLS_DIR}/{{enable,disable,grant}}.sql, rls_coverage.json")
     return 0
 

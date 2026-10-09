@@ -1,5 +1,6 @@
 // # NEW — Renders follower risk headroom, policy block reasons, and emergency stop controls
 "use client";
+import type { JSX } from 'react';
 
 import React from "react";
 import type { CopyExecutionItem, CopySubscriptionItem } from "@/api/trading-api";

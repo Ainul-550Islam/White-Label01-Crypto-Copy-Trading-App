@@ -105,6 +105,7 @@ export const ALERT_RULE_CATALOG: readonly AlertRuleDescriptor[] = Object.freeze(
   { ruleId: 'SLO_BUDGET_EXHAUSTED', severity: 'CRITICAL', title: 'Error budget exhausted', blocksTrading: false },
   { ruleId: 'TELEMETRY_EXPORT_FAILING', severity: 'WARNING', title: 'Telemetry export failing', blocksTrading: false },
   { ruleId: 'SLO_TELEMETRY_GAP', severity: 'WARNING', title: 'SLO measurement gap', blocksTrading: false },
+  { ruleId: 'OUTBOX_LAG_HIGH', severity: 'WARNING', title: 'Transactional outbox lag', blocksTrading: false },
 ]);
 
 /** The execution queue's separate alert policy, in code rather than vibes:

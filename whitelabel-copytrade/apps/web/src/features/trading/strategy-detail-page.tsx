@@ -1,5 +1,6 @@
 // # Displays strategy risk constraints, supported symbols/venues, execution statistics, and effective copy policy summary
 "use client";
+import type { JSX } from 'react';
 
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

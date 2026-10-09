@@ -117,7 +117,6 @@ export class WebhookController {
   async handleNowPaymentsWebhook(
     @Req() req: any,
     @Headers('x-nowpayments-sig') signature?: string,
-    @Headers('x-api-key') apiKey?: string,
   ): Promise<{ received: boolean; eventId?: string }> {
     this.logger.log('NowPayments webhook received');
 
@@ -128,8 +127,8 @@ export class WebhookController {
       return { received: false };
     }
 
-    // NowPayments uses IPN secret for HMAC verification, signature may be in header
-    const effectiveSignature = signature || apiKey || '';
+    // NOWPayments authenticity is the IPN HMAC only; an API key is never a webhook signature.
+    const effectiveSignature = signature || '';
 
     const payload: WebhookPayload = {
       provider: PaymentProvider.NOWPAYMENTS,

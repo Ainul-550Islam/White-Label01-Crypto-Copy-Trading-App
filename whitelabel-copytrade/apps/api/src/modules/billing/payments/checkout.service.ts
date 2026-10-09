@@ -10,6 +10,7 @@ import type { PaymentAmount, PaymentMetadata, PaymentReferences } from './paymen
 import type { CreateCheckoutSessionInput, ValidatedCheckoutContext, CheckoutResponse, CheckoutStatusResponse, CheckoutRequest } from './checkout.types';
 import { BillingInterval } from '@wlct/shared-types';
 import { AppException } from '../../../common/errors/app.exception';
+import { paymentAmountToMinorUnits } from '../../../common/payment-amount';
 import { ErrorCode } from '@wlct/shared-types';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { buildPaymentMetadata, buildProviderReference } from './payment.repository';
@@ -350,14 +351,15 @@ export class CheckoutService {
   }
 
   private parseAmountToSmallestUnit(amount: string, currency: string): number {
-    const parsed = parseFloat(amount);
-    if (isNaN(parsed)) return 0;
-
-    const zeroDecimalCurrencies = ['JPY', 'KRW', 'VND', 'CLP', 'PYG', 'RWF', 'UGX', 'VUV', 'XAF', 'XOF', 'XPF', 'BTC', 'ETH'];
-    if (zeroDecimalCurrencies.includes(currency.toUpperCase())) {
-      return Math.round(parsed);
+    try {
+      return paymentAmountToMinorUnits(amount, currency);
+    } catch {
+      throw new AppException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'Plan price is not exactly representable in supported currency minor units',
+        context: { currency },
+      });
     }
-    return Math.round(parsed * 100);
   }
 
   private isPaymentStillValid(payment: any): boolean {

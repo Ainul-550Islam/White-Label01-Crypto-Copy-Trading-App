@@ -1,4 +1,6 @@
 "use client";
+
+import type { JSX } from 'react';
 import { useQuery } from "@tanstack/react-query";
 import { reportingApi } from "@/api/reporting-api";
 import { ApiError } from "@/api/api-errors";

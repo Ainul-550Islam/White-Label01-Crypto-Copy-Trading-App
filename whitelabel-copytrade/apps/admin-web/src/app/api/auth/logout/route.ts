@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: Request): Promise<NextResponse> {
   const submitted = request.headers.get('x-csrf-token');
-  const expected = getCsrfToken();
+  const expected = await getCsrfToken();
 
   if (!expected || submitted !== expected) {
     return NextResponse.json(
@@ -23,7 +23,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  if (getAccessToken()) {
+  if (await getAccessToken()) {
     try {
       await serverFetch('/auth/logout', { method: 'POST', body: { allDevices: false } });
     } catch {
@@ -31,7 +31,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
   }
 
-  clearSession();
+  await clearSession();
 
   return NextResponse.json({ success: true, data: { loggedOut: true } });
 }

@@ -1,7 +1,8 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 
 import { Badge, Card, DataTable, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
-import { ApiError } from '@/lib/api-error';
+import { ApiError } from '@wlct/utils/api-error';
 import { formatRelative, titleCase } from '@/lib/format';
 import { serverFetch } from '@/lib/server-api';
 import { toneForStatus, type StatusTone } from '@/lib/theme';

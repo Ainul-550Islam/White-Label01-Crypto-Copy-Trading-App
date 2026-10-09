@@ -1,4 +1,6 @@
 'use client';
+
+import type { JSX } from 'react';
 import { AuthGuard } from '@/auth/auth.guard';
 import { PerformanceChart } from '@/features/portfolio/performance-chart';
 import { PnlPanel } from '@/features/portfolio/pnl-panel';

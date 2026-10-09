@@ -52,6 +52,7 @@ describe('Maintenance & Kill-Switch Trading Gate (GAP-24 & GAP-25)', () => {
       mockAudit,
       mockConfig,
       mockLogger,
+      { append: jest.fn() } as never,
     );
 
     const gate = await safetyService.evaluateOrderGate({

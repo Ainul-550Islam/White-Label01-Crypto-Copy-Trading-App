@@ -1,4 +1,5 @@
 'use client';
+import type { JSX } from 'react';
 
 import { ReactNode } from 'react';
 import { App } from './app';
