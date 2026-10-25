@@ -1,4 +1,4 @@
-// # Exposes /v1/partner/profile, /referrals, /commissions, /payouts endpoints
+// # Responsibility: bind partner-portal reads and writes to the authenticated owner and require explicit payout authority.
 import {
   Controller,
   Get,
@@ -6,8 +6,9 @@ import {
   Body,
   Query,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
-import { Permission } from '@wlct/shared-types';
+import { Permission, hasAnyPermission, type AuthenticatedActor } from '@wlct/shared-types';
 import { RequireAnyPermission } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PartnerProfileService } from '../partners/partner-profile.service';
@@ -27,9 +28,7 @@ import {
 } from '../partners/dto/partner-query.dto';
 
 const PARTNER_PORTAL_PERMISSIONS = [
-  Permission.USER_READ_SELF,
   Permission.REPORT_READ,
-  Permission.PAYOUT_READ,
   Permission.PAYOUT_MANAGE,
   Permission.PLATFORM_MANAGE,
 ] as const;
@@ -46,30 +45,44 @@ export class PartnerPortalController {
     private readonly portalService: PartnerPortalService,
   ) {}
 
-  private async resolvePartnerId(user: any, explicitPartnerId?: string): Promise<string> {
-    if (explicitPartnerId) return explicitPartnerId;
-    const userId = user?.id || user?.userId;
-    if (userId) {
-      const profiles = await this.profileService.listProfiles({ ownerUserId: userId });
-      if (profiles.length > 0) return profiles[0].id;
+  private async resolvePartnerId(user: AuthenticatedActor, explicitPartnerId?: string): Promise<string> {
+    if (!user.userId) {
+      throw new ForbiddenException('An authenticated user identity is required');
     }
-    const allProfiles = await this.profileService.listProfiles({});
-    if (allProfiles.length > 0) return allProfiles[0].id;
-    throw new BadRequestException('No partner profile found for current user');
+
+    if (explicitPartnerId) {
+      const profile = await this.profileService.getProfile(explicitPartnerId);
+      const platformManager = user.isPlatformUser
+        && hasAnyPermission(user.permissions, [Permission.PLATFORM_MANAGE]);
+      if (profile.ownerUserId !== user.userId && !platformManager) {
+        throw new ForbiddenException('Partner profile is outside the authenticated user scope');
+      }
+      return profile.id;
+    }
+
+    const profiles = await this.profileService.listProfiles({ ownerUserId: user.userId });
+    const ownedProfiles = profiles.filter((profile) => profile.ownerUserId === user.userId);
+    if (ownedProfiles.length === 0) {
+      throw new BadRequestException('No partner profile found for current user');
+    }
+    if (ownedProfiles.length > 1) {
+      throw new BadRequestException('An explicit owned partner profile is required');
+    }
+    return ownedProfiles[0].id;
   }
 
   @Get('profile')
   async getMyPartnerProfile(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedActor,
     @Query() query: PartnerPortalQueryDto,
   ) {
     const partnerId = await this.resolvePartnerId(user, query.partnerId);
     const profile = await this.profileService.getProfile(partnerId);
-    let portalSummary: any = null;
+    let portalSummary: Awaited<ReturnType<PartnerPortalService['getPortalData']>> | null = null;
     try {
       portalSummary = await this.portalService.getPortalData({
         partnerId,
-        userId: user?.id || user?.userId,
+        userId: user.userId,
         correlationId: query.correlationId ?? `corr_${Date.now()}`,
         currency: query.currency,
         periodStart: query.periodStart,
@@ -86,7 +99,7 @@ export class PartnerPortalController {
 
   @Get('referrals')
   async listMyReferrals(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedActor,
     @Query('partnerId') partnerIdQuery?: string,
   ) {
     const partnerId = await this.resolvePartnerId(user, partnerIdQuery);
@@ -103,7 +116,7 @@ export class PartnerPortalController {
 
   @Post('referrals')
   async createMyReferral(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedActor,
     @Body() dto: CreateReferralDto,
   ) {
     const partnerId = await this.resolvePartnerId(user, dto.partnerId);
@@ -113,7 +126,7 @@ export class PartnerPortalController {
       code: dto.code,
       maxUses: dto.maxUses,
       expiresAt: dto.expiresAt ?? null,
-      createdBy: dto.createdBy || user?.id || user?.userId || 'partner-user',
+      createdBy: user.userId,
       correlationId: dto.correlationId || `corr_${Date.now()}`,
       idempotencyKey: dto.idempotencyKey || `idem_${Date.now()}`,
     });
@@ -121,7 +134,7 @@ export class PartnerPortalController {
 
   @Get('commissions')
   async listMyCommissions(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedActor,
     @Query() query: PartnerCommissionQueryDto,
   ) {
     const partnerId = await this.resolvePartnerId(user, query.partnerId);
@@ -139,7 +152,7 @@ export class PartnerPortalController {
 
   @Get('payouts')
   async listMyPayouts(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedActor,
     @Query() query: PartnerPayoutQueryDto,
   ) {
     const partnerId = await this.resolvePartnerId(user, query.partnerId);
@@ -154,8 +167,9 @@ export class PartnerPortalController {
   }
 
   @Post('payouts')
+  @RequireAnyPermission(Permission.PAYOUT_MANAGE, Permission.PLATFORM_MANAGE)
   async requestMyPayout(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedActor,
     @Body() dto: RequestPayoutDto,
   ) {
     const partnerId = await this.resolvePartnerId(user, dto.partnerId);
@@ -165,7 +179,7 @@ export class PartnerPortalController {
       amount: dto.amount,
       currency: dto.currency,
       method: dto.method,
-      requestedBy: dto.requestedBy || user?.id || user?.userId || 'partner-user',
+      requestedBy: user.userId,
       correlationId: dto.correlationId || `corr_${Date.now()}`,
       idempotencyKey: dto.idempotencyKey || `idem_${Date.now()}`,
     });

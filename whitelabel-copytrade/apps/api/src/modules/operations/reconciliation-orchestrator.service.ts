@@ -142,7 +142,7 @@ export class ReconciliationOrchestratorService {
     });
 
     let finalStatus = OperationalReconciliationRunState.SUCCEEDED;
-    let subsystemResults: Record<string, ReconciliationSubsystemResult> = {};
+    const subsystemResults: Record<string, ReconciliationSubsystemResult> = {};
     let failureDetails: any = null;
 
     try {

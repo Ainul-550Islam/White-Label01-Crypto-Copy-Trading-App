@@ -38,7 +38,7 @@ export class QuotaSnapshotService {
     const limitKey = ENFORCED_METER_TO_LIMIT_KEY[params.meterKey];
     let maximum: number | null = null;
     let planCode: string | null = null;
-    let isEnforced = meterDef.isEnforced;
+    const isEnforced = meterDef.isEnforced;
 
     // Resolve canonical plan limits if enforced meter
     if (limitKey) {

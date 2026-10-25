@@ -1,0 +1,8 @@
+
+> @wlct/api@1.0.0 prebuild
+> rimraf dist
+
+
+> @wlct/api@1.0.0 build
+> nest build
+

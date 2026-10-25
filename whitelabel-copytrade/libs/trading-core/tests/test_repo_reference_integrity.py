@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import Final
 
 REPO: Final[Path] = Path(__file__).resolve().parents[3]
+CHECKOUT_ROOT: Final[Path] = REPO.parent if (REPO.parent / ".git").exists() else REPO
 DOCS: Final[Path] = REPO / "docs"
 
 #: Longest first: an alternation that tried `ts` before `tsx` would match the prefix of a
@@ -101,6 +102,14 @@ EXEMPT_PATHS: Final[tuple[tuple[str, str], ...]] = (
     ("node_modules", "third-party"),
     ("HANDOVER_FULL_SOURCE", "a part's handover is a record of that part's diff at that moment"),
     ("docs/source/", "the generated whole-tree dump, whose content is the tree"),
+    (
+        "docs/API_BUILD_TYPECHECK_RETRY_REPORT.md",
+        "a dated validation transcript, not a current inventory of live files",
+    ),
+    (
+        "apps/admin-web/next-env.d.ts",
+        "Next.js-generated references to route declarations created under .next during builds",
+    ),
 )
 
 #: Files scanned as "prose only" - see the module docstring.
@@ -206,18 +215,40 @@ def is_handover_generator(rel: str) -> bool:
     return bool(re.match(r"scripts/gen_part\d+_handover\.py$", rel))
 
 
-def resolves(token: str, corpus: list[str]) -> bool:
+def resolves(
+    token: str,
+    corpus: list[str],
+    source_path: Path | None = None,
+) -> bool:
     """Whether a named path is in the tree - file or directory.
 
-    Directory tokens are legal because the inventories in this repository name directories
-    (`risk/`, `infrastructure/observability/`) as the unit of meaning, and a check that could
-    only see files would push a document toward naming one file inside a directory and going
-    stale the moment the directory grows.
+    Markdown links are first resolved relative to the document that contains them, as a
+    browser resolves them. Other references can still use repository-root paths or the
+    service-relative trailing names used throughout this tree. Directory tokens are legal
+    because inventories name directories (`risk/`, `infrastructure/observability/`) as the
+    unit of meaning; a check that only saw files would push a document toward naming one
+    file inside a directory and going stale when that directory grows.
     """
-    token = token[2:] if token.startswith("./") else token
     trimmed = token.rstrip("/")
-    if (REPO / trimmed).exists():
-        return True
+    repo_root = REPO.resolve()
+    checkout_root = CHECKOUT_ROOT.resolve()
+    if source_path is not None and not Path(trimmed).is_absolute():
+        relative_candidate = (source_path.resolve().parent / trimmed).resolve()
+        try:
+            relative_candidate.relative_to(checkout_root)
+        except ValueError:
+            pass
+        else:
+            if relative_candidate.exists():
+                return True
+    repo_candidate = (repo_root / trimmed).resolve()
+    try:
+        repo_candidate.relative_to(checkout_root)
+    except ValueError:
+        pass
+    else:
+        if repo_candidate.exists():
+            return True
     needle = "/" + trimmed
     return any(
         candidate == trimmed or candidate.endswith(needle + "/") or candidate.endswith(needle)
@@ -283,12 +314,42 @@ def test_every_named_artefact_resolves_to_a_file_in_the_tree() -> None:
     for path in scanned_files():
         text = path.read_text(encoding="utf-8", errors="replace")
         for lineno, token in claims_in(path, text):
-            if not resolves(token, corpus):
+            if not resolves(token, corpus, source_path=path):
                 broken.append(f"{rel_path(path)}:{lineno} names {token}")
     assert not broken, (
         "files named by a comment, a message or a document that do not exist in the tree "
         "(add the artefact, or correct the name it was given):\n" + "\n".join(sorted(broken))
     )
+
+
+def test_markdown_relative_links_resolve_from_their_document() -> None:
+    source_path = DOCS / "SSO.md"
+    corpus = all_tree_paths()
+    assert resolves(
+        "../apps/api/prisma/upgrades/rls_policies_182_to_186.sql",
+        corpus,
+        source_path=source_path,
+    )
+    assert resolves(
+        "../apps/api/prisma/rls/enable.sql",
+        corpus,
+        source_path=source_path,
+    )
+    assert resolves(
+        "../.github/workflows/ci.yml",
+        corpus,
+        source_path=REPO / "README.md",
+    )
+    assert resolves(
+        "../RELEASE_PACKAGE_CHECK.md",
+        corpus,
+        source_path=REPO / "scripts/generate-release-manifest.ts",
+    )
+
+
+def test_generated_next_declarations_and_historical_retry_reports_are_excluded() -> None:
+    assert is_excluded("apps/admin-web/next-env.d.ts", ())
+    assert is_excluded("docs/API_BUILD_TYPECHECK_RETRY_REPORT.md", ())
 
 
 def test_the_grant_the_enablement_refusal_sends_an_operator_to_is_in_the_tree() -> None:

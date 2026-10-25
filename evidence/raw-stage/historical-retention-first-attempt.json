@@ -1,0 +1,17 @@
+{
+  "historicalCases": 2854,
+  "literalNameDifferences": [
+    [
+      "/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api/src/modules/exchanges/exchange-health.fail-closed.spec.ts",
+      "Exchange health evidence fails closed does not permit an invalid or future sync timestamp 2026-10-10T17:04:46.364Z",
+      1
+    ],
+    [
+      "/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api/src/modules/governance/compliance-report.fail-closed.spec.ts",
+      "Required native governance audit durability and recursive safe evidence rejects unsupported non-finite/non-JSON evidence 2026-10-10T17:04:41.249Z without suppressing serialization failure",
+      1
+    ]
+  ],
+  "literalNameArrivals": 39,
+  "explanation": "Two unchanged parameterized specs format runtime Date values in full case names; source identity must be verified before normalizing only those date arguments."
+}

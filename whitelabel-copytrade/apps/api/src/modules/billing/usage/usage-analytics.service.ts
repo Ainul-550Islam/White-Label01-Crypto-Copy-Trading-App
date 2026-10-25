@@ -4,7 +4,7 @@ import { UsageMeterRepository } from './usage-meter.repository';
 import { UsagePeriodService } from './usage-period.service';
 import { QuotaSnapshotService } from './quota-snapshot.service';
 import { OverageService } from './overage.service';
-import { MeterKey, UsageScope, AggregationWindow } from './usage-metering.types';
+import { MeterKey, UsageScope } from './usage-metering.types';
 
 /**
  * Usage analytics for tenants/SaaS admins: period totals, trends, utilization,

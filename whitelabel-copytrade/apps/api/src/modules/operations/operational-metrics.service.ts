@@ -27,7 +27,7 @@ export class OperationalMetricsService {
     const methodology = 'Deterministic calculation from actual observations: count of persisted records, no synthetic data, no subjective scoring. MTTA = avg(firstSeen->acknowledged), MTTR = avg(firstSeen->resolved). Availability = (total minutes - downtime minutes)/total minutes where downtime = sum of active maintenance windows + degradation DISABLED periods.';
 
     let incidentCount = 0;
-    let incidentsBySeverity: Record<string, number> = { INFO: 0, WARNING: 0, ERROR: 0, CRITICAL: 0 };
+    const incidentsBySeverity: Record<string, number> = { INFO: 0, WARNING: 0, ERROR: 0, CRITICAL: 0 };
     let mttrMinutes: number | null = null;
     let mttaMinutes: number | null = null;
 

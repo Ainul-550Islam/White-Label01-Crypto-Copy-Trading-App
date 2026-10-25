@@ -1,0 +1,6 @@
+
+> whitelabel-copytrade@1.0.0 check:api-di
+> node scripts/check-api-di.mjs
+
+DI_OK AppModule modules=75 providers=932 (945 files transpiled)
+DI_OK WorkerModule modules=29 providers=213 (945 files transpiled)

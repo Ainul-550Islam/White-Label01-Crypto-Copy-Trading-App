@@ -3,12 +3,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
 import { EnforcementService } from './enforcement.service';
 import { EnforcementContextBuilder } from './enforcement.context';
-import {
-  type EnforcementActor,
-  type EnforcementContext,
-  type EnforcementResource,
-  type FeatureCheckResult,
-} from './enforcement.types';
+import { type EnforcementActor, type EnforcementResource, type FeatureCheckResult } from './enforcement.types';
 
 /**
  * Generic feature-level enforcement guard.

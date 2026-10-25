@@ -1,16 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Query,
-  Param,
-  UseGuards,
-  Req,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, Req, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
 import { AccountingEventService } from './accounting-event.service';
@@ -46,7 +34,7 @@ import {
   PerformanceQueryDto,
   AttributionQueryDto,
 } from './dto/accounting-action.dto';
-import { PortfolioReturnMethodology, PortfolioAttributionDimension, redactSecrets } from './portfolio-accounting.types';
+import { PortfolioReturnMethodology, redactSecrets } from './portfolio-accounting.types';
 import { authTenantId, authUserIdOrNull, isPlatformPrincipal } from '../../common/guards/request-principal';
 import { Permission, hasAnyPermission, hasPermission } from '@wlct/shared-types';
 

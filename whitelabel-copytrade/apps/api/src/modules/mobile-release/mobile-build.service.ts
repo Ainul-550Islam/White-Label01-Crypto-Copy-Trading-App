@@ -1,24 +1,13 @@
+// # Responsibility: validate and run mobile build jobs against the actual Flutter toolchain and artifacts.
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { MobileEnvReader, MOBILE_RELEASE_ENV, MobileReleasePolicyService } from './mobile-release-policy.service';
-import {
-  APPLICATION_TRANSITIONS,
-  AUDIT_ACTIONS,
-  BUILD_TRANSITIONS,
-  idempotencyKey,
-  transitionOrThrow,
-  MobileActor,
-  MobileApplicationState,
-  MobileBuildState,
-  MobileEnvironment,
-  MobilePlatform,
-  MobileReleaseError,
-  MOBILE_ERROR_CODES,
-} from './mobile-release.types';
+import { APPLICATION_TRANSITIONS, BUILD_TRANSITIONS, idempotencyKey, transitionOrThrow, MobileActor, MobileApplicationState, MobileBuildState, MobileEnvironment, MobilePlatform, MobileReleaseError, MOBILE_ERROR_CODES } from './mobile-release.types';
 import {
   BuildRequestShape,
   MobileBuildValidationService,
@@ -92,7 +81,6 @@ export class FlutterCliBuildRunner implements MobileBuildRunner {
   }): Promise<MobileBuildRunnerResult> {
     const bin = this.flutterBin();
     if (!bin) throw new Error('flutter SDK not found');
-    const { execFileSync } = require('child_process') as typeof import('child_process');
     const args =
       input.platform === 'ANDROID'
         ? ['build', input.buildMode === 'debug' ? 'apk' : 'appbundle', '--no-pub']
@@ -148,7 +136,7 @@ export class FlutterCliBuildRunner implements MobileBuildRunner {
         500,
       );
     }
-    const machine = require('child_process').execFileSync(bin, ['--version', '--machine'], {
+    const machine = execFileSync(bin, ['--version', '--machine'], {
       encoding: 'utf8',
     });
     let toolchain = 'unknown';

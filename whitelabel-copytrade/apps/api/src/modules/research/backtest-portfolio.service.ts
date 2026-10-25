@@ -151,7 +151,7 @@ export class BacktestPortfolioService {
     }
 
     // Calculate unrealized PnL and exposure and equity
-    let unrealizedTotal = '0';
+    const unrealizedTotal = '0';
     let exposure = '0';
     for (const pos of Object.values(newPositions)) {
       // For unrealized, need current mark price - use last fill price as proxy, in real backtest would use candle close

@@ -1,16 +1,9 @@
+// # Responsibility: calculate deterministic lot cost basis and realized gain or loss.
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingEventRepository } from './accounting-event.repository';
 import { AccountingPolicyService } from './accounting-policy.service';
-import {
-  add,
-  sub,
-  mul,
-  cmp,
-  isValidDecimal,
-  deterministicIdempotencyKey,
-  redactSecrets,
-} from './portfolio-accounting.types';
+import { add, sub, mul, div, cmp, isValidDecimal, redactSecrets } from './portfolio-accounting.types';
 
 /**
  * Calculates deterministic cost basis for every accounting lot and fill, preserving lot
@@ -175,7 +168,6 @@ export class CostBasisService {
 
   private divSafe(a: string, b: string): string {
     try {
-      const { div } = require('./portfolio-accounting.types');
       return div(a, b);
     } catch {
       return '0';

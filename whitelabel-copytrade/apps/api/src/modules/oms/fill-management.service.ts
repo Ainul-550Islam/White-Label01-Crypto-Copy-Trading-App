@@ -2,8 +2,8 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
-import { OrderIntentState, OmsFillState, isValidDecimal, parseScaled, formatScaled, add, cmp } from './oms.types';
-import { randomUUID } from 'crypto';
+import { OrderIntentState, OmsFillState, isValidDecimal, parseScaled, formatScaled, add } from './oms.types';
+
 
 /**
  * Fill Management Service — normalizes and persists canonical fill events,

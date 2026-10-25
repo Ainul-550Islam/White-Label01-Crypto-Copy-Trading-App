@@ -1,3 +1,4 @@
+// # Responsibility: keep existing tenant/risk calculations and fail-closed source reads while narrowing untrusted decimal values without any bypasses.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
@@ -14,7 +15,7 @@ import { PositionRiskResult, RiskState, RiskSeverity } from './risk-management.t
  */
 
 const SCALE = 1_000_000_000_000n;
-function isValidDecimal(v: any): boolean {
+function isValidDecimal(v: unknown): boolean {
   return typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v);
 }
 function parseScaled(s: string): bigint {
@@ -135,7 +136,7 @@ export class PositionRiskService {
       // Here we explicitly do NOT invent: set null, isAuthoritative false.
       const liquidationPrice: string | null = null;
       const isLiquidationAuthoritative = false;
-      let liquidationDistancePercent: string | null = null;
+      const liquidationDistancePercent: string | null = null;
 
       // If we had authoritative liquidation price, compute distance:
       // distance = (mark - liq)/mark *100 for long, (liq - mark)/mark for short? Simplified.

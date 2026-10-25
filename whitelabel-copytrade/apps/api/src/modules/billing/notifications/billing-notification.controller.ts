@@ -1,19 +1,6 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Query,
-  Param,
-  UseGuards,
-  Request,
-  HttpCode,
-  HttpStatus,
-  ForbiddenException,
-} from '@nestjs/common';
-import { Permission, hasAnyPermission } from '@wlct/shared-types';
+// # Responsibility: bind notification data and preference/webhook mutations to authenticated tenant and user identities.
+import { Controller, Get, Post, Put, Delete, Body, Query, Param, Request, HttpCode, HttpStatus, ForbiddenException } from '@nestjs/common';
+import { Permission, hasAnyPermission, type AuthenticatedActor } from '@wlct/shared-types';
 import {
   AllowAnyAuthenticated,
   PlatformOnly,
@@ -29,7 +16,14 @@ import { InAppNotificationService } from './in-app-notification.service';
 import { CreateWebhookSubscriptionDto, UpdateWebhookSubscriptionDto, RotateWebhookSecretDto } from './dto/webhook-subscription.dto';
 import { NotificationHistoryQueryDto, NotificationInboxQueryDto } from './dto/notification-query.dto';
 import { UpdateNotificationPreferenceDto, BulkUpdateNotificationPreferencesDto } from './dto/notification-preference.dto';
-import { DeliveryStatus, NotificationChannel, BillingNotificationEventKey } from './billing-notification.types';
+
+
+interface BillingNotificationRequest {
+  user?: Partial<AuthenticatedActor>;
+  actor?: Partial<AuthenticatedActor>;
+  tenantId?: string;
+}
+
 
 /**
  * Billing Notifications Controller.
@@ -59,20 +53,28 @@ export class BillingNotificationController {
   ) {}
 
   /** The authenticated actor exposes userId (not id); refuse to guess. */
-  private actorUserId(req: any): string {
-    const userId: unknown = req.user?.userId ?? req.actor?.userId;
+  private actorUserId(req: BillingNotificationRequest): string {
+    const userId: unknown = (req.user ?? req.actor)?.userId;
     if (typeof userId !== 'string' || userId.length === 0) {
       throw new ForbiddenException('An authenticated user is required');
     }
     return userId;
   }
 
+  private actorTenantId(req: BillingNotificationRequest): string {
+    const tenantId = (req.user ?? req.actor)?.tenantId;
+    if (typeof tenantId !== 'string' || !tenantId.trim()) {
+      throw new ForbiddenException('An authenticated tenant context is required');
+    }
+    return tenantId;
+  }
+
   // History - tenant isolated
   @Get('history')
   @RequireAnyPermission(Permission.SUBSCRIPTION_READ, Permission.INVOICE_READ)
-  async getHistory(@Request() req: any, @Query() query: NotificationHistoryQueryDto) {
-    const tenantId = req.user?.tenantId || req.tenantId || (query as any).tenantId || 'unknown';
-    const filter: any = {};
+  async getHistory(@Request() req: BillingNotificationRequest, @Query() query: NotificationHistoryQueryDto) {
+    const tenantId = this.actorTenantId(req);
+    const filter: NonNullable<Parameters<NotificationJobRepository['listByTenant']>[1]> = {};
     if (query.eventKey) filter.eventKey = query.eventKey;
     if (query.channel) filter.channel = query.channel;
     if (query.status) filter.status = query.status;
@@ -94,8 +96,8 @@ export class BillingNotificationController {
 
   @Get('history/:id')
   @RequireAnyPermission(Permission.SUBSCRIPTION_READ, Permission.INVOICE_READ)
-  async getHistoryById(@Request() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async getHistoryById(@Request() req: BillingNotificationRequest, @Param('id') id: string) {
+    const tenantId = this.actorTenantId(req);
     const job = await this.jobRepository.findById(id, tenantId);
     if (!job) {
       return { error: 'Notification not found', tenantId };
@@ -106,8 +108,8 @@ export class BillingNotificationController {
   // Inbox - user scoped in-app notifications
   @Get('inbox')
   @AllowAnyAuthenticated()
-  async getInbox(@Request() req: any, @Query() query: NotificationInboxQueryDto) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async getInbox(@Request() req: BillingNotificationRequest, @Query() query: NotificationInboxQueryDto) {
+    const tenantId = this.actorTenantId(req);
     const userId = this.actorUserId(req);
     const notifications = await this.inAppService.listNotifications(tenantId, userId, {
       unreadOnly: query.unreadOnly,
@@ -129,8 +131,8 @@ export class BillingNotificationController {
 
   @Get('inbox/unread-count')
   @AllowAnyAuthenticated()
-  async getUnreadCount(@Request() req: any) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async getUnreadCount(@Request() req: BillingNotificationRequest) {
+    const tenantId = this.actorTenantId(req);
     const userId = this.actorUserId(req);
     const count = await this.inAppService.getUnreadCount(tenantId, userId);
     return { tenantId, userId, unreadCount: count };
@@ -138,8 +140,8 @@ export class BillingNotificationController {
 
   @Put('inbox/:id/read')
   @AllowAnyAuthenticated()
-  async markRead(@Request() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async markRead(@Request() req: BillingNotificationRequest, @Param('id') id: string) {
+    const tenantId = this.actorTenantId(req);
     const userId = this.actorUserId(req);
     const result = await this.inAppService.markRead(tenantId, userId, id);
     return result;
@@ -148,8 +150,8 @@ export class BillingNotificationController {
   @Put('inbox/read-all')
   @AllowAnyAuthenticated()
   @HttpCode(HttpStatus.OK)
-  async markAllRead(@Request() req: any) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async markAllRead(@Request() req: BillingNotificationRequest) {
+    const tenantId = this.actorTenantId(req);
     const userId = this.actorUserId(req);
     const result = await this.inAppService.markAllRead(tenantId, userId);
     return result;
@@ -158,13 +160,13 @@ export class BillingNotificationController {
   // Preferences
   @Get('preferences')
   @AllowAnyAuthenticated()
-  async getPreferences(@Request() req: any, @Query('userId') userId?: string) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async getPreferences(@Request() req: BillingNotificationRequest, @Query('userId') userId?: string) {
+    const tenantId = this.actorTenantId(req);
     const selfId = this.actorUserId(req);
     const effectiveUserId = userId || selfId;
     if (effectiveUserId !== selfId) {
-      const permissions: string[] = req.user?.permissions ?? [];
-      if (req.user?.isPlatformUser !== true && !hasAnyPermission(permissions, [Permission.TENANT_UPDATE])) {
+      const permissions: string[] = (req.user ?? req.actor)?.permissions ?? [];
+      if ((req.user ?? req.actor)?.isPlatformUser !== true && !hasAnyPermission(permissions, [Permission.TENANT_UPDATE])) {
         throw new ForbiddenException("Reading another user's notification preferences requires tenant:update");
       }
     }
@@ -174,8 +176,8 @@ export class BillingNotificationController {
 
   @Put('preferences')
   @AllowAnyAuthenticated()
-  async updatePreference(@Request() req: any, @Body() dto: UpdateNotificationPreferenceDto) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async updatePreference(@Request() req: BillingNotificationRequest, @Body() dto: UpdateNotificationPreferenceDto) {
+    const tenantId = this.actorTenantId(req);
     const userId = this.actorUserId(req);
     const updated = await this.preferenceService.updatePreference({
       tenantId,
@@ -191,8 +193,8 @@ export class BillingNotificationController {
 
   @Put('preferences/bulk')
   @AllowAnyAuthenticated()
-  async bulkUpdatePreferences(@Request() req: any, @Body() dto: BulkUpdateNotificationPreferencesDto) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async bulkUpdatePreferences(@Request() req: BillingNotificationRequest, @Body() dto: BulkUpdateNotificationPreferencesDto) {
+    const tenantId = this.actorTenantId(req);
     const userId = this.actorUserId(req);
     const updated = await this.preferenceService.updatePreferencesBulk(tenantId, userId, dto.preferences);
     return { tenantId, userId, data: updated };
@@ -200,8 +202,8 @@ export class BillingNotificationController {
 
   // Webhook subscriptions - tenant isolated, HTTPS validation, no secret plaintext return
   @Get('webhooks')
-  async listWebhooks(@Request() req: any) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async listWebhooks(@Request() req: BillingNotificationRequest) {
+    const tenantId = this.actorTenantId(req);
     const subs = await this.webhookService.listSubscriptions(tenantId);
     // Never return secretHash, only masked
     return subs.map((s) => ({
@@ -220,8 +222,8 @@ export class BillingNotificationController {
   }
 
   @Post('webhooks')
-  async createWebhook(@Request() req: any, @Body() dto: CreateWebhookSubscriptionDto) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async createWebhook(@Request() req: BillingNotificationRequest, @Body() dto: CreateWebhookSubscriptionDto) {
+    const tenantId = this.actorTenantId(req);
     const sub = await this.webhookService.createSubscription({
       tenantId,
       endpointUrl: dto.endpointUrl,
@@ -243,8 +245,8 @@ export class BillingNotificationController {
   }
 
   @Put('webhooks/:id')
-  async updateWebhook(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateWebhookSubscriptionDto) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async updateWebhook(@Request() req: BillingNotificationRequest, @Param('id') id: string, @Body() dto: UpdateWebhookSubscriptionDto) {
+    const tenantId = this.actorTenantId(req);
     const updated = await this.webhookService.updateSubscription(id, tenantId, {
       endpointUrl: dto.endpointUrl,
       eventTypes: dto.eventTypes,
@@ -262,8 +264,8 @@ export class BillingNotificationController {
   }
 
   @Post('webhooks/:id/rotate-secret')
-  async rotateSecret(@Request() req: any, @Param('id') id: string, @Body() dto: RotateWebhookSecretDto) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async rotateSecret(@Request() req: BillingNotificationRequest, @Param('id') id: string, @Body() dto: RotateWebhookSecretDto) {
+    const tenantId = this.actorTenantId(req);
     const updated = await this.webhookService.rotateSecret(id, tenantId, dto.newSecret);
     if (!updated) return { error: 'Webhook not found' };
     return {
@@ -275,8 +277,8 @@ export class BillingNotificationController {
   }
 
   @Delete('webhooks/:id')
-  async deleteWebhook(@Request() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.tenantId || req.tenantId || 'unknown';
+  async deleteWebhook(@Request() req: BillingNotificationRequest, @Param('id') id: string) {
+    const tenantId = this.actorTenantId(req);
     const deleted = await this.webhookService.deleteSubscription(id, tenantId);
     return { deleted, id, tenantId };
   }

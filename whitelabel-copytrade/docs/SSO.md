@@ -460,8 +460,10 @@ Migration `20260923089000_sso_authorization_code_flow` adds:
 - the supporting indexes.
 
 The RLS policy migration (`20260923090000`) covers the new tables. Existing
-databases receive the policies through
-`prisma/upgrades/rls_policies_182_to_186.sql` (see `PART11_ROW_LEVEL_SECURITY.md`).
+databases at the prior schema stamp receive those SSO policies through
+[`rls_policies_182_to_186.sql`](../apps/api/prisma/upgrades/rls_policies_182_to_186.sql).
+The current enablement checklist and evidence rules are in
+[`enable.sql`](../apps/api/prisma/rls/enable.sql) and [`DR.md`](DR.md).
 
 Round 7 adds two column-only migrations (no table, policy or index changes):
 

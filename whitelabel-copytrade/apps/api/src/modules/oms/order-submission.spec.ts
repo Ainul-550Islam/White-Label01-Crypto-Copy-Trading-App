@@ -279,8 +279,7 @@ describe('Partial fill progression & remaining quantity (GAP-18)', () => {
     let intentState: string = OrderIntentState.ACKNOWLEDGED;
     const transitions: any[] = [];
 
-    let prisma: any;
-    prisma = {
+    const prisma: any = {
       withTenantRls: jest.fn(async (_tenantId: string, work: (tx: unknown) => Promise<unknown>) => work(prisma)),
       order: {
         findFirst: jest.fn(async () => ({ id: 'o-1', tenantId: 't-1', clientOrderId: 'oms-1', quantity: '1.0', venue: 'PAPER' })),

@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { GovernancePolicyService } from './governance-policy.service';
-import { DataClassification, RetentionRule, RetentionState } from './governance.types';
+import { DataClassification, RetentionState } from './governance.types';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 export interface RetentionPolicyRecord {

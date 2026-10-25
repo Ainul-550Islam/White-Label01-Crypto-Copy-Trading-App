@@ -1,5 +1,6 @@
-import { IsString, IsEnum, IsOptional, IsUUID, MinLength, IsArray, IsBoolean } from 'class-validator';
-import { PrivacyRequestType, PrivacyRequestState, DataClassification, LegalHoldState, ReportState, EvidenceState, ConsentState, CertificationState, DeliveryState } from '../governance.types';
+// # Responsibility: validate privacy and governance action DTO membership without unsafe enum casts.
+import { IsString, IsEnum, IsOptional, MinLength, IsArray, IsIn, IsBoolean } from 'class-validator';
+import { PrivacyRequestType, PrivacyRequestState, DataClassification } from '../governance.types';
 
 export class CreatePrivacyRequestDto {
   @IsString()
@@ -8,7 +9,7 @@ export class CreatePrivacyRequestDto {
   @IsString()
   subjectUserId!: string;
 
-  @IsEnum(['USER', 'CUSTOMER'] as any)
+  @IsIn(['USER', 'CUSTOMER'])
   subjectType!: 'USER' | 'CUSTOMER';
 
   @IsEnum(PrivacyRequestType)
@@ -231,7 +232,7 @@ export class CertifyReportDto {
   @IsString()
   reviewerRole!: string;
 
-  @IsEnum(['APPROVED', 'REJECTED', 'REWORK_REQUIRED'] as any)
+  @IsIn(['APPROVED', 'REJECTED', 'REWORK_REQUIRED'])
   decision!: 'APPROVED' | 'REJECTED' | 'REWORK_REQUIRED';
 
   @IsOptional()
@@ -397,7 +398,7 @@ export class ExecuteRetentionActionDto {
   @IsString()
   tenantId!: string;
 
-  @IsEnum(['DELETE', 'ANONYMIZE', 'REVIEW', 'PRESERVE'] as any)
+  @IsIn(['DELETE', 'ANONYMIZE', 'REVIEW', 'PRESERVE'])
   action!: 'DELETE' | 'ANONYMIZE' | 'REVIEW' | 'PRESERVE';
 
   @IsString()

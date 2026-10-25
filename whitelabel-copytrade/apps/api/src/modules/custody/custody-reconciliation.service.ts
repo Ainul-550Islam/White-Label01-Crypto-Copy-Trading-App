@@ -3,7 +3,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { BlockchainProviderFactory } from './blockchain-provider.factory';
 import { CustodyAuditService } from './custody-audit.service';
-import { deterministicIdempotencyKey, CustodyReconciliationType, redactSecrets } from './custody.types';
+import { deterministicIdempotencyKey, redactSecrets } from './custody.types';
 
 /** Values of the Prisma CustodyReconciliationType enum (coarse categories). */
 export const CUSTODY_RECONCILIATION_CATEGORIES = new Set(['WALLET', 'TRANSACTION', 'DEPOSIT', 'WITHDRAWAL', 'BALANCE', 'RESERVE', 'FEE', 'CONFIRMATION', 'SETTLEMENT']);

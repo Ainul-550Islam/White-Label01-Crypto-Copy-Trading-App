@@ -1,16 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  Req,
-  ForbiddenException,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Req, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Permission } from '@wlct/shared-types';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';

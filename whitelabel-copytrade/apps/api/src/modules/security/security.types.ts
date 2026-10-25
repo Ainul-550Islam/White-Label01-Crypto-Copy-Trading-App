@@ -1,3 +1,6 @@
+// # Responsibility: define security-domain vocabulary and safe deterministic identifier hashing.
+import { createHash } from 'node:crypto';
+
 /**
  * Canonical security domain types: authentication factors, session state, API-key state, device state, SSO provider, security event, risk state, and policy references.
  * Preserves existing SecurityEventType / SecuritySeverity where applicable, extends for enterprise IAM.
@@ -272,6 +275,5 @@ export function sanitizeSecurityMetadata(metadata: Record<string, any>): Record<
 
 export function hashValue(value: string): string {
   // Deterministic hash for safe reference, not cryptographic - HMAC used in persistence
-  const crypto = require('crypto');
-  return crypto.createHash('sha256').update(value).digest('hex').substring(0, 16);
+  return createHash('sha256').update(value).digest('hex').substring(0, 16);
 }

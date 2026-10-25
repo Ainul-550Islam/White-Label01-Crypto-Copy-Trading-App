@@ -1,3 +1,5 @@
+// # Responsibility: audits protected controller routes against the real role and permission guards.
+import { describe, expect, it, jest } from '@jest/globals';
 import 'reflect-metadata';
 import { Reflector } from '@nestjs/core';
 import { METHOD_METADATA, PATH_METADATA, GUARDS_METADATA } from '@nestjs/common/constants';
@@ -170,7 +172,15 @@ const AUDITED: Array<{ controller: Ctor; routeCount: number; followerRoutes: Arr
     followerRoutes: [['GET', 'maintenance/current']],
   },
   { controller: OmsController, routeCount: 35, followerRoutes: [] },
-  { controller: RiskManagementController, routeCount: 28, followerRoutes: [] },
+  {
+    controller: RiskManagementController,
+    routeCount: 32,
+    followerRoutes: [
+      ['GET', 'my-exposure'],
+      ['GET', 'my-risk-analysis'],
+      ['GET', 'trader-exposure/:traderId'],
+    ],
+  },
   {
     controller: BillingNotificationController,
     routeCount: 18,
@@ -543,7 +553,7 @@ describe('handler identity fixes', () => {
 
   it('the SAML ACS answers 303 to the configured completion URI, or a generic 401 when the login is unknown', async () => {
     const consumeSamlResponse = jest
-      .fn()
+      .fn<(...args: unknown[]) => Promise<{ redirectTo: string | null }>>()
       .mockResolvedValueOnce({ redirectTo: 'https://acme.app.test/api/auth/sso/callback?state=s&code=h' })
       .mockResolvedValueOnce({ redirectTo: null });
     const ctrl = new SsoAuthController({ consumeSamlResponse } as never);

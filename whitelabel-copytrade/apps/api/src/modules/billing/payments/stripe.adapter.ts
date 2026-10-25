@@ -1,3 +1,4 @@
+// # Responsibility: create Stripe payment sessions, retrieve provider state, and verify callbacks without exposing secrets.
 import { Injectable, Logger } from '@nestjs/common';
 import { PaymentProvider, PaymentStatus, TransactionState, PaymentMethodType } from './payment.types';
 import type {
@@ -10,9 +11,9 @@ import type {
   NormalizeEventInput,
   ProviderCapabilities,
 } from './payment-provider.interface';
-import type { NormalizedPaymentResult, PaymentAmount, PaymentMetadata, PaymentReferences } from './payment.types';
+import type { NormalizedPaymentResult, PaymentAmount } from './payment.types';
 import type { NormalizedWebhookEvent, WebhookEventCategory } from './webhook.types';
-import { PaymentConfigService } from './payment.config';
+import { PaymentConfigService, STRIPE_API_VERSION } from './payment.config';
 import { Decimal } from '../../../common/decimal-string';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
@@ -61,7 +62,7 @@ export class StripeAdapter implements IPaymentProvider {
     try {
       const Stripe = await this.loadStripeSdk();
       stripe = new Stripe(stripeSecretKey, {
-        apiVersion: this.config.stripe?.apiVersion || '2023-10-16',
+        apiVersion: this.config.stripe?.apiVersion || STRIPE_API_VERSION,
         maxNetworkRetries: this.config.stripe?.maxNetworkRetries || 2,
         timeout: this.config.stripe?.timeoutMs || 30000,
       });
@@ -147,7 +148,7 @@ export class StripeAdapter implements IPaymentProvider {
     try {
       const Stripe = await this.loadStripeSdk();
       stripe = new Stripe(stripeSecretKey, {
-        apiVersion: this.config.stripe?.apiVersion || '2023-10-16',
+        apiVersion: this.config.stripe?.apiVersion || STRIPE_API_VERSION,
       });
     } catch (error) {
       throw new AppException({
@@ -201,7 +202,7 @@ export class StripeAdapter implements IPaymentProvider {
       try {
         const Stripe = await this.loadStripeSdk();
         stripe = new Stripe(this.config.getStripeSecretKey(), {
-          apiVersion: this.config.stripe?.apiVersion || '2023-10-16',
+          apiVersion: this.config.stripe?.apiVersion || STRIPE_API_VERSION,
         });
       } catch {
         return {
@@ -473,12 +474,10 @@ export class StripeAdapter implements IPaymentProvider {
     return sanitized;
   }
 
-  private async loadStripeSdk(): Promise<any> {
-    // Stripe SDK is optional - if not installed, we throw SERVICE_UNAVAILABLE
+  private async loadStripeSdk(): Promise<typeof import('stripe').default> {
+    // Load on demand so a missing optional runtime install is reported at the provider boundary.
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Stripe = require('stripe');
-      return Stripe;
+      return (await import('stripe')).default;
     } catch {
       throw new Error('Stripe SDK not installed. Run: npm install stripe');
     }

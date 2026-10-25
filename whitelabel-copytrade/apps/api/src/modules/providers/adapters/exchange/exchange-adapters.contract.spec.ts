@@ -1,8 +1,10 @@
+// # Responsibility: assert exchange adapter request signing against venue contract expectations.
 /**
  * Exchange Adapters Contract Tests
  * Deterministic tests for Binance, Bybit, OKX, Kraken, Coinbase adapters
  */
 
+import { createHash, createHmac } from 'node:crypto';
 import { ProviderDomain, ProviderName, ProviderCapability, ProviderErrorCode } from '../../provider.types';
 import { ProviderPolicyService } from '../../provider-policy.service';
 import { ProviderRequestService } from '../../provider-request.service';
@@ -191,9 +193,8 @@ describe('Exchange Adapters Contract', () => {
     const secret = Buffer.from('kraken-test-secret-0123456789abcdef').toString('base64');
     const params = { nonce: '1700000000000000', pair: 'XBTUSD' };
     const viaAdapter = (adapter as any).signRequest('/0/private/Balance', params, secret);
-    const crypto = require('crypto');
-    const digest = crypto.createHash('sha256').update(params.nonce + 'nonce=1700000000000000&pair=XBTUSD').digest();
-    const expected = crypto.createHmac('sha512', Buffer.from(secret, 'base64')).update(Buffer.concat([Buffer.from('/0/private/Balance'), digest])).digest('base64');
+    const digest = createHash('sha256').update(params.nonce + 'nonce=1700000000000000&pair=XBTUSD').digest();
+    const expected = createHmac('sha512', Buffer.from(secret, 'base64')).update(Buffer.concat([Buffer.from('/0/private/Balance'), digest])).digest('base64');
     expect(viaAdapter).toBe(expected);
   });
 

@@ -1,17 +1,8 @@
+// # Responsibility: Read typed canonical plan, subscription, payment, refund, and usage records for plan performance.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma, SubscriptionPlan, TenantSubscription, Payment, Refund } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  ReportingPeriod,
-  PlanPerformanceMetrics,
-  MoneyAmount,
-  BillingInterval,
-  SubscriptionStatus,
-  zeroMoney,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-  calculateRate,
-} from './revenue-analytics.types';
+import { ReportingPeriod, PlanPerformanceMetrics, SubscriptionStatus, parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency, calculateRate } from './revenue-analytics.types';
 
 /**
  * Plan analytics for every canonical plan: subscribers, MRR, ARR, gross/net revenue, refunds, churn, upgrades, downgrades, tenure, utilization.
@@ -62,9 +53,11 @@ export class PlanPerformanceService {
         const tenureMs = new Date(sub.currentPeriodEnd).getTime() - new Date(sub.currentPeriodStart).getTime();
         totalTenureDays += tenureMs / (1000 * 60 * 60 * 24);
 
-        const meta = sub.metadata as any;
-        if (meta?.changeType === 'UPGRADE') upgradeCount++;
-        if (meta?.changeType === 'DOWNGRADE') downgradeCount++;
+        const metadata = sub.metadata;
+        if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+          if (metadata.changeType === 'UPGRADE') upgradeCount++;
+          if (metadata.changeType === 'DOWNGRADE') downgradeCount++;
+        }
       }
 
       // MRR/ARR calculation for this plan
@@ -120,12 +113,12 @@ export class PlanPerformanceService {
       // Utilization: from usage meters if available
       let utilizationRate: string | undefined;
       try {
-        const usageMeters = await (this.prisma as any).usageMeter?.findMany({
+        const usageMeters = await this.prisma.usageMeter.findMany({
           where: { createdAt: { gte: start, lte: end } },
         }) || [];
         if (usageMeters.length > 0) {
-          const totalUsage = usageMeters.reduce((sum: number, m: any) => sum + (m.currentValue || 0), 0);
-          const totalMax = usageMeters.reduce((sum: number, m: any) => sum + (m.maxValue || 0), 0);
+          const totalUsage = usageMeters.reduce((sum, m) => sum + (m.currentValue || 0), 0);
+          const totalMax = usageMeters.reduce((sum, m) => sum + (m.maxValue || 0), 0);
           if (totalMax > 0) utilizationRate = calculateRate(totalUsage, totalMax);
         }
       } catch {}
@@ -172,21 +165,21 @@ export class PlanPerformanceService {
     return { start: new Date(period.startDate), end: new Date(period.endDate) };
   }
 
-  private async fetchPlans(params: { currency: string; planId?: string }): Promise<any[]> {
+  private async fetchPlans(params: { currency: string; planId?: string }): Promise<SubscriptionPlan[]> {
     try {
-      const where: any = { isActive: true, deletedAt: null };
+      const where: Prisma.SubscriptionPlanWhereInput = { isActive: true, deletedAt: null };
       if (params.planId) where.id = params.planId;
       // Currency filter not in DB for all, filter after
-      const plans = await (this.prisma as any).subscriptionPlan?.findMany({ where }) || [];
-      return plans.filter((p: any) => !params.currency || p.currency?.toUpperCase() === params.currency.toUpperCase());
-    } catch (e: any) {
-      this.logger.warn(`Failed to fetch plans: ${e.message}`);
+      const plans = await this.prisma.subscriptionPlan.findMany({ where }) || [];
+      return plans.filter((p) => !params.currency || p.currency?.toUpperCase() === params.currency.toUpperCase());
+    } catch (e) {
+      this.logger.warn(`Failed to fetch plans: ${e instanceof Error ? e.message : String(e)}`);
       throw e;
     }
   }
 
-  private async fetchSubscriptionsForPlan(params: { planId: string; start: Date; end: Date }): Promise<any[]> {
-    return await (this.prisma as any).tenantSubscription?.findMany({
+  private async fetchSubscriptionsForPlan(params: { planId: string; start: Date; end: Date }): Promise<TenantSubscription[]> {
+    return await this.prisma.tenantSubscription.findMany({
       where: {
         planId: params.planId,
         createdAt: { lte: params.end },
@@ -195,8 +188,8 @@ export class PlanPerformanceService {
     }) || [];
   }
 
-  private async fetchPaymentsForPlan(params: { planId: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    return await (this.prisma as any).payment?.findMany({
+  private async fetchPaymentsForPlan(params: { planId: string; currency: string; start: Date; end: Date }): Promise<Payment[]> {
+    return await this.prisma.payment.findMany({
       where: {
         planId: params.planId,
         currency: params.currency,
@@ -205,12 +198,12 @@ export class PlanPerformanceService {
     }) || [];
   }
 
-  private async fetchRefundsForPlan(params: { planId: string; currency: string; start: Date; end: Date }): Promise<any[]> {
+  private async fetchRefundsForPlan(params: { planId: string; currency: string; start: Date; end: Date }): Promise<Refund[]> {
     // Refunds linked via payment -> plan, so we need to join
-    const payments = await (this.prisma as any).payment?.findMany({ where: { planId: params.planId } }) || [];
-    const paymentIds = payments.map((p: any) => p.id);
+    const payments = await this.prisma.payment.findMany({ where: { planId: params.planId } }) || [];
+    const paymentIds = payments.map((p) => p.id);
     if (paymentIds.length === 0) return [];
-    return await (this.prisma as any).refund?.findMany({
+    return await this.prisma.refund.findMany({
       where: {
         paymentId: { in: paymentIds },
         currency: params.currency,

@@ -9,17 +9,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
-import {
-  ProviderDomain,
-  ProviderName,
-  ProviderCapability,
-  ProviderResult,
-  NormalizedExchangeOrderResult,
-  ProviderErrorCode,
-  RetryClassification,
-  ProviderOperationType,
-  ProviderHealthState,
-} from '../../provider.types';
+import { ProviderDomain, ProviderName, ProviderCapability, ProviderResult, NormalizedExchangeOrderResult, ProviderErrorCode, RetryClassification, ProviderOperationType } from '../../provider.types';
 import { ProviderPolicyService } from '../../provider-policy.service';
 import { ProviderRequestService } from '../../provider-request.service';
 import { ProviderObservationService } from '../../provider-observation.service';

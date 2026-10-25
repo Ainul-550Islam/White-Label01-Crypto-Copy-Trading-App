@@ -1,4 +1,5 @@
-import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
+// # Responsibility: authorize read-only analytics scope and prevent tenant requests from becoming platform-wide queries.
+import { Controller, ForbiddenException, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { RequirePermissions } from '../../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
@@ -54,7 +55,7 @@ export class AnalyticsController {
     private readonly cacheService: AnalyticsCacheService,
   ) {}
 
-  private buildPeriod(query: any): ReportingPeriod {
+  private buildPeriod(query: Pick<RevenueQueryDto, 'startDate' | 'endDate' | 'periodType' | 'timezone'>): ReportingPeriod {
     const now = new Date();
     const startDate = query.startDate ? new Date(query.startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
     const endDate = query.endDate ? new Date(query.endDate) : now;
@@ -75,8 +76,9 @@ export class AnalyticsController {
     if (actor.isPlatformUser) {
       return queryTenantId; // undefined = platform aggregate
     }
-    // Tenant user: only own tenant
-    return actor.tenantId || undefined;
+    // Tenant user: only own tenant; missing context must never select the platform aggregate.
+    if (!actor.tenantId?.trim()) throw new ForbiddenException('Tenant context is required for analytics');
+    return actor.tenantId;
   }
 
   private isPlatformAdmin(actor: AuthenticatedActor): boolean {
@@ -322,8 +324,10 @@ export class AnalyticsController {
   @RequirePermissions(Permission.SUBSCRIPTION_READ)
   @ApiOperation({ summary: 'Get ARPU - average revenue per account' })
   async getArpu(@CurrentUser() actor: AuthenticatedActor, @Query() query: RevenueQueryDto) {
+    const tenantId = this.resolveTenantScope(actor, query.tenantId);
     const period = this.buildPeriod(query);
     return this.customerValueService.calculateArpu({
+      tenantIds: tenantId ? [tenantId] : undefined,
       currency: query.currency,
       period,
     });

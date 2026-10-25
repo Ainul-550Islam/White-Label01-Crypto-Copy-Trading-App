@@ -21,6 +21,11 @@ import {
  */
 
 export class PaginationDto {
+  // # Responsibility: validate optional platform filter; controller always restricts ordinary callers to their verified tenant.
+  @IsOptional()
+  @IsUUID()
+  tenantId?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsNumberString, IsArray, IsBooleanString } from 'class-validator';
-import { ResearchStatus, ResearchDatasetStatus, ResearchStrategyVersionStatus, ResearchBacktestStatus, ResearchPaperSessionStatus, ResearchSignalState, ResearchPromotionState } from '../research.types';
+import { IsString, IsOptional, IsEnum, IsNumberString } from 'class-validator';
+import { ResearchDatasetStatus, ResearchStrategyVersionStatus, ResearchBacktestStatus, ResearchPaperSessionStatus, ResearchSignalState, ResearchPromotionState } from '../research.types';
 
 export class ResearchDatasetFilterDto {
   @IsOptional()

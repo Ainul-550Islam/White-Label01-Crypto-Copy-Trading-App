@@ -1,28 +1,32 @@
-// # Adds getCapabilities() and getExchangeFilters(symbol) contract methods
+// # Responsibility: expose canonical exchange types and static venue capabilities without adding execution paths.
 import {
   ExchangeVenue,
   VENUE_CAPABILITIES_MATRIX,
+  type ExchangeSymbol,
   type VenueCapabilities,
 } from '../exchange.types';
-import {
-  type IExchangeProvider,
-  type ExchangeSymbolFilters,
-  type ExchangeVenueCapabilities,
-} from '../exchange-provider.interface';
+import type { ExchangeProvider } from '../exchange-provider.interface';
 
-export {
-  type IExchangeProvider,
-  type ExchangeSymbolFilters,
-  type ExchangeVenueCapabilities,
-  type VenueCapabilities,
-};
+export type IExchangeProvider = ExchangeProvider;
+export type ExchangeSymbolFilters = Pick<
+  ExchangeSymbol,
+  | 'tickSize'
+  | 'quantityStep'
+  | 'minQuantity'
+  | 'maxQuantity'
+  | 'minNotional'
+  | 'maxNotional'
+  | 'pricePrecision'
+  | 'quantityPrecision'
+>;
+export type ExchangeVenueCapabilities = Awaited<ReturnType<ExchangeProvider['getCapabilities']>>;
+export type { VenueCapabilities };
 
 export function resolveCanonicalVenueCapabilities(
   venue: ExchangeVenue | string,
 ): VenueCapabilities {
-  const key = String(venue).toUpperCase() as ExchangeVenue;
-  return (
-    VENUE_CAPABILITIES_MATRIX[key] ??
-    VENUE_CAPABILITIES_MATRIX[ExchangeVenue.OTHER_CONFIGURED]
-  );
+  const normalized = String(venue).toUpperCase();
+  const key = Object.values(ExchangeVenue).find((candidate) => candidate === normalized)
+    ?? ExchangeVenue.OTHER_CONFIGURED;
+  return VENUE_CAPABILITIES_MATRIX[key];
 }

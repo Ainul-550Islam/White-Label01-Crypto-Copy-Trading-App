@@ -1,9 +1,11 @@
+// # Responsibility: manage canonical tenant accounts with validated metadata and tenant-bound mutation predicates.
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Prisma, InstitutionalAccountState as StoredAccountState, type InstitutionalAccount } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ClientProfileRepository } from './client-profile.repository';
 import { ClientPolicyService } from './client-policy.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
-import { deterministicIdempotencyKey, InstitutionalAccountState, redactPiiAndSecrets } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, redactPiiAndSecrets, lifecycleEnum, lifecycleJsonObject, lifecycleMetadata } from './client-lifecycle.types';
 
 /**
  * Creates and manages institutional trading/managed-account records, account type, ownership,
@@ -30,7 +32,7 @@ export class AccountAdministrationService {
     ownerType?: string | null;
     operatorId?: string | null;
     correlationId?: string | null;
-  }): Promise<any> {
+  }): Promise<InstitutionalAccount> {
     const { tenantId, clientProfileId, accountType = 'TRADING', displayName = null, ownerId = null, ownerType = null, operatorId = null, correlationId = null } = params;
 
     const profile = await this.profileRepo.getProfile({ tenantId, profileId: clientProfileId });
@@ -49,12 +51,10 @@ export class AccountAdministrationService {
       externalRef: `${clientProfileId}:${accountType}:${displayName ?? ''}`,
     });
 
-    try {
-      const existing = await (this.prisma as any).institutionalAccount.findFirst({ where: { tenantId, idempotencyKey } });
-      if (existing) return existing;
-    } catch {}
+    const existing = await this.prisma.institutionalAccount.findFirst({ where: { tenantId, idempotencyKey } });
+    if (existing) return existing;
 
-    const account = await (this.prisma as any).institutionalAccount.create({
+    const account = await this.prisma.institutionalAccount.create({
       data: {
         tenantId,
         clientProfileId,
@@ -86,8 +86,8 @@ export class AccountAdministrationService {
     return account;
   }
 
-  async getAccount(params: { tenantId: string; accountId: string }): Promise<any | null> {
-    return await (this.prisma as any).institutionalAccount.findFirst({
+  async getAccount(params: { tenantId: string; accountId: string }): Promise<InstitutionalAccount | null> {
+    return await this.prisma.institutionalAccount.findFirst({
       where: { id: params.accountId, tenantId: params.tenantId },
     });
   }
@@ -100,22 +100,22 @@ export class AccountAdministrationService {
     ownerId?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+  }): Promise<{ data: InstitutionalAccount[]; total: number; page: number; limit: number }> {
     const { tenantId, clientProfileId, state, accountType, ownerId, page = 1, limit = 50 } = params;
-    const where: any = { tenantId };
+    const where: Prisma.InstitutionalAccountWhereInput = { tenantId };
     if (clientProfileId) where.clientProfileId = clientProfileId;
-    if (state) where.state = state;
+    if (state) where.state = lifecycleEnum(Object.values(StoredAccountState), state, 'account state');
     if (accountType) where.accountType = accountType;
     if (ownerId) where.ownerId = ownerId;
 
     const [data, total] = await Promise.all([
-      (this.prisma as any).institutionalAccount.findMany({
+      this.prisma.institutionalAccount.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      (this.prisma as any).institutionalAccount.count({ where }),
+      this.prisma.institutionalAccount.count({ where }),
     ]);
     return { data, total, page, limit };
   }
@@ -124,19 +124,19 @@ export class AccountAdministrationService {
     tenantId: string;
     accountId: string;
     displayName?: string | null;
-    metadata?: any;
+    metadata?: Record<string, unknown>;
     operatorId?: string | null;
-  }): Promise<any> {
+  }): Promise<InstitutionalAccount> {
     const { tenantId, accountId, displayName, metadata, operatorId = null } = params;
 
     const account = await this.getAccount({ tenantId, accountId });
     if (!account) throw new BadRequestException('Account not found');
 
-    const updated = await (this.prisma as any).institutionalAccount.update({
-      where: { id: accountId },
+    const updated = await this.prisma.institutionalAccount.update({
+      where: { id: accountId, tenantId },
       data: {
         ...(displayName !== undefined ? { displayName } : {}),
-        ...(metadata ? { metadata: { ...(account.metadata as any), ...metadata } } : {}),
+        ...(metadata !== undefined ? { metadata: lifecycleMetadata({ ...lifecycleJsonObject(account.metadata), ...lifecycleMetadata(metadata) }) } : {}),
       },
     });
 

@@ -1,3 +1,4 @@
+// # Responsibility: keep existing tenant/risk calculations and fail-closed source reads while narrowing untrusted decimal values without any bypasses.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
@@ -12,7 +13,7 @@ import { resolveDayStartEquity, scopeAccountIdsOf } from './day-start-equity';
  * Decimal-safe.
  */
 
-function isValidDecimal(v: any): boolean {
+function isValidDecimal(v: unknown): boolean {
   return typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v);
 }
 const SCALE = 1_000_000_000_000n;
@@ -36,9 +37,6 @@ function cmp(a: string, b: string): number {
   const av = parseScaled(a);
   const bv = parseScaled(b);
   return av < bv ? -1 : av > bv ? 1 : 0;
-}
-function sub(a: string, b: string): string {
-  return formatScaled(parseScaled(a) - parseScaled(b));
 }
 
 @Injectable()
@@ -168,7 +166,7 @@ export class DrawdownRiskService {
     let state = RiskState.NORMAL;
     let reason = `Drawdown ${drawdownPercent ?? '0'}% within limit ${threshold ?? 'unlimited'}`;
     let severity = RiskSeverity.INFO;
-    let ruleId = 'MAX_DRAWDOWN';
+    const ruleId = 'MAX_DRAWDOWN';
 
     if (drawdownPercent && threshold && isValidDecimal(threshold) && isValidDecimal(drawdownPercent)) {
       if (cmp(drawdownPercent, threshold) > 0) {

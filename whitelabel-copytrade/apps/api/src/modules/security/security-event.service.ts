@@ -1,8 +1,9 @@
+// # Responsibility: record security events with tenant attribution and privacy-preserving identifiers.
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { SecurityEventType, SecurityRisk, sanitizeSecurityMetadata } from './security.types';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const TENANT_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -274,7 +275,6 @@ export class SecurityEventService {
   }
 
   private hashEmail(email: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(email.toLowerCase()).digest('hex').substring(0, 8);
+    return createHash('sha256').update(email.toLowerCase()).digest('hex').substring(0, 8);
   }
 }

@@ -1,0 +1,65 @@
+TAP version 13
+# [90m1:12PM[0m [32mINF[0m [1mscanned ~94665298 bytes (94.67 MB) in 5.24s[0m
+# [90m1:12PM[0m [32mINF[0m [1mno leaks found[0m
+# [90m1:12PM[0m [32mINF[0m [1mscanned ~54 bytes (54 bytes) in 7.03ms[0m
+# [90m1:12PM[0m [33mWRN[0m [1mleaks found: 1[0m
+# [90m1:12PM[0m [32mINF[0m [1m1 commits scanned.[0m
+# [90m1:12PM[0m [32mINF[0m [1mscanned ~64428661 bytes (64.43 MB) in 17.9s[0m
+# [90m1:12PM[0m [32mINF[0m [1mno leaks found[0m
+# Subtest: the policy keeps the default ruleset, because a config file replaces it
+ok 1 - the policy keeps the default ruleset, because a config file replaces it
+  ---
+  duration_ms: 1.037787
+  type: 'test'
+  ...
+# Subtest: every allowlist entry says what it is for
+ok 2 - every allowlist entry says what it is for
+  ---
+  duration_ms: 0.747
+  type: 'test'
+  ...
+# Subtest: path-based exceptions only cover paths git does not track
+ok 3 - path-based exceptions only cover paths git does not track
+  ---
+  duration_ms: 9.193424
+  type: 'test'
+  ...
+# Subtest: value exceptions are exact literals, so a different secret in the same file still fails
+ok 4 - value exceptions are exact literals, so a different secret in the same file still fails
+  ---
+  duration_ms: 0.442576
+  type: 'test'
+  ...
+# Subtest: a missing scanner is reported as blocked, never as clean
+ok 5 - a missing scanner is reported as blocked, never as clean
+  ---
+  duration_ms: 48.897774
+  type: 'test'
+  ...
+# Subtest: the working tree scans clean under the reviewed policy, and a planted token is still caught
+ok 6 - the working tree scans clean under the reviewed policy, and a planted token is still caught
+  ---
+  duration_ms: 6195.304003
+  type: 'test'
+  ...
+# Subtest: the history scan is reproducible from the runner
+ok 7 - the history scan is reproducible from the runner
+  ---
+  duration_ms: 18252.356946
+  type: 'test'
+  ...
+# Subtest: the repository config and the runner agree on where the policy lives
+ok 8 - the repository config and the runner agree on where the policy lives
+  ---
+  duration_ms: 0.604393
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 24595.240038

@@ -1,3 +1,4 @@
+// # Responsibility: declare provider-neutral compliance evidence and sanitize unknown metadata without losing array structure or asserting arbitrary jurisdiction strings to enums.
 /**
  * Canonical compliance domain types: KYC state, AML state, sanctions result, risk score, case state, review state, jurisdiction, decision, and safe references.
  * No hardcoded sanctions lists, no fake verification, provider-neutral.
@@ -111,7 +112,7 @@ export interface KycVerificationResult {
   verifiedAt?: string;
   expiresAt?: string;
   requiresReverification?: boolean;
-  safeMetadata: Record<string, any>;
+  safeMetadata: Record<string, unknown>;
 }
 
 export interface AmlScreeningResult {
@@ -124,7 +125,7 @@ export interface AmlScreeningResult {
   matchScore?: number;
   reasonCode?: string;
   screenedAt: string;
-  safeMetadata: Record<string, any>;
+  safeMetadata: Record<string, unknown>;
 }
 
 export interface RiskScore {
@@ -177,7 +178,8 @@ export interface MonitoringSignal {
 export interface CompliancePolicy {
   id: string;
   tenantId?: string | null;
-  jurisdiction: Jurisdiction;
+  // Canonical policy records also support configured uppercase two-letter country codes.
+  jurisdiction: string;
   policyVersion: string;
   kycRequired: boolean;
   amlRequired: boolean;
@@ -242,19 +244,29 @@ export const SENSITIVE_PII_FIELDS = [
   'webhookSecret',
 ];
 
-export function sanitizeMetadata(metadata: Record<string, any>): Record<string, any> {
-  const sanitized: Record<string, any> = {};
-  for (const [k, v] of Object.entries(metadata)) {
-    const lower = k.toLowerCase();
-    if (SENSITIVE_PII_FIELDS.some((f) => lower.includes(f.toLowerCase()))) {
-      sanitized[k] = '[REDACTED]';
-    } else if (typeof v === 'object' && v !== null) {
-      sanitized[k] = sanitizeMetadata(v as any);
+export function sanitizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (SENSITIVE_PII_FIELDS.some((field) => key.toLowerCase().includes(field.toLowerCase()))) {
+      sanitized[key] = '[REDACTED]';
     } else {
-      sanitized[k] = v;
+      sanitized[key] = sanitizeComplianceValue(value);
     }
   }
   return sanitized;
+}
+
+function sanitizeComplianceValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const entries: unknown[] = value;
+    return entries.map((entry) => sanitizeComplianceValue(entry));
+  }
+  if (isComplianceMetadataObject(value)) return sanitizeMetadata(value);
+  return value;
+}
+
+function isComplianceMetadataObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function hashPii(value: string): string {

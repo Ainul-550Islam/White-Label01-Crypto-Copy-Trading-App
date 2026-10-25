@@ -5,7 +5,7 @@ import { SubscriptionsService } from '../subscriptions.service';
 import { BillingCustomerService } from '../finance/billing-customer.service';
 import { SaasAdminAuditService } from './saas-admin-audit.service';
 import type { SaasProvisioningResult } from './saas-admin.types';
-import { ProvisioningState, TenantLifecycleState } from './saas-admin.types';
+import { ProvisioningState } from './saas-admin.types';
 import { BillingInterval } from '@wlct/shared-types';
 import { BillingEventService } from '../notifications/billing-event.service';
 import { randomUUID } from 'crypto';

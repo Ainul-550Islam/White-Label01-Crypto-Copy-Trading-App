@@ -121,7 +121,7 @@ def test_webhook_verify_roundtrip_and_rejection() -> None:
 
 def test_catalog_constants_are_backend_pinned() -> None:
     assert len(DEVELOPER_SCOPES) == 16
-    assert len(DEVELOPER_EVENT_TYPES) == 23
+    assert len(DEVELOPER_EVENT_TYPES) == 36
     assert "trading:execute" in DEVELOPER_SCOPES
     assert "customer.created" in DEVELOPER_EVENT_TYPES
     assert APPLICATION_STATES[-1] == "REVOKED"

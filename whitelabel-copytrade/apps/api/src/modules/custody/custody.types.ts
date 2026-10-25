@@ -1,3 +1,4 @@
+// # Responsibility: define custody states, decimal-safe evidence helpers and honest secret-redaction/JSON boundaries.
 /**
  * Part 21 — Institutional Treasury, Custody & On-Chain Settlement Control Plane
  * Canonical custody states, wallet states, transaction states, deposit/withdrawal states,
@@ -17,6 +18,7 @@
  */
 
 import { createHash } from 'crypto';
+import { Prisma } from '@prisma/client';
 
 export enum CustodyWalletState {
   PENDING = 'PENDING',
@@ -299,13 +301,16 @@ export const DECIMAL_SCALE = 12;
 export const SCALE_FACTOR = BigInt(10 ** DECIMAL_SCALE);
 
 export function isValidDecimal(value: string): boolean {
-  return /^-?\d+(\.\d+)?$/.test(value);
+  return typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value);
 }
 
 export function parseScaled(value: string): bigint {
   if (!isValidDecimal(value)) throw new Error(`Invalid decimal: ${value}`);
   const [intPart, fracPart = ''] = value.replace('-', '').split('.');
   const isNeg = value.startsWith('-');
+  if (fracPart.length > DECIMAL_SCALE && /[1-9]/.test(fracPart.slice(DECIMAL_SCALE))) {
+    throw new Error(`Decimal precision exceeds custody arithmetic scale ${DECIMAL_SCALE}: ${value}`);
+  }
   const paddedFrac = (fracPart + '0'.repeat(DECIMAL_SCALE)).slice(0, DECIMAL_SCALE);
   const scaled = BigInt(intPart) * SCALE_FACTOR + BigInt(paddedFrac || '0');
   return isNeg ? -scaled : scaled;
@@ -316,7 +321,7 @@ export function formatScaled(scaled: bigint): string {
   const abs = isNeg ? -scaled : scaled;
   const intPart = abs / SCALE_FACTOR;
   const fracPart = abs % SCALE_FACTOR;
-  let fracStr = fracPart.toString().padStart(DECIMAL_SCALE, '0').replace(/0+$/, '');
+  const fracStr = fracPart.toString().padStart(DECIMAL_SCALE, '0').replace(/0+$/, '');
   const result = fracStr ? `${intPart.toString()}.${fracStr}` : intPart.toString();
   return isNeg ? `-${result}` : result;
 }
@@ -375,23 +380,49 @@ const SECRET_PATTERNS = [
   /encryption[_-]?key/i,
 ];
 
-export function redactSecrets<T>(input: T): T {
+export function redactSecrets(input: Record<string, unknown>): Record<string, unknown>;
+export function redactSecrets(input: unknown): unknown;
+export function redactSecrets(input: unknown): unknown {
   if (input === null || input === undefined) return input;
   if (typeof input === 'string') {
-    if (input.length > 20 && /[A-Za-z0-9+/=]{20,}/.test(input)) return '[REDACTED]' as unknown as T;
+    if (input.length > 20 && /[A-Za-z0-9+/=]{20,}/.test(input)) return '[REDACTED]';
     return input;
   }
-  if (Array.isArray(input)) return input.map((v) => redactSecrets(v)) as unknown as T;
-  if (typeof input === 'object') {
-    const obj = input as Record<string, unknown>;
+  if (Array.isArray(input)) {
+    const entries: unknown[] = input;
+    return entries.map((value) => redactSecrets(value));
+  }
+  if (isCustodyObject(input)) {
     const result: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-      const isSecret = SECRET_PATTERNS.some((p) => p.test(k.toLowerCase()));
-      result[k] = isSecret ? '[REDACTED]' : redactSecrets(v);
+    for (const [key, value] of Object.entries(input)) {
+      result[key] = SECRET_PATTERNS.some((pattern) => pattern.test(key)) ? '[REDACTED]' : redactSecrets(value);
     }
-    return result as unknown as T;
+    return result;
   }
   return input;
+}
+
+export function isCustodyObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function custodyJsonInput(value: unknown): Prisma.InputJsonValue {
+  assertFiniteCustodyEvidence(value, new WeakSet<object>());
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new Error('Custody evidence is not JSON serializable');
+  const parsed: unknown = JSON.parse(serialized);
+  if (parsed === null || !isCustodyJsonValue(parsed)) throw new Error('Invalid custody JSON evidence');
+  return parsed;
+}
+
+function isCustodyJsonValue(value: unknown): value is Prisma.InputJsonValue | null {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    const entries: unknown[] = value;
+    return entries.every((entry) => isCustodyJsonValue(entry));
+  }
+  return isCustodyObject(value) && Object.values(value).every((entry) => isCustodyJsonValue(entry));
 }
 
 export interface AssetIdentity {
@@ -427,7 +458,7 @@ export interface TransactionObservation {
   feeAsset?: string | null;
   observedAt: string;
   providerReference?: string | null;
-  rawProviderData?: any;
+  rawProviderData?: unknown;
 }
 
 export interface BalanceObservation {
@@ -435,7 +466,8 @@ export interface BalanceObservation {
   assetSymbol: string;
   networkId: string;
   walletId: string;
-  available: string;
+  // Unknown/unavailable observations are not measured zero funds.
+  available: string | null;
   pendingIn?: string | null;
   pendingOut?: string | null;
   locked?: string | null;
@@ -453,4 +485,23 @@ export interface FeeObservation {
   feeAsset: string;
   providerReference?: string | null;
   isActual: boolean;
+}
+
+function assertFiniteCustodyEvidence(value: unknown, seen: WeakSet<object>): void {
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Non-finite custody JSON evidence');
+  if (Array.isArray(value)) {
+    if (seen.has(value)) throw new Error('Circular custody JSON evidence');
+    seen.add(value);
+    const entries: unknown[] = value;
+    entries.forEach((entry) => assertFiniteCustodyEvidence(entry, seen));
+    seen.delete(value);
+    return;
+  }
+  if (isCustodyObject(value)) {
+    const object = value;
+    if (seen.has(object)) throw new Error('Circular custody JSON evidence');
+    seen.add(object);
+    Object.values(object).forEach((entry) => assertFiniteCustodyEvidence(entry, seen));
+    seen.delete(object);
+  }
 }

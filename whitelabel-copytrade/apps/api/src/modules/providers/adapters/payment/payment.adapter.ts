@@ -1,7 +1,6 @@
-// # Normalizes payment/deposit webhook events
-// # NEW or MODIFY — canonical funding/payment provider contract when missing
-import { StripePaymentAdapter } from './stripe.adapter';
-import { NowPaymentsAdapter } from './nowpayments.adapter';
+// # Responsibility: retain payment compatibility exports backed by the canonical production adapter classes.
+import { StripeProductionAdapter as StripePaymentAdapter } from './stripe.adapter';
+import { NowPaymentsProductionAdapter as NowPaymentsAdapter } from './nowpayments.adapter';
 
 export { StripePaymentAdapter, NowPaymentsAdapter };
 

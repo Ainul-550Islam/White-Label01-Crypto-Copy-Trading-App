@@ -1,3 +1,4 @@
+// # Responsibility: keep existing tenant/risk calculations and fail-closed source reads while narrowing untrusted decimal values without any bypasses.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
@@ -11,7 +12,7 @@ import { LiquidationRiskResult, RiskState, RiskSeverity } from './risk-managemen
  * - Account-level aggregation for cross-margin.
  */
 
-function isValidDecimal(v: any): boolean {
+function isValidDecimal(v: unknown): boolean {
   return typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v);
 }
 const SCALE = 1_000_000_000_000n;
@@ -88,7 +89,7 @@ export class LiquidationRiskService {
       let isCritical = false;
       let state = RiskState.UNKNOWN;
       let reason = `Liquidation price unavailable for ${pos.symbol} — venue does not provide authoritative liquidation in canonical source, must not invent`;
-      let ruleId = 'LIQUIDATION_DISTANCE';
+      const ruleId = 'LIQUIDATION_DISTANCE';
       let severity = RiskSeverity.INFO;
 
       // If we had authoritative liquidation price, compute distance

@@ -1,3 +1,4 @@
+// # Responsibility: provide a narrowly typed test-only loader for XML signature fixtures without importing DOM types.
 /**
  * TEST-ONLY access to xml-crypto's SignedXml (used to produce genuinely
  * signed SAML responses for the specs).
@@ -9,6 +10,8 @@
  * program and break Node-typed code (fetch Headers etc.). Only the surface the
  * specs use is typed here.
  */
+
+import { createRequire } from 'node:module';
 
 export interface SignedXmlInstance {
   canonicalizationAlgorithm: string;
@@ -28,7 +31,7 @@ export type SignedXmlConstructor = new (options: {
   publicCert?: string;
 }) => SignedXmlInstance;
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+const loadXmlCrypto = createRequire(__filename);
 export const SignedXml: SignedXmlConstructor = (
-  require('xml-crypto') as { SignedXml: SignedXmlConstructor }
+  loadXmlCrypto('xml-crypto') as { SignedXml: SignedXmlConstructor }
 ).SignedXml;

@@ -655,7 +655,22 @@ class TestRoutesDurableMode:
             assert scoped.statements == []
 
     def test_route_is_on_the_internal_plane_only(self, client: TestClient) -> None:
-        paths = {route.path for route in getattr(client.app, "routes", [])}
+        paths: set[str] = set()
+        pending = [client.app]
+        visited: set[int] = set()
+        while pending:
+            router = pending.pop()
+            router_id = id(router)
+            if router_id in visited:
+                continue
+            visited.add(router_id)
+            for route in getattr(router, "routes", []):
+                path = getattr(route, "path", None)
+                if isinstance(path, str):
+                    paths.add(path)
+                included_router = getattr(route, "original_router", None)
+                if included_router is not None:
+                    pending.append(included_router)
         assert "/internal/v1/enablement/audit" in paths
 
 

@@ -4,8 +4,8 @@ import { ComplianceCaseRepository } from './compliance-case.repository';
 import { ComplianceAuditService } from './compliance-audit.service';
 import { CompliancePolicyService } from './compliance-policy.service';
 import { RiskScoringService } from './risk-scoring.service';
-import { ComplianceCaseState, ComplianceCaseType, RiskLevel, ComplianceDecision, ComplianceReviewAction } from './compliance.types';
-import { randomUUID } from 'crypto';
+import { ComplianceCaseState, ComplianceCaseType, RiskLevel, ComplianceDecision } from './compliance.types';
+
 
 /**
  * Manages compliance case lifecycle: create/assign/escalate/evidence/note/decision/EDD/reverification/hold/release/resolve/close

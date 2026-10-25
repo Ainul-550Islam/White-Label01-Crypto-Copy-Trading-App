@@ -31,7 +31,7 @@ import { CreateSamlConfigDto, CreateOidcConfigDto, UpdateSsoConfigDto } from './
 import { CryptoService } from '../../infrastructure/crypto/crypto.service';
 import { CreateApiKeyDto, ListApiKeyDto, RotateApiKeyDto, RevokeApiKeyDto } from './dto/api-key.dto';
 import { CreateSecurityPolicyDto, UpdateSecurityPolicyDto, SessionQueryDto, DeviceQueryDto, SecurityEventQueryDto, ThreatQueryDto } from './dto/security-policy.dto';
-import { SsoProvider, ApiKeyState } from './security.types';
+import { SsoProvider } from './security.types';
 import { isPlatformPrincipal } from '../../common/guards/request-principal';
 
 /**

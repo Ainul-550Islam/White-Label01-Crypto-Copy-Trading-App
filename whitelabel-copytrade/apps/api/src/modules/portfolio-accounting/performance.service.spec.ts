@@ -1,5 +1,6 @@
 // # Responsibility: verifies canonical exact-decimal TWR cash-flow boundaries, NAV provenance, and fail-closed behavior.
 
+import { describe, expect, it, jest } from '@jest/globals';
 import { PerformanceService } from './performance.service';
 import { AccountingPolicyService } from './accounting-policy.service';
 import { NavService } from './nav.service';
@@ -52,6 +53,8 @@ function flow(params: {
 }) {
   return {
     id: params.id,
+    tenantId: TENANT_ID,
+    profileId: PROFILE_ID,
     idempotencyKey: params.idempotencyKey ?? `idempotency:${params.id}`,
     occurredAt: params.occurredAt,
     cashFlowType: params.cashFlowType,
@@ -97,12 +100,13 @@ function buildService(params: {
     calculationVersion: CALCULATION_VERSION,
     ...params.policyOverrides,
   };
-  const cashFlowFindMany = params.cashFlowReadError
-    ? jest.fn().mockRejectedValue(params.cashFlowReadError)
-    : jest.fn().mockResolvedValue(params.cashFlows ?? []);
+  const cashFlowFindMany = jest.fn(async (_input: unknown): Promise<unknown[]> => {
+    if (params.cashFlowReadError) throw params.cashFlowReadError;
+    return params.cashFlows ?? [];
+  });
   const calculateNav = jest.fn(async ({ at }: { at: Date }) => params.navFor?.(at) ?? nav(at, '100'));
   const prisma = { portfolioCashLedgerEntry: { findMany: cashFlowFindMany } } as unknown as PrismaService;
-  const accountingPolicy = { resolvePolicy: jest.fn().mockResolvedValue(policy) } as unknown as AccountingPolicyService;
+  const accountingPolicy = { resolvePolicy: jest.fn(async () => policy) } as unknown as AccountingPolicyService;
   const navService = { calculateNav } as unknown as NavService;
   return {
     service: new PerformanceService(prisma, accountingPolicy, navService),

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
 import { UsageRepository } from './usage.repository';
-import type { ApiRequestUsage } from './usage.types';
+
 import {
   EnforcementDecisionCode,
   EnforcementScope,

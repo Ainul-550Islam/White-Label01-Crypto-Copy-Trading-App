@@ -3,12 +3,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
 import { EnforcementService } from './enforcement.service';
 import { EnforcementContextBuilder } from './enforcement.context';
-import {
-  EnforcementScope,
-  type EnforcementActor,
-  type EnforcementResource,
-  type QuotaCheckResult,
-} from './enforcement.types';
+import { EnforcementScope, type EnforcementActor, type QuotaCheckResult } from './enforcement.types';
 
 /**
  * Generic numeric quota guard.

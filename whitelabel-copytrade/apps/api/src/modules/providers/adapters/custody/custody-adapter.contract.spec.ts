@@ -4,7 +4,7 @@
  * Deterministic tests for custody/blockchain adapter
  */
 
-import { ProviderDomain, ProviderName, ProviderCapability, ProviderErrorCode } from '../../provider.types';
+import { ProviderDomain, ProviderName, ProviderErrorCode } from '../../provider.types';
 import { ProviderPolicyService } from '../../provider-policy.service';
 import { ProviderRequestService } from '../../provider-request.service';
 import { ProviderObservationService } from '../../provider-observation.service';

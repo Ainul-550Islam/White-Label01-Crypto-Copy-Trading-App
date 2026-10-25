@@ -1,3 +1,4 @@
+// # Responsibility: submit and retrieve Stripe payment-provider operations through the existing provider contract.
 /**
  * Production Stripe Adapter
  * Uses existing payment-provider interface and configuration.
@@ -20,17 +21,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  ProviderDomain,
-  ProviderName,
-  ProviderCapability,
-  ProviderHealthState,
-  ProviderResult,
-  NormalizedPaymentProviderResult,
-  ProviderErrorCode,
-  RetryClassification,
-  ProviderOperationType,
-} from '../../provider.types';
+import { ProviderDomain, ProviderName, ProviderCapability, ProviderResult, NormalizedPaymentProviderResult, ProviderErrorCode, RetryClassification } from '../../provider.types';
 import { ProviderPolicyService } from '../../provider-policy.service';
 import { ProviderRequestService } from '../../provider-request.service';
 import { ProviderObservationService } from '../../provider-observation.service';
@@ -246,7 +237,7 @@ export class StripeProductionAdapter {
         providerReference: session.id,
         timestamp: new Date().toISOString(),
         latencyMs,
-        rawStatus: session.status,
+        rawStatus: session.status ?? undefined,
       };
     } catch (error) {
       const latencyMs = Date.now() - start;
@@ -357,10 +348,9 @@ export class StripeProductionAdapter {
     }
   }
 
-  private async loadStripeSdk(): Promise<any> {
+  private async loadStripeSdk(): Promise<typeof import('stripe').default> {
     try {
-      const Stripe = require('stripe');
-      return Stripe;
+      return (await import('stripe')).default;
     } catch {
       throw new Error('Stripe SDK not installed');
     }

@@ -1,4 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+// # Responsibility: resolve tenant and platform compliance policy records and jurisdiction controls.
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Prisma, type CompliancePolicyRecord } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CompliancePolicy, Jurisdiction } from './compliance.types';
 
@@ -59,83 +62,43 @@ export class CompliancePolicyService {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    // Invalid configured defaults are not silently transformed into permissive policy evidence.
+    this.transactionThresholds(this.defaultPolicy.transactionThresholds);
+    this.riskThresholds(this.defaultPolicy.riskThresholds);
+    this.policyRules(this.defaultPolicy.rules);
   }
 
   async getEffectivePolicy(params: { tenantId?: string; jurisdiction?: string; userId?: string }): Promise<CompliancePolicy> {
-    const jurisdiction = (params.jurisdiction?.toUpperCase() as Jurisdiction) || Jurisdiction.DEFAULT;
-
+    const jurisdiction = this.jurisdiction(params.jurisdiction || Jurisdiction.DEFAULT);
     try {
-      // Try tenant-specific policy if tenantId provided and architecture permits
       if (params.tenantId) {
-        const tenantPolicy = await (this.prisma as any).compliancePolicyRecord?.findFirst({
-          where: {
-            tenantId: params.tenantId,
-            jurisdiction,
-            isActive: true,
-          },
-          orderBy: { createdAt: 'desc' },
+        const tenantPolicy = await this.prisma.compliancePolicyRecord.findFirst({
+          where: { tenantId: params.tenantId, jurisdiction, isActive: true }, orderBy: { createdAt: 'desc' },
         });
-
-        if (tenantPolicy) {
-          return this.mapToPolicy(tenantPolicy);
-        }
-
-        // Fallback to tenant's country-based jurisdiction
-        const tenant = await (this.prisma as any).tenant?.findUnique({
-          where: { id: params.tenantId },
-          select: { countryCode: true },
-        });
-
+        if (tenantPolicy) return this.mapToPolicy(tenantPolicy);
+        const tenant = await this.prisma.tenant.findUnique({ where: { id: params.tenantId }, select: { countryCode: true } });
         if (tenant?.countryCode) {
-          const countryPolicy = await (this.prisma as any).compliancePolicyRecord?.findFirst({
-            where: {
-              jurisdiction: tenant.countryCode.toUpperCase(),
-              isActive: true,
-            },
+          const countryPolicy = await this.prisma.compliancePolicyRecord.findFirst({
+            where: { tenantId: null, jurisdiction: tenant.countryCode.toUpperCase(), isActive: true },
             orderBy: { createdAt: 'desc' },
           });
-          if (countryPolicy) {
-            return this.mapToPolicy(countryPolicy);
-          }
+          if (countryPolicy) return this.mapToPolicy(countryPolicy);
         }
       }
-
-      // Platform default for jurisdiction
-      const platformPolicy = await (this.prisma as any).compliancePolicyRecord?.findFirst({
-        where: {
-          tenantId: null,
-          jurisdiction,
-          isActive: true,
-        },
-        orderBy: { createdAt: 'desc' },
+      const platformPolicy = await this.prisma.compliancePolicyRecord.findFirst({
+        where: { tenantId: null, jurisdiction, isActive: true }, orderBy: { createdAt: 'desc' },
       });
-
-      if (platformPolicy) {
-        return this.mapToPolicy(platformPolicy);
-      }
-
-      // Global default
-      const globalPolicy = await (this.prisma as any).compliancePolicyRecord?.findFirst({
-        where: {
-          jurisdiction: Jurisdiction.DEFAULT,
-          isActive: true,
-        },
-        orderBy: { createdAt: 'desc' },
+      if (platformPolicy) return this.mapToPolicy(platformPolicy);
+      const globalPolicy = await this.prisma.compliancePolicyRecord.findFirst({
+        where: { tenantId: null, jurisdiction: Jurisdiction.DEFAULT, isActive: true }, orderBy: { createdAt: 'desc' },
       });
-
-      if (globalPolicy) {
-        return this.mapToPolicy(globalPolicy);
-      }
-    } catch (e: any) {
-      this.logger.warn(`Failed to fetch compliance policy from DB, using default: ${e.message}`);
+      if (globalPolicy) return this.mapToPolicy(globalPolicy);
+    } catch (error) {
+      this.logger.warn(`Compliance policy evidence unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     }
-
-    // Return default platform policy with jurisdiction override
-    return {
-      ...this.defaultPolicy,
-      jurisdiction,
-      policyVersion: this.defaultPolicy.policyVersion,
-    };
+    // Only confirmed absence permits the explicitly configured platform default, never a failed read.
+    return { ...structuredClone(this.defaultPolicy), jurisdiction };
   }
 
   async getPolicyForTenant(tenantId: string, jurisdiction?: string): Promise<CompliancePolicy> {
@@ -147,18 +110,12 @@ export class CompliancePolicyService {
   }
 
   async listPolicies(params: { tenantId?: string; jurisdiction?: string; isActive?: boolean }): Promise<CompliancePolicy[]> {
-    try {
-      const where: any = {};
-      if (params.tenantId) where.tenantId = params.tenantId;
-      if (params.jurisdiction) where.jurisdiction = params.jurisdiction.toUpperCase();
-      if (params.isActive !== undefined) where.isActive = params.isActive;
-
-      const records = await (this.prisma as any).compliancePolicyRecord?.findMany({ where, orderBy: { createdAt: 'desc' } }) || [];
-      return records.map((r: any) => this.mapToPolicy(r));
-    } catch (e: any) {
-      this.logger.warn(`Failed to list policies: ${e.message}`);
-      return [this.defaultPolicy];
-    }
+    const where: Prisma.CompliancePolicyRecordWhereInput = {};
+    if (params.tenantId) where.tenantId = params.tenantId;
+    if (params.jurisdiction) where.jurisdiction = params.jurisdiction.toUpperCase();
+    if (params.isActive !== undefined) where.isActive = params.isActive;
+    const records = await this.prisma.compliancePolicyRecord.findMany({ where, orderBy: { createdAt: 'desc' } });
+    return records.map((record) => this.mapToPolicy(record));
   }
 
   async createOrUpdatePolicy(input: {
@@ -170,114 +127,177 @@ export class CompliancePolicyService {
     sanctionsRequired?: boolean;
     pepRequired?: boolean;
     eddRequired?: boolean;
-    transactionThresholds?: any;
-    riskThresholds?: any;
+    transactionThresholds?: CompliancePolicy['transactionThresholds'];
+    riskThresholds?: CompliancePolicy['riskThresholds'];
     highRiskCountries?: string[];
     blockedCountries?: string[];
     reverificationIntervalDays?: number;
     manualReviewRequired?: boolean;
-    rules?: any[];
+    rules?: CompliancePolicy['rules'];
     actorId: string;
   }): Promise<CompliancePolicy> {
-    const jurisdiction = input.jurisdiction.toUpperCase();
-
-    try {
-      const data = {
-        id: undefined as any,
-        tenantId: input.tenantId || null,
-        jurisdiction,
-        policyVersion: input.policyVersion,
-        kycRequired: input.kycRequired ?? true,
-        amlRequired: input.amlRequired ?? true,
-        sanctionsRequired: input.sanctionsRequired ?? true,
-        pepRequired: input.pepRequired ?? false,
-        eddRequired: input.eddRequired ?? false,
-        transactionThresholds: input.transactionThresholds || this.defaultPolicy.transactionThresholds,
-        riskThresholds: input.riskThresholds || this.defaultPolicy.riskThresholds,
-        highRiskCountries: input.highRiskCountries || this.defaultPolicy.highRiskCountries,
-        blockedCountries: input.blockedCountries || this.defaultPolicy.blockedCountries,
-        reverificationIntervalDays: input.reverificationIntervalDays || this.defaultPolicy.reverificationIntervalDays,
-        manualReviewRequired: input.manualReviewRequired ?? false,
-        rules: input.rules || this.defaultPolicy.rules,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      // Upsert
-      const existing = await (this.prisma as any).compliancePolicyRecord?.findFirst({
-        where: { tenantId: input.tenantId || null, jurisdiction, policyVersion: input.policyVersion },
-      });
-
-      let record: any;
-      if (existing) {
-        record = await (this.prisma as any).compliancePolicyRecord?.update({
-          where: { id: existing.id },
-          data: { ...data, id: undefined, createdAt: undefined },
-        });
-      } else {
-        record = await (this.prisma as any).compliancePolicyRecord?.create({
-          data: { ...data, id: require('crypto').randomUUID() },
-        });
-      }
-
-      if (record) return this.mapToPolicy(record);
-    } catch (e: any) {
-      this.logger.warn(`Failed to create/update policy: ${e.message}`);
-    }
-
-    // Fallback
-    return {
-      ...this.defaultPolicy,
-      tenantId: input.tenantId || null,
-      jurisdiction: jurisdiction as Jurisdiction,
-      policyVersion: input.policyVersion,
-      kycRequired: input.kycRequired ?? this.defaultPolicy.kycRequired,
-      amlRequired: input.amlRequired ?? this.defaultPolicy.amlRequired,
+    const jurisdiction = this.jurisdiction(input.jurisdiction);
+    const transactionThresholds = this.transactionThresholds(complianceJsonInput(input.transactionThresholds ?? this.defaultPolicy.transactionThresholds));
+    const riskThresholds = this.riskThresholds(complianceJsonInput(input.riskThresholds ?? this.defaultPolicy.riskThresholds));
+    const rules = this.policyRules(complianceJsonInput(input.rules ?? this.defaultPolicy.rules));
+    const data: Omit<Prisma.CompliancePolicyRecordUncheckedCreateInput, 'id'> = {
+      tenantId: input.tenantId ?? null, jurisdiction, policyVersion: input.policyVersion,
+      kycRequired: input.kycRequired ?? true, amlRequired: input.amlRequired ?? true,
+      sanctionsRequired: input.sanctionsRequired ?? true, pepRequired: input.pepRequired ?? false, eddRequired: input.eddRequired ?? false,
+      transactionThresholds: complianceJsonInput(transactionThresholds), riskThresholds: complianceJsonInput(riskThresholds),
+      highRiskCountries: input.highRiskCountries ?? this.defaultPolicy.highRiskCountries,
+      blockedCountries: input.blockedCountries ?? this.defaultPolicy.blockedCountries,
+      reverificationIntervalDays: input.reverificationIntervalDays ?? this.defaultPolicy.reverificationIntervalDays,
+      manualReviewRequired: input.manualReviewRequired ?? false, rules: complianceJsonInput(rules), isActive: true,
+      updatedAt: new Date(),
     };
+    const existing = await this.prisma.compliancePolicyRecord.findFirst({
+      where: { tenantId: input.tenantId ?? null, jurisdiction, policyVersion: input.policyVersion },
+    });
+    const record = existing
+      ? await this.prisma.compliancePolicyRecord.update({ where: { id: existing.id, tenantId: input.tenantId ?? null }, data })
+      : await this.prisma.compliancePolicyRecord.create({ data: { ...data, id: randomUUID() } });
+    // Required persistence failure propagates; it must never manufacture a successful policy update.
+    return this.mapToPolicy(record);
   }
 
   async isCountryBlocked(countryCode: string, policy?: CompliancePolicy): Promise<boolean> {
-    const effectivePolicy = policy || this.defaultPolicy;
-    return effectivePolicy.blockedCountries.includes(countryCode.toUpperCase());
+    return (policy || this.defaultPolicy).blockedCountries.includes(countryCode.toUpperCase());
   }
 
   async isCountryHighRisk(countryCode: string, policy?: CompliancePolicy): Promise<boolean> {
-    const effectivePolicy = policy || this.defaultPolicy;
-    return effectivePolicy.highRiskCountries.includes(countryCode.toUpperCase());
+    return (policy || this.defaultPolicy).highRiskCountries.includes(countryCode.toUpperCase());
   }
 
   async requiresKyc(params: { tenantId?: string; jurisdiction?: string }): Promise<boolean> {
-    const policy = await this.getEffectivePolicy(params);
-    return policy.kycRequired;
+    return (await this.getEffectivePolicy(params)).kycRequired;
   }
 
   async requiresAml(params: { tenantId?: string; jurisdiction?: string }): Promise<boolean> {
-    const policy = await this.getEffectivePolicy(params);
-    return policy.amlRequired;
+    return (await this.getEffectivePolicy(params)).amlRequired;
   }
 
-  private mapToPolicy(raw: any): CompliancePolicy {
-    return {
-      id: raw.id,
-      tenantId: raw.tenantId || null,
-      jurisdiction: raw.jurisdiction as Jurisdiction,
-      policyVersion: raw.policyVersion,
-      kycRequired: raw.kycRequired,
-      amlRequired: raw.amlRequired,
-      sanctionsRequired: raw.sanctionsRequired,
-      pepRequired: raw.pepRequired,
-      eddRequired: raw.eddRequired,
-      transactionThresholds: raw.transactionThresholds || this.defaultPolicy.transactionThresholds,
-      riskThresholds: raw.riskThresholds || this.defaultPolicy.riskThresholds,
-      highRiskCountries: raw.highRiskCountries || [],
-      blockedCountries: raw.blockedCountries || [],
-      reverificationIntervalDays: raw.reverificationIntervalDays || 365,
-      manualReviewRequired: raw.manualReviewRequired || false,
-      rules: raw.rules || this.defaultPolicy.rules,
-      isActive: raw.isActive,
-      createdAt: raw.createdAt ? new Date(raw.createdAt).toISOString() : new Date().toISOString(),
-      updatedAt: raw.updatedAt ? new Date(raw.updatedAt).toISOString() : new Date().toISOString(),
+  private jurisdiction(value: string): string {
+    const jurisdiction = value.toUpperCase();
+    if (!Object.values(Jurisdiction).some((member) => member === jurisdiction) && !/^[A-Z]{2}$/.test(jurisdiction)) {
+      throw new BadRequestException('Unsupported compliance jurisdiction');
+    }
+    return jurisdiction;
+  }
+
+  private transactionThresholds(value: unknown): CompliancePolicy['transactionThresholds'] {
+    const record = complianceObject(value);
+    if (!record) throw new Error('Compliance transaction thresholds must be an object');
+    const readAmount = (key: 'reviewAmount' | 'blockAmount'): string | undefined => {
+      const amount = record[key];
+      if (amount === undefined) return this.defaultPolicy.transactionThresholds[key];
+      if (typeof amount !== 'string' || !/^\d+(\.\d+)?$/.test(amount)) throw new Error('Invalid compliance transaction threshold');
+      return amount;
     };
+    const currency = record.currency ?? this.defaultPolicy.transactionThresholds.currency;
+    if (typeof currency !== 'string' || !currency) throw new Error('Invalid compliance threshold currency');
+    const multiplier = record.highRiskMultiplier ?? this.defaultPolicy.transactionThresholds.highRiskMultiplier;
+    if (multiplier !== undefined && (typeof multiplier !== 'number' || !Number.isFinite(multiplier) || multiplier < 0)) {
+      throw new Error('Invalid compliance risk multiplier');
+    }
+    return { reviewAmount: readAmount('reviewAmount'), blockAmount: readAmount('blockAmount'), currency, highRiskMultiplier: multiplier };
+  }
+
+  private riskThresholds(value: unknown): CompliancePolicy['riskThresholds'] {
+    const record = complianceObject(value);
+    if (!record) throw new Error('Compliance risk thresholds must be an object');
+    const number = (key: keyof CompliancePolicy['riskThresholds']): number => {
+      const threshold = record[key] ?? this.defaultPolicy.riskThresholds[key];
+      if (typeof threshold !== 'number' || !Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+        throw new Error('Invalid compliance risk threshold');
+      }
+      return threshold;
+    };
+    const thresholds = { lowMax: number('lowMax'), mediumMax: number('mediumMax'), highMax: number('highMax'), criticalMin: number('criticalMin'),
+      blockScore: number('blockScore'), reviewScore: number('reviewScore') };
+    if (thresholds.lowMax > thresholds.mediumMax || thresholds.mediumMax > thresholds.highMax
+      || thresholds.highMax >= thresholds.criticalMin || thresholds.reviewScore > thresholds.blockScore) {
+      throw new Error('Compliance risk thresholds must be ordered');
+    }
+    return thresholds;
+  }
+
+  private policyRules(value: unknown): CompliancePolicy['rules'] {
+    if (!Array.isArray(value)) throw new Error('Compliance rules must be an array');
+    const entries: unknown[] = value;
+    return entries.map((entry) => {
+      const rule = complianceObject(entry);
+      if (!rule || typeof rule.ruleId !== 'string' || typeof rule.enabled !== 'boolean' || typeof rule.description !== 'string') {
+        throw new Error('Invalid compliance rule');
+      }
+      const optionalNumber = (key: 'weight' | 'threshold'): number | undefined => {
+        const number = rule[key];
+        if (number === undefined) return undefined;
+        if (typeof number !== 'number' || !Number.isFinite(number) || number < 0) throw new Error('Invalid compliance rule numeric value');
+        return number;
+      };
+      return { ruleId: rule.ruleId, enabled: rule.enabled, description: rule.description,
+        weight: optionalNumber('weight'), threshold: optionalNumber('threshold') };
+    });
+  }
+
+  private mapToPolicy(raw: CompliancePolicyRecord): CompliancePolicy {
+    return {
+      id: raw.id, tenantId: raw.tenantId, jurisdiction: this.jurisdiction(raw.jurisdiction), policyVersion: raw.policyVersion,
+      kycRequired: raw.kycRequired, amlRequired: raw.amlRequired, sanctionsRequired: raw.sanctionsRequired,
+      pepRequired: raw.pepRequired, eddRequired: raw.eddRequired,
+      transactionThresholds: this.transactionThresholds(raw.transactionThresholds), riskThresholds: this.riskThresholds(raw.riskThresholds),
+      highRiskCountries: raw.highRiskCountries, blockedCountries: raw.blockedCountries,
+      reverificationIntervalDays: raw.reverificationIntervalDays, manualReviewRequired: raw.manualReviewRequired,
+      rules: this.policyRules(raw.rules), isActive: raw.isActive, createdAt: raw.createdAt.toISOString(), updatedAt: raw.updatedAt.toISOString(),
+    };
+  }
+}
+
+// # Responsibility: narrow compliance JSON values before accessing metadata or writing canonical JSON columns.
+export function complianceObject(value: unknown): Record<string, unknown> | null {
+  return isComplianceObject(value) ? value : null;
+}
+
+export function complianceJsonInput(value: unknown): Prisma.InputJsonValue {
+  assertFiniteComplianceEvidence(value, new WeakSet<object>());
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new Error('Compliance evidence is not JSON serializable');
+  const parsed: unknown = JSON.parse(serialized);
+  if (parsed === null || !isComplianceJsonValue(parsed)) throw new Error('Invalid compliance JSON evidence');
+  return parsed;
+}
+
+function isComplianceJsonValue(value: unknown): value is Prisma.InputJsonValue | null {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    const entries: unknown[] = value;
+    return entries.every((entry) => isComplianceJsonValue(entry));
+  }
+  const object = complianceObject(value);
+  return object !== null && Object.values(object).every((entry) => isComplianceJsonValue(entry));
+}
+
+function isComplianceObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assertFiniteComplianceEvidence(value: unknown, seen: WeakSet<object>): void {
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Non-finite compliance JSON evidence');
+  if (Array.isArray(value)) {
+    if (seen.has(value)) throw new Error('Circular compliance JSON evidence');
+    seen.add(value);
+    const entries: unknown[] = value;
+    entries.forEach((entry) => assertFiniteComplianceEvidence(entry, seen));
+    seen.delete(value);
+    return;
+  }
+  const object = complianceObject(value);
+  if (object) {
+    if (seen.has(object)) throw new Error('Circular compliance JSON evidence');
+    seen.add(object);
+    Object.values(object).forEach((entry) => assertFiniteComplianceEvidence(entry, seen));
+    seen.delete(object);
   }
 }

@@ -1,18 +1,21 @@
+// # Responsibility: create canonical typed checkouts and require provider-reference persistence to succeed before reporting checkout creation.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PlansService } from '../plans.service';
 import { PaymentService } from './payment.service';
 import { PaymentProviderFactory } from './payment-provider.factory';
 import { PaymentConfigService } from './payment.config';
 import { PaymentEventsAuditService } from './payment-events.audit';
-import { PaymentProvider, PaymentStatus, CheckoutStatus, PaymentCurrency, TransactionState } from './payment.types';
-import type { PaymentAmount, PaymentMetadata, PaymentReferences } from './payment.types';
-import type { CreateCheckoutSessionInput, ValidatedCheckoutContext, CheckoutResponse, CheckoutStatusResponse, CheckoutRequest } from './checkout.types';
+import { PaymentProvider, PaymentStatus, CheckoutStatus } from './payment.types';
+import type { PaymentAmount, PaymentMetadata, PaymentReferences, PaymentRecord } from './payment.types';
+import type { CreateCheckoutSessionInput, ValidatedCheckoutContext, CheckoutResponse, CheckoutStatusResponse } from './checkout.types';
 import { BillingInterval } from '@wlct/shared-types';
 import { AppException } from '../../../common/errors/app.exception';
 import { paymentAmountToMinorUnits } from '../../../common/payment-amount';
 import { ErrorCode } from '@wlct/shared-types';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import type { CreateCheckoutResult } from './payment-provider.interface';
 import { buildPaymentMetadata, buildProviderReference } from './payment.repository';
 
 /**
@@ -93,7 +96,7 @@ export class CheckoutService {
       tenantId: context.tenantId,
       planId: context.plan.id,
       userId: input.userId,
-      currency: context.currency as any,
+      currency: context.currency,
       provider: context.provider,
       amount,
       references,
@@ -125,7 +128,7 @@ export class CheckoutService {
       });
 
       // Step 6: Update internal payment with provider references
-      const updatedPayment = await this.paymentService.getPaymentById(paymentRecord.id);
+      await this.paymentService.getPaymentById(paymentRecord.id);
       // Update with provider data via repository
       await this.updatePaymentWithProviderData(paymentRecord.id, checkoutResult);
 
@@ -227,7 +230,7 @@ export class CheckoutService {
     }
 
     // Validate plan exists from canonical catalog - NEVER hardcoded
-    let plan: any;
+    let plan: Omit<ValidatedCheckoutContext['plan'], 'limits'> & { limits: Prisma.JsonValue };
     try {
       // Try to get from plans service (canonical source)
       const planDto = await this.prisma.subscriptionPlan.findFirst({
@@ -242,13 +245,16 @@ export class CheckoutService {
         });
       }
 
+      const interval = Object.values(BillingInterval).find((value) => value === planDto.interval);
+      if (!interval) throw new AppException({ code: ErrorCode.VALIDATION_ERROR, message: 'Unsupported canonical checkout billing interval' });
+
       plan = {
         id: planDto.id,
         code: planDto.code,
         name: planDto.name,
         price: planDto.price.toString(),
         currency: planDto.currency,
-        interval: planDto.interval as BillingInterval,
+        interval,
         isActive: planDto.isActive,
         limits: planDto.limits,
         features: planDto.features,
@@ -362,12 +368,12 @@ export class CheckoutService {
     }
   }
 
-  private isPaymentStillValid(payment: any): boolean {
+  private isPaymentStillValid(payment: PaymentRecord): boolean {
     if (!payment.expiresAt) return true;
     return new Date(payment.expiresAt) > new Date();
   }
 
-  private mapPaymentToCheckoutResponse(payment: any, context: ValidatedCheckoutContext, checkoutUrlOverride?: string): CheckoutResponse {
+  private mapPaymentToCheckoutResponse(payment: PaymentRecord, context: ValidatedCheckoutContext, checkoutUrlOverride?: string): CheckoutResponse {
     return {
       checkoutId: payment.id,
       paymentId: payment.id,
@@ -409,16 +415,34 @@ export class CheckoutService {
     }
   }
 
-  private async updatePaymentWithProviderData(paymentId: string, providerResult: any): Promise<void> {
+  private validatedJsonInput(value: unknown): Prisma.InputJsonValue {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) throw new Error('Checkout metadata is not JSON serializable');
+    const parsed: unknown = JSON.parse(serialized);
+    if (parsed === null || !this.isJsonValue(parsed)) throw new Error('Checkout metadata is not a valid JSON value');
+    return parsed;
+  }
+
+  private isJsonValue(value: unknown): value is Prisma.InputJsonValue | null {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (Array.isArray(value)) {
+      const entries: unknown[] = value;
+      return entries.every((entry) => this.isJsonValue(entry));
+    }
+    if (typeof value !== 'object') return false;
+    return Object.values(value).every((entry: unknown) => this.isJsonValue(entry));
+  }
+
+  private async updatePaymentWithProviderData(paymentId: string, providerResult: CreateCheckoutResult): Promise<void> {
     try {
       // Only Payment columns; links and record fields go to the JSON columns
       // exactly as PaymentRepository stores them.
-      const existing = await (this.prisma as any).payment?.findUnique({ where: { id: paymentId } });
+      const existing = await this.prisma.payment.findUnique({ where: { id: paymentId } });
       if (!existing) {
-        this.logger.warn(`Payment ${paymentId} not found while attaching provider data`);
-        return;
+        throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Payment not found while attaching provider data' });
       }
-      await (this.prisma as any).payment?.update({
+      await this.prisma.payment.update({
         where: { id: paymentId },
         data: {
           providerCheckoutId: providerResult.providerCheckoutId,
@@ -426,23 +450,24 @@ export class CheckoutService {
           providerPaymentId: providerResult.providerPaymentId || null,
           providerInvoiceId: providerResult.providerInvoiceId || null,
           status: 'PENDING',
-          providerReference: buildProviderReference(existing.providerReference, {
+          providerReference: this.validatedJsonInput(buildProviderReference(existing.providerReference, {
             providerCustomerId: providerResult.providerCustomerId || null,
             checkoutUrl: providerResult.checkoutUrl || null,
             invoiceUrl: providerResult.invoiceUrl || null,
-          }) as any,
-          metadata: buildPaymentMetadata(existing.metadata, null, {
+          })),
+          metadata: this.validatedJsonInput(buildPaymentMetadata(existing.metadata, null, {
             transactionState: 'INITIALIZED',
             expiresAt: providerResult.expiresAt
               ? providerResult.expiresAt instanceof Date
                 ? providerResult.expiresAt.toISOString()
                 : String(providerResult.expiresAt)
               : null,
-          }) as any,
+          })),
         },
       });
     } catch (error) {
-      this.logger.warn(`Failed to update payment ${paymentId} with provider data: ${(error as Error).message}`);
+      this.logger.warn(`Failed to update payment ${paymentId} with provider data: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     }
   }
 }

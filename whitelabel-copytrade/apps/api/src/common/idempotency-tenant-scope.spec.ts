@@ -1,4 +1,5 @@
-// # Verifies tenant-scoped idempotency across all repositories and Prisma lookups
+// # Responsibility: verifies tenant-scoped idempotency behavior, schema indexes, and Prisma lookups.
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { readdirSync, readFileSync } from 'fs';
 import { join, relative } from 'path';
 
@@ -35,6 +36,30 @@ import { AccountingEventRepository } from '../modules/portfolio-accounting/accou
 const TENANT_A = '11111111-1111-4111-8111-111111111111';
 const TENANT_B = '22222222-2222-4222-8222-222222222222';
 const PER_TENANT = ['tenantId', 'idempotencyKey'];
+
+function complianceOutbox(): OutboxService {
+  const outbox = new OutboxService();
+  jest.spyOn(outbox, 'append').mockImplementation(async (_transaction, event) => {
+    const reviewId = event.payload.reviewId;
+    const reasonCode = event.payload.reasonCode;
+    if (typeof reviewId !== 'string' || typeof reasonCode !== 'string') {
+      throw new Error('compliance review event must retain its validated payload');
+    }
+    return {
+      id: `outbox:${event.idempotencyKey}`,
+      tenantId: event.tenantId,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+      aggregateSequence: 1,
+      eventType: event.eventType,
+      payload: { reviewId, reasonCode },
+      idempotencyKey: event.idempotencyKey,
+      correlationId: event.correlationId ?? null,
+      createdAt: event.occurredAt ?? new Date(),
+    };
+  });
+  return outbox;
+}
 
 interface ScopeCase {
   name: string;
@@ -121,7 +146,7 @@ const CASES: ScopeCase[] = [
     name: 'compliance ComplianceCaseRepository.createCase',
     delegate: 'complianceCase',
     create: (prisma, tenantId, idempotencyKey, variant) =>
-      new ComplianceCaseRepository(prisma).createCase({
+      new ComplianceCaseRepository(prisma, complianceOutbox()).createCase({
         tenantId,
         userId: `user-${variant}`,
         caseType: 'AML_REVIEW' as any,
@@ -402,7 +427,8 @@ describe('idempotency tenant-scope guards', () => {
       if (/@@unique\(\[tenantId, idempotencyKey\]\)/.test(body)) perTenant++;
     }
     expect(offenders).toEqual([]);
-    expect(perTenant).toBe(68);
+    // The original migration creates 68 keys; later tenant-owned models add three more.
+    expect(perTenant).toBe(71);
   });
 
   it('the migration that moves the indexes exists and only swaps indexes', () => {

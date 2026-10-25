@@ -37,7 +37,7 @@ import { DeveloperUsageService } from './developer-usage.service';
 import { OAuthService } from './oauth.service';
 import { ApiAccessService } from './api-access.service';
 import { DeveloperCredentialService } from './developer-credential.service';
-import { DeveloperApplicationService } from './developer-application.service';
+
 import { DeveloperAuditService } from './developer-audit.service';
 
 // ---------------------------------------------------------------------------
@@ -57,8 +57,8 @@ export class InMemoryPrisma {
   }
 
   clientFor(name: string) {
-    const self = this;
     const store = this.table(name);
+    const nextSequence = (): number => ++this.sequence;
     const matches = (row: Row, where: Record<string, unknown>): boolean =>
       Object.entries(where).every(([key, condition]) => {
         if (condition === null || condition === undefined) return (row[key] ?? null) === condition;
@@ -108,7 +108,7 @@ export class InMemoryPrisma {
         return rows.length;
       },
       async create({ data }: { data: Row }) {
-        const row = { createdAt: new Date(), ...data, id: data.id ?? `row-${++self.sequence}` } as Row;
+        const row = { createdAt: new Date(), ...data, id: data.id ?? `row-${nextSequence()}` } as Row;
         store.set(row.id, row);
         return row;
       },

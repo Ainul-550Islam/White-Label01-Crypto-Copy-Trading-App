@@ -1,6 +1,10 @@
 -r requirements.txt
 pytest==8.3.3
 pytest-asyncio==0.24.0
+# Starlette 1.7.0 uses httpx2 in its TestClient; keeping the newer transport
+# explicit avoids the legacy-httpx deprecation warning in the test suite. The
+# runtime secret-fetcher continues to use the pinned httpx dependency below.
+httpx2==2.13.1
 # httpx is NOT listed here any more: Part 19 made it a runtime dependency (see
 # requirements.txt), and a pin repeated in two files is two pins - one of which will be
 # upgraded while the other is not. fastapi.testclient's own requirement is satisfied by

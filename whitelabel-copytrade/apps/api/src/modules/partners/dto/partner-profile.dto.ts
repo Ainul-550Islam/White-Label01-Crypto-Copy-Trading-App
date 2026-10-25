@@ -1,5 +1,5 @@
-import { IsString, IsEnum, IsOptional, MinLength, IsEmail, IsUUID, IsObject, MaxLength, IsIn } from 'class-validator';
-import { PartnerType, PartnerState, PartnerAgreementState, PartnerTenantRelationshipType, PartnerUserRole } from '../partner.types';
+import { IsString, IsEnum, IsOptional, MinLength, IsEmail, IsObject, MaxLength, IsIn } from 'class-validator';
+import { PartnerType, PartnerState, PartnerAgreementState, PartnerUserRole } from '../partner.types';
 
 export class CreatePartnerProfileDto {
   @IsString()

@@ -1,0 +1,7 @@
+{
+  "dockerExecutableAvailable": false,
+  "apiE2ESpecFiles": [],
+  "gitShallow": true,
+  "availableHistoryCommits": 1,
+  "liveDBProvidersLegalDockerMeaningfulE2E": "NOT VERIFIED"
+}

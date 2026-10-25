@@ -1,4 +1,6 @@
-import { generateKeyPairSync } from 'crypto';
+// # Responsibility: exercise encrypted SAML assertions against the production verification path with runtime-generated keys.
+import { generateKeyPairSync } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 
@@ -11,8 +13,8 @@ import { SsoAuthError, SsoReasonCode } from './sso-flow.types';
 
 // xml-encryption is the library node-saml decrypts with; the IdP side of these
 // tests uses it to encrypt. Loaded without type declarations (it ships none).
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const xmlenc = require('xml-encryption') as {
+const loadXmlEncryption = createRequire(__filename);
+const xmlenc = loadXmlEncryption('xml-encryption') as {
   encrypt: (
     content: string,
     options: Record<string, unknown>,

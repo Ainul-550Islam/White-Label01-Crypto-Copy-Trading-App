@@ -3,9 +3,10 @@
 
 Part 16 left the multi-tenant credential path half-open on purpose. The core's
 :class:`~wlct_trading.execution.credentials.SecretManagerCredentialProvider` is complete
-and tested, and ``app/exchanges/credentials.py`` refused ``EXECUTION_CREDENTIAL_SOURCE=secret-manager``
-without an injected fetcher, because key custody is a deployment decision and an
-execution engine that hard-codes a backend silently decides which customers may trade.
+and tested, and ``app/exchanges/credentials.py`` refused
+``EXECUTION_CREDENTIAL_SOURCE=secret-manager`` without an injected fetcher,
+because key custody is a deployment decision and an execution engine that hard-codes
+a backend silently decides which customers may trade.
 
 Part 19 closes that half-open door the only way that does not decide anything for
 anybody: it implements the fetch for the backend this platform's own infrastructure

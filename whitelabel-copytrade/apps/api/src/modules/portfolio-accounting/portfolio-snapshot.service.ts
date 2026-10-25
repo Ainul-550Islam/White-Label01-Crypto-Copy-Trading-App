@@ -7,10 +7,7 @@ import { PerformanceService } from './performance.service';
 import { PositionAccountingService } from './position-accounting.service';
 import { CashLedgerService } from './cash-ledger.service';
 import { AccountingPolicyService } from './accounting-policy.service';
-import {
-  deterministicIdempotencyKey,
-  redactSecrets,
-} from './portfolio-accounting.types';
+import { deterministicIdempotencyKey } from './portfolio-accounting.types';
 import { createHash } from 'crypto';
 
 /** API view of a PortfolioSnapshot row: performance/methodology/fingerprint/correlationId from performanceMetrics. */

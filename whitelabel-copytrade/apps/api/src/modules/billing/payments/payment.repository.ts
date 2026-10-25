@@ -1,4 +1,6 @@
+// # Responsibility: persist payment records and provider metadata through the repository boundary.
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
 import type { PaymentRecord, PaymentFilter, PaymentCreationInput, PaymentUpdateInput } from './payment.types';
@@ -422,7 +424,6 @@ export class PaymentRepository {
   private generateId(): string {
     // Use crypto random UUID
     try {
-      const { randomUUID } = require('crypto');
       return randomUUID();
     } catch {
       return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;

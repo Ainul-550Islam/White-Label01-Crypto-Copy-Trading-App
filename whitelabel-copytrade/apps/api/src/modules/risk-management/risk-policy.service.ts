@@ -1,12 +1,7 @@
 import { Injectable, Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import {
-  EffectiveRiskPolicy,
-  RiskPolicyScope,
-  RiskPolicyThresholds,
-  RiskSeverity,
-} from './risk-management.types';
+import { EffectiveRiskPolicy, RiskPolicyScope, RiskPolicyThresholds } from './risk-management.types';
 
 /**
  * Institutional risk policy resolver with precedence:

@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsUUID, IsDateString, IsBoolean, IsObject } from 'class-validator';
-import { OperationalMaintenanceScope, OperationalMaintenanceState, OperationalDegradationLevel } from '../operations.types';
+import { IsString, IsOptional, IsEnum, IsUUID, IsDateString, IsBoolean } from 'class-validator';
+import { OperationalMaintenanceScope, OperationalDegradationLevel } from '../operations.types';
 
 /**
  * Validated DTOs for creating/updating/cancelling maintenance windows and entering/exiting maintenance mode.

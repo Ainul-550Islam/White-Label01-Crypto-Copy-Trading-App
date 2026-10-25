@@ -1,31 +1,22 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { ComplianceReport, DeliveryState, ReportState, GovernanceActionType } from './governance.types';
+// # Responsibility: persist tenant-bound delivery intents/failures without memory fallback; caller text is not authoritative submission or delivery proof when the delivery-evidence adapter is absent.
+import { Injectable, Logger, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { type ComplianceReportDelivery, type Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
+import { DeliveryState, ReportState, GovernanceActionType } from './governance.types';
 import { ComplianceReportService } from './compliance-report.service';
 import { GovernancePolicyService } from './governance-policy.service';
 import { GovernanceAuditService } from './governance-audit.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 export interface DeliveryRecord {
-  id: string;
-  tenantId: string;
-  reportId: string;
-  channel: string;
-  state: DeliveryState;
-  attemptCount: number;
-  lastAttemptAt?: string | null;
-  deliveredAt?: string | null;
-  deliveryEvidence?: string | null;
-  failureReason?: string | null;
-  correlationId: string;
-  createdAt: string;
-  updatedAt: string;
+  id: string; tenantId: string; reportId: string; channel: string; state: DeliveryState; attemptCount: number;
+  lastAttemptAt?: string | null; deliveredAt?: string | null; deliveryEvidence?: string | null; failureReason?: string | null;
+  correlationId: string; createdAt: string; updatedAt: string;
 }
 
 @Injectable()
 export class ComplianceReportDeliveryService {
   private readonly logger = new Logger(ComplianceReportDeliveryService.name);
-  private readonly inMemory: Map<string, DeliveryRecord> = new Map();
-
   constructor(
     private readonly reportService: ComplianceReportService,
     private readonly policyService: GovernancePolicyService,
@@ -33,291 +24,81 @@ export class ComplianceReportDeliveryService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async queueDelivery(params: {
-    tenantId: string;
-    reportId: string;
-    channel: string;
-    correlationId: string;
-    operatorId: string;
-  }): Promise<DeliveryRecord> {
+  async queueDelivery(params: { tenantId: string; reportId: string; channel: string; correlationId: string; operatorId: string }): Promise<DeliveryRecord> {
+    if (!params.channel.trim()) throw new BadRequestException('Explicit delivery channel required');
     const report = await this.reportService.getReport(params.tenantId, params.reportId);
-    if (report.state !== ReportState.CERTIFIED && report.state !== ReportState.QUEUED_FOR_DELIVERY && report.state !== ReportState.DELIVERY_FAILED) {
-      throw new BadRequestException(`report must be CERTIFIED or DELIVERY_FAILED to queue delivery, current ${report.state}`);
-    }
-    if (report.certificationStatus !== 'APPROVED') throw new BadRequestException('report must be certified APPROVED before delivery');
-
-    // Transition to QUEUED if not already
-    if (report.state === ReportState.CERTIFIED) {
-      await this.reportService.transitionState({
-        tenantId: params.tenantId,
-        reportId: report.id,
-        targetState: ReportState.QUEUED_FOR_DELIVERY,
-        correlationId: params.correlationId,
-        operatorId: params.operatorId,
-      });
-    }
-
-    const record: DeliveryRecord = {
-      id: `dlv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      tenantId: params.tenantId,
-      reportId: report.id,
-      channel: params.channel,
-      state: DeliveryState.QUEUED,
-      attemptCount: 0,
-      lastAttemptAt: null,
-      deliveredAt: null,
-      deliveryEvidence: null,
-      failureReason: null,
-      correlationId: params.correlationId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    this.inMemory.set(record.id, record);
-    try {
-      await (this.prisma as any).complianceReportDelivery?.create?.({
-        data: {
-          id: record.id,
-          tenantId: record.tenantId,
-          reportId: record.reportId,
-          channel: record.channel,
-          state: record.state,
-          attemptCount: record.attemptCount,
-          correlationId: record.correlationId,
-          createdAt: new Date(record.createdAt),
-          updatedAt: new Date(record.updatedAt),
-        },
-      });
-    } catch {
-      this.logger.debug(`delivery persist skipped id=${record.id}`);
-    }
-
+    if (![ReportState.CERTIFIED, ReportState.QUEUED_FOR_DELIVERY, ReportState.DELIVERY_FAILED].includes(report.state)
+      || report.certificationStatus !== 'APPROVED') throw new BadRequestException('Approved certification and a queueable report state are required');
+    const existing = await this.prisma.complianceReportDelivery.findFirst({ where: { tenantId: params.tenantId,
+      reportId: report.id, channel: params.channel, state: DeliveryState.QUEUED } });
+    if (existing) return this.mapRow(existing);
+    const now = new Date();
+    const row = await this.prisma.complianceReportDelivery.create({ data: { id: randomUUID(), tenantId: params.tenantId, reportId: report.id,
+      channel: params.channel, state: DeliveryState.QUEUED, attemptCount: 0, correlationId: params.correlationId, createdAt: now, updatedAt: now } });
+    if (report.state !== ReportState.QUEUED_FOR_DELIVERY) await this.reportService.transitionState({ tenantId: params.tenantId, reportId: report.id,
+      targetState: ReportState.QUEUED_FOR_DELIVERY, correlationId: params.correlationId, operatorId: params.operatorId });
     await this.reportService.updateDeliveryStatus(params.tenantId, report.id, DeliveryState.QUEUED, params.correlationId);
-
-    this.logger.log(`delivery queued id=${record.id} report=${report.id} channel=${params.channel} corr=${params.correlationId}`);
-    return record;
+    this.logger.log(`Delivery intent queued id=${row.id} report=${report.id}`);
+    return this.mapRow(row);
   }
 
-  async submitDelivery(params: {
-    tenantId: string;
-    deliveryId: string;
-    correlationId: string;
-    operatorId: string;
-    deliveryEvidence: string;
-  }): Promise<DeliveryRecord> {
-    if (!params.deliveryEvidence) throw new BadRequestException('deliveryEvidence required - never mark submitted without evidence');
+  async submitDelivery(params: { tenantId: string; deliveryId: string; correlationId: string; operatorId: string; deliveryEvidence: string }): Promise<never> {
+    if (!params.deliveryEvidence.trim()) throw new BadRequestException('Delivery evidence reference required');
     const record = await this.getDelivery(params.tenantId, params.deliveryId);
-    if (record.state !== DeliveryState.QUEUED && record.state !== DeliveryState.RETRY_REQUIRED && record.state !== DeliveryState.FAILED) {
-      throw new BadRequestException(`cannot submit from state ${record.state}`);
-    }
-
-    const report = await this.reportService.getReport(params.tenantId, record.reportId);
-    if (report.state === ReportState.QUEUED_FOR_DELIVERY) {
-      await this.reportService.transitionState({
-        tenantId: params.tenantId,
-        reportId: report.id,
-        targetState: ReportState.DELIVERING,
-        correlationId: params.correlationId,
-        operatorId: params.operatorId,
-      });
-    }
-
-    record.state = DeliveryState.SUBMITTED;
-    record.attemptCount += 1;
-    record.lastAttemptAt = new Date().toISOString();
-    record.deliveryEvidence = params.deliveryEvidence;
-    record.updatedAt = new Date().toISOString();
-
-    this.inMemory.set(record.id, record);
-    try {
-      await (this.prisma as any).complianceReportDelivery?.update?.({
-        where: { id: record.id },
-        data: { state: record.state, attemptCount: record.attemptCount, lastAttemptAt: new Date(record.lastAttemptAt), deliveryEvidence: record.deliveryEvidence, updatedAt: new Date(record.updatedAt) },
-      });
-    } catch {
-      this.logger.debug(`submit persist skipped id=${record.id}`);
-    }
-
-    await this.reportService.updateDeliveryStatus(params.tenantId, report.id, DeliveryState.SUBMITTED, params.correlationId);
-
-    this.logger.log(`delivery submitted id=${record.id} corr=${params.correlationId}`);
-    return record;
+    if (![DeliveryState.QUEUED, DeliveryState.RETRY_REQUIRED, DeliveryState.FAILED].includes(record.state)) throw new BadRequestException('Delivery is not in a submit-eligible state');
+    await this.reportService.getReport(params.tenantId, record.reportId);
+    throw new ServiceUnavailableException('Authoritative delivery submission/evidence adapter is not configured; caller text cannot prove submission');
   }
 
-  async markDelivered(params: {
-    tenantId: string;
-    deliveryId: string;
-    correlationId: string;
-    operatorId: string;
-    deliveryEvidence: string;
-  }): Promise<DeliveryRecord> {
-    if (!params.deliveryEvidence) throw new BadRequestException('deliveryEvidence required - only real evidence = DELIVERED');
+  async markDelivered(params: { tenantId: string; deliveryId: string; correlationId: string; operatorId: string; deliveryEvidence: string }): Promise<never> {
+    if (!params.deliveryEvidence.trim()) throw new BadRequestException('Delivery evidence reference required');
     const record = await this.getDelivery(params.tenantId, params.deliveryId);
-    if (record.state !== DeliveryState.SUBMITTED && record.state !== DeliveryState.QUEUED) {
-      throw new BadRequestException(`cannot mark delivered from state ${record.state}`);
-    }
-
-    record.state = DeliveryState.DELIVERED;
-    record.deliveredAt = new Date().toISOString();
-    record.deliveryEvidence = params.deliveryEvidence;
-    record.updatedAt = new Date().toISOString();
-
-    this.inMemory.set(record.id, record);
-    try {
-      await (this.prisma as any).complianceReportDelivery?.update?.({
-        where: { id: record.id },
-        data: { state: record.state, deliveredAt: new Date(record.deliveredAt), deliveryEvidence: record.deliveryEvidence, updatedAt: new Date(record.updatedAt) },
-      });
-    } catch {
-      this.logger.debug(`delivered persist skipped id=${record.id}`);
-    }
-
-    const report = await this.reportService.getReport(params.tenantId, record.reportId);
-    await this.reportService.updateDeliveryStatus(params.tenantId, report.id, DeliveryState.DELIVERED, params.correlationId);
-    if (report.state === ReportState.DELIVERING) {
-      await this.reportService.transitionState({
-        tenantId: params.tenantId,
-        reportId: report.id,
-        targetState: ReportState.DELIVERED,
-        correlationId: params.correlationId,
-        operatorId: params.operatorId,
-      });
-    }
-
-    await this.audit.recordEvent({
-      tenantId: params.tenantId,
-      actionType: GovernanceActionType.REPORT_DELIVER,
-      reportId: record.reportId,
-      state: DeliveryState.DELIVERED,
-      result: 'DELIVERED',
-      correlationId: params.correlationId,
-      createdBy: params.operatorId,
-      safeEvidence: { deliveryId: record.id, channel: record.channel, deliveryEvidence: record.deliveryEvidence },
-    });
-
-    this.logger.log(`delivery delivered id=${record.id} corr=${params.correlationId}`);
-    return record;
+    if (record.state !== DeliveryState.SUBMITTED) throw new BadRequestException('Only a submitted delivery can be acknowledged');
+    await this.reportService.getReport(params.tenantId, record.reportId);
+    throw new ServiceUnavailableException('Authoritative delivery acknowledgement adapter is not configured; caller text cannot prove DELIVERED');
   }
 
-  async markFailed(params: {
-    tenantId: string;
-    deliveryId: string;
-    correlationId: string;
-    operatorId: string;
-    failureReason: string;
-  }): Promise<DeliveryRecord> {
-    if (!params.failureReason) throw new BadRequestException('failureReason required');
+  async markFailed(params: { tenantId: string; deliveryId: string; correlationId: string; operatorId: string; failureReason: string }): Promise<DeliveryRecord> {
+    if (!params.failureReason.trim()) throw new BadRequestException('Failure reason required');
     const record = await this.getDelivery(params.tenantId, params.deliveryId);
-    record.state = DeliveryState.FAILED;
-    record.failureReason = params.failureReason;
-    record.updatedAt = new Date().toISOString();
-    record.lastAttemptAt = new Date().toISOString();
-
-    this.inMemory.set(record.id, record);
-    try {
-      await (this.prisma as any).complianceReportDelivery?.update?.({
-        where: { id: record.id },
-        data: { state: record.state, failureReason: record.failureReason, lastAttemptAt: new Date(record.lastAttemptAt), updatedAt: new Date(record.updatedAt) },
-      });
-    } catch {
-      this.logger.debug(`failed persist skipped id=${record.id}`);
-    }
-
+    if (record.state === DeliveryState.DELIVERED || record.state === DeliveryState.NOT_DELIVERED) throw new BadRequestException('Delivery cannot be failed from this state');
     const report = await this.reportService.getReport(params.tenantId, record.reportId);
+    const row = await this.prisma.complianceReportDelivery.update({ where: { id: record.id, tenantId: params.tenantId, state: record.state },
+      data: { state: DeliveryState.FAILED, failureReason: params.failureReason, updatedAt: new Date() } });
     await this.reportService.updateDeliveryStatus(params.tenantId, report.id, DeliveryState.FAILED, params.correlationId);
-    try {
-      await this.reportService.transitionState({
-        tenantId: params.tenantId,
-        reportId: report.id,
-        targetState: ReportState.DELIVERY_FAILED,
-        correlationId: params.correlationId,
-        operatorId: params.operatorId,
-        reason: params.failureReason,
-      });
-    } catch {
-      /* may already be in failed */
-    }
-
-    await this.audit.recordEvent({
-      tenantId: params.tenantId,
-      actionType: GovernanceActionType.REPORT_DELIVER,
-      reportId: record.reportId,
-      state: DeliveryState.FAILED,
-      result: 'FAILED',
-      reason: params.failureReason,
-      correlationId: params.correlationId,
-      createdBy: params.operatorId,
-      safeEvidence: { deliveryId: record.id, channel: record.channel },
-    });
-
-    this.logger.log(`delivery failed id=${record.id} reason=${params.failureReason} corr=${params.correlationId}`);
-    return record;
+    if (report.state === ReportState.DELIVERING) await this.reportService.transitionState({ tenantId: params.tenantId, reportId: report.id,
+      targetState: ReportState.DELIVERY_FAILED, correlationId: params.correlationId, operatorId: params.operatorId, reason: params.failureReason });
+    await this.audit.recordEvent({ tenantId: params.tenantId, actionType: GovernanceActionType.REPORT_DELIVER, reportId: record.reportId,
+      state: DeliveryState.FAILED, result: 'FAILED', reason: params.failureReason, correlationId: params.correlationId,
+      createdBy: params.operatorId, safeEvidence: { deliveryId: record.id, channel: record.channel } });
+    return this.mapRow(row);
   }
 
   async markRetryRequired(params: { tenantId: string; deliveryId: string; correlationId: string; operatorId: string; reason: string }): Promise<DeliveryRecord> {
+    if (!params.reason.trim()) throw new BadRequestException('Retry reason required');
     const record = await this.getDelivery(params.tenantId, params.deliveryId);
-    record.state = DeliveryState.RETRY_REQUIRED;
-    record.failureReason = params.reason;
-    record.updatedAt = new Date().toISOString();
-    this.inMemory.set(record.id, record);
-    try {
-      await (this.prisma as any).complianceReportDelivery?.update?.({
-        where: { id: record.id },
-        data: { state: record.state, failureReason: record.failureReason, updatedAt: new Date(record.updatedAt) },
-      });
-    } catch {
-      this.logger.debug(`retry persist skipped id=${record.id}`);
-    }
-    return record;
+    if (record.state !== DeliveryState.FAILED) throw new BadRequestException('Only a failed delivery may require retry');
+    const row = await this.prisma.complianceReportDelivery.update({ where: { id: record.id, tenantId: params.tenantId, state: DeliveryState.FAILED },
+      data: { state: DeliveryState.RETRY_REQUIRED, failureReason: params.reason, updatedAt: new Date() } });
+    return this.mapRow(row);
   }
 
   async getDelivery(tenantId: string, deliveryId: string): Promise<DeliveryRecord> {
-    const mem = this.inMemory.get(deliveryId);
-    if (mem) {
-      this.policyService.assertTenantIsolation(tenantId, mem.tenantId);
-      return mem;
-    }
-    try {
-      const row = await (this.prisma as any).complianceReportDelivery?.findUnique?.({ where: { id: deliveryId } });
-      if (row) {
-        this.policyService.assertTenantIsolation(tenantId, row.tenantId);
-        return this.mapRow(row);
-      }
-    } catch {
-      /* ignore */
-    }
-    throw new BadRequestException(`delivery ${deliveryId} not found`);
+    const row = await this.prisma.complianceReportDelivery.findFirst({ where: { id: deliveryId, tenantId } });
+    if (!row) throw new BadRequestException('Delivery not found for tenant');
+    this.policyService.assertTenantIsolation(tenantId, row.tenantId);
+    return this.mapRow(row);
   }
-
   async listDeliveries(tenantId: string, reportId?: string): Promise<DeliveryRecord[]> {
-    let list = [...this.inMemory.values()].filter((d) => d.tenantId === tenantId);
-    if (reportId) list = list.filter((d) => d.reportId === reportId);
-    try {
-      const where: any = { tenantId };
-      if (reportId) where.reportId = reportId;
-      const rows = await (this.prisma as any).complianceReportDelivery?.findMany?.({ where, take: 200, orderBy: { createdAt: 'desc' } });
-      if (rows && rows.length > 0) list = rows.map((r: any) => this.mapRow(r));
-    } catch {
-      /* ignore */
-    }
-    return list;
+    const where: Prisma.ComplianceReportDeliveryWhereInput = { tenantId, ...(reportId ? { reportId } : {}) };
+    const rows = await this.prisma.complianceReportDelivery.findMany({ where, orderBy: { createdAt: 'desc' } });
+    return rows.map((row) => this.mapRow(row));
   }
-
-  private mapRow(row: any): DeliveryRecord {
-    return {
-      id: row.id,
-      tenantId: row.tenantId,
-      reportId: row.reportId,
-      channel: row.channel,
-      state: row.state,
-      attemptCount: row.attemptCount ?? 0,
-      lastAttemptAt: row.lastAttemptAt ? (row.lastAttemptAt instanceof Date ? row.lastAttemptAt.toISOString() : row.lastAttemptAt) : null,
-      deliveredAt: row.deliveredAt ? (row.deliveredAt instanceof Date ? row.deliveredAt.toISOString() : row.deliveredAt) : null,
-      deliveryEvidence: row.deliveryEvidence ?? null,
-      failureReason: row.failureReason ?? null,
-      correlationId: row.correlationId,
-      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
-      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt,
-    };
+  private mapRow(row: ComplianceReportDelivery): DeliveryRecord {
+    const state = Object.values(DeliveryState).find((value) => value === row.state);
+    if (!state || !Number.isSafeInteger(row.attemptCount) || row.attemptCount < 0
+      || (state === DeliveryState.DELIVERED && (!row.deliveredAt || !row.deliveryEvidence))) throw new Error('Malformed persisted delivery state/evidence');
+    return { ...row, state, lastAttemptAt: row.lastAttemptAt?.toISOString() ?? null, deliveredAt: row.deliveredAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 }

@@ -1,6 +1,6 @@
-import { IsOptional, IsString, IsBoolean, IsNotEmpty, IsArray, IsObject, IsNumber, MaxLength, IsEnum, ValidateNested } from 'class-validator';
+import { IsOptional, IsString, IsBoolean, IsNotEmpty, IsArray, IsNumber, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Jurisdiction } from '../compliance.types';
+
 
 export class TransactionThresholdsDto {
   @IsOptional()

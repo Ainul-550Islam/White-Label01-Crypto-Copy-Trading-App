@@ -1,0 +1,12 @@
+
+> @wlct/api@1.0.0 lint
+> eslint "{src,test}/**/*.ts" --max-warnings=0 --format json --output-file ../../api-lint-final.json
+
+ESLint found too many warnings (maximum: 0).
+npm error Lifecycle script `lint` failed with error:
+npm error code 1
+npm error path /home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api
+npm error workspace @wlct/api@1.0.0
+npm error location /home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api
+npm error command failed
+npm error command sh -c eslint "{src,test}/**/*.ts" --max-warnings=0 --format json --output-file ../../api-lint-final.json

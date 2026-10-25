@@ -1,6 +1,6 @@
 import type { UUID } from '@wlct/shared-types';
 import type { Money } from './money.types';
-import { PaymentProvider } from '../payments/payment.types';
+
 
 /**
  * Double-entry-style commercial billing ledger types: debit/credit,

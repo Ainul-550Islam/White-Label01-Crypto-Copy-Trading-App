@@ -1,5 +1,5 @@
-import type { PaymentAmount, PaymentMetadata, PaymentReferences, PaymentStatus, NormalizedPaymentResult, ProviderReference, PaymentProvider, TransactionState } from './payment.types';
-import type { CheckoutRequest, CheckoutResponse } from './checkout.types';
+import type { PaymentAmount, PaymentMetadata, PaymentReferences, PaymentStatus, NormalizedPaymentResult, PaymentProvider, TransactionState } from './payment.types';
+
 import type { NormalizedWebhookEvent } from './webhook.types';
 
 /**

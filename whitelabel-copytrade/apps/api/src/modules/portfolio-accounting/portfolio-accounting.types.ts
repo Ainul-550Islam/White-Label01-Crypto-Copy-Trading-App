@@ -171,7 +171,7 @@ export function formatScaled(scaled: bigint): string {
   const abs = isNeg ? -scaled : scaled;
   const intPart = abs / SCALE_FACTOR;
   const fracPart = abs % SCALE_FACTOR;
-  let fracStr = fracPart.toString().padStart(DECIMAL_SCALE, '0').replace(/0+$/, '');
+  const fracStr = fracPart.toString().padStart(DECIMAL_SCALE, '0').replace(/0+$/, '');
   const result = fracStr ? `${intPart.toString()}.${fracStr}` : intPart.toString();
   return isNeg ? `-${result}` : result;
 }

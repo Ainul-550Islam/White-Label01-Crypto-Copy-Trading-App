@@ -70,8 +70,13 @@ def run_model_generator(output_path: Path) -> str:
         str(output_path),
         "--output-model-type",
         "pydantic_v2.BaseModel",
+        "--use-annotated",
+        "--enum-field-as-literal",
+        "all",
         "--target-python-version",
         "3.10",
+        "--formatters",
+        "builtin",
         "--disable-timestamp",
     ]
     subprocess.run(command, check=True, cwd=REPOSITORY_ROOT)

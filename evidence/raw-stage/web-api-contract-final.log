@@ -1,0 +1,5 @@
+
+> whitelabel-copytrade@1.0.0 check:web-api-contract
+> node scripts/check-web-api-contract.js
+
+Web API contract check OK: 282 client calls match 874 API routes; query keys checked on 70 (16 dynamic paths not checked)

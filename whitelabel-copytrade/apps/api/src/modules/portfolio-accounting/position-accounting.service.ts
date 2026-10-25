@@ -1,3 +1,4 @@
+// # Responsibility: build tenant-scoped position and lot accounting from authoritative positions and fills.
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
@@ -7,6 +8,7 @@ import {
   add,
   sub,
   cmp,
+  mul,
   redactSecrets,
   isValidDecimal,
 } from './portfolio-accounting.types';
@@ -112,7 +114,7 @@ export class PositionAccountingService {
     });
 
     let remainingToClose = quantity;
-    let totalRealizedPnl = '0';
+    const totalRealizedPnl = '0';
     const closedLots: any[] = [];
 
     for (const lot of openLots) {
@@ -212,7 +214,6 @@ export class PositionAccountingService {
 
   private mulSafe(a: string, b: string): string {
     try {
-      const { mul } = require('./portfolio-accounting.types');
       return mul(a, b);
     } catch {
       return '0';

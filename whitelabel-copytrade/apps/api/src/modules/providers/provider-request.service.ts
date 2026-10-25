@@ -6,15 +6,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  ProviderDomain,
-  ProviderName,
-  ProviderErrorCode,
-  RetryClassification,
-  NormalizedProviderError,
-  ProviderRequestContext,
-  ProviderOperationType,
-} from './provider.types';
+import { ProviderDomain, ProviderName, ProviderErrorCode, RetryClassification, NormalizedProviderError, ProviderOperationType } from './provider.types';
 import { ProviderPolicyService } from './provider-policy.service';
 
 export interface OutboundRequestOptions {

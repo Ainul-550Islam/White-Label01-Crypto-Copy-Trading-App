@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { PartnerCommission, PartnerCommissionState, PartnerCommissionModel, PartnerCommissionBasis, PartnerAuditAction } from './partner.types';
+import { PartnerCommission, PartnerCommissionState, PartnerCommissionModel, PartnerCommissionBasis } from './partner.types';
 import { PartnerPolicyService } from './partner-policy.service';
 import { PartnerAgreementService } from './partner-agreement.service';
 import { PartnerAuditService } from './partner-audit.service';

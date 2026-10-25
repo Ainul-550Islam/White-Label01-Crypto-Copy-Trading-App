@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OperationalAuditService } from './operational-audit.service';
 import { OperationsPolicyService } from './operations-policy.service';

@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsUUID, IsDateString, IsObject, IsInt, Min } from 'class-validator';
-import { OperationalIncidentSeverity, OperationalIncidentState, OperationalActionType } from '../operations.types';
+import { IsString, IsOptional, IsEnum, IsUUID, IsDateString, IsObject } from 'class-validator';
+import { OperationalIncidentSeverity, OperationalActionType } from '../operations.types';
 
 /**
  * Validated DTOs for incident acknowledgement, escalation, resolution, suppression,

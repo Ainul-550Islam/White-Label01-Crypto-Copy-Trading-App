@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, IsArray, IsNotEmpty, MaxLength, IsLocale, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsArray, IsNotEmpty, MaxLength } from 'class-validator';
 import { BillingNotificationEventKey, NotificationChannel } from '../billing-notification.types';
 
 export enum NotificationPreferenceCategory {

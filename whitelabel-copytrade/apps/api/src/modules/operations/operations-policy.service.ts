@@ -1,14 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AppConfigService } from '../../config/app-config.service';
-import {
-  OperationalDependencyType,
-  OperationalDependencyState,
-  OperationalIncidentSeverity,
-  OperationalMaintenanceScope,
-  OperationalDegradationLevel,
-  OperationalReconciliationType,
-} from './operations.types';
+import { OperationalDependencyType, OperationalIncidentSeverity, OperationalMaintenanceScope, OperationalDegradationLevel, OperationalReconciliationType } from './operations.types';
 
 /**
  * Central operational policy resolver for readiness requirements, critical dependencies,

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsObject, IsNotEmpty, MaxLength, Matches, IsNumber, Min, Max, IsEnum, ArrayMaxSize, ValidateIf } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsObject, IsNotEmpty, MaxLength, Matches, IsNumber, Min, Max, IsEnum, ArrayMaxSize } from 'class-validator';
 import { ResearchSignalSide } from '../signal.types';
 
 export class CreateDatasetDto {

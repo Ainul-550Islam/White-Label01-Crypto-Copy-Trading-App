@@ -1,0 +1,63 @@
+
+> whitelabel-copytrade@1.0.0 audit:deps
+> node scripts/check-dependency-audit.mjs
+
+Dependency audit: 7 advisories (1 critical, 4 high), 6 production-reachable and 1 development-only; 45 exceptions recorded.
+  FAIL [new-advisory] next [critical] Next.js: Unauthenticated Remote Code Execution in Image Optimization API when SVG files are used (production-reachable)
+  FAIL [new-advisory] @nestjs/platform-express [high] advisory against @nestjs/platform-express (production-reachable)
+  FAIL [new-advisory] body-parser [high] body-parser vulnerable to Denial of Service via trailing bytes after a compressed request body (production-reachable)
+  FAIL [new-advisory] multer [high] multer vulnerable to Denial of Service via a pending asynchronous fileFilter after request teardown (production-reachable)
+  FAIL [new-advisory] zod [high] Zod can exhaust memory while validating oversized constrained collections (production-reachable)
+  FAIL [new-advisory] fast-uri [moderate] fast-uri vulnerable to URI scheme spoofing via percent-encoded scheme decoding (development-only)
+  FAIL [new-advisory] nodemailer [moderate] Nodemailer: A nested comment ends early in addressparser, releasing the rest of the comment as a recipient (production-reachable)
+  FAIL [stale-exception] @jest/console (npm-@jest/console) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/core (npm-@jest/core) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/environment (npm-@jest/environment) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/expect (npm-@jest/expect) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/fake-timers (npm-@jest/fake-timers) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/globals (npm-@jest/globals) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/reporters (npm-@jest/reporters) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/test-result (npm-@jest/test-result) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/test-sequencer (npm-@jest/test-sequencer) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @jest/transform (npm-@jest/transform) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @next/eslint-plugin-next (npm-@next/eslint-plugin-next) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @types/jest (npm-@types/jest) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @typescript-eslint/eslint-plugin (npm-@typescript-eslint/eslint-plugin) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @typescript-eslint/parser (npm-@typescript-eslint/parser) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @typescript-eslint/type-utils (npm-@typescript-eslint/type-utils) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @typescript-eslint/typescript-estree (npm-@typescript-eslint/typescript-estree) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @typescript-eslint/utils (npm-@typescript-eslint/utils) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] babel-jest (npm-babel-jest) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] braces (GHSA-vfj7-8cjw-p6xm) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] chokidar (npm-chokidar) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] create-jest (npm-create-jest) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] eslint-config-next (npm-eslint-config-next) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] expect (npm-expect) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] fast-glob (npm-fast-glob) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] globby (npm-globby) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest (npm-jest) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-circus (npm-jest-circus) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-cli (npm-jest-cli) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-config (npm-jest-config) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-environment-node (npm-jest-environment-node) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-haste-map (npm-jest-haste-map) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-message-util (npm-jest-message-util) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-resolve (npm-jest-resolve) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-resolve-dependencies (npm-jest-resolve-dependencies) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-runner (npm-jest-runner) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-runtime (npm-jest-runtime) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-snapshot (npm-jest-snapshot) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] jest-watcher (npm-jest-watcher) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] micromatch (npm-micromatch) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] ts-node-dev (npm-ts-node-dev) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] @istanbuljs/load-nyc-config (npm-@istanbuljs/load-nyc-config) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] argparse (npm-argparse) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] babel-plugin-istanbul (npm-babel-plugin-istanbul) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] js-yaml (npm-js-yaml) is still listed as accepted but is no longer reported; remove the exception
+  FAIL [stale-exception] sprintf-js (GHSA-hp3w-g68c-fv3c) is still listed as accepted but is no longer reported; remove the exception
+  production: next [critical] Next.js: Unauthenticated Remote Code Execution in Image Optimization API when SVG files are used
+  production: @nestjs/platform-express [high] advisory against @nestjs/platform-express
+  production: body-parser [high] body-parser vulnerable to Denial of Service via trailing bytes after a compressed request body
+  production: multer [high] multer vulnerable to Denial of Service via a pending asynchronous fileFilter after request teardown
+  production: zod [high] Zod can exhaust memory while validating oversized constrained collections
+  production: nodemailer [moderate] Nodemailer: A nested comment ends early in addressparser, releasing the rest of the comment as a recipient

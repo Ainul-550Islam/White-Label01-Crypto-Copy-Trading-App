@@ -1,19 +1,11 @@
+// # Responsibility: calculate realized and unrealized PnL from fills, cost basis, valuation, and fees.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CostBasisService } from './cost-basis.service';
 import { ValuationService } from './valuation.service';
 import { AccountingPolicyService } from './accounting-policy.service';
 import { AccountingEventRepository } from './accounting-event.repository';
-import {
-  PortfolioPnLType,
-  add,
-  sub,
-  mul,
-  cmp,
-  isValidDecimal,
-  redactSecrets,
-  deterministicIdempotencyKey,
-} from './portfolio-accounting.types';
+import { PortfolioPnLType, add, sub, mul, div, isValidDecimal } from './portfolio-accounting.types';
 
 /**
  * Calculates realized, unrealized, gross, fee-adjusted, net PnL using fills,
@@ -271,7 +263,6 @@ export class PnLService {
 
   private proportionalCostBasis(totalCostBasis: string, totalQuantity: string, remainingQuantity: string): string {
     try {
-      const { div, mul } = require('./portfolio-accounting.types');
       if (totalQuantity === remainingQuantity) return totalCostBasis;
       const ratio = div(remainingQuantity, totalQuantity);
       return mul(totalCostBasis, ratio);

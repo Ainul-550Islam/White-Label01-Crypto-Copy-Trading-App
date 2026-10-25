@@ -1,10 +1,13 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import type { PortfolioCashLedgerEntry } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
 import { NavService } from './nav.service';
 import {
+  PortfolioAccountingScope,
   PortfolioReturnMethodology,
   deterministicIdempotencyKey,
+  TWR_FLOW_BOUNDARY_RULE,
   add,
   sub,
   mul,
@@ -15,9 +18,86 @@ import {
 } from './portfolio-accounting.types';
 
 /**
+ * # Responsibility: calculates source-backed TWR and MWR with exact-decimal flow-boundary handling.
  * Calculates TWR and MWR where sufficient data exists, rejects/marks unavailable when missing observations.
  * Must include periodStart/End starting/ending NAV externalCashFlows fees treatment version completeness.
  */
+
+type ExternalCashFlowType = 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+
+type TWRCashFlowRow = Pick<
+  PortfolioCashLedgerEntry,
+  | 'id'
+  | 'tenantId'
+  | 'profileId'
+  | 'idempotencyKey'
+  | 'occurredAt'
+  | 'cashFlowType'
+  | 'amount'
+  | 'currency'
+  | 'baseCurrency'
+  | 'baseCurrencyAmount'
+  | 'conversionRate'
+  | 'conversionSource'
+  | 'conversionTimestamp'
+  | 'conversionStatus'
+  | 'sourceType'
+  | 'sourceId'
+>;
+
+interface TWRExternalCashFlowEvidence {
+  date: string;
+  amount: string | null;
+  type: string;
+  currency: string;
+  baseCurrency: string;
+  sourceReference: string | null;
+}
+
+interface TWRPerformanceEvidence {
+  methodology: PortfolioReturnMethodology.TIME_WEIGHTED_RETURN;
+  flowBoundary: typeof TWR_FLOW_BOUNDARY_RULE;
+  periodStart: string;
+  periodEnd: string;
+  startingNav: string | null;
+  endingNav: string | null;
+  externalCashFlows: TWRExternalCashFlowEvidence[] | null;
+  feesTreatment: string;
+  returnPercent: string | null;
+  calculationVersion: string;
+  policyVersion: string;
+  dataCompleteness: 'COMPLETE' | 'UNAVAILABLE';
+  sourceReferences: string[];
+}
+
+interface TWRCalculationResult {
+  returnPercent: string | null;
+  evidence: TWRPerformanceEvidence;
+  canCalculate: boolean;
+  reason?: string;
+}
+
+interface NormalizedExternalCashFlow {
+  row: TWRCashFlowRow;
+  amount: string;
+  signedAmount: string;
+  evidence: TWRExternalCashFlowEvidence;
+}
+
+function isExternalCashFlowType(value: string): value is ExternalCashFlowType {
+  return value === 'DEPOSIT' || value === 'WITHDRAWAL' || value === 'TRANSFER_IN' || value === 'TRANSFER_OUT';
+}
+
+function isCompleteNavObservation(
+  observation: Awaited<ReturnType<NavService['calculateNav']>>,
+): observation is Awaited<ReturnType<NavService['calculateNav']>> & { nav: string } {
+  return (
+    typeof observation.nav === 'string' &&
+    isValidDecimal(observation.nav) &&
+    observation.dataCompleteness === 'COMPLETE' &&
+    observation.canPublish === true
+  );
+}
 
 @Injectable()
 export class PerformanceService {
@@ -35,187 +115,336 @@ export class PerformanceService {
     periodStart: Date;
     periodEnd: Date;
     baseCurrency?: string;
-  }): Promise<{ returnPercent: string | null; evidence: any; canCalculate: boolean; reason?: string }> {
+  }): Promise<TWRCalculationResult> {
     const { tenantId, profileId, periodStart, periodEnd } = params;
+    if (
+      !Number.isFinite(periodStart.getTime()) ||
+      !Number.isFinite(periodEnd.getTime()) ||
+      periodStart.getTime() >= periodEnd.getTime()
+    ) {
+      throw new BadRequestException('TWR periodStart and periodEnd must be valid dates in ascending order');
+    }
 
-    const policy = await this.policyService.resolvePolicy({ tenantId, scope: 'TENANT' as any, scopeId: profileId });
-    const baseCurrency = params.baseCurrency ?? policy.baseCurrency;
+    const policy = await this.policyService.resolvePolicy({
+      tenantId,
+      scope: PortfolioAccountingScope.TENANT,
+      scopeId: profileId,
+    });
+    const baseCurrency = (params.baseCurrency ?? policy.baseCurrency).trim().toUpperCase();
+    if (!baseCurrency) throw new BadRequestException('TWR baseCurrency is required');
 
-    // Need NAV snapshots or ability to calculate NAV at sub-period boundaries defined by cash flows
-    // Get cash flows within period
-    let cashFlows: any[] = [];
+    const periodStartIso = periodStart.toISOString();
+    const periodEndIso = periodEnd.toISOString();
+    const unavailable = (
+      reason: string,
+      externalCashFlows: TWRExternalCashFlowEvidence[] | null = [],
+      startingNav: string | null = null,
+      endingNav: string | null = null,
+      sourceReferences: string[] = [],
+    ): TWRCalculationResult => ({
+      returnPercent: null,
+      canCalculate: false,
+      reason,
+      evidence: {
+        methodology: PortfolioReturnMethodology.TIME_WEIGHTED_RETURN,
+        flowBoundary: TWR_FLOW_BOUNDARY_RULE,
+        periodStart: periodStartIso,
+        periodEnd: periodEndIso,
+        startingNav,
+        endingNav,
+        externalCashFlows,
+        feesTreatment: policy.feeTreatment,
+        returnPercent: null,
+        calculationVersion: policy.calculationVersion,
+        policyVersion: policy.policyVersion,
+        dataCompleteness: 'UNAVAILABLE',
+        sourceReferences,
+      },
+    });
+    const evidenceForRows = (rows: readonly TWRCashFlowRow[]): TWRExternalCashFlowEvidence[] =>
+      rows.map((row) => ({
+        date: Number.isFinite(row.occurredAt.getTime()) ? row.occurredAt.toISOString() : 'INVALID_DATE',
+        amount: row.baseCurrencyAmount,
+        type: String(row.cashFlowType),
+        currency: row.currency,
+        baseCurrency: row.baseCurrency,
+        sourceReference:
+          row.sourceType?.trim() && row.sourceId?.trim()
+            ? `${row.sourceType}:${row.sourceId}`
+            : null,
+      }));
+
+    let cashFlows: TWRCashFlowRow[];
     try {
-      cashFlows = await (this.prisma as any).portfolioCashLedgerEntry.findMany({
+      cashFlows = await this.prisma.portfolioCashLedgerEntry.findMany({
         where: {
           tenantId,
           profileId,
-          cashFlowType: { in: ['DEPOSIT', 'WITHDRAWAL', 'TRANSFER_IN', 'TRANSFER_OUT'] },
+          cashFlowType: {
+            in: ['DEPOSIT', 'WITHDRAWAL', 'TRANSFER_IN', 'TRANSFER_OUT'],
+          },
           occurredAt: { gte: periodStart, lte: periodEnd },
         },
-        orderBy: { occurredAt: 'asc' },
+        orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+        take: 101,
+        select: {
+          id: true,
+          tenantId: true,
+          profileId: true,
+          idempotencyKey: true,
+          occurredAt: true,
+          cashFlowType: true,
+          amount: true,
+          currency: true,
+          baseCurrency: true,
+          baseCurrencyAmount: true,
+          conversionRate: true,
+          conversionSource: true,
+          conversionTimestamp: true,
+          conversionStatus: true,
+          sourceType: true,
+          sourceId: true,
+        },
       });
-    } catch {
-      cashFlows = [];
+    } catch (error) {
+      this.logger.warn(
+        `TWR cash-flow source unavailable tenant=${tenantId} profile=${profileId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      return unavailable('CASH_FLOW_SOURCE_UNAVAILABLE', null);
     }
 
-    // Get NAV at start and end — require observations
-    const navStart = await this.navService.calculateNav({ tenantId, profileId, at: periodStart, baseCurrency });
-    const navEnd = await this.navService.calculateNav({ tenantId, profileId, at: periodEnd, baseCurrency });
+    if (cashFlows.length > 100) {
+      return unavailable('CASH_FLOW_LIMIT_EXCEEDED', null);
+    }
 
-    if (!navStart.nav || !navEnd.nav) {
-      return {
-        returnPercent: null,
-        canCalculate: false,
-        reason: 'MISSING_NAV_OBSERVATIONS',
+    const duplicateKeys = new Set<string>();
+    const normalizedFlows: NormalizedExternalCashFlow[] = [];
+    const rawEvidence = evidenceForRows(cashFlows);
+    for (const flow of cashFlows) {
+      const flowDate = flow.occurredAt.getTime();
+      if (
+        flow.tenantId !== tenantId ||
+        flow.profileId !== profileId ||
+        !flow.id.trim() ||
+        !flow.idempotencyKey.trim() ||
+        duplicateKeys.has(flow.idempotencyKey) ||
+        !Number.isFinite(flowDate) ||
+        flowDate < periodStart.getTime() ||
+        flowDate > periodEnd.getTime() ||
+        !isExternalCashFlowType(flow.cashFlowType) ||
+        !isValidDecimal(flow.amount) ||
+        cmp(flow.amount, '0') < 0 ||
+        !flow.currency.trim() ||
+        !flow.baseCurrency.trim() ||
+        flow.baseCurrency.trim().toUpperCase() !== baseCurrency
+      ) {
+        return unavailable('INVALID_EXTERNAL_CASH_FLOW_EVIDENCE', rawEvidence);
+      }
+      duplicateKeys.add(flow.idempotencyKey);
+
+      if (flow.conversionStatus === 'MISSING_FX' || flow.baseCurrencyAmount === null) {
+        return unavailable('MISSING_FX', rawEvidence);
+      }
+      if (!isValidDecimal(flow.baseCurrencyAmount) || cmp(flow.baseCurrencyAmount, '0') < 0) {
+        return unavailable('INVALID_EXTERNAL_CASH_FLOW_EVIDENCE', rawEvidence);
+      }
+
+      const currency = flow.currency.trim().toUpperCase();
+      if (currency === baseCurrency) {
+        if (
+          flow.conversionStatus !== 'SAME_CURRENCY' ||
+          cmp(flow.baseCurrencyAmount, flow.amount) !== 0
+        ) {
+          return unavailable('INVALID_EXTERNAL_CASH_FLOW_EVIDENCE', rawEvidence);
+        }
+      } else if (
+        flow.conversionStatus !== 'CONVERTED' ||
+        flow.conversionRate === null ||
+        !isValidDecimal(flow.conversionRate) ||
+        cmp(flow.conversionRate, '0') <= 0 ||
+        !flow.conversionSource?.trim() ||
+        flow.conversionTimestamp === null ||
+        !Number.isFinite(flow.conversionTimestamp.getTime())
+      ) {
+        return unavailable('MISSING_FX', rawEvidence);
+      }
+
+      if (!flow.sourceType?.trim() || !flow.sourceId?.trim()) {
+        return unavailable('INVALID_EXTERNAL_CASH_FLOW_EVIDENCE', rawEvidence);
+      }
+
+      const isInflow = flow.cashFlowType === 'DEPOSIT' || flow.cashFlowType === 'TRANSFER_IN';
+      normalizedFlows.push({
+        row: flow,
+        amount: flow.baseCurrencyAmount,
+        signedAmount: isInflow ? flow.baseCurrencyAmount : sub('0', flow.baseCurrencyAmount),
         evidence: {
-          methodology: PortfolioReturnMethodology.TIME_WEIGHTED_RETURN,
-          periodStart: periodStart.toISOString(),
-          periodEnd: periodEnd.toISOString(),
-          startingNav: navStart.nav,
-          endingNav: navEnd.nav,
-          externalCashFlows: cashFlows.map((cf: any) => ({ date: cf.occurredAt.toISOString(), amount: cf.baseCurrencyAmount ?? cf.amount, type: cf.cashFlowType })),
-          feesTreatment: policy.feeTreatment,
-          returnPercent: null,
-          calculationVersion: policy.calculationVersion,
-          policyVersion: policy.policyVersion,
-          dataCompleteness: 'MISSING_NAV_OBSERVATIONS',
-          sourceReferences: [...navStart.sourceReferences, ...navEnd.sourceReferences],
+          date: flow.occurredAt.toISOString(),
+          amount: flow.baseCurrencyAmount,
+          type: flow.cashFlowType,
+          currency: flow.currency,
+          baseCurrency: flow.baseCurrency,
+          sourceReference: `${flow.sourceType}:${flow.sourceId}`,
         },
-      };
+      });
     }
 
-    // Check for missing FX — reject if missing observations
-    if (navStart.dataCompleteness === 'MISSING_FX_NO_NAV' || navEnd.dataCompleteness === 'MISSING_FX_NO_NAV') {
-      return {
-        returnPercent: null,
-        canCalculate: false,
-        reason: 'MISSING_FX',
-        evidence: {
-          methodology: PortfolioReturnMethodology.TIME_WEIGHTED_RETURN,
-          periodStart: periodStart.toISOString(),
-          periodEnd: periodEnd.toISOString(),
-          startingNav: navStart.nav,
-          endingNav: navEnd.nav,
-          externalCashFlows: cashFlows.map((cf: any) => ({ date: cf.occurredAt.toISOString(), amount: cf.baseCurrencyAmount ?? cf.amount, type: cf.cashFlowType })),
-          feesTreatment: policy.feeTreatment,
-          returnPercent: null,
-          calculationVersion: policy.calculationVersion,
-          policyVersion: policy.policyVersion,
-          dataCompleteness: 'MISSING_FX',
-          sourceReferences: [...navStart.sourceReferences, ...navEnd.sourceReferences],
-        },
-      };
-    }
-
-    // TWR: chain-linked sub-period returns between cash flows
-    // For simplicity, if no cash flows, TWR = (endingNav / startingNav) - 1
-    // If cash flows, need NAV before each cash flow — if missing, mark incomplete
+    const externalCashFlows = normalizedFlows.map((flow) => flow.evidence);
+    let navStart: Awaited<ReturnType<NavService['calculateNav']>>;
+    let navEnd: Awaited<ReturnType<NavService['calculateNav']>>;
     try {
-      if (cashFlows.length === 0) {
-        const ratio = div(navEnd.nav, navStart.nav);
-        const twr = sub(ratio, '1');
-        const twrPercent = mul(twr, '100');
-        return {
-          returnPercent: twrPercent,
-          canCalculate: true,
-          evidence: {
-            methodology: PortfolioReturnMethodology.TIME_WEIGHTED_RETURN,
-            periodStart: periodStart.toISOString(),
-            periodEnd: periodEnd.toISOString(),
-            startingNav: navStart.nav,
-            endingNav: navEnd.nav,
-            externalCashFlows: [],
-            feesTreatment: policy.feeTreatment,
-            returnPercent: twrPercent,
-            calculationVersion: policy.calculationVersion,
-            policyVersion: policy.policyVersion,
-            dataCompleteness: 'COMPLETE',
-            sourceReferences: [...navStart.sourceReferences, ...navEnd.sourceReferences],
-          },
-        };
-      } else {
-        // With cash flows — need sub-period NAVs
-        let chainLinked = '1';
-        let prevNav = navStart.nav;
-        let prevTime = periodStart;
+      [navStart, navEnd] = await Promise.all([
+        this.navService.calculateNav({ tenantId, profileId, at: periodStart, baseCurrency }),
+        this.navService.calculateNav({ tenantId, profileId, at: periodEnd, baseCurrency }),
+      ]);
+    } catch (error) {
+      this.logger.warn(
+        `TWR NAV source unavailable tenant=${tenantId} profile=${profileId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      return unavailable('NAV_SOURCE_UNAVAILABLE', externalCashFlows);
+    }
 
-        for (const cf of cashFlows) {
-          const navBeforeFlow = await this.navService.calculateNav({ tenantId, profileId, at: cf.occurredAt, baseCurrency });
-          if (!navBeforeFlow.nav) {
-            return {
-              returnPercent: null,
-              canCalculate: false,
-              reason: 'MISSING_SUBPERIOD_NAV',
-              evidence: {
-                methodology: PortfolioReturnMethodology.TIME_WEIGHTED_RETURN,
-                periodStart: periodStart.toISOString(),
-                periodEnd: periodEnd.toISOString(),
-                startingNav: navStart.nav,
-                endingNav: navEnd.nav,
-                externalCashFlows: cashFlows.map((c: any) => ({ date: c.occurredAt.toISOString(), amount: c.baseCurrencyAmount ?? c.amount, type: c.cashFlowType })),
-                feesTreatment: policy.feeTreatment,
-                returnPercent: null,
-                calculationVersion: policy.calculationVersion,
-                policyVersion: policy.policyVersion,
-                dataCompleteness: 'MISSING_SUBPERIOD_NAV',
-                sourceReferences: [],
-              },
-            };
-          }
-          const subPeriodReturn = sub(div(navBeforeFlow.nav, prevNav), '1');
-          chainLinked = mul(chainLinked, add(subPeriodReturn, '1'));
-          // After cash flow, NAV adjusts
-          const cfAmount = cf.baseCurrencyAmount ?? cf.amount;
-          const isInflow = ['DEPOSIT', 'TRANSFER_IN'].includes(cf.cashFlowType);
-          prevNav = isInflow ? add(navBeforeFlow.nav, cfAmount) : sub(navBeforeFlow.nav, cfAmount);
-          prevTime = cf.occurredAt;
+    const boundaryReferences = [...new Set([...navStart.sourceReferences, ...navEnd.sourceReferences])];
+    if (!isCompleteNavObservation(navStart) || !isCompleteNavObservation(navEnd)) {
+      const missingFx =
+        navStart.dataCompleteness === 'MISSING_FX_NO_NAV' ||
+        navEnd.dataCompleteness === 'MISSING_FX_NO_NAV';
+      return unavailable(
+        missingFx ? 'MISSING_FX' : 'MISSING_NAV_OBSERVATIONS',
+        externalCashFlows,
+        navStart.nav,
+        navEnd.nav,
+        boundaryReferences,
+      );
+    }
+
+    if (cmp(navStart.nav, '0') <= 0 || cmp(navEnd.nav, '0') < 0) {
+      return unavailable(
+        'NON_POSITIVE_NAV_BOUNDARY',
+        externalCashFlows,
+        navStart.nav,
+        navEnd.nav,
+        boundaryReferences,
+      );
+    }
+
+    const sourceReferences = new Set<string>([
+      ...boundaryReferences,
+      ...normalizedFlows.map((flow) => flow.evidence.sourceReference).filter((value): value is string => value !== null),
+    ]);
+    const startTime = periodStart.getTime();
+    const endTime = periodEnd.getTime();
+    const groupedFlows = new Map<number, { occurredAt: Date; signedAmount: string }>();
+    for (const flow of normalizedFlows) {
+      const occurredAt = flow.row.occurredAt;
+      const timestamp = occurredAt.getTime();
+      if (timestamp <= startTime || timestamp >= endTime) continue;
+      const current = groupedFlows.get(timestamp);
+      groupedFlows.set(timestamp, {
+        occurredAt,
+        signedAmount: add(current?.signedAmount ?? '0', flow.signedAmount),
+      });
+    }
+
+    const orderedFlowGroups = [...groupedFlows.values()].sort(
+      (left, right) => left.occurredAt.getTime() - right.occurredAt.getTime(),
+    );
+    let chainFactor = '1';
+    let previousPostFlowNav = navStart.nav;
+    try {
+      for (const group of orderedFlowGroups) {
+        const navAtFlow = await this.navService.calculateNav({
+          tenantId,
+          profileId,
+          at: group.occurredAt,
+          baseCurrency,
+        });
+        if (!isCompleteNavObservation(navAtFlow) || cmp(navAtFlow.nav, '0') < 0) {
+          return unavailable(
+            'MISSING_SUBPERIOD_NAV',
+            externalCashFlows,
+            navStart.nav,
+            navEnd.nav,
+            [...new Set([...sourceReferences, ...navAtFlow.sourceReferences])],
+          );
+        }
+        if (cmp(previousPostFlowNav, '0') <= 0) {
+          return unavailable(
+            'NON_POSITIVE_SUBPERIOD_NAV',
+            externalCashFlows,
+            navStart.nav,
+            navEnd.nav,
+            [...sourceReferences],
+          );
         }
 
-        // Final sub-period
-        const finalReturn = sub(div(navEnd.nav, prevNav), '1');
-        chainLinked = mul(chainLinked, add(finalReturn, '1'));
-        const twr = sub(chainLinked, '1');
-        const twrPercent = mul(twr, '100');
-
-        return {
-          returnPercent: twrPercent,
-          canCalculate: true,
-          evidence: {
-            methodology: PortfolioReturnMethodology.TIME_WEIGHTED_RETURN,
-            periodStart: periodStart.toISOString(),
-            periodEnd: periodEnd.toISOString(),
-            startingNav: navStart.nav,
-            endingNav: navEnd.nav,
-            externalCashFlows: cashFlows.map((c: any) => ({ date: c.occurredAt.toISOString(), amount: c.baseCurrencyAmount ?? c.amount, type: c.cashFlowType })),
-            feesTreatment: policy.feeTreatment,
-            returnPercent: twrPercent,
-            calculationVersion: policy.calculationVersion,
-            policyVersion: policy.policyVersion,
-            dataCompleteness: 'COMPLETE',
-            sourceReferences: [...navStart.sourceReferences, ...navEnd.sourceReferences],
-          },
-        };
+        // The NAV observation at an interior timestamp includes all flows at that timestamp.
+        // Remove their net contribution to recover the pre-flow close, then chain to the next
+        // post-flow NAV. This makes equal-time deposits and withdrawals one boundary event.
+        const preFlowNav = sub(navAtFlow.nav, group.signedAmount);
+        if (!isValidDecimal(preFlowNav) || cmp(preFlowNav, '0') < 0) {
+          return unavailable(
+            'INVALID_SUBPERIOD_NAV',
+            externalCashFlows,
+            navStart.nav,
+            navEnd.nav,
+            [...new Set([...sourceReferences, ...navAtFlow.sourceReferences])],
+          );
+        }
+        chainFactor = mul(chainFactor, div(preFlowNav, previousPostFlowNav));
+        previousPostFlowNav = navAtFlow.nav;
+        for (const reference of navAtFlow.sourceReferences) sourceReferences.add(reference);
       }
-    } catch (e) {
+
+      // Start flows are already included in the opening NAV. End flows are removed from the
+      // closing NAV so a period-end withdrawal cannot inflate the return (and a deposit cannot
+      // depress it).
+      const netEndFlow = normalizedFlows
+        .filter((flow) => flow.row.occurredAt.getTime() === endTime)
+        .reduce((total, flow) => add(total, flow.signedAmount), '0');
+      const closingNav = sub(navEnd.nav, netEndFlow);
+      if (!isValidDecimal(closingNav) || cmp(closingNav, '0') < 0 || cmp(previousPostFlowNav, '0') <= 0) {
+        return unavailable(
+          'INVALID_CLOSING_NAV',
+          externalCashFlows,
+          navStart.nav,
+          closingNav,
+          [...new Set([...sourceReferences, ...navEnd.sourceReferences])],
+        );
+      }
+
+      chainFactor = mul(chainFactor, div(closingNav, previousPostFlowNav));
+      const returnPercent = mul(sub(chainFactor, '1'), '100');
       return {
-        returnPercent: null,
-        canCalculate: false,
-        reason: `CALCULATION_FAILED: ${(e as Error).message}`,
+        returnPercent,
+        canCalculate: true,
         evidence: {
           methodology: PortfolioReturnMethodology.TIME_WEIGHTED_RETURN,
-          periodStart: periodStart.toISOString(),
-          periodEnd: periodEnd.toISOString(),
+          flowBoundary: TWR_FLOW_BOUNDARY_RULE,
+          periodStart: periodStartIso,
+          periodEnd: periodEndIso,
           startingNav: navStart.nav,
-          endingNav: navEnd.nav,
-          externalCashFlows: [],
+          endingNav: closingNav,
+          externalCashFlows,
           feesTreatment: policy.feeTreatment,
-          returnPercent: null,
+          returnPercent,
           calculationVersion: policy.calculationVersion,
           policyVersion: policy.policyVersion,
-          dataCompleteness: 'CALCULATION_FAILED',
-          sourceReferences: [],
+          dataCompleteness: 'COMPLETE',
+          sourceReferences: [...sourceReferences],
         },
       };
+    } catch (error) {
+      this.logger.warn(
+        `TWR exact-decimal calculation failed tenant=${tenantId} profile=${profileId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      return unavailable(
+        'CALCULATION_FAILED',
+        externalCashFlows,
+        navStart.nav,
+        navEnd.nav,
+        [...new Set([...sourceReferences, ...navEnd.sourceReferences])],
+      );
     }
   }
 

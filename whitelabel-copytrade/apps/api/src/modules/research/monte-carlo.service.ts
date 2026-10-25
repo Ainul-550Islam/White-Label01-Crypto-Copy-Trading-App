@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { BacktestRepository } from './backtest-repository';
 import { ResearchRepository } from './research-repository';
 import { ResearchPolicyService } from './research-policy.service';
-import { randomUUID, createHash } from 'crypto';
+import { randomUUID } from 'crypto';
 
 /**
  * Runs configurable Monte Carlo/resampling analysis from actual backtest trades/returns without claiming probabilistic certainty.

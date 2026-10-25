@@ -1,12 +1,10 @@
-// # Serves verified release manifest metadata to admin ops console
+// # Responsibility: summarize verified release manifests through the canonical built workspace package.
 import {
   ReleaseManifestService,
-  type BuildInputs,
-} from '../../../../../ops/production/release-manifest.service';
-import {
   EnvironmentName,
+  type BuildInputs,
   type ReleaseManifest,
-} from '../../../../../ops/production/production.types';
+} from '@wlct/utils';
 
 export {
   ReleaseManifestService,

@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsNumber, Min, Max, IsIn, IsBoolean } from 'class-validator';
-import { PartnerType, PartnerState, PartnerTenantRelationshipType, PartnerTenantRelationshipState, PartnerCommissionState, PartnerSettlementState, PartnerPayoutState, PartnerCampaignState } from '../partner.types';
+import { IsString, IsOptional, IsEnum, IsNumber, Min, Max, IsIn } from 'class-validator';
+import { PartnerType, PartnerState, PartnerTenantRelationshipType, PartnerTenantRelationshipState, PartnerCommissionState, PartnerSettlementState, PartnerPayoutState } from '../partner.types';
 
 export class PartnerQueryDto {
   @IsOptional()

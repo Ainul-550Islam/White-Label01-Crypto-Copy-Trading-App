@@ -1,14 +1,11 @@
+// # Responsibility: persist tenant usage reservations and releases under the canonical usage-scope contract.
 import { Injectable } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
 import { RedisService } from '../../../infrastructure/redis/redis.service';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import type {
-  DecrementUsageInput,
-  IncrementUsageInput,
-  ReserveUsageResult,
-  UsageRecord,
-} from './usage.types';
+import { UsageScope } from './usage.types';
+import type { DecrementUsageInput, IncrementUsageInput, ReserveUsageResult } from './usage.types';
 
 const USAGE_KEY_PREFIX = 'usage';
 const DEFAULT_WINDOW_TTL_SECONDS = 120;
@@ -188,7 +185,7 @@ export class UsageRepository {
     return this.decrement({
       tenantId: input.tenantId,
       limitKey: input.limitKey,
-      scope: 'TENANT' as any,
+      scope: UsageScope.TENANT,
       scopeId: input.scopeId,
       amount: input.amount,
     });

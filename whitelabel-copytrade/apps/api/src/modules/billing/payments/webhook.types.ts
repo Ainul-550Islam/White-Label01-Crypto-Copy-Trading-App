@@ -1,5 +1,6 @@
-import type { ISODateString, UUID } from '@wlct/shared-types';
-import { PaymentProvider, PaymentStatus, PaymentCurrency } from './payment.types';
+// # Responsibility: define canonical webhook records and keep extension metadata untrusted until narrowed.
+import type { UUID } from '@wlct/shared-types';
+import { PaymentProvider, PaymentStatus } from './payment.types';
 
 /**
  * Normalized webhook event models, event categories, provider event IDs,
@@ -57,7 +58,7 @@ export interface NormalizedWebhookEvent {
     userId?: string;
     idempotencyKey?: string;
     orderId?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   rawEvent?: unknown;
   receivedAt: Date;

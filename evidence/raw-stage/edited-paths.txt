@@ -1,0 +1,13 @@
+apps/api/src/common/fail-soft-reads.spec.ts
+apps/api/src/modules/risk-management/stress-test.service.ts
+apps/api/src/modules/risk-management/daily-loss-limit.service.ts
+apps/api/src/modules/risk-management/concentration-risk.service.ts
+apps/api/src/modules/risk-management/drawdown-risk.service.ts
+apps/api/src/modules/risk-management/liquidation-risk.service.ts
+apps/api/src/modules/risk-management/position-risk.service.ts
+apps/api/src/modules/oms/final-allocation-and-operations.spec.ts
+apps/api/src/modules/oms/trade-lifecycle.service.ts
+apps/api/src/modules/oms/allocation.service.ts
+apps/api/src/modules/oms/trade-lifecycle.service.spec.ts
+apps/api/src/modules/operations/operations.controller.ts
+apps/api/src/modules/operations/dto/operations-query.dto.ts

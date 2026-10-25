@@ -1,7 +1,9 @@
+// # Responsibility: persist typed tenant relationships only after authoritative boundary/idempotency checks and metadata validation.
 import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Prisma, RelationshipStatus, AccountRelationshipType as StoredRelationshipType, type AccountRelationship } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
-import { deterministicIdempotencyKey, AccountRelationshipType, RelationshipStatus } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, AccountRelationshipType, lifecycleEnum, lifecycleMetadata } from './client-lifecycle.types';
 
 /**
  * Manages client↔trader, client↔follower, client↔strategy, client↔managed-account, and operator
@@ -29,31 +31,31 @@ export class RelationshipService {
     createdBy?: string | null;
     source?: string | null;
     correlationId?: string | null;
-    metadata?: any;
-  }): Promise<any> {
+    metadata?: Record<string, unknown>;
+  }): Promise<AccountRelationship> {
     const { tenantId, sourceId, sourceType, targetId, targetType, relationshipType, clientProfileId = null, accountId = null, createdBy = null, source = null, correlationId = null, metadata = {} } = params;
 
     // No cross-tenant ownership relationship may be created — verify tenant boundaries
     // For each source/target, verify they belong to same tenant if they are tenant-scoped models
     try {
       if (sourceType === 'CLIENT_PROFILE') {
-        const src = await (this.prisma as any).clientProfile.findFirst({ where: { id: sourceId, tenantId } });
+        const src = await this.prisma.clientProfile.findFirst({ where: { id: sourceId, tenantId } });
         if (!src) throw new ForbiddenException('Cross-tenant relationship rejected — source client profile belongs to different tenant');
       }
       if (targetType === 'CLIENT_PROFILE') {
-        const tgt = await (this.prisma as any).clientProfile.findFirst({ where: { id: targetId, tenantId } });
+        const tgt = await this.prisma.clientProfile.findFirst({ where: { id: targetId, tenantId } });
         if (!tgt) throw new ForbiddenException('Cross-tenant relationship rejected — target client profile belongs to different tenant');
       }
       if (sourceType === 'INSTITUTIONAL_ACCOUNT') {
-        const src = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: sourceId, tenantId } });
+        const src = await this.prisma.institutionalAccount.findFirst({ where: { id: sourceId, tenantId } });
         if (!src) throw new ForbiddenException('Cross-tenant relationship rejected — source account belongs to different tenant');
       }
       if (targetType === 'INSTITUTIONAL_ACCOUNT') {
-        const tgt = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: targetId, tenantId } });
+        const tgt = await this.prisma.institutionalAccount.findFirst({ where: { id: targetId, tenantId } });
         if (!tgt) throw new ForbiddenException('Cross-tenant relationship rejected — target account belongs to different tenant');
       }
     } catch (e) {
-      if (e instanceof ForbiddenException || e instanceof BadRequestException) throw e;
+      throw e;
     }
 
     const idempotencyKey = deterministicIdempotencyKey({
@@ -62,26 +64,24 @@ export class RelationshipService {
       externalRef: `${sourceId}:${sourceType}:${targetId}:${targetType}:${relationshipType}`,
     });
 
-    try {
-      const existing = await (this.prisma as any).accountRelationship.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
-      if (existing) return existing;
-    } catch {}
+    const existing = await this.prisma.accountRelationship.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
+    if (existing) return existing;
 
-    const relationship = await (this.prisma as any).accountRelationship.create({
+    const relationship = await this.prisma.accountRelationship.create({
       data: {
         tenantId,
         sourceId,
         sourceType,
         targetId,
         targetType,
-        relationshipType: relationshipType as any,
+        relationshipType: relationshipType,
         status: 'ACTIVE',
         effectiveAt: new Date(),
         clientProfileId: clientProfileId ?? null,
         accountId: accountId ?? null,
         createdBy: createdBy ?? null,
         source: source ?? null,
-        metadata,
+        metadata: lifecycleMetadata(metadata),
         idempotencyKey,
       },
     });
@@ -109,14 +109,14 @@ export class RelationshipService {
     revokedBy?: string | null;
     reason?: string;
     correlationId?: string | null;
-  }): Promise<any> {
+  }): Promise<AccountRelationship> {
     const { tenantId, relationshipId, revokedBy = null, reason, correlationId = null } = params;
 
-    const relationship = await (this.prisma as any).accountRelationship.findFirst({ where: { id: relationshipId, tenantId } });
+    const relationship = await this.prisma.accountRelationship.findFirst({ where: { id: relationshipId, tenantId } });
     if (!relationship) throw new BadRequestException('Relationship not found');
 
-    const updated = await (this.prisma as any).accountRelationship.update({
-      where: { id: relationshipId },
+    const updated = await this.prisma.accountRelationship.update({
+      where: { id: relationshipId, tenantId },
       data: { status: 'REVOKED', endedAt: new Date() },
     });
 
@@ -146,24 +146,24 @@ export class RelationshipService {
     status?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+  }): Promise<{ data: AccountRelationship[]; total: number; page: number; limit: number }> {
     const { tenantId, sourceId, targetId, relationshipType, clientProfileId, accountId, status, page = 1, limit = 50 } = params;
-    const where: any = { tenantId };
+    const where: Prisma.AccountRelationshipWhereInput = { tenantId };
     if (sourceId) where.sourceId = sourceId;
     if (targetId) where.targetId = targetId;
-    if (relationshipType) where.relationshipType = relationshipType;
+    if (relationshipType) where.relationshipType = lifecycleEnum(Object.values(StoredRelationshipType), relationshipType, 'relationship type');
     if (clientProfileId) where.clientProfileId = clientProfileId;
     if (accountId) where.accountId = accountId;
-    if (status) where.status = status;
+    if (status) where.status = lifecycleEnum(Object.values(RelationshipStatus), status, 'relationship status');
 
     const [data, total] = await Promise.all([
-      (this.prisma as any).accountRelationship.findMany({
+      this.prisma.accountRelationship.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      (this.prisma as any).accountRelationship.count({ where }),
+      this.prisma.accountRelationship.count({ where }),
     ]);
     return { data, total, page, limit };
   }

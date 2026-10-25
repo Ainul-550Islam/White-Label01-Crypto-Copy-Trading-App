@@ -1,3 +1,4 @@
+// # Responsibility: preserve report contract case names while checking typed/native persistence failures; helper simulations do not certify live source, artifact or legal evidence.
 /**
  * Compliance Reporting Contract Spec
  * Deterministic tests for reporting non-negotiables
@@ -7,7 +8,13 @@
  * requires that statement, so keep it true rather than deleting it.
  */
 
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { GovernanceReconciliationService } from './governance-reconciliation.service';
+import { GovernancePolicyService } from './governance-policy.service';
+import { GovernanceAuditService } from './governance-audit.service';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { Test, type TestingModule } from '@nestjs/testing';
+import { type Prisma, type GovernanceReconciliation, type EvidencePackage } from '@prisma/client';
 
 const REPORT_TRANSITIONS: Record<string, string[]> = {
   DRAFT: ['GENERATING', 'REJECTED'],
@@ -66,13 +73,18 @@ function generateFingerprint(input: Record<string, unknown>): string {
   return hash.toString(16).padStart(8, '0');
 }
 
-function validateNoFakeNumbers(report: any): boolean {
-  // Real reports must have sourceReferences and methodology and policyVersion
-  return !!(report.sourceReferences && report.sourceReferences.length > 0 && report.methodology && report.policyVersion && report.fingerprint);
+function validateNoFakeNumbers(report: unknown): boolean {
+  if (report === null || typeof report !== 'object' || Array.isArray(report)) return false;
+  const fields: Record<string, unknown> = Object.fromEntries(Object.entries(report));
+  return Array.isArray(fields.sourceReferences) && fields.sourceReferences.length > 0
+    && fields.sourceReferences.every((reference: unknown) => typeof reference === 'string' && reference.length > 0)
+    && typeof fields.methodology === 'string' && fields.methodology.length > 0
+    && typeof fields.policyVersion === 'string' && fields.policyVersion.length > 0
+    && typeof fields.fingerprint === 'string' && fields.fingerprint.length > 0;
 }
 
 function validateDeliveryEvidence(state: string, evidence: string | null): boolean {
-  if (state === 'DELIVERED') return !!evidence && evidence.length >= 10;
+  if (state === 'DELIVERED' || state === 'SUBMITTED') return !!evidence && evidence.length >= 10;
   return true;
 }
 
@@ -143,7 +155,7 @@ describe('Compliance Report Contract', () => {
   it('delivery: never mark submitted without evidence', () => {
     const state = 'SUBMITTED';
     const evidence = '';
-    const valid = !!evidence;
+    const valid = validateDeliveryEvidence(state, evidence);
     expect(valid).toBe(false);
   });
 
@@ -259,86 +271,91 @@ describe('Compliance Report Contract', () => {
 
 const TENANT = '11111111-1111-1111-1111-111111111111';
 
+// # Responsibility: retain every reconciliation persistence regression with native fixtures and explicit failed-write diagnostics.
 function fakeDb() {
-  const rows = new Map<string, Record<string, any>>();
-  const key = (k: { tenantId: string; entityId: string; type: string }) =>
-    `${k.tenantId}|${k.entityId}|${k.type}`;
+  const now = new Date();
+  const rows = new Map<string, GovernanceReconciliation>();
+  const key = (k: { tenantId: string; entityId: string; type: string }) => `${k.tenantId}|${k.entityId}|${k.type}`;
+  const evidence: EvidencePackage = { id: 'ev-1', tenantId: TENANT, caseReference: 'unit-case', evidenceType: 'AUDIT', state: 'DRAFT',
+    sourceRecords: [], sourceReferences: [], recordCount: 0, generatedAt: now, finalizedAt: null, fileLocation: null, fileHash: null,
+    fingerprint: 'unit-fingerprint', redactionPolicy: 'unit-redaction', generator: 'unit-generator', auditReference: null,
+    policyVersion: 'unit-policy', correlationId: 'corr-1', isImmutable: false, createdAt: now, updatedAt: now };
   return {
     rows,
-    evidencePackage: {
-      findMany: jest.fn(async () => [
-        { id: 'ev-1', tenantId: TENANT, state: 'DRAFT', sourceRecords: [] },
-      ]),
-    },
+    complianceReport: { findMany: jest.fn<() => Promise<never[]>>().mockResolvedValue([]) },
+    privacyRequest: { findMany: jest.fn<() => Promise<never[]>>().mockResolvedValue([]) },
+    retentionCandidate: { findMany: jest.fn<() => Promise<never[]>>().mockResolvedValue([]) },
+    evidencePackage: { findMany: jest.fn<() => Promise<EvidencePackage[]>>().mockResolvedValue([evidence]) },
     governanceReconciliation: {
-      upsert: jest.fn(async ({ where, create, update }: any) => {
-        const k = key(where.tenantId_entityId_type);
-        const existing = rows.get(k);
-        const next = existing ? { ...existing, ...update } : { ...create };
-        rows.set(k, next);
-        return next;
-      }),
-      findMany: jest.fn(async ({ where }: any) =>
-        [...rows.values()].filter((r) => r.tenantId === where.tenantId),
-      ),
-      deleteMany: jest.fn(async ({ where }: any) => {
-        rows.delete(key(where));
-        return { count: 1 };
-      }),
+      upsert: jest.fn<(args: Prisma.GovernanceReconciliationUpsertArgs) => Promise<GovernanceReconciliation>>()
+        .mockImplementation(async (args) => {
+          const unique = args.where.tenantId_entityId_type;
+          if (!unique) throw new Error('Native reconciliation uniqueness required');
+          const existing = rows.get(key(unique));
+          const data = args.create;
+          const detectedAt = args.update.detectedAt;
+          const sources = args.update.sourceReferences;
+          const sourceReferences = Array.isArray(sources) ? sources.filter((value): value is string => typeof value === 'string') : existing?.sourceReferences ?? [];
+          const next: GovernanceReconciliation = { id: existing?.id ?? `row-${rows.size + 1}`, tenantId: unique.tenantId, entityId: unique.entityId, type: unique.type,
+            severity: typeof args.update.severity === 'string' ? args.update.severity : data.severity,
+            description: typeof args.update.description === 'string' ? args.update.description : data.description,
+            detectedAt: detectedAt instanceof Date ? detectedAt : new Date(typeof detectedAt === 'string' ? detectedAt : data.detectedAt),
+            correlationId: typeof args.update.correlationId === 'string' ? args.update.correlationId : data.correlationId,
+            sourceReferences };
+          rows.set(key(unique), next);
+          return next;
+        }),
+      findMany: jest.fn<(args: Prisma.GovernanceReconciliationFindManyArgs) => Promise<GovernanceReconciliation[]>>()
+        .mockImplementation(async (args) => [...rows.values()].filter((row) => row.tenantId === args.where?.tenantId)),
+      deleteMany: jest.fn<(args: Prisma.GovernanceReconciliationDeleteManyArgs) => Promise<Prisma.BatchPayload>>()
+        .mockImplementation(async (args) => {
+          let count = 0;
+          for (const [id, row] of rows) {
+            if (row.tenantId === args.where?.tenantId && row.entityId === args.where?.entityId && row.type === args.where?.type) { rows.delete(id); count += 1; }
+          }
+          return { count };
+        }),
     },
   };
 }
 
 describe('GovernanceReconciliationService persistence', () => {
-  const policy = {} as any;
-  const audit = { recordEvent: jest.fn(async () => undefined) };
+  const modules: TestingModule[] = [];
+  const audit = { recordEvent: jest.fn<(input: Parameters<GovernanceAuditService['recordEvent']>[0]) => Promise<void>>().mockResolvedValue(undefined) };
   const run = { tenantId: TENANT, correlationId: 'corr-1', operatorId: 'op-1' };
+  afterEach(async () => { for (const module of modules.splice(0)) await module.close(); });
+  async function service(db: ReturnType<typeof fakeDb>): Promise<GovernanceReconciliationService> {
+    const module = await Test.createTestingModule({ providers: [GovernanceReconciliationService,
+      { provide: GovernancePolicyService, useValue: { assertTenantIsolation: (expected: string, actual: string) => { if (expected !== actual) throw new Error('Tenant mismatch'); } } },
+      { provide: GovernanceAuditService, useValue: audit }, { provide: PrismaService, useValue: db },
+    ] }).compile();
+    modules.push(module);
+    return module.get<GovernanceReconciliationService>(GovernanceReconciliationService);
+  }
 
   it('writes each detected mismatch keyed by (tenant, entity, type)', async () => {
     const db = fakeDb();
-    const service = new GovernanceReconciliationService(policy, audit as any, db as any);
-    const detected = await service.detectMismatches(run);
+    const detected = await (await service(db)).detectMismatches(run);
     expect(detected.map((m) => m.type)).toEqual(['EVIDENCE_INCOMPLETE']);
-    expect(db.governanceReconciliation.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          tenantId_entityId_type: {
-            tenantId: TENANT,
-            entityId: 'ev-1',
-            type: 'EVIDENCE_INCOMPLETE',
-          },
-        },
-        create: expect.objectContaining({
-          tenantId: TENANT,
-          entityId: 'ev-1',
-          type: 'EVIDENCE_INCOMPLETE',
-          severity: 'HIGH',
-          sourceReferences: [],
-        }),
-      }),
-    );
+    expect(db.governanceReconciliation.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId_entityId_type: { tenantId: TENANT, entityId: 'ev-1', type: 'EVIDENCE_INCOMPLETE' } },
+      create: expect.objectContaining({ tenantId: TENANT, entityId: 'ev-1', type: 'EVIDENCE_INCOMPLETE', severity: 'HIGH', sourceReferences: [] }),
+    }));
+    expect(detected[0].persistence).toBe('DURABLE');
   });
 
   it('an open mismatch survives a restart', async () => {
     const db = fakeDb();
-    await new GovernanceReconciliationService(policy, audit as any, db as any).detectMismatches(
-      run,
-    );
-    const afterRestart = new GovernanceReconciliationService(policy, audit as any, db as any);
-    const open = await afterRestart.listMismatches(TENANT);
+    await (await service(db)).detectMismatches(run);
+    const open = await (await service(db)).listMismatches(TENANT);
     expect(open).toHaveLength(1);
-    expect(open[0]).toMatchObject({
-      entityId: 'ev-1',
-      type: 'EVIDENCE_INCOMPLETE',
-      correlationId: 'corr-1',
-    });
+    expect(open[0]).toMatchObject({ entityId: 'ev-1', type: 'EVIDENCE_INCOMPLETE', correlationId: 'corr-1', persistence: 'DURABLE' });
   });
 
   it('re-detection refreshes the one row instead of adding another', async () => {
-    const db = fakeDb();
-    const service = new GovernanceReconciliationService(policy, audit as any, db as any);
-    await service.detectMismatches(run);
-    await service.detectMismatches({ ...run, correlationId: 'corr-2' });
+    const db = fakeDb(); const instance = await service(db);
+    await instance.detectMismatches(run);
+    await instance.detectMismatches({ ...run, correlationId: 'corr-2' });
     expect(db.rows.size).toBe(1);
     expect([...db.rows.values()][0].correlationId).toBe('corr-2');
   });
@@ -346,7 +363,34 @@ describe('GovernanceReconciliationService persistence', () => {
   it('a failed write does not fail the run', async () => {
     const db = fakeDb();
     db.governanceReconciliation.upsert.mockRejectedValueOnce(new Error('db down'));
-    const service = new GovernanceReconciliationService(policy, audit as any, db as any);
-    await expect(service.detectMismatches(run)).resolves.toHaveLength(1);
+    const detected = await (await service(db)).detectMismatches(run);
+    expect(detected).toHaveLength(1);
+    expect(detected[0]).toMatchObject({ type: 'EVIDENCE_INCOMPLETE', persistence: 'FAILED' });
+    expect(audit.recordEvent).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'INCOMPLETE', safeEvidence: expect.objectContaining({ incomplete: true, failedWrites: 1 }) }));
+    expect(db.rows.size).toBe(0);
+  });
+
+  it('reports an unread report table as a critical incomplete source diagnostic', async () => {
+    const db = fakeDb(); db.evidencePackage.findMany.mockResolvedValueOnce([]);
+    db.complianceReport.findMany.mockRejectedValueOnce(new Error('reports unavailable'));
+    const detected = await (await service(db)).detectMismatches(run);
+    expect(detected).toEqual([expect.objectContaining({ type: 'REPORT_SOURCE_MISSING', entityId: 'SOURCE:complianceReport', severity: 'CRITICAL', persistence: 'DURABLE' })]);
+    expect(audit.recordEvent).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'INCOMPLETE' }));
+  });
+  it('propagates a required finding-list failure instead of returning an empty clean set', async () => {
+    const db = fakeDb(); const instance = await service(db); await instance.detectMismatches(run);
+    const failure = new Error('finding index unavailable'); db.governanceReconciliation.findMany.mockRejectedValueOnce(failure);
+    await expect(instance.listMismatches(TENANT)).rejects.toBe(failure);
+  });
+  it('does not resurrect process-memory findings when the durable list is empty', async () => {
+    const db = fakeDb(); const instance = await service(db); await instance.detectMismatches(run); db.rows.clear();
+    await expect(instance.listMismatches(TENANT)).resolves.toEqual([]);
+  });
+  it('does not audit RESOLVED after a failed durable delete', async () => {
+    const db = fakeDb(); const instance = await service(db);
+    const failure = new Error('delete unavailable'); db.governanceReconciliation.deleteMany.mockRejectedValueOnce(failure);
+    const priorAuditCalls = audit.recordEvent.mock.calls.length;
+    await expect(instance.resolveMismatch({ ...run, entityId: 'ev-1', type: 'EVIDENCE_INCOMPLETE', resolution: 'Reviewed unit finding' })).rejects.toBe(failure);
+    expect(audit.recordEvent.mock.calls.length).toBe(priorAuditCalls);
   });
 });

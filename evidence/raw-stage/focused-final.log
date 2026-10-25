@@ -1,0 +1,24 @@
+
+> @wlct/api@1.0.0 test
+> jest --passWithNoTests --runInBand --runTestsByPath src/modules/oms/trade-lifecycle.service.spec.ts src/modules/oms/final-allocation-and-operations.spec.ts src/modules/exchanges/exchange-order-sync.service.spec.ts src/common/fail-soft-reads.spec.ts src/common/api-compatibility-contracts.spec.ts src/common/guards/controller-authorization.spec.ts --json --outputFile=../../node_modules/.cache/api-green-followup/final/focused-final.json
+
+PASS src/common/guards/controller-authorization.spec.ts (13.06 s)
+[31m[Nest] 2364  - [39m10/25/2026, 1:06:00 PM [31m  ERROR[39m [38;5;3m[AmlScreeningService] [39m[31mAML person screening failed tenant=11111111-1111-4111-8111-111111111111 user=33333333-3333-4333-8333-333333333333: screening write unavailable[39m
+[31m[Nest] 2364  - [39m10/25/2026, 1:06:00 PM [31m  ERROR[39m [38;5;3m[AmlScreeningService] [39m[31mAML person screening failed tenant=11111111-1111-4111-8111-111111111111 user=33333333-3333-4333-8333-333333333333: review case unavailable[39m
+[31m[Nest] 2364  - [39m10/25/2026, 1:06:00 PM [31m  ERROR[39m [38;5;3m[AmlScreeningService] [39m[31mAML person screening failed tenant=11111111-1111-4111-8111-111111111111 user=33333333-3333-4333-8333-333333333333: AML review case persistence returned no durable tenant-bound record[39m
+PASS src/common/api-compatibility-contracts.spec.ts
+PASS src/modules/oms/final-allocation-and-operations.spec.ts
+[33m[Nest] 2364  - [39m10/25/2026, 1:06:01 PM [33m   WARN[39m [38;5;3m[SessionSecurityService] [39m[33mrevokeAllSessions failed: connection terminated unexpectedly[39m
+[33m[Nest] 2364  - [39m10/25/2026, 1:06:01 PM [33m   WARN[39m [38;5;3m[OperationalMetricsService] [39m[33mFailed to calculate metrics: connection terminated unexpectedly[39m
+PASS src/common/fail-soft-reads.spec.ts
+[31m[Nest] 2364  - [39m10/25/2026, 1:06:01 PM [31m  ERROR[39m [38;5;3m[TradeLifecycleService] [39m[31mTrade OPEN failed for BTC-USDT fill 3f2504e0-4f89-41d3-9a0c-0305e82c3304: Error[39m
+[31m[Nest] 2364  - [39m10/25/2026, 1:06:01 PM [31m  ERROR[39m [38;5;3m[TradeLifecycleService] [39m[31mTrade flip OPEN failed for BTC-USDT remainder 2: Error[39m
+PASS src/modules/oms/trade-lifecycle.service.spec.ts
+PASS src/modules/exchanges/exchange-order-sync.service.spec.ts
+
+Test Suites: 6 passed, 6 total
+Tests:       320 passed, 320 total
+Snapshots:   0 total
+Time:        16.085 s
+Ran all test suites within paths "src/modules/oms/trade-lifecycle.service.spec.ts", "src/modules/oms/final-allocation-and-operations.spec.ts", "src/modules/exchanges/exchange-order-sync.service.spec.ts", "src/common/fail-soft-reads.spec.ts", "src/common/api-compatibility-contracts.spec.ts", "src/common/guards/controller-authorization.spec.ts".
+Test results written to: ../../node_modules/.cache/api-green-followup/final/focused-final.json

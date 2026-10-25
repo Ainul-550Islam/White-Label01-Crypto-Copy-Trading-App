@@ -1,12 +1,38 @@
+// # Responsibility: report typed tenant/platform fee evidence in one currency and reject invalid source filters or required amounts.
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { forEachTenant, listBillableTenantIds } from '../finance/tenant-iteration';
 import { FeeAccrualRepository } from './fee-accrual.repository';
 import { FeeSettlementRepository } from './fee-settlement.repository';
 import { PayoutRepository } from './payout.repository';
-import { FeeType, FeeAccrualStatus, SettlementState, PayoutState } from './fee.types';
+import { FeeType, FeeAccrualStatus, SettlementState, PayoutState, FeeSourceType, FeeAnalytics, FeeSummary } from './fee.types';
 import { PayoutStatus } from './payout.types';
-import { parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency } from '../finance/money.types';
+import { parseToMinorUnits, formatFromMinorUnits } from '../finance/money.types';
+
+
+export interface TenantFeeAnalytics extends FeeAnalytics {
+  tenantId: string;
+  accrualCount: number;
+  settlementCount: number;
+  payoutCount: number;
+  fetchedAt: string;
+}
+
+export interface PlatformFeeAnalytics extends FeeAnalytics {
+  tenantId: null;
+  accrualCount: number;
+  settlementCount: number;
+  payoutCount: number;
+  tenantCount: number;
+  failedTenants: string[];
+  fetchedAt: string;
+}
+
+export interface FeeSummaryResponse extends FeeSummary {
+  feeRate: string | null;
+  rateBasis: 'BPS';
+  fetchedAt: string;
+}
 
 /**
  * Tenant/admin analytics for accrued, settled, reversed, paid fees.
@@ -32,11 +58,11 @@ export class FeeAnalyticsService {
       feeType?: FeeType;
       period?: string;
     },
-  ): Promise<any> {
+  ): Promise<TenantFeeAnalytics> {
     const currency = filter?.currency || 'USD';
 
     const accruals = await this.accrualRepository.listByTenant(tenantId, {
-      currency: filter?.currency,
+      currency,
       feeType: filter?.feeType,
       fromDate: filter?.fromDate,
       toDate: filter?.toDate,
@@ -44,15 +70,15 @@ export class FeeAnalyticsService {
     });
 
     const settlements = await this.settlementRepository.listByTenant(tenantId, {
-      currency: filter?.currency,
-      feeType: filter?.feeType as any,
+      currency,
+      feeType: filter?.feeType,
       fromDate: filter?.fromDate,
       toDate: filter?.toDate,
       limit: 1000,
     });
 
     const payouts = await this.payoutRepository.listByTenant(tenantId, {
-      currency: filter?.currency,
+      currency,
       fromDate: filter?.fromDate,
       toDate: filter?.toDate,
       limit: 1000,
@@ -87,7 +113,10 @@ export class FeeAnalyticsService {
         breakdownBySource[accrual.sourceType] = (breakdownBySource[accrual.sourceType] || 0) + minor;
         breakdownByCurrency[accrual.currency] = (breakdownByCurrency[accrual.currency] || 0) + minor;
         breakdownByFeeType[accrual.feeType] = (breakdownByFeeType[accrual.feeType] || 0) + minor;
-      } catch {}
+      } catch (error) {
+        this.logger.warn(`Required fee analytics source amount is invalid: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
     }
 
     let paidMinor = 0;
@@ -100,7 +129,10 @@ export class FeeAnalyticsService {
         if (payout.status === PayoutStatus.SUCCEEDED) paidMinor += minor;
         if (payout.status === PayoutStatus.PENDING || payout.status === PayoutStatus.PROCESSING || payout.status === PayoutStatus.CREATED) pendingMinor += minor;
         if (payout.status === PayoutStatus.FAILED) failedCount++;
-      } catch {}
+      } catch (error) {
+        this.logger.warn(`Required fee analytics source amount is invalid: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
     }
 
     // Format breakdowns
@@ -139,7 +171,7 @@ export class FeeAnalyticsService {
     };
   }
 
-  async getPlatformAnalytics(filter?: { currency?: string; fromDate?: Date; toDate?: Date; tenantId?: string; limit?: number }): Promise<any> {
+  async getPlatformAnalytics(filter?: { currency?: string; fromDate?: Date; toDate?: Date; tenantId?: string; limit?: number }): Promise<TenantFeeAnalytics | PlatformFeeAnalytics> {
     if (filter?.tenantId) {
       return this.getTenantAnalytics(filter.tenantId, filter);
     }
@@ -154,7 +186,10 @@ export class FeeAnalyticsService {
     );
 
     const totalKeys = ['platformFeeTotal', 'performanceFeeTotal', 'totalFees', 'accruedTotal', 'settledTotal', 'paidTotal', 'pendingTotal', 'reversedTotal'] as const;
-    const totals: Record<string, number> = Object.fromEntries(totalKeys.map((k) => [k, 0]));
+    const totals: Record<(typeof totalKeys)[number], number> = {
+      platformFeeTotal: 0, performanceFeeTotal: 0, totalFees: 0, accruedTotal: 0,
+      settledTotal: 0, paidTotal: 0, pendingTotal: 0, reversedTotal: 0,
+    };
     const breakdowns: Record<'breakdownBySource' | 'breakdownByCurrency' | 'breakdownByFeeType', Record<string, number>> = {
       breakdownBySource: {},
       breakdownByCurrency: {},
@@ -165,13 +200,8 @@ export class FeeAnalyticsService {
     let settlementCount = 0;
     let payoutCount = 0;
     const failedTenants: string[] = [];
-    const toMinor = (value: unknown): number => {
-      try {
-        return parseToMinorUnits(String(value ?? '0'), currency);
-      } catch {
-        return 0;
-      }
-    };
+    const toMinor = (value: string): number => parseToMinorUnits(value, currency);
+    const breakdownKeys = ['breakdownBySource', 'breakdownByCurrency', 'breakdownByFeeType'] as const;
 
     for (const row of per) {
       if (row.error || !row.result) {
@@ -180,7 +210,7 @@ export class FeeAnalyticsService {
       }
       const r = row.result;
       for (const k of totalKeys) totals[k] += toMinor(r[k]);
-      for (const b of Object.keys(breakdowns) as Array<keyof typeof breakdowns>) {
+      for (const b of breakdownKeys) {
         for (const [key, value] of Object.entries(r[b] ?? {})) breakdowns[b][key] = (breakdowns[b][key] || 0) + toMinor(value);
       }
       failedCount += Number(r.failedCount) || 0;
@@ -195,7 +225,14 @@ export class FeeAnalyticsService {
       tenantId: null,
       period: 'ALL',
       currency,
-      ...Object.fromEntries(totalKeys.map((k) => [k, fmt(totals[k])])),
+      platformFeeTotal: fmt(totals.platformFeeTotal),
+      performanceFeeTotal: fmt(totals.performanceFeeTotal),
+      totalFees: fmt(totals.totalFees),
+      accruedTotal: fmt(totals.accruedTotal),
+      settledTotal: fmt(totals.settledTotal),
+      paidTotal: fmt(totals.paidTotal),
+      pendingTotal: fmt(totals.pendingTotal),
+      reversedTotal: fmt(totals.reversedTotal),
       failedCount,
       accrualCount,
       settlementCount,
@@ -212,11 +249,16 @@ export class FeeAnalyticsService {
   async getFeeSummary(
     tenantId: string,
     filter?: { currency?: string; feeType?: FeeType; fromDate?: Date; toDate?: Date; sourceType?: string },
-  ): Promise<any> {
+  ): Promise<FeeSummaryResponse> {
+    const sourceType = filter?.sourceType
+      ? Object.values(FeeSourceType).find((value) => value === filter.sourceType)
+      : undefined;
+    if (filter?.sourceType && !sourceType) throw new Error('Invalid fee source type filter');
+
     const accruals = await this.accrualRepository.listByTenant(tenantId, {
       currency: filter?.currency,
       feeType: filter?.feeType,
-      sourceType: filter?.sourceType as any,
+      sourceType,
       fromDate: filter?.fromDate,
       toDate: filter?.toDate,
       limit: 1000,
@@ -235,6 +277,9 @@ export class FeeAnalyticsService {
     let pendingTotalMinor = 0;
 
     const currency = filter?.currency || accruals[0]?.currency || 'USD';
+    if (accruals.some((accrual) => accrual.currency !== currency)) {
+      throw new Error('Fee summary requires a single currency; specify a currency filter');
+    }
 
     for (const accrual of accruals) {
       try {
@@ -264,7 +309,10 @@ export class FeeAnalyticsService {
             pendingTotalMinor += fee;
           }
         }
-      } catch {}
+      } catch (error) {
+        this.logger.warn(`Required fee analytics source amount is invalid: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
     }
 
     // Calculate effective rate

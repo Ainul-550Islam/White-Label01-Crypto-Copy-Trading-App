@@ -1,0 +1,5 @@
+
+> whitelabel-copytrade@1.0.0 check:prisma-literals
+> node apps/api/scripts/check-prisma-literals.js apps/api/src
+
+Prisma literal check: OK (945 files)

@@ -1,11 +1,13 @@
+// # Responsibility: persist typed tenant funding workflows and transactional outbox events without treating requests as proof of funds movement.
 // # Integrates deposit address provisioning and deposit status transitions
-import { Injectable, Logger, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
+import { Prisma, FundingRequestState as StoredFundingState, type FundingRequest } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { ClientPolicyService } from './client-policy.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
 import { AccountRestrictionService } from './account-restriction.service';
-import { deterministicIdempotencyKey, FundingRequestState, FUNDING_VALID_TRANSITIONS, isValidDecimal, isPositiveDecimal } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, FundingRequestState, FUNDING_VALID_TRANSITIONS, isValidDecimal, isPositiveDecimal, AccountRestrictionType, lifecycleEnum, lifecycleMetadata } from './client-lifecycle.types';
 
 /**
  * Creates and manages deposit/funding requests with explicit states, requested amount/currency,
@@ -36,20 +38,27 @@ export class FundingRequestService {
     requestedBy?: string | null;
     idempotencyKey?: string;
     correlationId?: string | null;
-    metadata?: any;
-  }): Promise<any> {
+    metadata?: Record<string, unknown>;
+  }): Promise<FundingRequest> {
     const { tenantId, accountId, clientProfileId = null, requestedAmount, currency, externalReference = null, sourceType = null, requestedBy = null, correlationId = null, metadata = {} } = params;
 
     if (!isValidDecimal(requestedAmount)) throw new BadRequestException(`Invalid requestedAmount decimal: ${requestedAmount}`);
     if (!isPositiveDecimal(requestedAmount)) throw new BadRequestException('requestedAmount must be greater than zero');
 
-    const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
+    const account = await this.prisma.institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
     if (!account) throw new BadRequestException('Account not found or tenant mismatch');
+
+    if (clientProfileId) {
+      const profile = await this.prisma.clientProfile.findFirst({ where: { id: clientProfileId, tenantId } });
+      if (!profile || (account.clientProfileId && account.clientProfileId !== clientProfileId)) {
+        throw new BadRequestException('Funding client profile not found, tenant mismatch, or account/profile mismatch');
+      }
+    }
 
     const policy = await this.policyService.resolvePolicy({ tenantId, accountId, clientProfileId: clientProfileId ?? undefined });
 
     // Check NO_DEPOSIT restriction blocks funding request
-    const canDeposit = await this.restrictionService.hasRestriction({ tenantId, accountId, restrictionType: 'NO_DEPOSIT' as any });
+    const canDeposit = await this.restrictionService.hasRestriction({ tenantId, accountId, restrictionType: AccountRestrictionType.NO_DEPOSIT });
     if (canDeposit) {
       throw new BadRequestException('NO_DEPOSIT restriction active — funding request blocked');
     }
@@ -62,18 +71,6 @@ export class FundingRequestService {
       throw new BadRequestException('External reference required by policy');
     }
 
-    // Check duplicate external funding reference
-    if (externalReference) {
-      try {
-        const dup = await (this.prisma as any).fundingRequest.findFirst({ where: { tenantId, externalReference } });
-        if (dup) {
-          throw new BadRequestException(`Duplicate external funding reference detected: ${externalReference}`);
-        }
-      } catch (e) {
-        if (e instanceof BadRequestException) throw e;
-      }
-    }
-
     const idempotencyKey = params.idempotencyKey ?? deterministicIdempotencyKey({
       type: 'funding-request',
       tenantId,
@@ -81,11 +78,27 @@ export class FundingRequestService {
       externalRef: externalReference ?? `${requestedAmount}:${currency}:${Date.now()}`,
     });
 
+    // Check duplicate external funding reference
+    if (externalReference) {
+      try {
+        const dup = await this.prisma.fundingRequest.findFirst({ where: { tenantId, externalReference } });
+        if (dup) {
+          if (dup.idempotencyKey === idempotencyKey && dup.accountId === accountId
+            && dup.requestedAmount === requestedAmount && dup.currency === currency) return dup;
+          throw new BadRequestException(`Duplicate external funding reference detected: ${externalReference}`);
+        }
+      } catch (e) {
+        throw e;
+      }
+    }
+
+
+
     if (!this.outbox) {
       throw new Error('Transactional outbox is unavailable; refusing funding request without its funding.requested event');
     }
     const fundingRequest = await this.prisma.withTenantRls(tenantId, async (tx) => {
-      const store = tx as any;
+      const store = tx;
       const existing = await store.fundingRequest.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) {
         this.logger.log({ event: 'client.funding.idempotent_hit', idempotencyKey });
@@ -103,7 +116,7 @@ export class FundingRequestService {
           sourceType: sourceType ?? null,
           requestedBy: requestedBy ?? null,
           idempotencyKey,
-          metadata,
+          metadata: lifecycleMetadata(metadata),
           requestedAt: new Date(),
         },
       });
@@ -155,13 +168,13 @@ export class FundingRequestService {
     settledAmount?: string | null;
     externalReference?: string | null;
     correlationId?: string | null;
-  }): Promise<any> {
+  }): Promise<FundingRequest> {
     const { tenantId, fundingRequestId, toState, operatorId = null, reason, approvedAmount = null, submittedAmount = null, confirmedAmount = null, settledAmount = null, externalReference = null, correlationId = null } = params;
 
-    const request = await (this.prisma as any).fundingRequest.findFirst({ where: { id: fundingRequestId, tenantId } });
+    const request = await this.prisma.fundingRequest.findFirst({ where: { id: fundingRequestId, tenantId } });
     if (!request) throw new BadRequestException('Funding request not found');
 
-    const currentState = request.state as FundingRequestState;
+    const currentState = lifecycleEnum(Object.values(FundingRequestState), request.state, 'persisted funding state');
     const allowed = FUNDING_VALID_TRANSITIONS[currentState] ?? [];
     if (!allowed.includes(toState)) {
       throw new BadRequestException(`Invalid funding transition ${currentState} → ${toState}`);
@@ -193,15 +206,15 @@ export class FundingRequestService {
       throw new Error('Transactional outbox is unavailable; refusing funding confirmation without its funding.confirmed event');
     }
     const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
-      const store = tx as any;
+      const store = tx;
       const current = await store.fundingRequest.findFirst({ where: { id: fundingRequestId, tenantId } });
       if (!current || current.state !== currentState) {
         throw new BadRequestException('Funding request changed during transition; reload and retry');
       }
       const changed = await store.fundingRequest.update({
-        where: { id: fundingRequestId },
+        where: { id: fundingRequestId, tenantId },
         data: {
-          state: toState as any,
+          state: toState,
           ...(approvedAmount ? { approvedAmount } : {}),
           ...(submittedAmount ? { submittedAmount } : {}),
           ...(confirmedAmount ? { confirmedAmount } : {}),
@@ -243,7 +256,7 @@ export class FundingRequestService {
       entityId: fundingRequestId,
       actorId: operatorId,
       fromState: currentState,
-      toState: toState as any,
+      toState: toState,
       reason: reason ?? null,
       correlationId,
       evidence: { fromState: currentState, toState, approvedAmount, confirmedAmount, externalReference },
@@ -252,8 +265,8 @@ export class FundingRequestService {
     return updated;
   }
 
-  async getFundingRequest(params: { tenantId: string; fundingRequestId: string }): Promise<any | null> {
-    return await (this.prisma as any).fundingRequest.findFirst({ where: { id: params.fundingRequestId, tenantId: params.tenantId } });
+  async getFundingRequest(params: { tenantId: string; fundingRequestId: string }): Promise<FundingRequest | null> {
+    return await this.prisma.fundingRequest.findFirst({ where: { id: params.fundingRequestId, tenantId: params.tenantId } });
   }
 
   async listFundingRequests(params: {
@@ -265,23 +278,23 @@ export class FundingRequestService {
     externalReference?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+  }): Promise<{ data: FundingRequest[]; total: number; page: number; limit: number }> {
     const { tenantId, accountId, clientProfileId, state, currency, externalReference, page = 1, limit = 50 } = params;
-    const where: any = { tenantId };
+    const where: Prisma.FundingRequestWhereInput = { tenantId };
     if (accountId) where.accountId = accountId;
     if (clientProfileId) where.clientProfileId = clientProfileId;
-    if (state) where.state = state;
+    if (state) where.state = lifecycleEnum(Object.values(StoredFundingState), state, 'funding state');
     if (currency) where.currency = currency;
     if (externalReference) where.externalReference = externalReference;
 
     const [data, total] = await Promise.all([
-      (this.prisma as any).fundingRequest.findMany({
+      this.prisma.fundingRequest.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      (this.prisma as any).fundingRequest.count({ where }),
+      this.prisma.fundingRequest.count({ where }),
     ]);
     return { data, total, page, limit };
   }

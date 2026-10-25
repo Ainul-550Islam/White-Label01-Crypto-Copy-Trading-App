@@ -1,6 +1,8 @@
+// # Responsibility: persist canonical tenant profiles without treating failed uniqueness reads as permission to create or update another tenant.
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma, ClientProfileStatus as StoredProfileStatus, type ClientProfile } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { deterministicIdempotencyKey, redactPiiAndSecrets, deterministicPiiHash } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, deterministicPiiHash, lifecycleEnum } from './client-lifecycle.types';
 
 /**
  * Persists tenant-scoped client profiles and relationship references with deterministic uniqueness,
@@ -23,7 +25,7 @@ export class ClientProfileRepository {
     countryCode?: string | null;
     externalIdentityRef?: string | null;
     idempotencyKey?: string;
-  }): Promise<any> {
+  }): Promise<ClientProfile> {
     const { tenantId, clientType = 'CLIENT', legalName = null, displayName = null, email = null, phone = null, countryCode = null, externalIdentityRef = null } = params;
 
     const idempotencyKey = params.idempotencyKey ?? deterministicIdempotencyKey({
@@ -32,28 +34,21 @@ export class ClientProfileRepository {
       externalRef: externalIdentityRef ?? email ?? `${legalName ?? ''}:${Date.now()}`,
     });
 
-    try {
-      const existing = await (this.prisma as any).clientProfile.findFirst({ where: { tenantId, idempotencyKey } });
-      if (existing) {
-        this.logger.log({ event: 'client.profile.idempotent_hit', idempotencyKey });
-        return existing;
-      }
-    } catch {}
+    const existing = await this.prisma.clientProfile.findFirst({ where: { tenantId, idempotencyKey } });
+    if (existing) {
+      this.logger.log({ event: 'client.profile.idempotent_hit', idempotencyKey });
+      return existing;
+    }
 
     // Check for duplicate externalIdentityRef within tenant
     if (externalIdentityRef) {
-      try {
-        const dup = await (this.prisma as any).clientProfile.findFirst({ where: { tenantId, externalIdentityRef } });
-        if (dup) {
-          // Return existing if same external ref — deterministic uniqueness
-          return dup;
-        }
-      } catch {}
+      const dup = await this.prisma.clientProfile.findFirst({ where: { tenantId, externalIdentityRef } });
+      if (dup) return dup;
     }
 
     const piiHash = email ? deterministicPiiHash(email) : null;
 
-    const created = await (this.prisma as any).clientProfile.create({
+    const created = await this.prisma.clientProfile.create({
       data: {
         tenantId,
         clientType,
@@ -72,14 +67,14 @@ export class ClientProfileRepository {
     return created;
   }
 
-  async getProfile(params: { tenantId: string; profileId: string }): Promise<any | null> {
-    return await (this.prisma as any).clientProfile.findFirst({
+  async getProfile(params: { tenantId: string; profileId: string }): Promise<ClientProfile | null> {
+    return await this.prisma.clientProfile.findFirst({
       where: { id: params.profileId, tenantId: params.tenantId },
     });
   }
 
-  async getProfileByExternalRef(params: { tenantId: string; externalIdentityRef: string }): Promise<any | null> {
-    return await (this.prisma as any).clientProfile.findFirst({
+  async getProfileByExternalRef(params: { tenantId: string; externalIdentityRef: string }): Promise<ClientProfile | null> {
+    return await this.prisma.clientProfile.findFirst({
       where: { tenantId: params.tenantId, externalIdentityRef: params.externalIdentityRef },
     });
   }
@@ -91,10 +86,10 @@ export class ClientProfileRepository {
     search?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+  }): Promise<{ data: ClientProfile[]; total: number; page: number; limit: number }> {
     const { tenantId, status, clientType, search, page = 1, limit = 50 } = params;
-    const where: any = { tenantId };
-    if (status) where.status = status;
+    const where: Prisma.ClientProfileWhereInput = { tenantId };
+    if (status) where.status = lifecycleEnum(Object.values(StoredProfileStatus), status, 'profile status');
     if (clientType) where.clientType = clientType;
     if (search) {
       where.OR = [
@@ -105,23 +100,23 @@ export class ClientProfileRepository {
     }
 
     const [data, total] = await Promise.all([
-      (this.prisma as any).clientProfile.findMany({
+      this.prisma.clientProfile.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      (this.prisma as any).clientProfile.count({ where }),
+      this.prisma.clientProfile.count({ where }),
     ]);
     return { data, total, page, limit };
   }
 
-  async updateProfileStatus(params: { tenantId: string; profileId: string; status: string; onboardingId?: string | null }): Promise<any> {
+  async updateProfileStatus(params: { tenantId: string; profileId: string; status: string; onboardingId?: string | null }): Promise<ClientProfile> {
     try {
-      return await (this.prisma as any).clientProfile.update({
-        where: { id: params.profileId },
+      return await this.prisma.clientProfile.update({
+        where: { id: params.profileId, tenantId: params.tenantId },
         data: {
-          status: params.status as any,
+          status: lifecycleEnum(Object.values(StoredProfileStatus), params.status, 'profile status'),
           ...(params.onboardingId ? { onboardingId: params.onboardingId } : {}),
         },
       });

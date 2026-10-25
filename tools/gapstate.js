@@ -6,11 +6,12 @@
 // which literal it looked for. That distinction matters: it separates "the behaviour is missing"
 // from "the behaviour is there and the probe looks for a different identifier".
 //
-// Usage: node /home/user/tools/gapstate.js [GAP-54 GAP-97 ...]      (default: all gaps)
-//        node /home/user/tools/gapstate.js --missing-only
+// Usage: node tools/gapstate.js [GAP-54 GAP-97 ...]      (default: all gaps)
+//        node tools/gapstate.js --missing-only
 'use strict';
 const path = require('path');
-const ROOT = '/home/user/repo/whitelabel-copytrade';
+const REPOSITORY_ROOT = path.resolve(__dirname, '..');
+const ROOT = path.join(REPOSITORY_ROOT, 'whitelabel-copytrade');
 const scanner = require(path.join(ROOT, 'ops/gap-parity-scanner-51-100.js'));
 
 const args = process.argv.slice(2);

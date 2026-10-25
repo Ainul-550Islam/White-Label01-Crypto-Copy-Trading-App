@@ -1,3 +1,4 @@
+// # Responsibility: derive deterministic portfolio attribution from ledger-backed PnL components.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
@@ -7,6 +8,8 @@ import {
   add,
   sub,
   cmp,
+  div,
+  mul,
   redactSecrets,
   isValidDecimal,
 } from './portfolio-accounting.types';
@@ -147,7 +150,6 @@ export class AttributionService {
       let percentage = '0';
       try {
         if (cmp(totalPnl, '0') !== 0) {
-          const { div, mul } = require('./portfolio-accounting.types');
           percentage = mul(div(pnl, totalPnl), '100');
         }
       } catch {

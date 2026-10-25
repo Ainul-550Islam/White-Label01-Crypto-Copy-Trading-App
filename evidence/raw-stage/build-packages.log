@@ -1,0 +1,20 @@
+
+> whitelabel-copytrade@1.0.0 build:packages
+> npm run build --workspace=@wlct/shared-types && npm run build --workspace=@wlct/config && npm run build --workspace=@wlct/utils && npm run build --workspace=@wlct/validation
+
+
+> @wlct/shared-types@1.0.0 build
+> rimraf dist && tsc -p tsconfig.json
+
+
+> @wlct/config@1.0.0 build
+> rimraf dist && tsc -p tsconfig.json
+
+
+> @wlct/utils@1.0.0 build
+> rimraf dist && tsc -p tsconfig.json
+
+
+> @wlct/validation@1.0.0 build
+> rimraf dist && tsc -p tsconfig.json
+

@@ -1,3 +1,4 @@
+// # Responsibility: accrue tenant fees from canonical policy/calculation contracts while preserving idempotent ledger and outbox references.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
@@ -6,8 +7,8 @@ import { FeePolicyService } from './fee-policy.service';
 import { FeeCalculatorService } from './fee-calculator.service';
 import { FeeLedgerService } from './fee-ledger.service';
 import { FeeAuditService } from './fee-audit.service';
-import { FeeType, FeeSourceType, RateBasis, FeeAccrualStatus, SettlementState, FeeAccrual } from './fee.types';
-import { randomUUID } from 'crypto';
+import { FeeType, FeeSourceType, RateBasis, FeeAccrualStatus, SettlementState, FeeAccrual, FeePolicySnapshot, FeeCalculationResult } from './fee.types';
+
 
 /**
  * Creates immutable fee accruals from eligible commercial/trading events.
@@ -57,7 +58,7 @@ export class FeeAccrualService {
     }
 
     // Resolve canonical fee policy
-    let policy: any;
+    let policy: FeePolicySnapshot;
     try {
       policy = await this.policyService.resolvePolicy(params.tenantId, params.feeType, params.currency);
     } catch (e) {
@@ -69,7 +70,7 @@ export class FeeAccrualService {
 
     // If effective rate is 0, still accrue with 0 fee for audit trail, or skip? We accrue 0 for completeness
     // But if rate is 0, we can still create accrual with 0 fee
-    let calculation: any;
+    let calculation: FeeCalculationResult;
     try {
       calculation = this.calculatorService.calculate({
         tenantId: params.tenantId,
@@ -145,7 +146,15 @@ export class FeeAccrualService {
     try {
       const ledgerResult = await this.ledgerService.postAccrualToLedger(accrual);
       if (ledgerResult && ledgerResult.length > 0) {
-        const txId = (ledgerResult[0] as any).id || ledgerResult[0].sourceId || null;
+        const ledgerReference: unknown = ledgerResult[0];
+        let txId: string | null = null;
+        if (ledgerReference && typeof ledgerReference === 'object') {
+          if ('id' in ledgerReference && typeof ledgerReference.id === 'string' && ledgerReference.id) {
+            txId = ledgerReference.id;
+          } else if ('sourceId' in ledgerReference && typeof ledgerReference.sourceId === 'string' && ledgerReference.sourceId) {
+            txId = ledgerReference.sourceId;
+          }
+        }
         // Update accrual with ledger reference if needed
         if (txId) {
           await this.accrualRepository.updateStatus(accrual.id, {

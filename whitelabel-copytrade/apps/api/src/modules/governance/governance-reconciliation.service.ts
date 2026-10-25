@@ -1,264 +1,122 @@
+// # Responsibility: inspect all native tenant governance records and persist findings; unread source tables and failed finding writes are explicit incomplete diagnostics, never a clean reconciliation or memory-backed durable evidence.
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { GovernanceReconciliationMismatch, GovernanceActionType } from './governance.types';
+import { type GovernanceReconciliation, type Prisma } from '@prisma/client';
+import { type GovernanceReconciliationMismatch, GovernanceActionType } from './governance.types';
 import { GovernancePolicyService } from './governance-policy.service';
 import { GovernanceAuditService } from './governance-audit.service';
-import { ComplianceReportService } from './compliance-report.service';
-import { PrivacyRequestService } from './privacy-request.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+
+const TYPES: GovernanceReconciliationMismatch['type'][] = ['REPORT_SOURCE_MISSING', 'REPORT_SOURCE_STALE', 'PRIVACY_REQUEST_STUCK',
+  'DELETION_BLOCKED_WITHOUT_REASON', 'RETENTION_EXPIRED_WITHOUT_ACTION', 'LEGAL_HOLD_CONFLICT', 'CERTIFICATION_MISSING',
+  'DELIVERY_STATUS_UNKNOWN', 'EVIDENCE_INCOMPLETE', 'TENANT_SCOPE_MISMATCH', 'AUDIT_EXPORT_INCOMPLETE'];
+const SEVERITIES: GovernanceReconciliationMismatch['severity'][] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
 @Injectable()
 export class GovernanceReconciliationService {
   private readonly logger = new Logger(GovernanceReconciliationService.name);
-  private readonly inMemory: Map<string, GovernanceReconciliationMismatch> = new Map();
-
   constructor(
     private readonly policyService: GovernancePolicyService,
     private readonly audit: GovernanceAuditService,
     private readonly prisma: PrismaService,
   ) {}
 
-  async detectMismatches(params: {
-    tenantId: string;
-    correlationId: string;
-    operatorId: string;
-    reportId?: string;
-  }): Promise<GovernanceReconciliationMismatch[]> {
+  async detectMismatches(params: { tenantId: string; correlationId: string; operatorId: string; reportId?: string }): Promise<GovernanceReconciliationMismatch[]> {
     if (!params.tenantId) throw new BadRequestException('tenantId required');
     const detected: GovernanceReconciliationMismatch[] = [];
     const now = new Date().toISOString();
-
-    // These checks would in production query authoritative systems
-    // For governance layer we implement deterministic detection logic based on stored records
-
+    const add = (type: GovernanceReconciliationMismatch['type'], entityId: string, severity: GovernanceReconciliationMismatch['severity'],
+      description: string, sourceReferences: string[] = []): void => {
+      detected.push({ type, entityId, tenantId: params.tenantId, severity, description, detectedAt: now,
+        correlationId: params.correlationId, sourceReferences });
+    };
+    const unread = (source: string): void => add('REPORT_SOURCE_MISSING', `SOURCE:${source}`, 'CRITICAL',
+      `Required ${source} source read failed; reconciliation is INCOMPLETE`);
     try {
-      // Check reports for missing sources, stale, certification missing, delivery unknown, incomplete evidence
-      const reports = await (this.prisma as any).complianceReport?.findMany?.({ where: { tenantId: params.tenantId }, take: 100 });
-      if (reports) {
-        for (const r of reports) {
-          if (!r.sourceReferences || r.sourceReferences.length === 0) {
-            detected.push({
-              type: 'REPORT_SOURCE_MISSING',
-              entityId: r.id,
-              tenantId: r.tenantId,
-              severity: 'HIGH',
-              description: `report ${r.id} missing source references`,
-              detectedAt: now,
-              correlationId: params.correlationId,
-              sourceReferences: r.sourceReferences ?? [],
-            });
-          }
-          if (r.state === 'DELIVERING' || r.state === 'QUEUED_FOR_DELIVERY') {
-            const age = Date.now() - new Date(r.generatedAt).getTime();
-            if (age > 24 * 60 * 60 * 1000) {
-              detected.push({
-                type: 'DELIVERY_STATUS_UNKNOWN',
-                entityId: r.id,
-                tenantId: r.tenantId,
-                severity: 'MEDIUM',
-                description: `report ${r.id} delivery stuck in ${r.state} >24h`,
-                detectedAt: now,
-                correlationId: params.correlationId,
-              });
-            }
-          }
-          if (r.state === 'READY' && r.certificationStatus === 'PENDING') {
-            detected.push({
-              type: 'CERTIFICATION_MISSING',
-              entityId: r.id,
-              tenantId: r.tenantId,
-              severity: 'MEDIUM',
-              description: `report ${r.id} ready but certification pending`,
-              detectedAt: now,
-              correlationId: params.correlationId,
-            });
-          }
-          if (r.validationStatus === 'FAILED') {
-            detected.push({
-              type: 'REPORT_SOURCE_STALE',
-              entityId: r.id,
-              tenantId: r.tenantId,
-              severity: 'HIGH',
-              description: `report ${r.id} validation failed`,
-              detectedAt: now,
-              correlationId: params.correlationId,
-            });
-          }
+      const reports = await this.prisma.complianceReport.findMany({ where: { tenantId: params.tenantId, ...(params.reportId ? { id: params.reportId } : {}) } });
+      for (const report of reports) {
+        this.policyService.assertTenantIsolation(params.tenantId, report.tenantId);
+        if (report.sourceReferences.length === 0 || report.sourceReferences.some((reference) => reference.startsWith('DECLARED:'))) {
+          add('REPORT_SOURCE_MISSING', report.id, 'HIGH', 'Report has no verified source references', report.sourceReferences);
+        }
+        if ((report.state === 'DELIVERING' || report.state === 'QUEUED_FOR_DELIVERY') && Date.now() - report.generatedAt.getTime() > 24 * 60 * 60_000) {
+          add('DELIVERY_STATUS_UNKNOWN', report.id, 'MEDIUM', `Report delivery stuck in ${report.state} for more than 24 hours`);
+        }
+        if (report.state === 'READY' && report.certificationStatus === 'PENDING') add('CERTIFICATION_MISSING', report.id, 'MEDIUM', 'Ready report certification is pending');
+        if (report.validationStatus === 'FAILED') add('REPORT_SOURCE_STALE', report.id, 'HIGH', 'Report validation failed');
+      }
+    } catch { unread('complianceReport'); }
+    try {
+      const requests = await this.prisma.privacyRequest.findMany({ where: { tenantId: params.tenantId } });
+      for (const request of requests) {
+        this.policyService.assertTenantIsolation(params.tenantId, request.tenantId);
+        if (['RECEIVED', 'UNDER_REVIEW', 'IN_PROGRESS'].includes(request.state) && Date.now() - request.requestedAt.getTime() > 30 * 24 * 60 * 60_000) {
+          add('PRIVACY_REQUEST_STUCK', request.id, 'MEDIUM', `Privacy request stuck in ${request.state} for more than 30 days`);
+        }
+        if (['BLOCKED_BY_RETENTION', 'BLOCKED_BY_LEGAL_HOLD'].includes(request.state) && !request.blockedReason) {
+          add('DELETION_BLOCKED_WITHOUT_REASON', request.id, 'HIGH', 'Blocked privacy request lacks a reason');
         }
       }
-    } catch {
-      this.logger.debug('reconciliation report check skipped');
-    }
-
+    } catch { unread('privacyRequest'); }
     try {
-      const privacyRequests = await (this.prisma as any).privacyRequest?.findMany?.({ where: { tenantId: params.tenantId }, take: 100 });
-      if (privacyRequests) {
-        for (const pr of privacyRequests) {
-          const age = Date.now() - new Date(pr.requestedAt).getTime();
-          if ((pr.state === 'RECEIVED' || pr.state === 'UNDER_REVIEW' || pr.state === 'IN_PROGRESS') && age > 30 * 24 * 60 * 60 * 1000) {
-            detected.push({
-              type: 'PRIVACY_REQUEST_STUCK',
-              entityId: pr.id,
-              tenantId: pr.tenantId,
-              severity: 'MEDIUM',
-              description: `privacy request ${pr.id} stuck in ${pr.state} >30d`,
-              detectedAt: now,
-              correlationId: params.correlationId,
-            });
-          }
-          if ((pr.state === 'BLOCKED_BY_RETENTION' || pr.state === 'BLOCKED_BY_LEGAL_HOLD') && !pr.blockedReason) {
-            detected.push({
-              type: 'DELETION_BLOCKED_WITHOUT_REASON',
-              entityId: pr.id,
-              tenantId: pr.tenantId,
-              severity: 'HIGH',
-              description: `privacy request ${pr.id} blocked without reason`,
-              detectedAt: now,
-              correlationId: params.correlationId,
-            });
-          }
-        }
+      const candidates = await this.prisma.retentionCandidate.findMany({ where: { tenantId: params.tenantId } });
+      for (const candidate of candidates) {
+        this.policyService.assertTenantIsolation(params.tenantId, candidate.tenantId);
+        if (candidate.retentionEndAt < new Date() && candidate.state === 'RETENTION_REQUIRED') add('RETENTION_EXPIRED_WITHOUT_ACTION', candidate.id, 'LOW', 'Retention candidate expired without action');
+        if (candidate.blockedByLegalHold && candidate.legalHoldIds.length === 0) add('LEGAL_HOLD_CONFLICT', candidate.id, 'HIGH', 'Legal-hold blockage lacks hold ids');
       }
-    } catch {
-      this.logger.debug('reconciliation privacy check skipped');
-    }
-
+    } catch { unread('retentionCandidate'); }
     try {
-      const retentionCandidates = await (this.prisma as any).retentionCandidate?.findMany?.({ where: { tenantId: params.tenantId }, take: 100 });
-      if (retentionCandidates) {
-        for (const rc of retentionCandidates) {
-          const end = new Date(rc.retentionEndAt);
-          if (end < new Date() && rc.state === 'RETENTION_REQUIRED') {
-            detected.push({
-              type: 'RETENTION_EXPIRED_WITHOUT_ACTION',
-              entityId: rc.id,
-              tenantId: rc.tenantId,
-              severity: 'LOW',
-              description: `retention candidate ${rc.id} expired without action`,
-              detectedAt: now,
-              correlationId: params.correlationId,
-            });
-          }
-          if (rc.blockedByLegalHold && rc.legalHoldIds.length === 0) {
-            detected.push({
-              type: 'LEGAL_HOLD_CONFLICT',
-              entityId: rc.id,
-              tenantId: rc.tenantId,
-              severity: 'HIGH',
-              description: `retention candidate ${rc.id} blocked by legal hold but no hold ids`,
-              detectedAt: now,
-              correlationId: params.correlationId,
-            });
-          }
-        }
+      const packages = await this.prisma.evidencePackage.findMany({ where: { tenantId: params.tenantId } });
+      for (const evidence of packages) {
+        this.policyService.assertTenantIsolation(params.tenantId, evidence.tenantId);
+        if (['DRAFT', 'COLLECTING'].includes(evidence.state) && evidence.sourceRecords.length === 0) add('EVIDENCE_INCOMPLETE', evidence.id, 'HIGH', 'Evidence package lacks source records');
       }
-    } catch {
-      this.logger.debug('reconciliation retention check skipped');
-    }
-
-    try {
-      const evidencePackages = await (this.prisma as any).evidencePackage?.findMany?.({ where: { tenantId: params.tenantId }, take: 100 });
-      if (evidencePackages) {
-        for (const ev of evidencePackages) {
-          if ((ev.state === 'DRAFT' || ev.state === 'COLLECTING') && (!ev.sourceRecords || ev.sourceRecords.length === 0)) {
-            detected.push({
-              type: 'EVIDENCE_INCOMPLETE',
-              entityId: ev.id,
-              tenantId: ev.tenantId,
-              severity: 'HIGH',
-              description: `evidence package ${ev.id} incomplete`,
-              detectedAt: now,
-              correlationId: params.correlationId,
-            });
-          }
-        }
-      }
-    } catch {
-      this.logger.debug('reconciliation evidence check skipped');
-    }
-
-    // Tenant scope mismatch detection (if cross-tenant reference found)
-    // This is deterministic check on in-memory if any record tenant mismatched
+    } catch { unread('evidencePackage'); }
+    let failedWrites = 0;
     for (const mismatch of detected) {
-      this.inMemory.set(`${mismatch.entityId}_${mismatch.type}`, mismatch);
-      // Durable copy: listMismatches reads this table and resolveMismatch
-      // deletes from it, so without the write an open mismatch vanished on
-      // restart and was invisible to every other replica. One row per
-      // (tenant, entity, type); a re-detection refreshes it.
       try {
-        const row = {
-          severity: mismatch.severity,
-          description: mismatch.description,
-          detectedAt: new Date(mismatch.detectedAt),
-          correlationId: mismatch.correlationId,
-          sourceReferences: mismatch.sourceReferences ?? [],
-        };
-        await (this.prisma as any).governanceReconciliation?.upsert?.({
-          where: { tenantId_entityId_type: { tenantId: mismatch.tenantId, entityId: mismatch.entityId, type: mismatch.type } },
-          create: { tenantId: mismatch.tenantId, entityId: mismatch.entityId, type: mismatch.type, ...row },
-          update: row,
-        });
-      } catch (e) {
-        this.logger.warn(`reconciliation mismatch persist failed entity=${mismatch.entityId} type=${mismatch.type}: ${(e as Error).message}`);
+        const data = { severity: mismatch.severity, description: mismatch.description, detectedAt: new Date(mismatch.detectedAt),
+          correlationId: mismatch.correlationId, sourceReferences: mismatch.sourceReferences ?? [] };
+        await this.prisma.governanceReconciliation.upsert({ where: { tenantId_entityId_type: { tenantId: params.tenantId,
+          entityId: mismatch.entityId, type: mismatch.type } }, create: { tenantId: params.tenantId, entityId: mismatch.entityId, type: mismatch.type, ...data }, update: data });
+        mismatch.persistence = 'DURABLE';
+      } catch {
+        failedWrites += 1; mismatch.persistence = 'FAILED';
+        this.logger.warn(`Required finding persistence failed tenant=${params.tenantId} entity=${mismatch.entityId} type=${mismatch.type}`);
       }
     }
-
-    await this.audit.recordEvent({
-      tenantId: params.tenantId,
-      actionType: GovernanceActionType.RECONCILIATION,
-      state: 'RECONCILED',
-      result: `${detected.length} mismatches`,
-      correlationId: params.correlationId,
-      createdBy: params.operatorId,
-      safeEvidence: { mismatchCount: detected.length, types: [...new Set(detected.map((d) => d.type))] },
-    });
-
-    this.logger.log(`reconciliation detected ${detected.length} mismatches tenant=${params.tenantId} corr=${params.correlationId}`);
+    const incomplete = failedWrites > 0 || detected.some((mismatch) => mismatch.entityId.startsWith('SOURCE:'));
+    await this.audit.recordEvent({ tenantId: params.tenantId, actionType: GovernanceActionType.RECONCILIATION,
+      state: incomplete ? 'INCOMPLETE' : 'INSPECTED', result: `${detected.length} detected mismatches; ${failedWrites} persistence failures`,
+      correlationId: params.correlationId, createdBy: params.operatorId,
+      safeEvidence: { incomplete, failedWrites, mismatchCount: detected.length, types: [...new Set(detected.map((mismatch) => mismatch.type))] } });
     return detected;
   }
 
   async listMismatches(tenantId: string, filters?: { reportId?: string; type?: GovernanceReconciliationMismatch['type'] }): Promise<GovernanceReconciliationMismatch[]> {
-    let list = [...this.inMemory.values()].filter((m) => m.tenantId === tenantId);
-    if (filters?.reportId) list = list.filter((m) => m.entityId === filters.reportId);
-    if (filters?.type) list = list.filter((m) => m.type === filters.type);
-    try {
-      const where: any = { tenantId };
-      if (filters?.reportId) where.entityId = filters.reportId;
-      if (filters?.type) where.type = filters.type;
-      const rows = await (this.prisma as any).governanceReconciliation?.findMany?.({ where, take: 500, orderBy: { detectedAt: 'desc' } });
-      if (rows && rows.length > 0) {
-        list = rows.map((r: any) => ({
-          type: r.type,
-          entityId: r.entityId,
-          tenantId: r.tenantId,
-          severity: r.severity,
-          description: r.description,
-          detectedAt: r.detectedAt instanceof Date ? r.detectedAt.toISOString() : r.detectedAt,
-          correlationId: r.correlationId,
-          sourceReferences: r.sourceReferences ?? [],
-        }));
-      }
-    } catch {
-      /* ignore */
-    }
-    return list;
+    const where: Prisma.GovernanceReconciliationWhereInput = { tenantId };
+    // A failed required table read blocks every report, not only the synthetic source diagnostic id.
+    if (filters?.reportId) where.OR = [{ entityId: filters.reportId }, { entityId: { startsWith: 'SOURCE:' } }];
+    if (filters?.type) where.type = filters.type;
+    const rows = await this.prisma.governanceReconciliation.findMany({ where, orderBy: { detectedAt: 'desc' } });
+    return rows.map((row) => {
+      this.policyService.assertTenantIsolation(tenantId, row.tenantId);
+      return this.mapRow(row);
+    });
   }
 
   async resolveMismatch(params: { tenantId: string; entityId: string; type: GovernanceReconciliationMismatch['type']; correlationId: string; operatorId: string; resolution: string }): Promise<void> {
-    const key = `${params.entityId}_${params.type}`;
-    this.inMemory.delete(key);
-    try {
-      await (this.prisma as any).governanceReconciliation?.deleteMany?.({ where: { entityId: params.entityId, type: params.type, tenantId: params.tenantId } });
-    } catch {
-      /* ignore */
-    }
-    await this.audit.recordEvent({
-      tenantId: params.tenantId,
-      actionType: GovernanceActionType.RECONCILIATION,
-      state: 'RESOLVED',
-      result: params.resolution,
-      correlationId: params.correlationId,
-      createdBy: params.operatorId,
-      safeEvidence: { entityId: params.entityId, type: params.type },
-    });
+    if (!params.resolution.trim()) throw new BadRequestException('Explicit mismatch resolution required');
+    const result = await this.prisma.governanceReconciliation.deleteMany({ where: { entityId: params.entityId, type: params.type, tenantId: params.tenantId } });
+    await this.audit.recordEvent({ tenantId: params.tenantId, actionType: GovernanceActionType.RECONCILIATION,
+      state: result.count > 0 ? 'RESOLVED' : 'ALREADY_ABSENT', result: params.resolution, correlationId: params.correlationId,
+      createdBy: params.operatorId, safeEvidence: { entityId: params.entityId, type: params.type, deletedCount: result.count } });
+  }
+
+  private mapRow(row: GovernanceReconciliation): GovernanceReconciliationMismatch {
+    const type = TYPES.find((member) => member === row.type); const severity = SEVERITIES.find((member) => member === row.severity);
+    if (!type || !severity) throw new Error('Malformed persisted reconciliation type/severity');
+    return { type, severity, tenantId: row.tenantId, entityId: row.entityId, description: row.description,
+      detectedAt: row.detectedAt.toISOString(), correlationId: row.correlationId, sourceReferences: row.sourceReferences, persistence: 'DURABLE' };
   }
 }

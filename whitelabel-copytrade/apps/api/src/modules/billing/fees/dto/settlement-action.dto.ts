@@ -1,6 +1,8 @@
+// # Responsibility: define typed settlement request and response contracts without accepting untyped accrual or item arrays.
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsEnum, IsArray, IsNumber, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsArray, IsNumber } from 'class-validator';
 import { FeeType, SettlementState } from '../fee.types';
+import type { FeeAccrual, SettlementItem } from '../fee.types';
 
 export class SettlementPreviewRequestDto {
   @ApiPropertyOptional({ description: 'Currency to settle' })
@@ -45,7 +47,7 @@ export class SettlementPreviewResponseDto {
   feeType: FeeType | 'MIXED';
 
   @ApiProperty({ type: [Object] })
-  eligibleAccruals: any[];
+  eligibleAccruals: FeeAccrual[];
 
   @ApiProperty()
   fetchedAt: string;
@@ -131,7 +133,7 @@ export class SettlementActionResponseDto {
   metadata: Record<string, unknown> | null;
 
   @ApiPropertyOptional({ type: [Object] })
-  items?: any[];
+  items?: SettlementItem[];
 }
 
 export class ApproveSettlementRequestDto {

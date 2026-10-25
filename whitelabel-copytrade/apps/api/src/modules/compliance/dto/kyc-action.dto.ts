@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsEnum, IsUUID, IsNotEmpty, IsEmail, IsObject, MaxLength } from 'class-validator';
-import { KycState, ComplianceDecision, Jurisdiction } from '../compliance.types';
+// # Responsibility: declare validated API inputs while keeping arbitrary extension metadata unknown until runtime narrowing.
+import { IsOptional, IsString, IsNotEmpty, IsObject, MaxLength } from 'class-validator';
+
 
 /**
  * DTOs for KYC actions: start verification, retry, callback, status check
@@ -38,7 +39,7 @@ export class StartKycVerificationDto {
 
   @IsOptional()
   @IsObject()
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export class RetryKycVerificationDto {
@@ -79,7 +80,7 @@ export class KycProviderCallbackDto {
 
   @IsOptional()
   @IsObject()
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 
   // Note: no VERIFIED from client claim - server must verify via provider
 }
@@ -194,7 +195,7 @@ export class CreateComplianceCaseDto {
 
   @IsOptional()
   @IsObject({ each: true })
-  sourceRefs?: any[];
+  sourceRefs?: Array<{ type: string; id: string }>;
 
   @IsOptional()
   @IsString()

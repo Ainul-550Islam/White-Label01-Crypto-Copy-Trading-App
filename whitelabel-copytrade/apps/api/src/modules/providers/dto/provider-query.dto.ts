@@ -4,7 +4,7 @@
  * No secret/config credential fields accepted from clients.
  */
 
-import { IsString, IsEnum, IsOptional, IsBoolean, IsArray } from 'class-validator';
+import { IsString, IsEnum, IsOptional } from 'class-validator';
 import { ProviderDomain, ProviderName } from '../provider.types';
 
 export class ProviderHealthQueryDto {

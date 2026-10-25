@@ -1,18 +1,13 @@
+// # Responsibility: Reconcile tenant-scoped billing evidence using canonical Prisma records without mutating financial history.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma, Invoice, Payment, Refund, FeeAccrual, FeeSettlement, BillingLedgerEntry } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  ReportingPeriod,
-  ReconciliationResult,
-  ReconciliationIssue,
-  MoneyAmount,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-  zeroMoney,
-} from './revenue-analytics.types';
+import { ReportingPeriod, ReconciliationResult, ReconciliationIssue, parseToMinorUnits, formatFromMinorUnits } from './revenue-analytics.types';
 import { MrrCalculationService } from './mrr-calculation.service';
 import { ArrCalculationService } from './arr-calculation.service';
 import { randomUUID } from 'crypto';
+
+type SubscriptionWithPlan = Prisma.TenantSubscriptionGetPayload<{ include: { plan: true } }>;
 
 /**
  * Reconciles analytics outputs against source invoices, payments, ledger, subscriptions, refunds, and fee records and detects drift.
@@ -76,8 +71,9 @@ export class AnalyticsReconciliationService {
           });
         }
       }
-    } catch (e: any) {
-      this.logger.warn(`MRR reconciliation failed: ${e.message}`);
+    } catch (e) {
+      this.logger.warn(`MRR reconciliation failed: ${e instanceof Error ? e.message : String(e)}`);
+      throw e;
     }
 
     // 2. ARR mismatch
@@ -108,7 +104,10 @@ export class AnalyticsReconciliationService {
           });
         }
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Analytics source comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
 
     // 3. Invoice revenue mismatch: sum of invoice totals vs ledger revenue entries
     try {
@@ -148,7 +147,10 @@ export class AnalyticsReconciliationService {
           });
         }
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Analytics source comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
 
     // 4. Payment cash mismatch: sum of successful payments vs invoice amountPaid
     try {
@@ -186,7 +188,10 @@ export class AnalyticsReconciliationService {
           });
         }
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Analytics source comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
 
     // 5. Refund mismatch
     try {
@@ -223,7 +228,10 @@ export class AnalyticsReconciliationService {
           });
         }
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Analytics source comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
 
     // 6. Fee mismatch: fee accruals vs fee settlements
     try {
@@ -259,7 +267,10 @@ export class AnalyticsReconciliationService {
           });
         }
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Analytics source comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
 
     // 7. Currency mismatch: check if any record has different currency than requested
     try {
@@ -285,7 +296,10 @@ export class AnalyticsReconciliationService {
           detectedAt: new Date().toISOString(),
         });
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Analytics source comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
 
     // 8. Missing source record: subscription without plan
     try {
@@ -311,7 +325,10 @@ export class AnalyticsReconciliationService {
           detectedAt: new Date().toISOString(),
         });
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Analytics source comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
 
     // 9. Impossible active subscription state: ACTIVE but currentPeriodEnd in past
     try {
@@ -340,7 +357,10 @@ export class AnalyticsReconciliationService {
           detectedAt: new Date().toISOString(),
         });
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Analytics source comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
 
     return {
       period: params.period,
@@ -361,7 +381,7 @@ export class AnalyticsReconciliationService {
     };
   }
 
-  private calculateExpectedMrrMinor(subscriptions: any[], currency: string): number {
+  private calculateExpectedMrrMinor(subscriptions: SubscriptionWithPlan[], currency: string): number {
     let total = 0;
     for (const sub of subscriptions) {
       const plan = sub.plan;
@@ -386,7 +406,7 @@ export class AnalyticsReconciliationService {
     return total;
   }
 
-  private calculateExpectedArrMinor(subscriptions: any[], currency: string): number {
+  private calculateExpectedArrMinor(subscriptions: SubscriptionWithPlan[], currency: string): number {
     let total = 0;
     for (const sub of subscriptions) {
       const plan = sub.plan;
@@ -415,48 +435,48 @@ export class AnalyticsReconciliationService {
     return { start: new Date(period.startDate), end: new Date(period.endDate) };
   }
 
-  private async fetchSubscriptions(params: { tenantId?: string; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchSubscriptions(params: { tenantId?: string; end: Date }): Promise<SubscriptionWithPlan[]> {
+    const where: Prisma.TenantSubscriptionWhereInput = {
       status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
       currentPeriodEnd: { gte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
+    return await this.prisma.tenantSubscription.findMany({ where, include: { plan: true } }) || [];
   }
 
-  private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
+  private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Invoice[]> {
+    const where: Prisma.InvoiceWhereInput = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).invoice?.findMany({ where }) || [];
+    return await this.prisma.invoice.findMany({ where }) || [];
   }
 
-  private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
+  private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Payment[]> {
+    const where: Prisma.PaymentWhereInput = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).payment?.findMany({ where }) || [];
+    return await this.prisma.payment.findMany({ where }) || [];
   }
 
-  private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
+  private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Refund[]> {
+    const where: Prisma.RefundWhereInput = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).refund?.findMany({ where }) || [];
+    return await this.prisma.refund.findMany({ where }) || [];
   }
 
-  private async fetchFeeAccruals(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
+  private async fetchFeeAccruals(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<FeeAccrual[]> {
+    const where: Prisma.FeeAccrualWhereInput = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).feeAccrual?.findMany({ where }) || [];
+    return await this.prisma.feeAccrual.findMany({ where }) || [];
   }
 
-  private async fetchFeeSettlements(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
+  private async fetchFeeSettlements(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<FeeSettlement[]> {
+    const where: Prisma.FeeSettlementWhereInput = { currency: params.currency, createdAt: { gte: params.start, lte: params.end } };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).feeSettlement?.findMany({ where }) || [];
+    return await this.prisma.feeSettlement.findMany({ where }) || [];
   }
 
-  private async fetchLedgerEntries(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = { currency: params.currency, effectiveAt: { gte: params.start, lte: params.end } };
+  private async fetchLedgerEntries(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<BillingLedgerEntry[]> {
+    const where: Prisma.BillingLedgerEntryWhereInput = { currency: params.currency, effectiveAt: { gte: params.start, lte: params.end } };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).billingLedgerEntry?.findMany({ where }) || [];
+    return await this.prisma.billingLedgerEntry.findMany({ where }) || [];
   }
 }

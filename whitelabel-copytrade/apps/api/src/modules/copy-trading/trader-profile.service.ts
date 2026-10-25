@@ -3,17 +3,11 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { PlanLimitTradersGuard } from '../billing/enforcement/plan-limit-traders.guard';
 import { TraderVerificationState, TraderProfile } from './copy-trading.types';
-import { Decimal, DecimalError, dec, isDecimalString } from '../../common/decimal-string';
+import { Decimal, dec, isDecimalString } from '../../common/decimal-string';
 import { TraderPerformanceService } from './trader-performance.service';
 import { TraderRiskScoreService, TraderRiskFactorInput } from '../risk/trader-risk-score.service';
 import { TWR_FLOW_BOUNDARY_RULE } from '../portfolio-accounting/portfolio-accounting.types';
-import {
-  TraderActivityMetric,
-  TraderActiveFollowersMetric,
-  TraderAumMetric,
-  TraderRiskScoreView,
-  TraderSafePublicStatistics,
-} from './copy-trading.types';
+import { TraderActivityMetric, TraderActiveFollowersMetric, TraderRiskScoreView, TraderSafePublicStatistics } from './copy-trading.types';
 import { randomUUID } from 'crypto';
 import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 

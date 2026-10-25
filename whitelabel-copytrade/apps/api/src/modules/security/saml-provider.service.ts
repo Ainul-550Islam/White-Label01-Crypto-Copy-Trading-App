@@ -1,8 +1,10 @@
+// # Responsibility: validate tenant-bound SAML assertions using a DOM parser without importing browser DOM types.
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { X509Certificate, createPrivateKey, verify as verifySignature } from 'crypto';
 import { inflateRawSync } from 'zlib';
 import { SAML, SamlStatusError, ValidateInResponseTo, type CacheProvider, type Profile } from '@node-saml/node-saml';
 import { Prisma } from '@prisma/client';
+import { createRequire } from 'node:module';
 
 import type { SealedPayload } from '@wlct/utils';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -40,8 +42,8 @@ interface XmlDomParserConstructor {
   }): { parseFromString(xml: string, mimeType: string): unknown };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const { DOMParser } = require('@xmldom/xmldom') as { DOMParser: XmlDomParserConstructor };
+const loadXmlDom = createRequire(__filename);
+const { DOMParser } = loadXmlDom('@xmldom/xmldom') as { DOMParser: XmlDomParserConstructor };
 
 const SAML_ASSERTION_NS = 'urn:oasis:names:tc:SAML:2.0:assertion';
 const SAML_PROTOCOL_NS = 'urn:oasis:names:tc:SAML:2.0:protocol';

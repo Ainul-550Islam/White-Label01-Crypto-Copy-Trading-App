@@ -35,7 +35,7 @@ import { LifecycleNotificationService } from './lifecycle-notification.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
 import { LifecycleReconciliationService } from './lifecycle-reconciliation.service';
 import { ClientVisibilityService } from './client-visibility.service';
-import { CreateClientProfileDto, UpdateClientProfileDto, CreateInstitutionalAccountDto } from './dto/client-profile.dto';
+import { CreateClientProfileDto, CreateInstitutionalAccountDto } from './dto/client-profile.dto';
 import {
   ActivateAccountDto,
   RestrictAccountDto,
@@ -72,7 +72,7 @@ import {
   LifecycleAuditQueryDto,
   OnboardingQueryDto,
 } from './dto/client-query.dto';
-import { redactPiiAndSecrets, ClientProfileStatus, InstitutionalAccountState, FundingRequestState, WithdrawalRequestState } from './client-lifecycle.types';
+import { redactPiiAndSecrets, InstitutionalAccountState } from './client-lifecycle.types';
 import { authTenantId, authUserIdOrNull, isPlatformPrincipal } from '../../common/guards/request-principal';
 import { Permission, hasAnyPermission, hasPermission } from '@wlct/shared-types';
 

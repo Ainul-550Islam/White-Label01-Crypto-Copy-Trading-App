@@ -4,7 +4,7 @@ import { SecurityPolicyService } from './security-policy.service';
 import { SecurityEventService } from './security-event.service';
 import { SecurityAuditService } from './security-audit.service';
 import { ApiKeyState, SecurityEventType, SecurityRisk } from './security.types';
-import { randomUUID, randomBytes, createHash, createHmac } from 'crypto';
+import { randomBytes, createHash, createHmac } from 'crypto';
 import { Permission, hasPermission } from '@wlct/shared-types';
 
 const KNOWN_PERMISSIONS: ReadonlySet<string> = new Set(Object.values(Permission) as string[]);

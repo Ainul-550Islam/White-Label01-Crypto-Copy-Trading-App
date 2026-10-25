@@ -1,4 +1,5 @@
 {
+  // # Responsibility: no-emit TypeScript project for API specs and fixture-spec files.
   "// purpose": [
     "Type context for test files only.",
     "",
@@ -15,6 +16,6 @@
     "noEmit": true,
     "types": ["node", "jest"]
   },
-  "include": ["src/**/*.spec.ts"],
+  "include": ["src/**/*spec.ts"],
   "exclude": ["node_modules", "dist"]
 }

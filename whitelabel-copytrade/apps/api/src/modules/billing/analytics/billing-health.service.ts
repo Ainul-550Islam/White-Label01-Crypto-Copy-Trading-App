@@ -1,15 +1,8 @@
+// # Responsibility: Read canonical tenant-scoped payment, invoice, refund, and dunning records for billing-health metrics.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma, Payment, Invoice, Refund, DunningCase } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  ReportingPeriod,
-  BillingHealthMetrics,
-  MoneyAmount,
-  zeroMoney,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-  calculateRate,
-} from './revenue-analytics.types';
+import { ReportingPeriod, BillingHealthMetrics, parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency, calculateRate } from './revenue-analytics.types';
 
 /**
  * Billing health metrics: successful payments, failed payments, pending payments, dunning cases, recovery, overdue invoices, refund rate, payment success rate.
@@ -107,7 +100,7 @@ export class BillingHealthService {
     // Checkout conversion where source data exists
     let checkoutConversionRate: string | undefined;
     if (checkouts.length > 0) {
-      const converted = checkouts.filter((c: any) => ['SUCCEEDED', 'COMPLETED', 'PAID'].includes((c.status || '').toUpperCase())).length;
+      const converted = checkouts.filter((c) => ['SUCCEEDED', 'COMPLETED', 'PAID'].includes((c.status || '').toUpperCase())).length;
       checkoutConversionRate = calculateRate(converted, checkouts.length);
     }
 
@@ -145,49 +138,49 @@ export class BillingHealthService {
     return { start: new Date(period.startDate), end: new Date(period.endDate) };
   }
 
-  private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Payment[]> {
+    const where: Prisma.PaymentWhereInput = {
       currency: params.currency,
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).payment?.findMany({ where }) || [];
+    return await this.prisma.payment.findMany({ where }) || [];
   }
 
-  private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Invoice[]> {
+    const where: Prisma.InvoiceWhereInput = {
       currency: params.currency,
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).invoice?.findMany({ where }) || [];
+    return await this.prisma.invoice.findMany({ where }) || [];
   }
 
-  private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Refund[]> {
+    const where: Prisma.RefundWhereInput = {
       currency: params.currency,
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).refund?.findMany({ where }) || [];
+    return await this.prisma.refund.findMany({ where }) || [];
   }
 
-  private async fetchDunningCases(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchDunningCases(params: { tenantId?: string; start: Date; end: Date }): Promise<DunningCase[]> {
+    const where: Prisma.DunningCaseWhereInput = {
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).dunningCase?.findMany({ where }) || [];
+    return await this.prisma.dunningCase.findMany({ where }) || [];
   }
 
-  private async fetchCheckouts(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
+  private async fetchCheckouts(params: { tenantId?: string; start: Date; end: Date }): Promise<Payment[]> {
     // Checkout data may be stored in payments with providerCheckoutId or separate table
-    const where: any = {
+    const where: Prisma.PaymentWhereInput = {
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
     // Try to find checkout-related payments
-    const payments = await (this.prisma as any).payment?.findMany({ where }) || [];
-    return payments.filter((p: any) => p.providerCheckoutId || p.providerSessionId);
+    const payments = await this.prisma.payment.findMany({ where }) || [];
+    return payments.filter((p) => p.providerCheckoutId || p.providerSessionId);
   }
 }

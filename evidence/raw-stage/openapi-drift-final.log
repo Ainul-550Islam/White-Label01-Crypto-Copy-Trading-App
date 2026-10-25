@@ -1,0 +1,10 @@
+
+> whitelabel-copytrade@1.0.0 check:openapi-drift
+> node scripts/check-openapi-drift.mjs
+
+
+> @wlct/api@1.0.0 openapi:export
+> TS_NODE_PROJECT=tsconfig.json node -r ts-node/register/transpile-only -r tsconfig-paths/register scripts/export-openapi.ts --check
+
+Postman collection is current (768 OpenAPI paths).
+OpenAPI and Postman artifacts are current without database or cache connections.

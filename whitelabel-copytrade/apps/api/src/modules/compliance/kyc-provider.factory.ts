@@ -1,4 +1,6 @@
+// # Responsibility: select configured KYC providers without fabricating verified identity outcomes.
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { IKycProvider, CreateKycSessionInput, CreateKycSessionResult, GetKycStatusInput } from './kyc-provider.interface';
 import { KycState, ComplianceDecision, RiskLevel, KycVerificationResult } from './compliance.types';
 
@@ -21,7 +23,7 @@ class UnavailableKycProvider implements IKycProvider {
     return false;
   }
 
-  async createVerificationSession(input: CreateKycSessionInput): Promise<CreateKycSessionResult> {
+  async createVerificationSession(_input: CreateKycSessionInput): Promise<CreateKycSessionResult> {
     throw new Error('KYC provider unavailable - no provider configured. Set KYC_PROVIDER and KYC provider credentials. Compliance requires explicit PENDING/REVIEW_REQUIRED, not VERIFIED fallback.');
   }
 
@@ -49,11 +51,11 @@ class UnavailableKycProvider implements IKycProvider {
     };
   }
 
-  async getDocumentStatus(providerReference: string): Promise<{ status: string; safeMetadata: Record<string, any> }> {
+  async getDocumentStatus(providerReference: string): Promise<{ status: string; safeMetadata: Record<string, unknown> }> {
     return { status: 'UNAVAILABLE', safeMetadata: { providerReference, reason: 'PROVIDER_UNAVAILABLE' } };
   }
 
-  async getLivenessStatus(providerReference: string): Promise<{ status: string; safeMetadata: Record<string, any> }> {
+  async getLivenessStatus(providerReference: string): Promise<{ status: string; safeMetadata: Record<string, unknown> }> {
     return { status: 'UNAVAILABLE', safeMetadata: { providerReference, reason: 'PROVIDER_UNAVAILABLE' } };
   }
 }
@@ -79,7 +81,7 @@ class MockKycProvider implements IKycProvider {
 
   async createVerificationSession(input: CreateKycSessionInput): Promise<CreateKycSessionResult> {
     const sessionId = `kyc_${input.tenantId}_${input.userId}_${Date.now()}`;
-    const providerRef = `mock_ref_${require('crypto').randomUUID()}`;
+    const providerRef = `mock_ref_${randomUUID()}`;
 
     this.logger.log(`Mock KYC session created tenant=${input.tenantId} user=${input.userId} provider=${this.providerName} ref=${providerRef} - NOT verified, requires authoritative result`);
 
@@ -119,11 +121,11 @@ class MockKycProvider implements IKycProvider {
     };
   }
 
-  async getDocumentStatus(providerReference: string): Promise<{ status: string; safeMetadata: Record<string, any> }> {
+  async getDocumentStatus(providerReference: string): Promise<{ status: string; safeMetadata: Record<string, unknown> }> {
     return { status: 'PENDING', safeMetadata: { providerReference, provider: this.providerName } };
   }
 
-  async getLivenessStatus(providerReference: string): Promise<{ status: string; safeMetadata: Record<string, any> }> {
+  async getLivenessStatus(providerReference: string): Promise<{ status: string; safeMetadata: Record<string, unknown> }> {
     return { status: 'PENDING', safeMetadata: { providerReference, provider: this.providerName } };
   }
 }
@@ -145,15 +147,7 @@ export class KycProviderFactory {
 
     // Real providers would be registered here when credentials configured
     // e.g., Sumsub, Jumio, Onfido, Veriff - each behind env check
-    if (process.env.SUMSUB_API_KEY) {
-      this.providerInstances.set('SUMSUB', new MockKycProvider('SUMSUB')); // Replace with real adapter
-    }
-    if (process.env.JUMIO_API_KEY) {
-      this.providerInstances.set('JUMIO', new MockKycProvider('JUMIO'));
-    }
-    if (process.env.ONFIDO_API_KEY) {
-      this.providerInstances.set('ONFIDO', new MockKycProvider('ONFIDO'));
-    }
+    // External names are not registered until a real adapter exists; credentials alone cannot turn a mock into a provider.
 
     this.logger.log(`KYC Provider Factory initialized configured=${this.configuredProvider} available=${Array.from(this.providerInstances.keys()).join(',')}`);
   }
@@ -189,7 +183,7 @@ export class KycProviderFactory {
       .map(([name]) => name);
   }
 
-  getProviderCapabilities(providerName?: string): { provider: string; available: boolean; capabilities: any; jurisdictions: string[] } {
+  getProviderCapabilities(providerName?: string): { provider: string; available: boolean; capabilities: IKycProvider['capabilities']; jurisdictions: string[] } {
     const provider = this.getProvider(providerName);
     return {
       provider: provider.providerName,

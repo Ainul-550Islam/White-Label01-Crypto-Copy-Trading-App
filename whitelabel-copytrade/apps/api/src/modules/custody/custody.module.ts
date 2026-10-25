@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { CustodyController } from './custody.controller';
 import { CustodyPolicyService } from './custody-policy.service';

@@ -1,24 +1,15 @@
+// # Responsibility: Read tenant-scoped canonical billing records and keep revenue buckets separated by currency.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma, Invoice, Payment, Refund, FeeAccrual, TenantSubscription } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  ReportingPeriod,
-  RevenueSnapshot,
-  RevenueOverview,
-  MoneyAmount,
-  CurrencyBucket,
-  zeroMoney,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-  addMoneyAmounts,
-  calculatePercentageChange,
-  createMoneyAmount,
-} from './revenue-analytics.types';
+import { ReportingPeriod, RevenueSnapshot, RevenueOverview, CurrencyBucket, zeroMoney, parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency, calculatePercentageChange } from './revenue-analytics.types';
 import { MrrCalculationService } from './mrr-calculation.service';
 import { ArrCalculationService } from './arr-calculation.service';
 import { CashflowAnalyticsService } from './cashflow-analytics.service';
 import { BillingHealthService } from './billing-health.service';
 import { AnalyticsCacheService } from './analytics-cache.service';
+
+type SubscriptionWithPlan = Prisma.TenantSubscriptionGetPayload<{ include: { plan: true } }>;
 
 /**
  * Main read-only revenue analytics engine derived from canonical subscriptions, invoices, payments, refunds, ledger, and fee data.
@@ -192,7 +183,7 @@ export class RevenueAnalyticsService {
     const netMinor = grossMinor - refundMinor;
 
     // ARPU: gross / customer count
-    const distinctCustomers = new Set(invoices.map((i: any) => i.tenantId) || payments.map((p: any) => p.tenantId));
+    const distinctCustomers = new Set(invoices.map((i) => i.tenantId) || payments.map((p) => p.tenantId));
     const customerCount = distinctCustomers.size || subscriptions.length || 1;
     const arpuMinor = Math.round(grossMinor / customerCount);
 
@@ -240,14 +231,14 @@ export class RevenueAnalyticsService {
   async calculateMultiCurrencyBuckets(params: { tenantId?: string; period: ReportingPeriod }): Promise<CurrencyBucket[]> {
     const { start, end } = this.parsePeriod(params.period);
 
-    const invoices = await (this.prisma as any).invoice?.findMany({
+    const invoices = await this.prisma.invoice.findMany({
       where: {
         ...(params.tenantId ? { tenantId: params.tenantId } : {}),
         createdAt: { gte: start, lte: end },
       },
     }) || [];
 
-    const byCurrency = new Map<string, { amounts: any[]; totalMinor: number }>();
+    const byCurrency = new Map<string, { amounts: CurrencyBucket['amounts']; totalMinor: number }>();
 
     for (const inv of invoices) {
       const curr = (inv.currency || 'USD').toUpperCase();
@@ -275,65 +266,65 @@ export class RevenueAnalyticsService {
     return Math.max(1, Math.round(diffMonths * 100) / 100);
   }
 
-  private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchInvoices(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Invoice[]> {
+    const where: Prisma.InvoiceWhereInput = {
       currency: params.currency,
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).invoice?.findMany({ where }) || [];
+    return await this.prisma.invoice.findMany({ where }) || [];
   }
 
-  private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchPayments(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Payment[]> {
+    const where: Prisma.PaymentWhereInput = {
       currency: params.currency,
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).payment?.findMany({ where }) || [];
+    return await this.prisma.payment.findMany({ where }) || [];
   }
 
-  private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchRefunds(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<Refund[]> {
+    const where: Prisma.RefundWhereInput = {
       currency: params.currency,
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).refund?.findMany({ where }) || [];
+    return await this.prisma.refund.findMany({ where }) || [];
   }
 
-  private async fetchFeeAccruals(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchFeeAccruals(params: { tenantId?: string; currency: string; start: Date; end: Date }): Promise<FeeAccrual[]> {
+    const where: Prisma.FeeAccrualWhereInput = {
       currency: params.currency,
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).feeAccrual?.findMany({ where }) || [];
+    return await this.prisma.feeAccrual.findMany({ where }) || [];
   }
 
-  private async fetchActiveSubscriptions(params: { tenantId?: string; asOfDate: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchActiveSubscriptions(params: { tenantId?: string; asOfDate: Date }): Promise<SubscriptionWithPlan[]> {
+    const where: Prisma.TenantSubscriptionWhereInput = {
       status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
       currentPeriodEnd: { gte: params.asOfDate },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
+    return await this.prisma.tenantSubscription.findMany({ where, include: { plan: true } }) || [];
   }
 
-  private async fetchNewCustomers(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchNewCustomers(params: { tenantId?: string; start: Date; end: Date }): Promise<TenantSubscription[]> {
+    const where: Prisma.TenantSubscriptionWhereInput = {
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).tenantSubscription?.findMany({ where }) || [];
+    return await this.prisma.tenantSubscription.findMany({ where }) || [];
   }
 
-  private async fetchChurnedCustomers(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchChurnedCustomers(params: { tenantId?: string; start: Date; end: Date }): Promise<TenantSubscription[]> {
+    const where: Prisma.TenantSubscriptionWhereInput = {
       status: { in: ['CANCELED', 'EXPIRED'] },
       OR: [{ canceledAt: { gte: params.start, lte: params.end } }, { currentPeriodEnd: { gte: params.start, lte: params.end } }],
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).tenantSubscription?.findMany({ where }) || [];
+    return await this.prisma.tenantSubscription.findMany({ where }) || [];
   }
 }

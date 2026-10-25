@@ -25,6 +25,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.composition import EngineRuntime
+from app.orders.submission import prepare_submission, record_submission
 from app.routers.health import get_runtime
 from app.schemas import (
     AccountCommandRequest,
@@ -42,7 +43,6 @@ from app.schemas import (
     SubmitOrderResponse,
     VerifyResponse,
 )
-from app.orders.submission import prepare_submission, record_submission
 from app.security.internal_auth import (
     ServiceCaller,
     require_internal_auth,

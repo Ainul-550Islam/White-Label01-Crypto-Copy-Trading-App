@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { InvoiceRecord } from './invoice.types';
-import type { InvoiceWithLines } from './invoice.types';
+
+
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 
 /**

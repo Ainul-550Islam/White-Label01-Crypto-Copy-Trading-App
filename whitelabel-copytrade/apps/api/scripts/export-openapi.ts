@@ -3,11 +3,12 @@
 import 'reflect-metadata';
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
-import { NestFactory } from '@nestjs/core';
 import { VersioningType } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { ExpressAdapter } from '@nestjs/platform-express';
 
 const repositoryRoot = resolve(__dirname, '../../..');
 const openApiPath = resolve(repositoryRoot, 'docs/openapi/openapi.json');
@@ -34,6 +35,7 @@ function configureIsolatedExportEnvironment(): void {
   process.env.BLIND_INDEX_KEY_BASE64 = Buffer.from('abcdef0123456789abcdef0123456789').toString('base64');
   process.env.ENCRYPTION_KEY_ID = 'openapi-export-only';
   process.env.INTERNAL_SERVICE_TOKEN = 'openapi-export-only-internal-service-token-32';
+  process.env.DEVELOPER_SECRET_HMAC_KEY = Buffer.from('openapi-export-only-developer-hmac-key').toString('base64');
   process.env.EXCHANGE_WEBHOOK_SIGNING_SECRET = 'openapi-export-only-webhook-signing-secret-32';
   process.env.JWT_ACCESS_SECRET = 'openapi-export-only-access-secret-0123456789';
   process.env.JWT_REFRESH_SECRET = 'openapi-export-only-refresh-secret-9876543210';
@@ -63,15 +65,23 @@ function writeOrCheck(path: string, generated: string, label: string): void {
     }
     return;
   }
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, generated, 'utf8');
 }
 
 async function main(): Promise<void> {
   configureIsolatedExportEnvironment();
 
+  // AppModule imports AppConfigModule at module evaluation time. Load it only
+  // after the isolated export environment has been installed; static imports
+  // would validate the caller's .env before this function can set test values.
+  const { AppModule } = await import('../src/app.module');
+  const { AppConfigService } = await import('../src/config/app-config.service');
+  const { createSwaggerDocument } = await import('../src/config/swagger.config');
+
   let app: Awaited<ReturnType<typeof NestFactory.create>> | undefined;
   try {
-    app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
+    app = await NestFactory.create(AppModule, new ExpressAdapter(), { logger: false, abortOnError: false });
     const config = app.get(AppConfigService);
 
     app.setGlobalPrefix(config.globalPrefix, {

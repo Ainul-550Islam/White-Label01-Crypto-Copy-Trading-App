@@ -12,7 +12,7 @@ import type {
   WebsocketUsage,
   ReserveUsageResult,
 } from './usage.types';
-import { UsageUnavailableError } from './enforcement.errors';
+
 
 /**
  * Business layer above the usage repository.

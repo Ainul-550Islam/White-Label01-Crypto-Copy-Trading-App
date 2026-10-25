@@ -195,9 +195,9 @@ export function generateDeterministicReleaseManifest(repoRoot: string): {
 
 if (require.main === module) {
   const monorepoRoot = path.resolve(__dirname, '..');
-  // The package-check document is a tracked root-level input, not a generated manifest. Resolve
-  // its real location from this monorepo so a clean checkout does not need a pre-existing manifest
-  // to identify the outer repository root.
+  // An optional package-check document may be present at the parent repository root. Probe for it
+  // before selecting the manifest target; a clean checkout remains able to generate the manifest
+  // at this monorepo root when that optional document is absent.
   const outerPackageCheck = path.resolve(monorepoRoot, '../RELEASE_PACKAGE_CHECK.md');
   const outerRoot = fs.existsSync(outerPackageCheck) ? path.resolve(monorepoRoot, '..') : monorepoRoot;
 

@@ -42,7 +42,7 @@
  * Funding/Withdrawal → Client Lifecycle → Compliance/Risk/Security → Custody → Custody Adapter → Blockchain/Custodian → Transaction Evidence → Confirmation/Finality → Settlement → Finance/Portfolio Accounting
  */
 
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ProviderController } from './provider.controller';
 import { ProviderPolicyService } from './provider-policy.service';
 import { ProviderHealthService } from './provider-health.service';

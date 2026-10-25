@@ -149,12 +149,16 @@ npm run db:seed             # idempotent demo data
 `npm run prisma:deploy` is what CI and production use. Historical migrations
 are never edited.
 
-Row-level security: the migrations create the `tenant_isolation` policies for
-the 186 tenant-owned tables but do not switch RLS on. Enabling it is a DBA
-step with a pre-flight checklist - `apps/api/prisma/rls/enable.sql`
-(`disable.sql` rolls back, `grant.sql` is run through `psql`). Databases that
-were created by an older release apply `apps/api/prisma/upgrades/*.sql` first.
-See [`docs/PART11_ROW_LEVEL_SECURITY.md`](whitelabel-copytrade/docs/PART11_ROW_LEVEL_SECURITY.md).
+Row-level security: the checked-in artifacts cover 190 tenant-owned tables,
+but migrations intentionally do not enable RLS. Enabling it is a DBA step
+with a pre-flight checklist in
+[`enable.sql`](whitelabel-copytrade/apps/api/prisma/rls/enable.sql)
+(`disable.sql` rolls back; `grant.sql` is run through `psql`). Databases
+created by older releases must apply the applicable upgrade SQL first. The
+current enablement evidence is unverified: the coverage count does not prove
+that RLS is enabled or enforcing in any live database. See the current
+[DR runbook](whitelabel-copytrade/docs/DR.md), [security notes](whitelabel-copytrade/docs/SECURITY.md), and
+[`rls_coverage.json`](whitelabel-copytrade/apps/api/prisma/rls/rls_coverage.json).
 
 `bash scripts/bootstrap.sh` performs install, secret generation, migration
 and seeding in one idempotent run. (Files are stored without the executable

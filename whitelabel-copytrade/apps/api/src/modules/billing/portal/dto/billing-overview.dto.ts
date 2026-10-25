@@ -1,5 +1,6 @@
+// # Responsibility: expose billing overview DTOs without treating arbitrary plan-limit values as any.
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsBoolean, IsArray, IsObject, IsEnum } from 'class-validator';
+
 import { BillingInterval } from '@wlct/shared-types';
 
 export class PortalSubscriptionStateDto {
@@ -33,7 +34,7 @@ export class PortalCurrentPlanDto {
   @ApiProperty() currency: string;
   @ApiProperty({ enum: BillingInterval }) interval: BillingInterval;
   @ApiProperty() trialDays: number;
-  @ApiProperty() limits: Record<string, any>;
+  @ApiProperty() limits: Record<string, unknown>;
   @ApiProperty() features: string[];
   @ApiProperty() isActive: boolean;
   @ApiProperty() sortOrder: number;

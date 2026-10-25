@@ -1,11 +1,12 @@
+// # Responsibility: settle canonical tenant accruals with typed responses, currency checks, and confirmed state transitions.
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
 import { FeeAccrualRepository } from './fee-accrual.repository';
 import { FeeSettlementRepository } from './fee-settlement.repository';
 import { FeeAuditService } from './fee-audit.service';
-import { FeeAccrualStatus, SettlementState, FeeType, FeeSourceType } from './fee.types';
-import { parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency } from '../finance/money.types';
+import { FeeAccrualStatus, SettlementState, FeeType, FeeAccrual, SettlementBatch, SettlementItem } from './fee.types';
+import { parseToMinorUnits, formatFromMinorUnits } from '../finance/money.types';
 import { BillingEventService } from '../notifications/billing-event.service';
 
 /**
@@ -37,23 +38,23 @@ export class FeeSettlementService {
   }): Promise<{
     tenantId: string;
     currency: string;
-    eligibleAccruals: any[];
+    eligibleAccruals: FeeAccrual[];
     grossFeeAmount: string;
     finalSettlementAmount: string;
     numberOfAccruals: number;
     feeType: FeeType | 'MIXED';
   }> {
     const currency = params.currency || 'USD';
-    let accruals: any[] = [];
+    let accruals: FeeAccrual[] = [];
 
     if (params.accrualIds && params.accrualIds.length > 0) {
       // Validate provided accrual IDs are eligible
-      for (const id of params.accrualIds) {
+      for (const id of new Set(params.accrualIds)) {
         const accrual = await this.accrualRepository.findById(id, params.tenantId);
         if (!accrual) continue;
         if (accrual.status !== FeeAccrualStatus.ACCRUED) continue;
         if (accrual.settlementState !== SettlementState.DRAFT && accrual.settlementState !== SettlementState.CALCULATED) continue;
-        if (params.currency && accrual.currency !== params.currency) continue;
+        if (accrual.currency !== currency) throw new Error('Settlement accrual currency does not match the requested settlement currency');
         if (params.feeType && accrual.feeType !== params.feeType) continue;
         accruals.push(accrual);
       }
@@ -81,11 +82,14 @@ export class FeeSettlementService {
         const minor = parseToMinorUnits(accrual.feeAmount, accrual.currency);
         totalMinor += minor;
         feeTypes.add(accrual.feeType);
-      } catch {}
+      } catch (error) {
+        this.logger.warn(`Settlement source operation failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
     }
 
     const grossFeeAmount = formatFromMinorUnits(totalMinor, currency);
-    const feeTypeResult: FeeType | 'MIXED' = feeTypes.size === 1 ? (Array.from(feeTypes)[0] as FeeType) : 'MIXED';
+    const feeTypeResult: FeeType | 'MIXED' = feeTypes.size === 1 ? Array.from(feeTypes)[0] : 'MIXED';
 
     return {
       tenantId: params.tenantId,
@@ -106,7 +110,7 @@ export class FeeSettlementService {
     idempotencyKey?: string;
     actorId?: string;
     metadata?: Record<string, unknown>;
-  }): Promise<any> {
+  }): Promise<SettlementBatch> {
     const idempotencyKey = params.idempotencyKey || `settlement_${params.tenantId}_${params.currency || 'USD'}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
     // Idempotency check
@@ -138,7 +142,7 @@ export class FeeSettlementService {
       feeType: preview.feeType,
       status: SettlementState.CALCULATED,
       idempotencyKey,
-      accrualIds: preview.eligibleAccruals.map((a: any) => a.id),
+      accrualIds: preview.eligibleAccruals.map((a) => a.id),
       metadata: params.metadata,
     });
 
@@ -167,7 +171,7 @@ export class FeeSettlementService {
     return settlement;
   }
 
-  async approveSettlement(settlementId: string, tenantId: string, actorId?: string): Promise<any> {
+  async approveSettlement(settlementId: string, tenantId: string, _actorId?: string): Promise<SettlementBatch> {
     const settlement = await this.settlementRepository.findById(settlementId, tenantId);
     if (!settlement) throw new Error(`Settlement not found: ${settlementId}`);
 
@@ -178,6 +182,7 @@ export class FeeSettlementService {
     const updated = await this.settlementRepository.updateStatus(settlementId, SettlementState.APPROVED, {
       approvedAt: new Date().toISOString(),
     });
+    if (!updated) throw new Error('Failed to approve settlement: persistence did not confirm the transition');
 
     // Update accruals to APPROVED
     for (const accrualId of settlement.accrualIds) {
@@ -185,7 +190,10 @@ export class FeeSettlementService {
         await this.accrualRepository.updateStatus(accrualId, {
           settlementState: SettlementState.APPROVED,
         });
-      } catch {}
+      } catch (error) {
+        this.logger.warn(`Settlement source operation failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
     }
 
     await this.auditService.logSettlementApproved(tenantId, settlementId, settlement.finalSettlementAmount, settlement.currency);
@@ -193,7 +201,7 @@ export class FeeSettlementService {
     return updated;
   }
 
-  async finalizeSettlement(settlementId: string, tenantId: string, actorId?: string): Promise<any> {
+  async finalizeSettlement(settlementId: string, tenantId: string, _actorId?: string): Promise<SettlementBatch> {
     const settlement = await this.settlementRepository.findById(settlementId, tenantId);
     if (!settlement) throw new Error(`Settlement not found: ${settlementId}`);
 
@@ -281,7 +289,7 @@ export class FeeSettlementService {
     return updated;
   }
 
-  async getSettlement(settlementId: string, tenantId?: string): Promise<any> {
+  async getSettlement(settlementId: string, tenantId?: string): Promise<SettlementBatch & { items: SettlementItem[] }> {
     const settlement = await this.settlementRepository.findById(settlementId, tenantId);
     if (!settlement) throw new Error(`Settlement not found: ${settlementId}`);
     const items = await this.settlementRepository.getSettlementItems(settlementId);
@@ -291,11 +299,11 @@ export class FeeSettlementService {
   async listSettlements(
     tenantId: string,
     filter?: { status?: SettlementState; currency?: string; feeType?: FeeType | 'MIXED'; fromDate?: Date; toDate?: Date; limit?: number; offset?: number },
-  ): Promise<any[]> {
+  ): Promise<SettlementBatch[]> {
     return this.settlementRepository.listByTenant(tenantId, filter);
   }
 
-  async retryFailedSettlement(settlementId: string, tenantId: string, actorId?: string): Promise<any> {
+  async retryFailedSettlement(settlementId: string, tenantId: string, _actorId?: string): Promise<SettlementBatch> {
     const settlement = await this.settlementRepository.findById(settlementId, tenantId);
     if (!settlement) throw new Error(`Settlement not found: ${settlementId}`);
 
@@ -306,13 +314,17 @@ export class FeeSettlementService {
     const updated = await this.settlementRepository.updateStatus(settlementId, SettlementState.CALCULATED, {
       finalizedAt: null,
     });
+    if (!updated) throw new Error('Failed to retry settlement: persistence did not confirm the transition');
 
     for (const accrualId of settlement.accrualIds) {
       try {
         await this.accrualRepository.updateStatus(accrualId, {
           settlementState: SettlementState.CALCULATED,
         });
-      } catch {}
+      } catch (error) {
+        this.logger.warn(`Settlement source operation failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
     }
 
     await this.auditService.logSettlementCreated(tenantId, settlementId, settlement.finalSettlementAmount, settlement.currency, settlement.numberOfAccruals);

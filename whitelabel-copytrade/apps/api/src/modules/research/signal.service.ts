@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ResearchRepository } from './research-repository';
-import { ResearchSignalState, ResearchSignalSide } from './signal.types';
+import { ResearchSignalSide } from './signal.types';
 import { randomUUID, createHash } from 'crypto';
 import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 

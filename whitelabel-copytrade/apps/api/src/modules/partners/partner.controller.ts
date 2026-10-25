@@ -1,5 +1,5 @@
 // # Exposes /v1/partner/profile, /referrals, /commissions, /payouts endpoints
-import { Controller, Get, Post, Put, Body, Param, Query, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, BadRequestException } from '@nestjs/common';
 import { Permission } from '@wlct/shared-types';
 import { PlatformOnly, RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { PartnerProfileService } from './partner-profile.service';
@@ -32,18 +32,8 @@ import {
   InvitePartnerUserDto,
   ChangePartnerUserRoleDto,
 } from './dto/partner-profile.dto';
-import { AssignTenantDto, TransferTenantDto, UnassignTenantDto, CreateTenantForPartnerDto } from './dto/partner-tenant-action.dto';
-import {
-  CreateCampaignDto,
-  CreateReferralDto,
-  CreateAttributionDto,
-  CalculateCommissionDto,
-  ReverseCommissionDto,
-  CreateSettlementDto,
-  RequestPayoutDto,
-  TransitionPayoutDto,
-  TransitionCampaignStateDto,
-} from './dto/partner-campaign.dto';
+import { AssignTenantDto, TransferTenantDto, UnassignTenantDto } from './dto/partner-tenant-action.dto';
+import { CreateCampaignDto, CreateReferralDto, CreateAttributionDto, CalculateCommissionDto, ReverseCommissionDto, CreateSettlementDto, RequestPayoutDto, TransitionPayoutDto } from './dto/partner-campaign.dto';
 import {
   PartnerQueryDto,
   PartnerTenantQueryDto,

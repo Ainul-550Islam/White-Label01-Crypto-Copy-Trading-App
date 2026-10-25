@@ -1,10 +1,11 @@
+// # Responsibility: keep existing tenant/risk calculations and fail-closed source reads while narrowing untrusted decimal values without any bypasses.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
 import { PortfolioExposureService } from './portfolio-exposure.service';
 import { ConcentrationResult, RiskState, RiskSeverity } from './risk-management.types';
 import { CustomerExposureService } from './customer-exposure.service';
-import type { CustomerExposureLine, CustomerExposureView } from './customer-exposure.types';
+import type { CustomerExposureLine } from './customer-exposure.types';
 import type {
   CustomerConcentrationAssessment,
   CustomerConcentrationMetric,
@@ -18,7 +19,7 @@ import type {
  * Decimal-safe.
  */
 
-function isValidDecimal(v: any): boolean {
+function isValidDecimal(v: unknown): boolean {
   return typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v);
 }
 const SCALE = 1_000_000_000_000n;

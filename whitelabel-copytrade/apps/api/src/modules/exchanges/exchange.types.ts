@@ -228,9 +228,10 @@ export interface ExchangeHealth {
   environment: ExchangeEnvironment;
   state: ExchangeHealthState;
   latencyMs: number | null;
-  authFailures: number;
-  apiErrors: number;
-  rateLimitPressure: number; // 0-100
+  authFailures: number | null; // Native consecutive failure gauge; null means unobserved/unclassified.
+  apiErrors: number | null;
+  rateLimitPressure: number | null; // 0-100; null is unknown, never measured zero.
+  dataCompleteness: 'OBSERVED' | 'UNKNOWN';
   syncAgeMs: number | null;
   clockDriftMs: number | null;
   websocketConnected: boolean | null;
@@ -453,22 +454,30 @@ export const FORBIDDEN_CREDENTIAL_FIELDS = [
   'credential',
 ] as const;
 
-export function sanitizeExchangeMetadata(metadata: Record<string, any>): Record<string, any> {
-  const sanitized: Record<string, any> = {};
-  for (const [key, value] of Object.entries(metadata)) {
-    const lowerKey = key.toLowerCase();
-    if (FORBIDDEN_CREDENTIAL_FIELDS.some((f) => lowerKey.includes(f.toLowerCase()))) {
-      continue;
+export function sanitizeExchangeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const seen = new WeakSet<object>();
+  function cleanObject(input: object): Record<string, unknown> {
+    if (seen.has(input)) throw new Error('Circular exchange metadata cannot be sanitized');
+    seen.add(input);
+    const output: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (FORBIDDEN_CREDENTIAL_FIELDS.some((field) => key.toLowerCase().includes(field.toLowerCase()))) continue;
+      Object.defineProperty(output, key, { value: cleanValue(value), enumerable: true, writable: true, configurable: true });
     }
-    if (typeof value === 'string' && value.length > 500) {
-      sanitized[key] = value.substring(0, 500);
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      sanitized[key] = sanitizeExchangeMetadata(value);
-    } else {
-      sanitized[key] = value;
-    }
+    seen.delete(input);
+    return output;
   }
-  return sanitized;
+  function cleanValue(value: unknown): unknown {
+    if (typeof value === 'string') return value.length > 500 ? value.substring(0, 500) : value;
+    if (Array.isArray(value)) {
+      if (seen.has(value)) throw new Error('Circular exchange metadata cannot be sanitized');
+      seen.add(value); const entries: unknown[] = value;
+      const output = entries.map(cleanValue); seen.delete(value); return output;
+    }
+    if (value !== null && typeof value === 'object') return cleanObject(value);
+    return value;
+  }
+  return cleanObject(metadata);
 }
 
 export function maskApiKey(apiKey: string): string {

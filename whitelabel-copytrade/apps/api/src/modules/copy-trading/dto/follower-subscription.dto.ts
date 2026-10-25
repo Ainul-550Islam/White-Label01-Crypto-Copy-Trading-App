@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsObject, IsNotEmpty, MaxLength, Matches, ValidateIf } from 'class-validator';
+// # Responsibility: declare validated API inputs while keeping arbitrary extension metadata unknown until runtime narrowing.
+import { IsString, IsOptional, IsEnum, IsObject, IsNotEmpty, MaxLength, Matches } from 'class-validator';
 import { CopySubscriptionState, CopySizingMode } from '../copy-trading.types';
 
 export class CreateFollowerSubscriptionDto {
@@ -33,11 +34,11 @@ export class CreateFollowerSubscriptionDto {
 
   @IsOptional()
   @IsObject()
-  copyPolicy?: Record<string, any>;
+  copyPolicy?: Record<string, unknown>;
 
   @IsOptional()
   @IsObject()
-  riskPolicy?: Record<string, any>;
+  riskPolicy?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()
@@ -74,11 +75,11 @@ export class UpdateFollowerSubscriptionDto {
 
   @IsOptional()
   @IsObject()
-  copyPolicy?: Record<string, any>;
+  copyPolicy?: Record<string, unknown>;
 
   @IsOptional()
   @IsObject()
-  riskPolicy?: Record<string, any>;
+  riskPolicy?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()

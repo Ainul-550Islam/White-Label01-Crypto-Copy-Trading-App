@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiOkResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
-import { TenantId } from '../../../common/decorators/current-tenant.decorator';
+
 import { RequirePermissions } from '../../../common/decorators/permissions.decorator';
 import { RequestMeta, type RequestMetadata } from '../../../common/decorators/request-context.decorator';
 import { ApiStandardResponses } from '../../../common/decorators/api-standard-responses.decorator';

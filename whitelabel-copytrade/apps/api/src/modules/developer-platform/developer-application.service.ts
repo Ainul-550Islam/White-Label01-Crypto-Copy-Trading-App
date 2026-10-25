@@ -1,3 +1,4 @@
+// # Responsibility: retain tenant ownership checks and application reactivation policy while removing only an unused binding, not its required lookup.
 /**
  * Developer application lifecycle with tenant/partner ownership, idempotent
  * creation, deterministic client identifiers, validated lifecycle
@@ -8,7 +9,7 @@
  * no tokens, no credentials, no reactivation.
  */
 
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
@@ -299,7 +300,7 @@ export class DeveloperApplicationService {
    * always visible to platform staff.
    */
   async requestReactivation(actor: DeveloperActor, applicationId: string, reason?: string): Promise<ApplicationState> {
-    const application = await this.loadOwned(actor.tenantId, applicationId);
+    await this.loadOwned(actor.tenantId, applicationId);
     const plan = await this.policyData.planLimitViewForTenant(actor.tenantId);
     const entitlements = await this.policyData.tenantEntitlementKeys(actor.tenantId);
     const policy = this.policyService.resolve(actor.tenantId, plan, entitlements);

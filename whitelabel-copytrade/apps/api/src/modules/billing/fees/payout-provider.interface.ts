@@ -1,4 +1,4 @@
-import { Payout, CreatePayoutInput, PayoutStatusResult, PayoutProviderResult } from './payout.types';
+import { CreatePayoutInput, PayoutStatusResult, PayoutProviderResult } from './payout.types';
 
 /**
  * Provider abstraction for payout execution.

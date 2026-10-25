@@ -1,18 +1,17 @@
+// # Responsibility: Calculate recurring monthly revenue from typed active subscriptions while preserving currency and interval policy.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  BillingInterval,
-  SubscriptionStatus,
-  MoneyAmount,
-  MrrBreakdown,
-  createMoneyAmount,
-  zeroMoney,
-  addMoneyAmounts,
-  divideMoneyAmount,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-} from './revenue-analytics.types';
+import { BillingInterval, SubscriptionStatus, MoneyAmount, MrrBreakdown, zeroMoney, parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency } from './revenue-analytics.types';
+
+type SubscriptionWithPlan = Prisma.TenantSubscriptionGetPayload<{ include: { plan: true } }>;
+
+const persistedBillingIntervals: Record<SubscriptionWithPlan['plan']['interval'], BillingInterval> = {
+  MONTHLY: BillingInterval.MONTHLY,
+  QUARTERLY: BillingInterval.QUARTERLY,
+  YEARLY: BillingInterval.YEARLY,
+  LIFETIME: BillingInterval.LIFETIME,
+};
 
 /**
  * Deterministic MRR calculation from active recurring subscriptions using canonical plan/interval/price.
@@ -90,7 +89,8 @@ export class MrrCalculationService {
         const plan = sub.plan;
         if (!plan) continue;
 
-        const interval = (plan.interval as BillingInterval) || BillingInterval.MONTHLY;
+        const interval = persistedBillingIntervals[plan.interval];
+        if (!interval) throw new Error(`Unsupported billing interval: ${plan.interval}`);
         const priceStr = plan.price?.toString() || '0';
         const priceMinor = parseToMinorUnits(priceStr, currency);
 
@@ -145,7 +145,7 @@ export class MrrCalculationService {
         intervalAgg.count += 1;
       }
 
-      const totalMrr = { amount: formatFromMinorUnits(totalMinor, currency), currency, minorUnit: getMinorUnitForCurrency(currency) } as MoneyAmount;
+      const totalMrr: MoneyAmount = { amount: formatFromMinorUnits(totalMinor, currency), currency, minorUnit: getMinorUnitForCurrency(currency) };
 
       results.push({
         totalMrr,
@@ -219,26 +219,26 @@ export class MrrCalculationService {
     return Array.isArray(result) ? result : [result];
   }
 
-  private async fetchActiveSubscriptions(params: { tenantId?: string; asOfDate: Date; includeTrials: boolean }): Promise<any[]> {
+  private async fetchActiveSubscriptions(params: { tenantId?: string; asOfDate: Date; includeTrials: boolean }): Promise<SubscriptionWithPlan[]> {
     const { tenantId, asOfDate, includeTrials } = params;
     const statuses = includeTrials
       ? [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE]
       : [SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE];
 
     try {
-      const where: any = {
+      const where: Prisma.TenantSubscriptionWhereInput = {
         status: { in: statuses },
         currentPeriodEnd: { gte: asOfDate },
       };
       if (tenantId) where.tenantId = tenantId;
 
-      const subs = await (this.prisma as any).tenantSubscription.findMany({
+      const subs = await this.prisma.tenantSubscription.findMany({
         where,
         include: { plan: true },
       });
       return subs || [];
-    } catch (e: any) {
-      this.logger.warn(`Failed to fetch active subscriptions: ${e.message}`);
+    } catch (e) {
+      this.logger.warn(`Failed to fetch active subscriptions: ${e instanceof Error ? e.message : String(e)}`);
       throw e;
     }
   }

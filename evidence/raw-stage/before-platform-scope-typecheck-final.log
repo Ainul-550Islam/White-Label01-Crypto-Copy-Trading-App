@@ -1,0 +1,31 @@
+
+> @wlct/api@1.0.0 typecheck
+> tsc -p tsconfig.json --noEmit --pretty false --extendedDiagnostics
+
+Files:                         2532
+Lines of Library:             10710
+Lines of Definitions:        869523
+Lines of TypeScript:         221541
+Lines of JavaScript:              0
+Lines of JSON:                  320
+Lines of Other:                   0
+Identifiers:                1535301
+Symbols:                    1311683
+Types:                       380181
+Instantiations:             1215957
+Memory used:               1729028K
+Assignability cache size:    147754
+Identity cache size:           7374
+Subtype cache size:            4661
+Strict subtype cache size:    15465
+I/O Read time:                0.36s
+Parse time:                   3.80s
+ResolveModule time:           0.28s
+ResolveLibrary time:          0.01s
+ResolveTypeReference time:    0.00s
+Program time:                 4.72s
+Bind time:                    2.48s
+Check time:                  17.06s
+printTime time:               0.02s
+Emit time:                    0.03s
+Total time:                  24.28s

@@ -16,24 +16,8 @@
  * value or another tenant's records.
  */
 
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  Patch,
-  Post,
-  Put,
-  Query,
-  Req,
-  Res,
-  UnauthorizedException,
-  UseGuards,
-} from '@nestjs/common';
-import type { Request, Response } from 'express';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query, Req, UnauthorizedException } from '@nestjs/common';
+import type { Request } from 'express';
 
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -59,16 +43,7 @@ import {
   CreateDeveloperApplicationDto,
   UpdateDeveloperApplicationDto,
 } from './dto/developer-application.dto';
-import {
-  DeveloperAnalyticsQuery,
-  DeveloperUsageQuery,
-  ListApplicationsQuery,
-  ListAuditQuery,
-  ListCredentialsQuery,
-  ListDeliveriesQuery,
-  ListWebhookSubscriptionsQuery,
-  PlatformListApplicationsQuery,
-} from './dto/developer-query.dto';
+import { DeveloperAnalyticsQuery, DeveloperUsageQuery, ListApplicationsQuery, ListAuditQuery, ListCredentialsQuery, ListDeliveriesQuery, ListWebhookSubscriptionsQuery } from './dto/developer-query.dto';
 import { DeveloperAnalyticsService } from './developer-analytics.service';
 import { DeveloperApplicationService, type DeveloperActor } from './developer-application.service';
 import { DeveloperAuditService } from './developer-audit.service';

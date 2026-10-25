@@ -6,15 +6,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  ProviderDomain,
-  ProviderName,
-  ProviderHealthState,
-  ProviderHealthResult,
-  ProviderCapabilityInfo,
-  ProviderCapability,
-  ProviderErrorCode,
-} from './provider.types';
+import { ProviderDomain, ProviderName, ProviderHealthState, ProviderHealthResult, ProviderCapabilityInfo, ProviderErrorCode } from './provider.types';
 import { ProviderPolicyService } from './provider-policy.service';
 import { ProviderRequestService } from './provider-request.service';
 

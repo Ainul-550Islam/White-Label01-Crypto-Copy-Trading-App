@@ -1,18 +1,34 @@
-// # Executes sanctions/PEP/watch-list checks on onboarding and withdrawal addresses
-import { Injectable, Logger } from '@nestjs/common';
+// # Responsibility: orchestrate tenant-bound AML screening and require durable, safely narrowed evidence before reporting provider outcomes.
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import type { ComplianceScreeningRequest } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CompliancePolicyService } from './compliance-policy.service';
+import { CompliancePolicyService, complianceJsonInput, complianceObject } from './compliance-policy.service';
 import { AmlProviderFactory } from './aml-provider.factory';
 import { ComplianceAuditService } from './compliance-audit.service';
 import { ComplianceCaseRepository } from './compliance-case.repository';
-import { AmlState, ComplianceDecision, RiskLevel, ComplianceCaseType, hashPii, sanitizeMetadata } from './compliance.types';
-import { randomUUID } from 'crypto';
+import { AmlState, ComplianceDecision, RiskLevel, ComplianceCaseType, hashPii, sanitizeMetadata, type AmlScreeningResult } from './compliance.types';
+import { randomUUID } from 'node:crypto';
 
-/**
- * AML/sanctions/PEP screening orchestration.
- * Normalize results into CLEAR, POTENTIAL_MATCH, MATCH, REVIEW_REQUIRED, BLOCKED, PROVIDER_UNAVAILABLE
- * No final legal determinations beyond configured rules and provider results.
- */
+export interface AmlScreeningResponse {
+  provider: string;
+  providerReference: string;
+  status: AmlState;
+  decision: ComplianceDecision;
+  riskLevel: RiskLevel;
+  idempotencyKey: string;
+}
+
+export interface AmlStatusResponse {
+  amlState: AmlState;
+  decision: ComplianceDecision;
+  riskLevel: RiskLevel;
+  provider?: string;
+  providerReference?: string;
+  safeMetadata: Record<string, unknown>;
+  screenedAt?: string;
+}
+
+/** Provider outcomes are not legal determinations; required storage and review-case failures must propagate. */
 @Injectable()
 export class AmlScreeningService {
   private readonly logger = new Logger(AmlScreeningService.name);
@@ -35,131 +51,49 @@ export class AmlScreeningService {
     jurisdiction?: string;
     idempotencyKey?: string;
     actorId?: string;
-  }): Promise<{
-    provider: string;
-    providerReference: string;
-    status: AmlState;
-    decision: ComplianceDecision;
-    riskLevel: RiskLevel;
-    idempotencyKey: string;
-  }> {
+  }): Promise<AmlScreeningResponse> {
     const jurisdiction = params.jurisdiction || 'DEFAULT';
     const idempotencyKey = params.idempotencyKey || `aml_person_${params.tenantId}_${params.userId}_${Date.now()}`;
-
-    // Idempotency
-    try {
-      const existing = await (this.prisma as any).complianceScreeningRequest?.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
-      if (existing) {
-        this.logger.log(`Idempotent AML person screening return key=${idempotencyKey}`);
-        return {
-          provider: existing.provider || 'UNKNOWN',
-          providerReference: existing.providerRef || 'unknown',
-          status: (existing.amlState as AmlState) || AmlState.REVIEW_REQUIRED,
-          decision: (existing.decision as ComplianceDecision) || ComplianceDecision.PENDING,
-          riskLevel: (existing.riskLevel as RiskLevel) || RiskLevel.UNKNOWN,
-          idempotencyKey,
-        };
-      }
-    } catch {}
+    const existing = await this.existingRequest(params.tenantId, params.userId, idempotencyKey, 'AML');
+    if (existing) return this.fromRequest(existing);
 
     const policy = await this.policyService.getEffectivePolicy({ tenantId: params.tenantId, jurisdiction });
     if (!policy.amlRequired && !policy.sanctionsRequired) {
-      this.logger.log(`AML not required per policy tenant=${params.tenantId}`);
-      return {
-        provider: 'POLICY',
-        providerReference: `policy_${params.userId}`,
-        status: AmlState.CLEAR,
-        decision: ComplianceDecision.ALLOW,
-        riskLevel: RiskLevel.LOW,
-        idempotencyKey,
-      };
+      return { provider: 'POLICY', providerReference: `policy_${params.userId}`, status: AmlState.CLEAR,
+        decision: ComplianceDecision.ALLOW, riskLevel: RiskLevel.LOW, idempotencyKey };
     }
 
     const provider = this.amlFactory.getConfiguredProvider();
     if (!provider.isAvailable()) {
-      this.logger.warn(`AML provider unavailable tenant=${params.tenantId} user=${params.userId} - explicit REVIEW_REQUIRED, NOT CLEAR`);
-
-      try {
-        await (this.prisma as any).complianceScreeningRequest?.create({
-          data: {
-            id: randomUUID(),
-            tenantId: params.tenantId,
-            userId: params.userId,
-            type: 'AML',
-            provider: 'UNAVAILABLE',
-            providerRef: `unavail_${params.userId}`,
-            status: 'PENDING',
-            amlState: AmlState.PROVIDER_UNAVAILABLE,
-            decision: ComplianceDecision.PENDING,
-            riskLevel: RiskLevel.UNKNOWN,
-            idempotencyKey,
-            safeMetadata: { reason: 'PROVIDER_UNAVAILABLE', jurisdiction },
-            failureReason: 'AML provider unavailable - explicit REVIEW_REQUIRED',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
-      } catch {}
-
-      await this.auditService.record({
-        tenantId: params.tenantId,
-        userId: params.userId,
-        action: 'AML_SCREENING_STARTED',
-        actorId: params.actorId,
-        outcome: 'FAILURE',
-        safeMetadata: { provider: 'UNAVAILABLE', screeningType: 'PERSON' },
-      });
-
-      return {
-        provider: 'UNAVAILABLE',
-        providerReference: `unavail_${params.userId}`,
-        status: AmlState.PROVIDER_UNAVAILABLE,
-        decision: ComplianceDecision.PENDING,
-        riskLevel: RiskLevel.UNKNOWN,
-        idempotencyKey,
-      };
+      const response = await this.persistUnavailable({ ...params, idempotencyKey, type: 'AML',
+        providerReference: `unavail_${params.userId}`, safeMetadata: { jurisdiction, screeningType: 'PERSON' } });
+      await this.auditService.record({ tenantId: params.tenantId, userId: params.userId, action: 'AML_SCREENING_STARTED',
+        actorId: params.actorId, outcome: 'FAILURE', safeMetadata: { provider: 'UNAVAILABLE', screeningType: 'PERSON' } });
+      return response;
     }
-
-    const firstNameHash = params.firstName ? hashPii(params.firstName.toLowerCase()) : undefined;
-    const lastNameHash = params.lastName ? hashPii(params.lastName.toLowerCase()) : undefined;
-    const dobHash = params.dateOfBirth ? hashPii(params.dateOfBirth) : undefined;
 
     try {
       const result = await provider.screenPerson({
-        tenantId: params.tenantId,
-        userId: params.userId,
-        firstNameHash,
-        lastNameHash,
+        tenantId: params.tenantId, userId: params.userId,
+        firstNameHash: params.firstName ? hashPii(params.firstName.toLowerCase()) : undefined,
+        lastNameHash: params.lastName ? hashPii(params.lastName.toLowerCase()) : undefined,
         countryCode: params.countryCode,
-        dateOfBirthHash: dobHash,
-        jurisdiction,
-        idempotencyKey,
-        safeMetadata: { jurisdiction },
+        dateOfBirthHash: params.dateOfBirth ? hashPii(params.dateOfBirth) : undefined,
+        jurisdiction, idempotencyKey, safeMetadata: { jurisdiction },
       });
-
-      // Persist
-      try {
-        await (this.prisma as any).complianceScreeningRequest?.create({
-          data: {
-            id: randomUUID(),
-            tenantId: params.tenantId,
-            userId: params.userId,
-            type: 'AML',
-            provider: result.provider,
-            providerRef: result.providerReference,
-            status: result.status === AmlState.CLEAR ? 'CLEAR' : 'REVIEW',
-            amlState: result.status,
-            decision: result.decision,
-            riskLevel: result.riskLevel,
-            idempotencyKey,
-            safeMetadata: result.safeMetadata,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
-      } catch {}
-
-      // Audit based on result
+      this.validateProviderResult(result);
+      if ([AmlState.MATCH, AmlState.BLOCKED, AmlState.REVIEW_REQUIRED, AmlState.POTENTIAL_MATCH].includes(result.status)) {
+        const blockedCountry = params.countryCode ? await this.policyService.isCountryBlocked(params.countryCode, policy) : false;
+        const caseType = blockedCountry ? ComplianceCaseType.SANCTIONS
+          : result.matchedLists?.some((list) => list.toLowerCase().includes('pep')) ? ComplianceCaseType.PEP : ComplianceCaseType.AML_SCREENING;
+        await this.createRequiredCase({ tenantId: params.tenantId, userId: params.userId, caseType,
+          riskLevel: result.riskLevel,
+          safeSummary: `AML ${result.status} for user ${params.userId} provider ${result.provider} lists ${result.matchedLists?.join(',') || 'unknown'}`,
+          ruleIds: ['AML_SCREENING_REQUIRED', 'SANCTIONS_CHECK'],
+          sourceRefs: [{ type: 'AML_SCREENING', id: result.providerReference }],
+          idempotencyKey: `case_aml_${params.tenantId}_${params.userId}_${result.providerReference}` });
+      }
+      const response = await this.persistResult({ ...params, idempotencyKey, type: 'AML', result });
       if (result.status === AmlState.CLEAR) {
         await this.auditService.recordAmlClear(params.tenantId, params.userId, result.providerReference);
       } else if (result.status === AmlState.POTENTIAL_MATCH) {
@@ -171,45 +105,13 @@ export class AmlScreeningService {
       } else {
         await this.auditService.recordAmlStarted(params.tenantId, params.userId, result.providerReference, 'PERSON');
       }
-
-      // Create case if match/block/review required per policy
-      if ([AmlState.MATCH, AmlState.BLOCKED, AmlState.REVIEW_REQUIRED, AmlState.POTENTIAL_MATCH].includes(result.status)) {
-        const blockedCountry = params.countryCode ? await this.policyService.isCountryBlocked(params.countryCode) : false;
-        const caseType = blockedCountry ? ComplianceCaseType.SANCTIONS : result.matchedLists?.some((l: string) => l.toLowerCase().includes('pep')) ? ComplianceCaseType.PEP : ComplianceCaseType.AML_SCREENING;
-
-        try {
-          await this.caseRepository.createCase({
-            tenantId: params.tenantId,
-            userId: params.userId,
-            caseType,
-            riskLevel: result.riskLevel,
-            safeSummary: `AML ${result.status} for user ${params.userId} provider ${result.provider} lists ${result.matchedLists?.join(',') || 'unknown'}`,
-            ruleIds: ['AML_SCREENING_REQUIRED', 'SANCTIONS_CHECK'],
-            sourceRefs: [{ type: 'AML_SCREENING', id: result.providerReference }],
-            idempotencyKey: `case_aml_${params.tenantId}_${params.userId}_${result.providerReference}`,
-          });
-        } catch {}
-      }
-
-      return {
-        provider: result.provider,
-        providerReference: result.providerReference,
-        status: result.status,
-        decision: result.decision,
-        riskLevel: result.riskLevel,
-        idempotencyKey,
-      };
-    } catch (e: any) {
-      this.logger.error(`AML person screening failed tenant=${params.tenantId} user=${params.userId}: ${e.message}`);
-      await this.auditService.record({
-        tenantId: params.tenantId,
-        userId: params.userId,
-        action: 'AML_SCREENING_STARTED',
-        actorId: params.actorId,
-        outcome: 'FAILURE',
-        safeMetadata: { error: e.message.substring(0, 200) },
-      });
-      throw e;
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`AML person screening failed tenant=${params.tenantId} user=${params.userId}: ${message}`);
+      await this.auditService.record({ tenantId: params.tenantId, userId: params.userId, action: 'AML_SCREENING_STARTED',
+        actorId: params.actorId, outcome: 'FAILURE', safeMetadata: { error: message.substring(0, 200) } });
+      throw error;
     }
   }
 
@@ -223,179 +125,143 @@ export class AmlScreeningService {
     counterparty?: string;
     jurisdiction?: string;
     idempotencyKey?: string;
-  }): Promise<any> {
+  }): Promise<AmlScreeningResponse> {
     const jurisdiction = params.jurisdiction || 'DEFAULT';
     const idempotencyKey = params.idempotencyKey || `aml_tx_${params.tenantId}_${params.transactionId}_${Date.now()}`;
-
-    try {
-      const existing = await (this.prisma as any).complianceScreeningRequest?.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
-      if (existing) {
-        return {
-          provider: existing.provider,
-          providerReference: existing.providerRef,
-          status: existing.amlState,
-          decision: existing.decision,
-          riskLevel: existing.riskLevel,
-          idempotencyKey,
-        };
+    const screeningSubject = { transactionId: params.transactionId, transactionType: params.transactionType,
+      amount: params.amount, currency: params.currency };
+    const existing = await this.existingRequest(params.tenantId, params.userId, idempotencyKey, 'TRANSACTION');
+    if (existing) {
+      const subject = complianceObject(complianceObject(existing.safeMetadata)?.screeningSubject);
+      if (!subject || subject.transactionId !== params.transactionId || subject.transactionType !== params.transactionType
+        || subject.amount !== params.amount || subject.currency !== params.currency) {
+        throw new BadRequestException('AML idempotency key does not match the transaction payload');
       }
-    } catch {}
-
+      return this.fromRequest(existing);
+    }
     const provider = this.amlFactory.getConfiguredProvider();
     if (!provider.isAvailable()) {
-      return {
-        provider: 'UNAVAILABLE',
-        providerReference: `unavail_tx_${params.transactionId}`,
-        status: AmlState.PROVIDER_UNAVAILABLE,
-        decision: ComplianceDecision.PENDING,
-        riskLevel: RiskLevel.UNKNOWN,
-        idempotencyKey,
-      };
+      return this.persistUnavailable({ ...params, type: 'TRANSACTION', idempotencyKey,
+        providerReference: `unavail_tx_${params.transactionId}`, safeMetadata: { jurisdiction, screeningSubject } });
     }
-
-    const counterpartyHash = params.counterparty ? hashPii(params.counterparty) : undefined;
-
-    try {
-      const result = await provider.screenTransaction({
-        tenantId: params.tenantId,
-        userId: params.userId,
-        transactionId: params.transactionId,
-        transactionType: params.transactionType,
-        amount: params.amount,
-        currency: params.currency,
-        counterpartyHash,
-        jurisdiction,
-        idempotencyKey,
-        safeMetadata: { transactionType: params.transactionType, currency: params.currency },
-      });
-
-      try {
-        await (this.prisma as any).complianceScreeningRequest?.create({
-          data: {
-            id: randomUUID(),
-            tenantId: params.tenantId,
-            userId: params.userId,
-            type: 'TRANSACTION',
-            provider: result.provider,
-            providerRef: result.providerReference,
-            status: result.status,
-            amlState: result.status,
-            decision: result.decision,
-            riskLevel: result.riskLevel,
-            idempotencyKey,
-            safeMetadata: result.safeMetadata,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
-      } catch {}
-
-      if ([AmlState.MATCH, AmlState.BLOCKED].includes(result.status)) {
-        try {
-          await this.caseRepository.createCase({
-            tenantId: params.tenantId,
-            userId: params.userId,
-            caseType: ComplianceCaseType.TRANSACTION_REVIEW,
-            riskLevel: result.riskLevel,
-            safeSummary: `Transaction review ${result.status} for tx ${params.transactionId} amount ${params.currency} [REDACTED]`,
-            ruleIds: ['TRANSACTION_AMOUNT_REVIEW', 'AML_SCREENING_REQUIRED'],
-            sourceRefs: [{ type: 'TRANSACTION', id: params.transactionId }],
-            idempotencyKey: `case_tx_${params.tenantId}_${params.transactionId}`,
-          });
-        } catch {}
-      }
-
-      return {
-        provider: result.provider,
-        providerReference: result.providerReference,
-        status: result.status,
-        decision: result.decision,
-        riskLevel: result.riskLevel,
-        idempotencyKey,
-      };
-    } catch (e: any) {
-      this.logger.warn(`AML transaction screening failed: ${e.message}`);
-      throw e;
+    const result = await provider.screenTransaction({ tenantId: params.tenantId, userId: params.userId,
+      transactionId: params.transactionId, transactionType: params.transactionType, amount: params.amount, currency: params.currency,
+      jurisdiction, idempotencyKey,
+      counterpartyHash: params.counterparty ? hashPii(params.counterparty) : undefined,
+      safeMetadata: { transactionType: params.transactionType, currency: params.currency } });
+    this.validateProviderResult(result);
+    if ([AmlState.MATCH, AmlState.BLOCKED].includes(result.status)) {
+      await this.createRequiredCase({ tenantId: params.tenantId, userId: params.userId,
+        caseType: ComplianceCaseType.TRANSACTION_REVIEW, riskLevel: result.riskLevel,
+        safeSummary: `Transaction review ${result.status} for tx ${params.transactionId} amount ${params.currency} [REDACTED]`,
+        ruleIds: ['TRANSACTION_AMOUNT_REVIEW', 'AML_SCREENING_REQUIRED'], sourceRefs: [{ type: 'TRANSACTION', id: params.transactionId }],
+        idempotencyKey: `case_tx_${params.tenantId}_${params.transactionId}` });
     }
+    const response = await this.persistResult({ ...params, type: 'TRANSACTION', idempotencyKey, result, safeMetadata: { screeningSubject } });
+    return response;
   }
 
-  async getStatus(params: { tenantId: string; userId: string; providerReference?: string }): Promise<any> {
-    try {
-      let request: any = null;
-      if (params.providerReference) {
-        request = await (this.prisma as any).complianceScreeningRequest?.findFirst({
-          where: { tenantId: params.tenantId, userId: params.userId, providerRef: params.providerReference },
-          orderBy: { createdAt: 'desc' },
-        });
-      } else {
-        request = await (this.prisma as any).complianceScreeningRequest?.findFirst({
-          where: { tenantId: params.tenantId, userId: params.userId, type: { in: ['AML', 'TRANSACTION'] } },
-          orderBy: { createdAt: 'desc' },
-        });
-      }
-
-      if (!request) {
-        return { amlState: AmlState.NOT_SCREENED, decision: ComplianceDecision.PENDING, riskLevel: RiskLevel.UNKNOWN, safeMetadata: {} };
-      }
-
-      return {
-        amlState: request.amlState,
-        decision: request.decision,
-        riskLevel: request.riskLevel,
-        provider: request.provider,
-        providerReference: request.providerRef,
-        safeMetadata: request.safeMetadata || {},
-        screenedAt: request.createdAt ? new Date(request.createdAt).toISOString() : new Date().toISOString(),
-      };
-    } catch (e: any) {
-      this.logger.warn(`Get AML status failed: ${e.message}`);
-      return { amlState: AmlState.NOT_SCREENED, decision: ComplianceDecision.PENDING, riskLevel: RiskLevel.UNKNOWN, safeMetadata: {} };
-    }
+  async getStatus(params: { tenantId: string; userId: string; providerReference?: string }): Promise<AmlStatusResponse> {
+    const request = await this.prisma.complianceScreeningRequest.findFirst({
+      where: { tenantId: params.tenantId, userId: params.userId, type: { in: ['AML', 'TRANSACTION', 'AML_RESCREEN'] },
+        ...(params.providerReference ? { providerRef: params.providerReference } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!request) return { amlState: AmlState.NOT_SCREENED, decision: ComplianceDecision.PENDING, riskLevel: RiskLevel.UNKNOWN, safeMetadata: {} };
+    const response = this.fromRequest(request);
+    const metadata = complianceObject(request.safeMetadata);
+    if (!metadata) throw new Error('Persisted AML metadata must be an object');
+    return { amlState: response.status, decision: response.decision, riskLevel: response.riskLevel,
+      provider: response.provider, providerReference: response.providerReference,
+      safeMetadata: metadata, screenedAt: request.createdAt.toISOString() };
   }
 
-  async rescreen(params: { tenantId: string; userId: string; providerReference: string; idempotencyKey?: string }): Promise<any> {
+  async rescreen(params: { tenantId: string; userId: string; providerReference: string; idempotencyKey?: string }): Promise<AmlScreeningResponse> {
     const idempotencyKey = params.idempotencyKey || `aml_rescreen_${params.tenantId}_${params.providerReference}_${Date.now()}`;
+    const existing = await this.existingRequest(params.tenantId, params.userId, idempotencyKey, 'AML_RESCREEN');
+    if (existing) {
+      if (complianceObject(existing.safeMetadata)?.rescreenedReference !== params.providerReference) {
+        throw new BadRequestException('AML rescreen idempotency key does not match the provider reference');
+      }
+      return this.fromRequest(existing);
+    }
+    const original = await this.prisma.complianceScreeningRequest.findFirst({
+      where: { tenantId: params.tenantId, userId: params.userId, providerRef: params.providerReference,
+        type: { in: ['AML', 'TRANSACTION', 'AML_RESCREEN'] } }, orderBy: { createdAt: 'desc' },
+    });
+    if (!original) throw new BadRequestException('AML provider reference not found for this tenant and user');
+    const safeMetadata = { rescreenedReference: params.providerReference };
     const provider = this.amlFactory.getConfiguredProvider();
-
-    if (!provider.isAvailable()) {
-      return { status: AmlState.PROVIDER_UNAVAILABLE, decision: ComplianceDecision.PENDING, riskLevel: RiskLevel.UNKNOWN, provider: 'UNAVAILABLE', providerReference: params.providerReference, idempotencyKey };
+    if (!provider.isAvailable()) return this.persistUnavailable({ ...params, type: 'AML_RESCREEN', idempotencyKey, safeMetadata });
+    if (provider.providerName !== original.provider) {
+      throw new BadRequestException('AML rescreen requires the provider that issued the original reference');
     }
+    const result = await provider.rescreen(params.tenantId, params.providerReference, idempotencyKey);
+    return this.persistResult({ ...params, type: 'AML_RESCREEN', idempotencyKey, result, safeMetadata });
+  }
 
-    try {
-      const result = await provider.rescreen(params.tenantId, params.providerReference, idempotencyKey);
-
-      try {
-        await (this.prisma as any).complianceScreeningRequest?.create({
-          data: {
-            id: randomUUID(),
-            tenantId: params.tenantId,
-            userId: params.userId,
-            type: 'AML_RESCREEN',
-            provider: result.provider,
-            providerRef: result.providerReference,
-            status: result.status,
-            amlState: result.status,
-            decision: result.decision,
-            riskLevel: result.riskLevel,
-            idempotencyKey,
-            safeMetadata: result.safeMetadata,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
-      } catch {}
-
-      return {
-        provider: result.provider,
-        providerReference: result.providerReference,
-        status: result.status,
-        decision: result.decision,
-        riskLevel: result.riskLevel,
-        idempotencyKey,
-      };
-    } catch (e: any) {
-      this.logger.warn(`Rescreen failed: ${e.message}`);
-      throw e;
+  private async existingRequest(tenantId: string, userId: string, idempotencyKey: string, type: string): Promise<ComplianceScreeningRequest | null> {
+    const existing = await this.prisma.complianceScreeningRequest.findFirst({ where: { tenantId, idempotencyKey } });
+    if (existing && (existing.userId !== userId || existing.type !== type)) {
+      throw new BadRequestException('AML idempotency key belongs to a different user or screening type');
     }
+    return existing;
+  }
+
+  private async persistUnavailable(params: {
+    tenantId: string; userId: string; type: string; idempotencyKey: string; providerReference: string; safeMetadata: Record<string, unknown>;
+  }): Promise<AmlScreeningResponse> {
+    const request = await this.prisma.complianceScreeningRequest.create({ data: {
+      id: randomUUID(), tenantId: params.tenantId, userId: params.userId, type: params.type,
+      provider: 'UNAVAILABLE', providerRef: params.providerReference, status: 'PENDING',
+      amlState: AmlState.PROVIDER_UNAVAILABLE, decision: ComplianceDecision.PENDING, riskLevel: RiskLevel.UNKNOWN,
+      idempotencyKey: params.idempotencyKey, failureReason: 'AML provider unavailable - explicit review required',
+      safeMetadata: complianceJsonInput({ ...params.safeMetadata, reason: 'PROVIDER_UNAVAILABLE' }),
+    } });
+    return this.fromRequest(request);
+  }
+
+  private async persistResult(params: {
+    tenantId: string; userId: string; type: string; idempotencyKey: string; result: AmlScreeningResult; safeMetadata?: Record<string, unknown>;
+  }): Promise<AmlScreeningResponse> {
+    const result = params.result;
+    const metadata = this.validateProviderResult(result);
+    const request = await this.prisma.complianceScreeningRequest.create({ data: {
+      id: randomUUID(), tenantId: params.tenantId, userId: params.userId, type: params.type,
+      provider: result.provider, providerRef: result.providerReference,
+      status: result.status === AmlState.CLEAR ? 'CLEAR' : 'REVIEW', amlState: result.status,
+      decision: result.decision, riskLevel: result.riskLevel, idempotencyKey: params.idempotencyKey,
+      safeMetadata: complianceJsonInput(sanitizeMetadata({ ...metadata, ...params.safeMetadata })),
+    } });
+    return this.fromRequest(request);
+  }
+
+  private validateProviderResult(result: AmlScreeningResult): Record<string, unknown> {
+    if (!Object.values(AmlState).includes(result.status) || !Object.values(ComplianceDecision).includes(result.decision)
+      || !Object.values(RiskLevel).includes(result.riskLevel) || !result.provider?.trim() || !result.providerReference?.trim()
+      || (result.decision === ComplianceDecision.ALLOW && result.status !== AmlState.CLEAR)) {
+      throw new Error('Invalid AML provider outcome');
+    }
+    const metadata = complianceObject(result.safeMetadata);
+    if (!metadata) throw new Error('AML provider metadata must be an object');
+    return metadata;
+  }
+
+  private async createRequiredCase(input: Parameters<ComplianceCaseRepository['createCase']>[0]): Promise<void> {
+    const result: unknown = await this.caseRepository.createCase(input);
+    const record = complianceObject(result);
+    if (!record || typeof record.id !== 'string' || !record.id || record.tenantId !== input.tenantId || record.userId !== input.userId) {
+      throw new Error('AML review case persistence returned no durable tenant-bound record');
+    }
+  }
+
+  private fromRequest(request: ComplianceScreeningRequest): AmlScreeningResponse {
+    const status = Object.values(AmlState).find((value) => value === request.amlState) ?? AmlState.REVIEW_REQUIRED;
+    const decision = Object.values(ComplianceDecision).find((value) => value === request.decision) ?? ComplianceDecision.PENDING;
+    const riskLevel = Object.values(RiskLevel).find((value) => value === request.riskLevel) ?? RiskLevel.UNKNOWN;
+    if (!request.provider || !request.providerRef || (decision === ComplianceDecision.ALLOW && status !== AmlState.CLEAR)) {
+      throw new Error('Persisted AML provider evidence is incomplete or inconsistent');
+    }
+    return { provider: request.provider, providerReference: request.providerRef, status, decision, riskLevel, idempotencyKey: request.idempotencyKey };
   }
 }

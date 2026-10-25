@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsUUID, IsEnum, IsUrl } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsEnum } from 'class-validator';
 import { BillingInterval } from '@wlct/shared-types';
 
 export class CreateCheckoutSessionRequestDto {

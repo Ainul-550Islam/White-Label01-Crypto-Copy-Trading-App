@@ -129,7 +129,7 @@ class ConfiguredBlockchainProvider implements BlockchainProvider {
         take: 100,
       });
 
-      let available = '0';
+      const available = '0';
       let hasObservation = false;
 
       for (const dep of deposits) {

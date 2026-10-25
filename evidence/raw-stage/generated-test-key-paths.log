@@ -1,0 +1,9 @@
+apps/api/.generated/sso-test-keys/.wlct-generated-test-keys
+apps/api/.generated/sso-test-keys/attacker.cert.pem
+apps/api/.generated/sso-test-keys/attacker.key.pem
+apps/api/.generated/sso-test-keys/expired.cert.pem
+apps/api/.generated/sso-test-keys/expired.key.pem
+apps/api/.generated/sso-test-keys/idp.cert.pem
+apps/api/.generated/sso-test-keys/idp.key.pem
+apps/api/.generated/sso-test-keys/spenc.cert.pem
+apps/api/.generated/sso-test-keys/spenc.key.pem

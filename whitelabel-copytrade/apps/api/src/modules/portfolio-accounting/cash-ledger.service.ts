@@ -1,15 +1,9 @@
+// # Responsibility: maintain portfolio cash accounting from authoritative financial events.
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingEventRepository } from './accounting-event.repository';
 import { AccountingPolicyService } from './accounting-policy.service';
-import {
-  PortfolioCashFlowType,
-  deterministicIdempotencyKey,
-  add,
-  sub,
-  redactSecrets,
-  isValidDecimal,
-} from './portfolio-accounting.types';
+import { PortfolioCashFlowType, deterministicIdempotencyKey, add, sub, mul, isValidDecimal } from './portfolio-accounting.types';
 
 /**
  * Maintains portfolio-level accounting cash movements derived from authoritative deposits,
@@ -82,7 +76,6 @@ export class CashLedgerService {
     let baseCurrencyAmount: string | null = null;
     if (params.conversionRate && baseCurrency !== currency) {
       try {
-        const { mul } = require('./portfolio-accounting.types');
         baseCurrencyAmount = mul(amount, params.conversionRate);
       } catch {
         baseCurrencyAmount = null;

@@ -1,12 +1,7 @@
+// # Responsibility: calculate validated tenant fees with canonical integer minor-unit and BPS arithmetic.
 import { Injectable, Logger } from '@nestjs/common';
 import { FeeType, FeeSourceType, RateBasis, FeeCalculationInput, FeeCalculationResult } from './fee.types';
-import {
-  createMoney,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-  RoundingMode,
-} from '../finance/money.types';
+import { parseToMinorUnits, formatFromMinorUnits } from '../finance/money.types';
 
 /**
  * Decimal-safe fee calculation using minor-unit arithmetic.
@@ -21,7 +16,6 @@ export class FeeCalculatorService {
   calculate(input: FeeCalculationInput): FeeCalculationResult {
     this.validateInput(input);
 
-    const minorUnit = getMinorUnitForCurrency(input.currency);
     const grossMinor = parseToMinorUnits(input.grossAmount, input.currency);
 
     if (grossMinor < 0) {
@@ -185,7 +179,6 @@ export class FeeCalculatorService {
     }
 
     // Validate gross amount is numeric string
-    const minorUnit = getMinorUnitForCurrency(currency);
     try {
       parseToMinorUnits(input.grossAmount, currency);
     } catch {

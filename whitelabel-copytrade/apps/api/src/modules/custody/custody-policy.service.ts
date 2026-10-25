@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+// # Responsibility: resolve explicit custody capabilities and confirmation policy; required evidence failures are not policy defaults.
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AppConfigService } from '../../config/app-config.service';
-import { CALCULATION_VERSION, POLICY_VERSION_DEFAULT } from './custody.types';
+import { CALCULATION_VERSION, POLICY_VERSION_DEFAULT, isCustodyObject } from './custody.types';
 
 /**
  * Resolves custody policies for platform/tenant/account scopes: supported assets, supported networks,
@@ -69,7 +70,7 @@ export class CustodyPolicyService {
     // Reuse existing policy/configuration — do not invent thresholds when existing defines them
     let supportedAssets: string[] = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL'];
     let supportedNetworks: string[] = ['bitcoin', 'ethereum', 'bsc', 'solana', 'polygon', 'arbitrum'];
-    let confirmationRequirements: Record<string, number> = {
+    const confirmationRequirements: Record<string, number> = {
       bitcoin: 3,
       ethereum: 12,
       bsc: 15,
@@ -78,40 +79,22 @@ export class CustodyPolicyService {
       arbitrum: 12,
     };
 
-    try {
-      const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { supportedCurrencies: true } });
-      if (tenant?.supportedCurrencies) {
-        // supportedCurrencies are fiat, but we keep crypto list
+    // Active asset/network records are required evidence. Failed reads must not expand support via defaults.
+    const assets = await this.prisma.custodyAsset.findMany({ where: { isActive: true }, take: 100 });
+    supportedAssets = [...new Set([...supportedAssets, ...assets.map((asset) => asset.symbol)])];
+    const networks = await this.prisma.custodyNetwork.findMany({ where: { status: 'ACTIVE' }, take: 100 });
+    supportedNetworks = [...new Set([...supportedNetworks, ...networks.map((network) => network.networkId)])];
+    for (const network of networks) {
+      if (network.confirmationPolicy === null) continue;
+      if (!isCustodyObject(network.confirmationPolicy)) throw new Error('Custody confirmation policy must be an object');
+      const required = network.confirmationPolicy.requiredConfirmations;
+      if (required === undefined) continue;
+      if (typeof required !== 'number' || !Number.isSafeInteger(required) || required < 0) {
+        throw new Error(`Invalid required confirmations for network ${network.networkId}`);
       }
-    } catch {}
-
-    // Check existing custody assets/networks for supported list
-    try {
-      const assets = await (this.prisma as any).custodyAsset.findMany({ where: { isActive: true }, take: 100 });
-      if (assets && assets.length > 0) {
-        supportedAssets = [...new Set([...supportedAssets, ...assets.map((a: any) => a.symbol)])];
-      }
-      const networks = await (this.prisma as any).custodyNetwork.findMany({ where: { status: 'ACTIVE' }, take: 100 });
-      if (networks && networks.length > 0) {
-        supportedNetworks = [...new Set([...supportedNetworks, ...networks.map((n: any) => n.networkId)])];
-        for (const net of networks) {
-          if (net.confirmationPolicy && typeof net.confirmationPolicy === 'object') {
-            const policy = net.confirmationPolicy as any;
-            if (policy.requiredConfirmations) {
-              confirmationRequirements[net.networkId] = policy.requiredConfirmations;
-            }
-          }
-        }
-      }
-    } catch {}
-
-    // Check existing security/compliance/risk configuration for thresholds
-    try {
-      const securityPolicy = await (this.prisma as any).securityPolicy?.findFirst?.({ where: { tenantId } });
-      if (securityPolicy) {
-        this.logger.debug({ event: 'custody.policy.securityPolicyFound', tenantId });
-      }
-    } catch {}
+      confirmationRequirements[network.networkId] = required;
+    }
+    this.logger.debug({ event: 'custody.policy.resolved', tenantId, assets: assets.length, networks: networks.length });
 
     const policy: CustodyPolicy = {
       supportedAssets,
@@ -161,16 +144,20 @@ export class CustodyPolicyService {
   }
 
   async isAssetSupported(params: { tenantId: string; assetId: string; networkId: string }): Promise<boolean> {
-    const policy = await this.resolvePolicy({ tenantId: params.tenantId });
-    // assetId must be explicit — check both assetId and networkId
-    const assetSupported = policy.supportedAssets.some((a) => params.assetId.toLowerCase().includes(a.toLowerCase()) || a.toLowerCase() === params.assetId.toLowerCase());
-    const networkSupported = policy.supportedNetworks.includes(params.networkId);
-    return assetSupported && networkSupported;
+    if (!params.assetId || !params.networkId) return false;
+    const [asset, network] = await Promise.all([
+      this.prisma.custodyAsset.findFirst({ where: { assetId: params.assetId, isActive: true,
+        OR: [{ networkId: params.networkId }, { networkId: null }] } }),
+      this.prisma.custodyNetwork.findFirst({ where: { networkId: params.networkId, status: 'ACTIVE' } }),
+    ]);
+    return asset !== null && network !== null;
   }
 
   async getRequiredConfirmations(params: { tenantId: string; networkId: string }): Promise<number> {
     const policy = await this.resolvePolicy({ tenantId: params.tenantId });
-    return policy.confirmationRequirements[params.networkId] ?? 12;
+    const required = policy.confirmationRequirements[params.networkId];
+    if (required === undefined) throw new BadRequestException('No explicit confirmation policy for this network');
+    return required;
   }
 
   getCalculationVersion(): string {

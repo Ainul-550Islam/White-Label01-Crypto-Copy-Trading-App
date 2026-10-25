@@ -5,9 +5,9 @@
  * for all plan tiers.
  */
 
-import { PlanTier, BillingInterval } from '../plans/plan.types';
-import { FEATURE_DEFINITIONS, getFeaturesForTier } from './plan.features';
-import { LIMIT_DEFINITIONS, getLimitsForTier, formatLimitValue } from './plan.limits';
+import { PlanTier } from '../plans/plan.types';
+import { FEATURE_DEFINITIONS } from './plan.features';
+import { LIMIT_DEFINITIONS } from './plan.limits';
 
 export interface PlanMatrixEntry {
   tier: PlanTier;

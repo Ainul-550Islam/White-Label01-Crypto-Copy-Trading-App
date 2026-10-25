@@ -1,4 +1,4 @@
-// # NEW — Writes domain events inside the caller's Prisma transaction
+// # Responsibility: appends tenant-scoped domain events inside the caller's Prisma transaction.
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { DEVELOPER_ERROR_CODES, DeveloperError, eventDefinition } from '../../modules/developer-platform/developer.types';
@@ -113,6 +113,7 @@ export class OutboxService {
 
     const event = await tx.outboxEvent.upsert({
       where: {
+        tenantId: input.tenantId,
         tenantId_idempotencyKey: {
           tenantId: input.tenantId,
           idempotencyKey: input.idempotencyKey,

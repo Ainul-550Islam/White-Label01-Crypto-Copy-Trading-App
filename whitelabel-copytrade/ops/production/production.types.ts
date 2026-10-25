@@ -1,3 +1,7 @@
+// # Responsibility: retain operations state contracts while re-exporting canonical shared release-manifest types.
+import { EnvironmentName, type ReleaseManifest } from '@wlct/utils';
+export { EnvironmentName, type ReleaseManifest } from '@wlct/utils';
+
 /**
  * Production Infrastructure, CI/CD, Security Supply Chain & Deployment Control Plane
  * Canonical types and state machines
@@ -7,11 +11,7 @@
  * All state transitions are explicit and auditable.
  */
 
-export enum EnvironmentName {
-  DEVELOPMENT = 'development',
-  STAGING = 'staging',
-  PRODUCTION = 'production',
-}
+
 
 export enum ReleaseStatus {
   CREATED = 'CREATED',
@@ -183,48 +183,7 @@ export enum DeploymentStrategy {
   CANARY = 'CANARY',
 }
 
-export interface ReleaseManifest {
-  releaseId: string;
-  version: string;
-  commitSha: string;
-  commitShort: string;
-  branch: string;
-  tag?: string;
-  builtAt: string;
-  builtBy: string;
-  environment: EnvironmentName;
-  backend: {
-    packageVersion: string;
-    buildId: string;
-    imageName: string;
-    imageDigest: string;
-    imageTag: string;
-  };
-  frontend: {
-    webVersion: string;
-    buildId: string;
-    adminWebVersion: string;
-    adminBuildId: string;
-  };
-  schema: {
-    prismaVersion: string;
-    migrationId: string;
-    migrationHistory: string[];
-    schemaHash: string;
-  };
-  artifacts: {
-    sbomDigest?: string;
-    signatureDigest?: string;
-    artifactChecksum: string;
-  };
-  metadata: {
-    nodeVersion: string;
-    npmVersion: string;
-    buildCorrelationId: string;
-    buildDurationMs: number;
-    reproducible: boolean;
-  };
-}
+
 
 export interface DeploymentPlan {
   deploymentId: string;

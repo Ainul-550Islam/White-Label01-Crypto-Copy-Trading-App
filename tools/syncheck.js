@@ -8,15 +8,18 @@
 //
 // It is deliberately NOT a type check. "OK" here means "parses", nothing more.
 //
-// Usage: node /home/user/tools/syncheck.js <file.ts> [more.ts ...]
+// Usage: node tools/syncheck.js <file.ts> [more.ts ...]
 'use strict';
 const fs = require('fs');
 const path = require('path');
 
+const REPOSITORY_ROOT = path.resolve(__dirname, '..');
+const PROJECT_ROOT = path.join(REPOSITORY_ROOT, 'whitelabel-copytrade');
+
 let ts;
 const candidates = [
-  '/home/user/repo/whitelabel-copytrade/node_modules/typescript',
-  '/home/user/repo/whitelabel-copytrade/apps/api/node_modules/typescript',
+  path.join(PROJECT_ROOT, 'node_modules/typescript'),
+  path.join(PROJECT_ROOT, 'apps/api/node_modules/typescript'),
 ];
 for (const c of candidates) {
   try {

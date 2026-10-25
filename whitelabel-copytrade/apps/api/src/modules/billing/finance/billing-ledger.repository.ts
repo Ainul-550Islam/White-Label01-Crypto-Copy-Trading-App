@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import type { LedgerEntry, CreateLedgerEntryInput, CreateLedgerTransactionInput, LedgerFilter, LedgerBalance, LedgerAccountSummary } from './billing-ledger.types';
 import { LedgerEntryType, LedgerAccountCategory, LedgerSourceType, LedgerEntryStatus } from './billing-ledger.types';
-import type { Money } from './money.types';
+
 import { createMoney, parseToMinorUnits, formatFromMinorUnits } from './money.types';
 import { randomUUID } from 'crypto';
 

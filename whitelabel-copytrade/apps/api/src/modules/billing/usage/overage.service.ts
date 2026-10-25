@@ -114,7 +114,7 @@ export class OverageService {
     let estimatedAmount: string | null = null;
     let rateReference: string | null = null;
     let rateBps: number | null = null;
-    let currency: string | null = input.policy.currency || null;
+    const currency: string | null = input.policy.currency || null;
     let status: OverageStatus = OverageStatus.DETECTED;
 
     if (input.policy.overageRateBps && input.policy.overageRateBps > 0) {

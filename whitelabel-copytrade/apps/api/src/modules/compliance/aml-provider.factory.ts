@@ -1,4 +1,6 @@
+// # Responsibility: select configured AML providers and fail closed when no authoritative provider is available.
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { IAmlProvider, ScreenPersonInput, ScreenEntityInput, ScreenTransactionInput, GetScreeningResultInput } from './aml-provider.interface';
 import { AmlState, ComplianceDecision, RiskLevel, AmlScreeningResult } from './compliance.types';
 
@@ -115,7 +117,7 @@ class MockAmlProvider implements IAmlProvider {
 
     return {
       provider: this.providerName,
-      providerReference: `aml_mock_${require('crypto').randomUUID()}`,
+      providerReference: `aml_mock_${randomUUID()}`,
       status: AmlState.REVIEW_REQUIRED,
       decision: ComplianceDecision.REVIEW_REQUIRED,
       riskLevel: RiskLevel.MEDIUM,
@@ -134,7 +136,7 @@ class MockAmlProvider implements IAmlProvider {
   async screenEntity(input: ScreenEntityInput): Promise<AmlScreeningResult> {
     return {
       provider: this.providerName,
-      providerReference: `aml_mock_entity_${require('crypto').randomUUID()}`,
+      providerReference: `aml_mock_entity_${randomUUID()}`,
       status: AmlState.REVIEW_REQUIRED,
       decision: ComplianceDecision.REVIEW_REQUIRED,
       riskLevel: RiskLevel.MEDIUM,
@@ -167,7 +169,7 @@ class MockAmlProvider implements IAmlProvider {
 
     return {
       provider: this.providerName,
-      providerReference: `aml_mock_tx_${require('crypto').randomUUID()}`,
+      providerReference: `aml_mock_tx_${randomUUID()}`,
       status,
       decision,
       riskLevel,

@@ -28,7 +28,7 @@ from wlct_trading.adapters.base import SymbolSpecification
 from wlct_trading.enums import MarketType, OrderSide, OrderType, TimeInForce
 from wlct_trading.execution.engine import ExecutionContext
 from wlct_trading.execution.safety import ComponentHealth
-from wlct_trading.orders import OrderIntent
+from wlct_trading.orders import Order, OrderIntent
 from wlct_trading.risk import KillSwitchState, RiskSnapshot
 
 from app.composition import EngineRuntime
@@ -71,7 +71,12 @@ def _orders_in_last_minute(runtime: EngineRuntime, key: tuple[str, str], now: in
     return len(kept)
 
 
-def record_submission(runtime: EngineRuntime, tenant_id: str, account_id: str, now: int | None = None) -> None:
+def record_submission(
+    runtime: EngineRuntime,
+    tenant_id: str,
+    account_id: str,
+    now: int | None = None,
+) -> None:
     """Count a submission that reached the engine (whatever its verdict)."""
     stamp = _now_micros() if now is None else now
     runtime.submission_windows.setdefault((tenant_id, account_id), []).append(stamp)
@@ -119,7 +124,9 @@ async def prepare_submission(
         price_tick=Decimal(spec_view.price_tick),
         quantity_step=Decimal(spec_view.quantity_step),
         min_quantity=Decimal(spec_view.min_quantity),
-        max_quantity=Decimal(spec_view.max_quantity) if spec_view.max_quantity is not None else None,
+        max_quantity=(
+            Decimal(spec_view.max_quantity) if spec_view.max_quantity is not None else None
+        ),
         min_notional=Decimal(spec_view.min_notional),
         is_tradeable=spec_view.is_tradeable,
         price_precision=spec_view.price_precision,
@@ -147,7 +154,7 @@ async def prepare_submission(
         unknowns.append("no reference price: EXECUTION_SIMULATED_MID is not configured")
 
     # --- open orders from this runtime's store --------------------------------
-    open_orders: tuple = ()
+    open_orders: tuple[Order, ...] = ()
     store_ok = True
     try:
         open_orders = await runtime.store.list_open_orders(body.tenant_id, body.account_id)

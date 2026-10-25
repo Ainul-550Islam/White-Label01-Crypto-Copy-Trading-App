@@ -1,8 +1,9 @@
+// # Responsibility: keep existing tenant/risk calculations and fail-closed source reads while narrowing untrusted decimal values without any bypasses.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
 import { PortfolioExposureService } from './portfolio-exposure.service';
-import { StressTestResult, StressScenario, RiskState, RiskSeverity, StressScenarioType, PortfolioExposure, SymbolExposure } from './risk-management.types';
+import { StressTestResult, StressScenario, RiskState, RiskSeverity, PortfolioExposure, SymbolExposure } from './risk-management.types';
 
 /**
  * Deterministic stress testing against canonical portfolio snapshots.
@@ -13,7 +14,7 @@ import { StressTestResult, StressScenario, RiskState, RiskSeverity, StressScenar
  * - Labeled as control signal, not prediction.
  */
 
-function isValidDecimal(v: any): v is string {
+function isValidDecimal(v: unknown): v is string {
   return typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v);
 }
 const SCALE = 1_000_000_000_000n;
@@ -32,14 +33,6 @@ function formatScaled(b: bigint): string {
   const frac = abs % SCALE;
   const fracStr = frac.toString().padStart(12, '0').replace(/0+$/, '');
   return (neg ? '-' : '') + (fracStr ? `${intP}.${fracStr}` : `${intP}`);
-}
-function mul(a: string, b: string): string {
-  return formatScaled((parseScaled(a) * parseScaled(b)) / SCALE);
-}
-function cmp(a: string, b: string): number {
-  const av = parseScaled(a);
-  const bv = parseScaled(b);
-  return av < bv ? -1 : av > bv ? 1 : 0;
 }
 
 const DEFAULT_SCENARIOS: StressScenario[] = [

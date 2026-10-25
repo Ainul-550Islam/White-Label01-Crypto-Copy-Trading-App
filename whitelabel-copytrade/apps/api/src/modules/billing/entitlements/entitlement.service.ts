@@ -5,20 +5,7 @@
  * creation, updates, feature checks, and usage tracking.
  */
 
-import {
-  Entitlement,
-  EntitlementFeature,
-  EntitlementLimit,
-  CreateEntitlementRequest,
-  UpdateEntitlementRequest,
-  EntitlementFilter,
-  EntitlementSummary,
-  FeatureAccess,
-  UsageRecord,
-  EntitlementCheckResult,
-  EntitlementStatus,
-  EntitlementSource,
-} from './entitlement.types';
+import { Entitlement, EntitlementFeature, EntitlementLimit, CreateEntitlementRequest, UpdateEntitlementRequest, EntitlementFilter, EntitlementSummary, FeatureAccess, UsageRecord, EntitlementCheckResult, EntitlementStatus } from './entitlement.types';
 import { EntitlementPolicy } from './entitlement.policy';
 
 export interface EntitlementRepository {

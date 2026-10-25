@@ -1,3 +1,6 @@
+// # Responsibility: define mobile release states, transitions, and deterministic release identifiers.
+import { createHash } from 'node:crypto';
+
 /**
  * Part 28 — canonical mobile-release vocabulary.
  *
@@ -430,10 +433,6 @@ export function isPlatformReleaseActor(actor: MobileActor): boolean {
 
 /** Deterministic idempotency key material (sha256 of the canonical parts). */
 export function idempotencyKey(...parts: (string | number | null | undefined)[]): string {
-  // Lazy require keeps types.ts import-graph free of node types for consumers
-  // that only want the vocabulary; the crypto module is a Node builtin.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createHash } = require('crypto') as typeof import('crypto');
   return createHash('sha256')
     .update(parts.map((p) => (p === null || p === undefined ? '' : String(p))).join('|'))
     .digest('hex')

@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsNotEmpty, MinLength, IsDateString, Matches } from 'class-validator';
+// # Responsibility: validate funding/withdrawal request inputs as workflows, including object-only metadata.
+import { IsString, IsOptional, IsNotEmpty, MinLength, Matches, IsObject } from 'class-validator';
 
 /**
  * Validated DTOs for deposits, funding requests, withdrawal requests, approvals, rejection reasons,
@@ -35,7 +36,8 @@ export class CreateFundingRequestDto {
   destinationAddress?: string;
 
   @IsOptional()
-  metadata?: any;
+  @IsObject()
+  metadata?: Record<string, unknown>;
 
   // Cannot set completion state — server authoritative
   // The following are NOT allowed as client input:
@@ -78,7 +80,8 @@ export class CreateWithdrawalRequestDto {
   sourceType?: string;
 
   @IsOptional()
-  metadata?: any;
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }
 
 export class TransitionFundingRequestDto {

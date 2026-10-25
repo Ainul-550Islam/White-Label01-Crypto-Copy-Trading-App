@@ -1,0 +1,1081 @@
+
+> @wlct/api@1.0.0 test
+> jest --passWithNoTests --runInBand --json --outputFile=/home/user/API-Green-Followup/api-unit-results-final.json
+
+PASS src/modules/custody/custody-fail-closed.spec.ts (9.804 s)
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=69627ea2-cf2d-4cd2-af84-4499da14579c[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=1eb286d6-0697-4e74-9510-e43a6f204ae4[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=59da1f42-9be1-48f9-a1dc-be9a0e88ea7f[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=7a80b680-2e8e-43dc-a472-56220a461715[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=b4260bd8-f18c-44ed-bcd7-88273648a658[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=4499bfee-20e8-44ba-9b1b-2ac9b041625b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=d10bd226-324a-4625-8b8a-4e298eda5adf[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=d10bd226-324a-4625-8b8a-4e298eda5adf[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SESSION_CREATED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=d10bd226-324a-4625-8b8a-4e298eda5adf[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_SUCCEEDED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=d10bd226-324a-4625-8b8a-4e298eda5adf[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=47e8797a-ac0b-47be-a3fd-a16810a21850 reason=STATE_UNKNOWN[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=47e8797a-ac0b-47be-a3fd-a16810a21850 reason=STATE_UNKNOWN[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=d17977d8-d5f4-4589-8ff0-8773e5b08fa0[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=d17977d8-d5f4-4589-8ff0-8773e5b08fa0[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=d17977d8-d5f4-4589-8ff0-8773e5b08fa0 reason=STATE_EXPIRED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:58:59 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=d17977d8-d5f4-4589-8ff0-8773e5b08fa0 reason=STATE_EXPIRED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=f5d547e7-dc68-4ba2-b60c-1d1c5b6ca154[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=f5d547e7-dc68-4ba2-b60c-1d1c5b6ca154[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SESSION_CREATED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=f5d547e7-dc68-4ba2-b60c-1d1c5b6ca154[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_SUCCEEDED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=f5d547e7-dc68-4ba2-b60c-1d1c5b6ca154[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=f5d547e7-dc68-4ba2-b60c-1d1c5b6ca154[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_REPLAY_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=f5d547e7-dc68-4ba2-b60c-1d1c5b6ca154 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=f5d547e7-dc68-4ba2-b60c-1d1c5b6ca154 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=3584e19b-e6ea-4585-a81e-6374c465b6cc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=3584e19b-e6ea-4585-a81e-6374c465b6cc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=3584e19b-e6ea-4585-a81e-6374c465b6cc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_REPLAY_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=3584e19b-e6ea-4585-a81e-6374c465b6cc reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=3584e19b-e6ea-4585-a81e-6374c465b6cc reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SESSION_CREATED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=3584e19b-e6ea-4585-a81e-6374c465b6cc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_SUCCEEDED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=3584e19b-e6ea-4585-a81e-6374c465b6cc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=8d07e88d-62e3-4811-b9c6-4c462046968d[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=8d07e88d-62e3-4811-b9c6-4c462046968d[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=8d07e88d-62e3-4811-b9c6-4c462046968d reason=PROVIDER_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=8d07e88d-62e3-4811-b9c6-4c462046968d reason=PROVIDER_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=af03dc60-3e73-483a-9a94-7b929c0badfc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=99999999-9999-4999-8999-999999999999 correlation=03286a32-037c-4096-9c62-cdfdda8b6dce[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_TENANT_MISMATCH outcome=FAILURE tenant=99999999-9999-4999-8999-999999999999 correlation=03286a32-037c-4096-9c62-cdfdda8b6dce reason=TENANT_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=99999999-9999-4999-8999-999999999999 correlation=03286a32-037c-4096-9c62-cdfdda8b6dce reason=TENANT_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=af03dc60-3e73-483a-9a94-7b929c0badfc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SESSION_CREATED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=af03dc60-3e73-483a-9a94-7b929c0badfc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_SUCCEEDED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=af03dc60-3e73-483a-9a94-7b929c0badfc[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=6a9d1434-ca49-4b68-a19b-23c50c675a43[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=6a9d1434-ca49-4b68-a19b-23c50c675a43[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_IDENTITY_MAPPING_FAILED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=6a9d1434-ca49-4b68-a19b-23c50c675a43 reason=JIT_DISABLED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=6a9d1434-ca49-4b68-a19b-23c50c675a43 reason=JIT_DISABLED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=8af13cf0-233c-46c8-8028-2b6716e458f3[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=8af13cf0-233c-46c8-8028-2b6716e458f3[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_TENANT_MISMATCH outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=8af13cf0-233c-46c8-8028-2b6716e458f3 reason=USER_TENANT_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=8af13cf0-233c-46c8-8028-2b6716e458f3 reason=USER_TENANT_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=59d07e01-578e-452f-9290-6e5036fe85ae[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=59d07e01-578e-452f-9290-6e5036fe85ae[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_IDENTITY_MAPPING_FAILED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=59d07e01-578e-452f-9290-6e5036fe85ae reason=ACCOUNT_UNAVAILABLE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=59d07e01-578e-452f-9290-6e5036fe85ae reason=ACCOUNT_UNAVAILABLE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=ec3294df-a63b-4fbb-953d-b400010c255d[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=91c10d48-6130-47d9-a326-ffec4475ecc3[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=91c10d48-6130-47d9-a326-ffec4475ecc3[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_PKCE_FAILURE outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=91c10d48-6130-47d9-a326-ffec4475ecc3 reason=PKCE_FAILED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=91c10d48-6130-47d9-a326-ffec4475ecc3 reason=PKCE_FAILED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=56a7ab77-de60-448a-b1c8-ff6151fa1e31[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=56a7ab77-de60-448a-b1c8-ff6151fa1e31[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_NONCE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=56a7ab77-de60-448a-b1c8-ff6151fa1e31 reason=NONCE_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=56a7ab77-de60-448a-b1c8-ff6151fa1e31 reason=NONCE_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=30c4241c-0c37-442b-937d-0f7fe0677a40[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=30c4241c-0c37-442b-937d-0f7fe0677a40[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SESSION_CREATED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=30c4241c-0c37-442b-937d-0f7fe0677a40[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_SUCCEEDED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=30c4241c-0c37-442b-937d-0f7fe0677a40[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=30c4241c-0c37-442b-937d-0f7fe0677a40[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_REPLAY_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=30c4241c-0c37-442b-937d-0f7fe0677a40 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:00 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=30c4241c-0c37-442b-937d-0f7fe0677a40 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=9bd19c78-c31f-4b3b-889f-fedac4af91e4[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=9bd19c78-c31f-4b3b-889f-fedac4af91e4[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=9bd19c78-c31f-4b3b-889f-fedac4af91e4 reason=DEVICE_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=9bd19c78-c31f-4b3b-889f-fedac4af91e4 reason=DEVICE_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=bc603b9d-862c-459c-8364-c382a936e51f[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=bc603b9d-862c-459c-8364-c382a936e51f[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=bc603b9d-862c-459c-8364-c382a936e51f reason=DEVICE_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=bc603b9d-862c-459c-8364-c382a936e51f reason=DEVICE_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=bc603b9d-862c-459c-8364-c382a936e51f[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_REPLAY_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=bc603b9d-862c-459c-8364-c382a936e51f reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=bc603b9d-862c-459c-8364-c382a936e51f reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=a001630c-266d-4eea-b03f-29539ecf3e52[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=a001630c-266d-4eea-b03f-29539ecf3e52[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SESSION_CREATED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=a001630c-266d-4eea-b03f-29539ecf3e52[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_SUCCEEDED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=a001630c-266d-4eea-b03f-29539ecf3e52[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=255ddaf4-b4f0-4924-a433-0beea7dc32ef[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=255ddaf4-b4f0-4924-a433-0beea7dc32ef[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=255ddaf4-b4f0-4924-a433-0beea7dc32ef reason=CONFIG_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=cb104253-5d0f-41e6-87e7-8b91ed72e5ee[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=cb104253-5d0f-41e6-87e7-8b91ed72e5ee[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=cb104253-5d0f-41e6-87e7-8b91ed72e5ee reason=PROVIDER_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=cb104253-5d0f-41e6-87e7-8b91ed72e5ee reason=PROVIDER_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=5c956ad1-cf34-40c0-93aa-3d37dab40669[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=5c956ad1-cf34-40c0-93aa-3d37dab40669[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=5c956ad1-cf34-40c0-93aa-3d37dab40669 reason=PROVIDER_DISABLED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=d6fc873d-0c8d-43c6-86a2-5470521b3959 reason=PROVIDER_DISABLED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=a573e51e-b2ee-4daf-9dbe-95c0fec967c5[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=a573e51e-b2ee-4daf-9dbe-95c0fec967c5[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_TOKEN_VALIDATION_FAILED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=a573e51e-b2ee-4daf-9dbe-95c0fec967c5 reason=IDP_ERROR[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=a573e51e-b2ee-4daf-9dbe-95c0fec967c5 reason=IDP_ERROR[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=a573e51e-b2ee-4daf-9dbe-95c0fec967c5[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_REPLAY_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=a573e51e-b2ee-4daf-9dbe-95c0fec967c5 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=a573e51e-b2ee-4daf-9dbe-95c0fec967c5 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=21149e9b-080b-4a28-8d60-d8f79e60c882[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=21149e9b-080b-4a28-8d60-d8f79e60c882[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_PROVIDER_UNAVAILABLE outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=21149e9b-080b-4a28-8d60-d8f79e60c882 reason=PROVIDER_UNAVAILABLE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=21149e9b-080b-4a28-8d60-d8f79e60c882 reason=PROVIDER_UNAVAILABLE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_PROVIDER_UNAVAILABLE outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=81ffdad7-3798-442e-9933-a65f0bc16eef reason=PROVIDER_UNAVAILABLE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=81ffdad7-3798-442e-9933-a65f0bc16eef reason=PROVIDER_UNAVAILABLE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=9d003b2f-17c1-4d38-b378-dfe878e7256b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=9d003b2f-17c1-4d38-b378-dfe878e7256b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_IDENTITY_MAPPING_FAILED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=9d003b2f-17c1-4d38-b378-dfe878e7256b reason=IDENTITY_CONFLICT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=9d003b2f-17c1-4d38-b378-dfe878e7256b reason=IDENTITY_CONFLICT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=d2818ae6-05b5-4a94-889c-b3960322688b reason=RETURN_TO_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=04135bc6-fa99-4fb9-9a0a-4b23315f3b29 reason=RETURN_TO_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=b3ad10df-2fd7-402e-a54d-a5723be53c9f reason=RETURN_TO_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:01 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=8d5b1c0d-fc54-4b78-b0ea-c3cea15c9e71 reason=RETURN_TO_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=6fbc4a28-e865-4978-a32e-01d1cdfc737c[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=a20d9d04-3d11-4867-b825-5f69164d8639[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=26734d28-d232-4488-8434-73b2f02f6349[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=0f2ef897-9d1d-4147-a77d-a997103dc1c5[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=23568ec4-c744-405d-8557-3ebae2959025[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=d3cc64fa-48c7-4e2f-ba75-3eff6a76ff75[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=3e94d2ed-66eb-4f03-9795-702efd6240e3[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=e9843f1c-1fea-497e-8f93-8f0829d169ea[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=4cacac42-0667-4c4a-bbe4-0d280ddd3670[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=dcae44e4-875f-4d06-8ded-8f32921b1f84[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=ca8a37c1-ca50-4f19-b9cb-4b8ac93c8186 reason=TOO_MANY_PENDING[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=73dea201-b670-4ba1-bfc4-963a343900bf[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=49a2f193-d85f-4ac2-9f0a-546c5eade4e1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=8af8e411-aa4d-429c-af24-a50100d9a4e9[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=8af8e411-aa4d-429c-af24-a50100d9a4e9[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SESSION_CREATED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=8af8e411-aa4d-429c-af24-a50100d9a4e9[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_SUCCEEDED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=8af8e411-aa4d-429c-af24-a50100d9a4e9[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=2401b6e7-cddd-4b51-bf59-068808b06302[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=2401b6e7-cddd-4b51-bf59-068808b06302[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=2401b6e7-cddd-4b51-bf59-068808b06302 reason=SESSION_ISSUANCE_FAILED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=84692c36-659f-42c9-9099-add1b195fc63[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=84692c36-659f-42c9-9099-add1b195fc63[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_MFA_CHALLENGE_ISSUED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=84692c36-659f-42c9-9099-add1b195fc63[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=4b99674e-d540-470f-b17f-476a5aefe8b5[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=e0e20288-af65-4d06-9621-b649567bcb75[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=daed559b-101c-4f4c-b0a1-ccaeb7c29f77[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:02 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=d4fc3788-890a-418a-b78a-1a0e1af0f087[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=09f93064-b61d-43e7-9961-0ade34934bcf reason=PROVIDER_NOT_CONFIGURED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=3291322d-b7f1-4e8a-9cfe-05e9a431246e reason=PROVIDER_NOT_CONFIGURED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_ASSERTION_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=dd75f60b-d414-47ad-a1ea-66610a903f81 reason=SAML_DISABLED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=dd75f60b-d414-47ad-a1ea-66610a903f81 reason=SAML_DISABLED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=020ee699-9ad7-49f5-ae09-2142d08e997f reason=STATE_MISSING[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=020ee699-9ad7-49f5-ae09-2142d08e997f reason=STATE_MISSING[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=f4e8e4d5-bdc2-4dab-87a9-5cfa7c7bef2a reason=STATE_UNKNOWN[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=f4e8e4d5-bdc2-4dab-87a9-5cfa7c7bef2a reason=STATE_UNKNOWN[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=c363a488-8e61-4cba-a793-220d38991672[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=c363a488-8e61-4cba-a793-220d38991672[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=c363a488-8e61-4cba-a793-220d38991672 reason=CONFIG_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_ASSERTION_VERIFIED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=6c4a4e0a-f1d2-4636-b3ee-d412722a212c[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=6c4a4e0a-f1d2-4636-b3ee-d412722a212c[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_ASSERTION_VERIFIED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=6c4a4e0a-f1d2-4636-b3ee-d412722a212c[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=6c4a4e0a-f1d2-4636-b3ee-d412722a212c[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=6c4a4e0a-f1d2-4636-b3ee-d412722a212c reason=BINDING_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=6c4a4e0a-f1d2-4636-b3ee-d412722a212c reason=BINDING_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=94396c13-46db-4315-8b4c-5053fb695d59[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=94396c13-46db-4315-8b4c-5053fb695d59[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_ASSERTION_VERIFIED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=94396c13-46db-4315-8b4c-5053fb695d59[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=94396c13-46db-4315-8b4c-5053fb695d59[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=94396c13-46db-4315-8b4c-5053fb695d59 reason=HANDOFF_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=94396c13-46db-4315-8b4c-5053fb695d59 reason=HANDOFF_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SESSION_CREATED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_SUCCEEDED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_REPLAY_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=9d211171-fbd8-4f53-9909-c90bfec5b227 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=7a83c5f2-a904-439b-949a-771697db6410[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=7a83c5f2-a904-439b-949a-771697db6410[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_ASSERTION_VERIFIED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=7a83c5f2-a904-439b-949a-771697db6410[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=7a83c5f2-a904-439b-949a-771697db6410[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_REPLAY_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=7a83c5f2-a904-439b-949a-771697db6410 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=7a83c5f2-a904-439b-949a-771697db6410 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=52bb6963-c9bd-4203-88f7-b415b257bfd8[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=52bb6963-c9bd-4203-88f7-b415b257bfd8[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_ASSERTION_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=52bb6963-c9bd-4203-88f7-b415b257bfd8 reason=SAML_IN_RESPONSE_TO_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=52bb6963-c9bd-4203-88f7-b415b257bfd8 reason=SAML_IN_RESPONSE_TO_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=6f12442b-bad4-460e-a13f-b4f314dcde32[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=6f12442b-bad4-460e-a13f-b4f314dcde32[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_REPLAY_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=6f12442b-bad4-460e-a13f-b4f314dcde32 reason=SAML_REPLAY[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=6f12442b-bad4-460e-a13f-b4f314dcde32 reason=SAML_REPLAY[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_AUTHORIZATION_STARTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=0deab862-2923-4b9b-91a1-680f4b278113[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=0deab862-2923-4b9b-91a1-680f4b278113[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_ASSERTION_VERIFIED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=0deab862-2923-4b9b-91a1-680f4b278113[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_CALLBACK_RECEIVED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=0deab862-2923-4b9b-91a1-680f4b278113[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=0deab862-2923-4b9b-91a1-680f4b278113 reason=STATE_EXPIRED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:03 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=0deab862-2923-4b9b-91a1-680f4b278113 reason=STATE_EXPIRED[39m
+PASS src/modules/auth/sso/sso-login.service.spec.ts (7.059 s)
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:04 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=c5738118-cf6b-4412-b90d-42184053b93e reason=STATE_UNKNOWN[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:04 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=c5738118-cf6b-4412-b90d-42184053b93e reason=STATE_UNKNOWN[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:04 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_STATE_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=92809f52-0444-4b0e-a7dc-b4e781680282 reason=STATE_MISSING[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:04 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_LOGIN_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=92809f52-0444-4b0e-a7dc-b4e781680282 reason=STATE_MISSING[39m
+PASS src/modules/worker/worker.spec.ts
+PASS src/modules/developer-platform/developer.contract.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 12:59:09 PM [31m  ERROR[39m [38;5;3m[ExchangeCredentialService] [39m[31mFailed to encrypt credential tenant=11111111-1111-4111-8111-111111111111 account=account-1 error=Error[39m
+[31m[Nest] 2264  - [39m10/25/2026, 12:59:09 PM [31m  ERROR[39m [38;5;3m[ExchangeCredentialService] [39m[31mFailed to persist credential reference tenant=11111111-1111-4111-8111-111111111111 account=account-1 error=Error[39m
+[31m[Nest] 2264  - [39m10/25/2026, 12:59:09 PM [31m  ERROR[39m [38;5;3m[ExchangeCredentialService] [39m[31mFailed to decrypt credentials tenant=11111111-1111-4111-8111-111111111111 account=account-1 error=Error[39m
+[31m[Nest] 2264  - [39m10/25/2026, 12:59:09 PM [31m  ERROR[39m [38;5;3m[ExchangeCredentialService] [39m[31mFailed to revoke credential tenant=11111111-1111-4111-8111-111111111111 account=account-1 error=Error[39m
+PASS src/modules/exchanges/exchange-health.fail-closed.spec.ts
+PASS src/modules/governance/compliance-report.fail-closed.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=d1f33e9f-bc73-4b56-b418-6196e5ae1ace[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=588a68d0-c424-4124-813d-ec69799390d3[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=e504c2cd-84c7-4cbb-87fc-d49282ad6c89[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_COMPLETED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=e504c2cd-84c7-4cbb-87fc-d49282ad6c89[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=e504c2cd-84c7-4cbb-87fc-d49282ad6c89 reason=STATE_CONSUMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=344cbf40-39c3-41c3-bb1c-d5d4f2650a7e[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=344cbf40-39c3-41c3-bb1c-d5d4f2650a7e reason=SAML_SIGNATURE_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=94700693-891b-42f5-9e2e-81c3fecb7def[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=94700693-891b-42f5-9e2e-81c3fecb7def reason=SAML_SIGNATURE_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=167001eb-0160-4fa7-8633-6d7b534e9a95[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=167001eb-0160-4fa7-8633-6d7b534e9a95 reason=SAML_SIGNATURE_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=db70321f-5040-4fb3-9bdb-b1a26d9dbe25[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=db70321f-5040-4fb3-9bdb-b1a26d9dbe25 reason=SAML_IN_RESPONSE_TO_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=39b8ff83-199b-4a3b-b51c-15730f1cb9f9[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=39b8ff83-199b-4a3b-b51c-15730f1cb9f9 reason=SAML_IN_RESPONSE_TO_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=cf6643cf-3a0c-4237-9044-65ccc4b22e68[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=cf6643cf-3a0c-4237-9044-65ccc4b22e68 reason=SAML_STATUS_NOT_SUCCESS[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=3b707426-00bb-488b-a4ea-c3767dcc9191[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=3b707426-00bb-488b-a4ea-c3767dcc9191 reason=SAML_DESTINATION_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=1ea58345-2060-4d56-94ee-3774c48471c7[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=1ea58345-2060-4d56-94ee-3774c48471c7 reason=SAML_ISSUER_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=4616f5c6-36af-466f-a510-66b77c12c201[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=4b86bc63-0acf-45d6-9753-a5bc8bb65d15[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=4b86bc63-0acf-45d6-9753-a5bc8bb65d15 reason=SAML_SIGNATURE_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=75267c93-309b-46ec-9bea-4715eefd9d7c[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=99999999-9999-4999-8999-999999999999 correlation=a4a3a121-c3fe-4be1-853f-35f5897bed19 reason=TENANT_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REQUESTED outcome=INFO tenant=11111111-1111-4111-8111-111111111111 correlation=7da32f68-5b4b-4e76-9445-ae37b866cb12[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=0553111a-c062-4e9e-b23d-06ebbe2af2e1 reason=STATE_MISSING[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=92e5aa26-330f-430f-b05f-5df182c87d8d reason=STATE_UNKNOWN[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_NOT_CONFIGURED[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_NOT_CONFIGURED[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_NOT_CONFIGURED[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_NOT_CONFIGURED[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_NOT_CONFIGURED[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_NOT_CONFIGURED[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=PROVIDER_NOT_CONFIGURED[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_CONTEXT_MISSING[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_CONTEXT_MISSING[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_IDP_LOGOUT_COMPLETED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=62ad820c-80da-432d-9ebd-a0c66f26d0f9[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_IDP_LOGOUT_COMPLETED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=9070c21f-1c4b-4450-ace6-efdf69fb382b[39m
+PASS src/modules/auth/sso/saml-single-logout.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_IDP_LOGOUT_COMPLETED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=eda93d48-b1fc-4c74-b2cd-818ba87b4760[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_IDP_LOGOUT_COMPLETED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=b29ea4e6-ff5b-4288-b180-383ba6409627[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_IDP_LOGOUT_COMPLETED outcome=SUCCESS tenant=11111111-1111-4111-8111-111111111111 correlation=868845d1-00ae-4155-9e5e-6e61eb2ae55c[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=11a01fb1-c876-4bb0-832d-ba65d94b2545 reason=SAML_REPLAY[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=7b3d6594-17d3-479b-8278-2f356222cc79 reason=SAML_SIGNATURE_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=20353464-cf53-43a4-a01e-4b0ca80b2bb5 reason=SAML_SIGNATURE_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=1539c424-fed9-411f-b791-cc689b5e8e13 reason=SAML_SIGNATURE_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=96ea0ebb-4e89-49c6-8c80-55d6e6072501 reason=SAML_SIGNATURE_INVALID[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=fe2c6763-9821-4b1f-ac09-ea3ff1f5d5c0 reason=SAML_DESTINATION_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=8b96663b-22e5-4d34-9e8c-c02a3eb91174 reason=SAML_ISSUER_MISMATCH[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=99999999-9999-4999-8999-999999999999 correlation=87f967c4-3f81-4403-9666-de5e88a99576 reason=PROVIDER_NOT_CONFIGURED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=8d0c1d86-9af4-48d3-9cbe-6d8277dbfbf7 reason=SAML_MALFORMED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=3a9a7db9-27bd-4f7d-ad74-7c7db8c4a546 reason=SAML_EXPIRED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=0a333863-364f-4109-890d-4c76fc2a15d7 reason=SAML_EXPIRED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:10 PM [32m    LOG[39m [38;5;3m[SsoAuditService] [39m[32msso.audit event=SSO_SAML_LOGOUT_REJECTED outcome=FAILURE tenant=11111111-1111-4111-8111-111111111111 correlation=0416cf87-7c87-47d6-a5e6-86b85f7d7ff0 reason=SAML_SLO_NOT_CONFIGURED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[AccountingAdjustmentService] [39mObject(5) {
+  event: [32m'portfolio.adjustment.created'[39m,
+  tenantId: [32m'87e729be-17af-4fd5-aed9-072eed494227'[39m,
+  profileId: [32m'1fc402ff-f469-456b-84a8-a474256c2753'[39m,
+  adjustmentType: [32m'MANUAL_ADJUSTMENT'[39m,
+  originalEventId: [1mnull[22m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[AccountingAdjustmentService] [39mObject(5) {
+  event: [32m'portfolio.adjustment.created'[39m,
+  tenantId: [32m'87e729be-17af-4fd5-aed9-072eed494227'[39m,
+  profileId: [32m'1fc402ff-f469-456b-84a8-a474256c2753'[39m,
+  adjustmentType: [32m'REVERSAL'[39m,
+  originalEventId: [32m'5bb19092-46b9-4eef-a568-dd863cc74897'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[PortfolioSnapshotService] [39mObject(4) {
+  event: [32m'portfolio.snapshot.created'[39m,
+  snapshotId: [32m'snap_87e729be_1fc402ff_2026-09-30T00-00-00-000Z'[39m,
+  tenantId: [32m'87e729be-17af-4fd5-aed9-072eed494227'[39m,
+  nav: [32m'1000'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[AccountingPeriodService] [39mObject(4) {
+  event: [32m'portfolio.period.created'[39m,
+  tenantId: [32m'87e729be-17af-4fd5-aed9-072eed494227'[39m,
+  profileId: [32m'1fc402ff-f469-456b-84a8-a474256c2753'[39m,
+  periodId: [32m'ccae0db6-2654-4f0f-9656-62ef3f9a9aa7'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[AccountingPeriodService] [39mObject(4) {
+  event: [32m'portfolio.period.transition'[39m,
+  periodId: [32m'ccae0db6-2654-4f0f-9656-62ef3f9a9aa7'[39m,
+  from: [32m'OPEN'[39m,
+  to: [32m'CLOSING'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[AccountingPeriodService] [39mObject(4) {
+  event: [32m'portfolio.period.transition'[39m,
+  periodId: [32m'ccae0db6-2654-4f0f-9656-62ef3f9a9aa7'[39m,
+  from: [32m'CLOSING'[39m,
+  to: [32m'OPEN'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[AccountingPeriodService] [39mObject(4) {
+  event: [32m'portfolio.period.transition'[39m,
+  periodId: [32m'ccae0db6-2654-4f0f-9656-62ef3f9a9aa7'[39m,
+  from: [32m'OPEN'[39m,
+  to: [32m'CLOSING'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[PortfolioSnapshotService] [39mObject(4) {
+  event: [32m'portfolio.snapshot.created'[39m,
+  snapshotId: [32m'snap_87e729be_1fc402ff_2026-09-30T00-00-00-000Z'[39m,
+  tenantId: [32m'87e729be-17af-4fd5-aed9-072eed494227'[39m,
+  nav: [32m'1000'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[AccountingPeriodService] [39mObject(4) {
+  event: [32m'portfolio.period.transition'[39m,
+  periodId: [32m'ccae0db6-2654-4f0f-9656-62ef3f9a9aa7'[39m,
+  from: [32m'CLOSING'[39m,
+  to: [32m'CLOSED'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[PeriodCloseService] [39mObject(3) {
+  event: [32m'portfolio.period.closed'[39m,
+  periodId: [32m'ccae0db6-2654-4f0f-9656-62ef3f9a9aa7'[39m,
+  nav: [32m'1000'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:12 PM [32m    LOG[39m [38;5;3m[LifecycleNotificationService] [39mObject(7) {
+  event: [32m'client.notification.ACCOUNT_SUSPENDED'[39m,
+  tenantId: [32m'87e729be-17af-4fd5-aed9-072eed494227'[39m,
+  clientProfileId: [1mnull[22m,
+  accountId: [32m'acc-2'[39m,
+  recipientId: [1mnull[22m,
+  payload: {
+    reason: [32m'No recipient'[39m
+  },
+  note: [32m'Emitted via existing notification infrastructure'[39m
+}
+PASS src/infrastructure/prisma/prisma-persistence-contract.spec.ts
+PASS src/infrastructure/outbox/domain-event-producers.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:14 PM [32m    LOG[39m [38;5;3m[FundingRequestService] [39mObject(5) {
+  event: [32m'client.funding.requested'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  accountId: [32m'account-one'[39m,
+  requestedAmount: [32m'25.75'[39m,
+  currency: [32m'USD'[39m
+}
+[95m[Nest] 2264  - [39m10/25/2026, 12:59:14 PM [95m  DEBUG[39m [38;5;3m[WithdrawalRequestService] [39mObject(5) {
+  event: [32m'client.withdrawal.balance_check'[39m,
+  accountId: [32m'account-one'[39m,
+  requestedAmount: [32m'8.25'[39m,
+  currency: [32m'USD'[39m,
+  note: [32m'Would check authoritative balance from Finance/Exchange'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:14 PM [32m    LOG[39m [38;5;3m[WithdrawalRequestService] [39mObject(5) {
+  event: [32m'client.withdrawal.requested'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  accountId: [32m'account-one'[39m,
+  requestedAmount: [32m'8.25'[39m,
+  currency: [32m'USD'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:14 PM [32m    LOG[39m [38;5;3m[WithdrawalRequestService] [39mObject(3) {
+  event: [32m'client.withdrawal.confirmed_external'[39m,
+  withdrawalRequestId: [32m'withdrawal-confirmed'[39m,
+  note: [32m'Settlement delegated to authoritative payment/custody/exchange integration, not direct transfer'[39m
+}
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:14 PM [33m   WARN[39m [38;5;3m[KillSwitchOrchestratorService] [39m[33mKill-switch ENGAGED scope ACCOUNT target account-one reason Risk threshold breached and trading must stop immediately id kill-switch-one[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:14 PM [32m    LOG[39m [38;5;3m[KillSwitchOrchestratorService] [39m[32mKill-switch CLEARED scope ACCOUNT target account-one id kill-switch-one by admin-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:14 PM [32m    LOG[39m [38;5;3m[FeeSettlementService] [39m[32mSettlement finalized id=settlement-one tenant=11111111-1111-4111-8111-111111111111 amount=20.00[39m
+PASS src/modules/billing/fees/fees-phase3.spec.ts
+PASS src/modules/exchanges/venue-providers.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue BINANCE display=Binance[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue BYBIT display=Bybit[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue OKX display=OKX[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue KRAKEN display=Kraken[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue COINBASE display=Coinbase Advanced Trade[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [33m   WARN[39m [38;5;3m[ExchangeProviderFactory] [39m[33mAttempt to register provider for unsupported venue OTHER_CONFIGURED - allowed only if explicitly configured[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue OTHER_CONFIGURED display=Other Configured Exchange[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered 6 exchange providers: BINANCE, BYBIT, OKX, KRAKEN, COINBASE, OTHER_CONFIGURED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue BINANCE display=Binance[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue BYBIT display=Bybit[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue OKX display=OKX[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue KRAKEN display=Kraken[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue COINBASE display=Coinbase Advanced Trade[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [33m   WARN[39m [38;5;3m[ExchangeProviderFactory] [39m[33mAttempt to register provider for unsupported venue OTHER_CONFIGURED - allowed only if explicitly configured[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue OTHER_CONFIGURED display=Other Configured Exchange[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:18 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered 6 exchange providers: BINANCE, BYBIT, OKX, KRAKEN, COINBASE, OTHER_CONFIGURED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:19 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue BINANCE display=Binance[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:19 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue BYBIT display=Bybit[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:19 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue OKX display=OKX[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:19 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue KRAKEN display=Kraken[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:19 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue COINBASE display=Coinbase Advanced Trade[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:19 PM [33m   WARN[39m [38;5;3m[ExchangeProviderFactory] [39m[33mAttempt to register provider for unsupported venue OTHER_CONFIGURED - allowed only if explicitly configured[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:19 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered provider for venue OTHER_CONFIGURED display=Other Configured Exchange[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:19 PM [32m    LOG[39m [38;5;3m[ExchangeProviderFactory] [39m[32mRegistered 6 exchange providers: BINANCE, BYBIT, OKX, KRAKEN, COINBASE, OTHER_CONFIGURED[39m
+PASS src/modules/exchanges/venues/venue-providers.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 12:59:22 PM [31m  ERROR[39m [38;5;3m[CopyExecutionRepository] [39m[31mTerminal copy execution state and outbox event were rolled back id=execution-1 tenant=11111111-1111-4111-8111-111111111111[39m
+PASS src/infrastructure/outbox/outbox.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:22 PM [33m   WARN[39m [38;5;3m[OutboxRelayProcessor] [39mObject(6) {
+  event: [32m'outbox.retry_scheduled'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  outboxEventId: [32m'65e21a9f-c1aa-415b-ae59-47aea6ff2787'[39m,
+  attempts: [33m1[39m,
+  errorCode: [32m'ERROR'[39m,
+  updated: [33mtrue[39m
+}
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:22 PM [33m   WARN[39m [38;5;3m[OutboxRelayProcessor] [39m[33mOutbox event retry scheduled[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:22 PM [33m   WARN[39m [38;5;3m[OutboxRelayProcessor] [39mObject(6) {
+  event: [32m'outbox.dead_lettered'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  outboxEventId: [32m'e8eb3d99-00a9-432b-b3cf-d188086201e3'[39m,
+  attempts: [33m12[39m,
+  errorCode: [32m'ERROR'[39m,
+  updated: [33mtrue[39m
+}
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:22 PM [33m   WARN[39m [38;5;3m[OutboxRelayProcessor] [39m[33mOutbox event moved to dead-letter state[39m
+PASS src/modules/observability/observability-safety.spec.ts
+PASS src/modules/risk/risk-safety.spec.ts
+PASS src/modules/developer-platform/webhook.contract.spec.ts (6.768 s)
+PASS src/infrastructure/coordination/coordination.spec.ts
+PASS src/modules/observability/part10-safety.spec.ts
+PASS src/modules/observability/slo-parity.spec.ts
+PASS src/modules/observability/alerts.service.spec.ts
+PASS src/modules/risk/concentration-risk.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:41 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:41 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:41 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:41 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+PASS src/modules/security/saml-provider.service.spec.ts
+PASS src/modules/auth/auth.service.sso.spec.ts
+PASS src/modules/datasets/datasets-safety.spec.ts
+PASS src/modules/governance/compliance-report.contract.spec.ts
+PASS src/modules/copy-trading/copy-execution.dispatch.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mCopy execution created tenant=tenant-1 execution=exec-1 follower=user-f qty=0.02[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy execution exec-1 routing REJECTED: OMS_ROUTING_REJECTED: Live gate BLOCK[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy execution exec-1 intent refused: OMS_INTENT_REFUSED: Risk blocked: DAILY_LOSS[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy execution exec-1 routing FAILED: OMS_ROUTING_FAILED: redis down[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by compliance trader=trader-1 user=trader-user-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mCopy execution created tenant=tenant-1 execution=exec-1 follower=user-f qty=0.02[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: trader trader-1 is SUSPENDED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: trader trader-1 is REJECTED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: trader profile not found tenant=tenant-1 trader=trader-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: compliance lookup failed trader=trader-1: compliance lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: exchange health unavailable tenant=tenant-1: health lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: kill switch lookup failed tenant=tenant-1: killSwitch lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: maintenance lookup failed tenant=tenant-1: maintenance lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by trading maintenance tenant=tenant-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: venue BINANCE unavailable tenant=tenant-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mCopy execution created tenant=tenant-1 execution=exec-1 follower=user-f qty=0.02[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy blocked for subscription sub-1: FOLLOWER_ACCOUNT_UNREADABLE: followerAccount lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=GLOBAL target=-[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=GLOBAL target=-[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=EXCHANGE target=binance[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=EXCHANGE target=BINANCE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=STRATEGY target=strat-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=SYMBOL target=BTC/USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=SYMBOL target=BTCUSDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=SYMBOL target=-[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=SOMETHING_NEW target=x[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mCopy execution created tenant=tenant-1 execution=exec-1 follower=user-f qty=0.02[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy blocked by kill switch tenant=tenant-1 sub=sub-1 scope=ACCOUNT target=acct-f[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:45 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy blocked by kill switch tenant=tenant-1 sub=sub-1 scope=RISK target=account:acct-f[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[PayoutRepository] [39m[32mIdempotent payout return by idempotencyKey: k-shared[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[BillingLedgerRepository] [39m[32mLedger entry created: 9387226a-8b79-4307-8e34-eae1e2066875 CREDIT 5.00 USD REVENUE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[BillingLedgerRepository] [39m[32mLedger entry created: 0a4433f8-d1fc-4418-98bb-665476783c4b CREDIT 5.00 USD REVENUE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[BillingLedgerRepository] [39m[32mLedger entry created: dc096a2e-1aa3-4ec0-a051-c46062383d4f CREDIT 5.00 USD REVENUE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[BillingLedgerRepository] [39m[32mLedger entry created: 59211ff0-5e74-44f2-a845-9123328ca86f CREDIT 5.00 USD REVENUE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[BillingLedgerRepository] [39m[32mIdempotent ledger entry return: k-shared[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[NotificationJobRepository] [39m[32mIdempotent notification job return by key: k-shared[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[UsageEventRepository] [39m[32mIdempotent event return by idempotencyKey: k-shared[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[ComplianceCaseRepository] [39m[32mCompliance case created id=4a71595c-0e6e-418a-8af7-30e527020872 tenant=11111111-1111-4111-8111-111111111111 type=AML_REVIEW[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[ComplianceCaseRepository] [39m[32mCompliance case created id=52d5a3ff-b6ba-46d7-9d38-f586cb76f4c0 tenant=22222222-2222-4222-8222-222222222222 type=AML_REVIEW[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[ComplianceCaseRepository] [39m[32mCompliance case created id=63933cf5-0a35-4a63-b578-0c462db476cc tenant=11111111-1111-4111-8111-111111111111 type=AML_REVIEW[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[ComplianceCaseRepository] [39m[32mCompliance case created id=f199feab-e1a6-4ec5-89fb-a95951adbb36 tenant=22222222-2222-4222-8222-222222222222 type=AML_REVIEW[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[ComplianceCaseRepository] [39m[32mIdempotent case return key=k-shared[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[ClientProfileRepository] [39mObject(2) {
+  event: [32m'client.profile.idempotent_hit'[39m,
+  idempotencyKey: [32m'k-shared'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopySubscriptionRepository] [39m[32mCopy subscription created id=dbc64f36-087c-4a2c-945b-1ecad99eb8b5 tenant=11111111-1111-4111-8111-111111111111 follower=follower-a trader=trader-a strategy=strategy-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopySubscriptionRepository] [39m[32mCopy subscription created id=a55a2f52-ebca-4e38-9259-904c0565d205 tenant=22222222-2222-4222-8222-222222222222 follower=follower-b trader=trader-b strategy=strategy-b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopySubscriptionRepository] [39m[32mCopy subscription created id=a61c1db2-b2ab-4308-b2fa-7354ae960896 tenant=11111111-1111-4111-8111-111111111111 follower=follower-a trader=trader-a strategy=strategy-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopySubscriptionRepository] [39m[32mCopy subscription created id=a6a5ca76-a8f2-4534-b134-13ea88dbe30c tenant=22222222-2222-4222-8222-222222222222 follower=follower-b trader=trader-b strategy=strategy-b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopySubscriptionRepository] [39m[32mIdempotent subscription return key=k-shared[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopyExecutionRepository] [39m[32mCopy execution created id=7876bac6-c875-410b-9d1d-555f9216eaa0 tenant=11111111-1111-4111-8111-111111111111 leaderEvent=leader-event-a sub=subscription-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopyExecutionRepository] [39m[32mCopy execution created id=988199da-29f5-4944-981d-db77489e9687 tenant=22222222-2222-4222-8222-222222222222 leaderEvent=leader-event-b sub=subscription-b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopyExecutionRepository] [39m[32mCopy execution created id=c0c8477b-53fd-468b-9598-5844540ba166 tenant=11111111-1111-4111-8111-111111111111 leaderEvent=leader-event-a sub=subscription-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopyExecutionRepository] [39m[32mCopy execution created id=a65496c2-4080-4bf4-9aaf-b97a5dd259de tenant=22222222-2222-4222-8222-222222222222 leaderEvent=leader-event-b sub=subscription-b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopyExecutionRepository] [39m[32mDuplicate copy execution prevented tenant=11111111-1111-4111-8111-111111111111 leaderEvent=leader-event-a sub=subscription-a existing=c0c8477b-53fd-468b-9598-5844540ba166[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[WalletRepository] [39mObject(2) {
+  event: [32m'custody.wallet.idempotent_hit'[39m,
+  walletId: [32m'836ebe04-6991-4a35-b689-3fca00dab5c7'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[AccountingEventRepository] [39mObject(2) {
+  event: [32m'portfolio.event.idempotent_hit'[39m,
+  idempotencyKey: [32m'k-shared'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopySubscriptionRepository] [39m[32mCopy subscription created id=54dda4a9-1f13-4d52-a219-6925790a581e tenant=11111111-1111-4111-8111-111111111111 follower=follower-1 trader=trader-1 strategy=strategy-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:46 PM [32m    LOG[39m [38;5;3m[CopySubscriptionRepository] [39m[32mIdempotent subscription return key=k-1[39m
+PASS src/common/idempotency-tenant-scope.spec.ts
+PASS src/modules/observability/engine-posture.service.spec.ts
+PASS src/modules/risk/position-limit.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 12:59:52 PM [33m   WARN[39m [38;5;3m[PositionLimitService] [39m[33mPosition-limit usage unavailable tenant 3f2504e0-4f89-41d3-9a0c-0305e82c3301 user 3f2504e0-4f89-41d3-9a0c-0305e82c3302 error P1001[39m
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:56 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+PASS src/modules/security/saml-encrypted-assertion.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 12:59:57 PM [32m    LOG[39m [38;5;3m[SamlProviderService] [39m[32mSAML assertion verified tenant=11111111-1111-4111-8111-111111111111[39m
+PASS src/modules/billing/enforcement/enforcement.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:01 PM [31m  ERROR[39m [38;5;3m[AllocationValuationRepository] [39m[31mportfolio valuation read failed tenant=tenant-1 reason=Error[39m
+PASS src/modules/copy-trading/allocation-valuation.spec.ts
+PASS src/modules/client-lifecycle/client-lifecycle.authorization.spec.ts
+PASS src/modules/worker/engine-status-parity.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:05 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:06 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=ec1 alg=ES256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:06 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:07 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:07 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k2 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:07 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:07 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k3 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:07 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+PASS src/modules/security/oidc-provider.service.spec.ts
+PASS src/modules/copy-trading/lead-trader-application.spec.ts
+PASS src/modules/portfolio-accounting/portfolio-accounting.authorization.spec.ts
+PASS src/modules/oms/order-submission.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:12 PM [33m   WARN[39m [38;5;3m[OrderSubmissionResultService] [39m[33mSubmission result for unknown order o-1 tenant t-1; ignoring[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:12 PM [32m    LOG[39m [38;5;3m[OrderLifecycleService] [39m[32mIntent i-1 transitioned ACKNOWLEDGED → PARTIALLY_FILLED via FILL_MANAGEMENT reason Partially filled 0.4/1.0 remaining 0.6 avg 50000[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:12 PM [32m    LOG[39m [38;5;3m[FillManagementService] [39m[32mFill applied tenant t-1 intent i-1 fill vt-1 qty 0.4 price 50000 cumulative 0.4 remaining 0.6[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:12 PM [32m    LOG[39m [38;5;3m[OrderLifecycleService] [39m[32mIntent i-1 transitioned PARTIALLY_FILLED → FILLED via FILL_MANAGEMENT reason Fully filled 1/1.0 avg 50600[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:12 PM [32m    LOG[39m [38;5;3m[FillManagementService] [39m[32mFill applied tenant t-1 intent i-1 fill vt-2 qty 0.6 price 51000 cumulative 1 remaining 0[39m
+PASS src/modules/partners/partner.contract.spec.ts
+PASS src/modules/risk-management/customer-exposure.service.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:13 PM [33m   WARN[39m [38;5;3m[CustomerExposureService] [39m[33mCustomer exposure market-data lookup unavailable for tenant tenant-authenticated; valuation withheld.[39m
+PASS src/modules/mobile-release/mobile-release-pipeline.contract.spec.ts
+PASS src/modules/strategy/strategy-safety.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:22 PM [31m  ERROR[39m [38;5;3m[ExchangeCredentialService] [39m[31mSECRET_MANAGER write failed tenant=t-1 account=a-1 venue=BINANCE env=LIVE store=vault-kv2 error=SecretStoreError[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:21 PM [32m    LOG[39m [38;5;3m[ExchangeCredentialService] [39m[32mCredential stored via SECRET_MANAGER (vault-kv2) tenant=t-1 account=a-1 venue=BINANCE env=LIVE ref=secret/data/wlct/t-1/a-1/binance[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:21 PM [32m    LOG[39m [38;5;3m[ExchangeCredentialService] [39m[32mCredential stored via SECRET_MANAGER (vault-kv2) tenant=t-1 account=a-1 venue=BINANCE env=TESTNET ref=secret/data/wlct/t-1/a-1/binance[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:22 PM [32m    LOG[39m [38;5;3m[ExchangeCredentialService] [39m[32mCredential stored via SECRET_MANAGER (vault-kv2) tenant=t-1 account=a-1 venue=BINANCE env=LIVE ref=secret/data/wlct/t-1/a-1/binance[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:22 PM [32m    LOG[39m [38;5;3m[ExchangeCredentialService] [39m[32mCredential revoked tenant=t-1 account=a-1 venue=BINANCE env=LIVE[39m
+PASS src/modules/exchanges/secret-store.spec.ts (5.45 s)
+PASS src/modules/copy-trading/trader-performance.service.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:26 PM [33m   WARN[39m [38;5;3m[TraderPerformanceService] [39m[33mFailed to read reconciled accounting-period evidence tenant=11111111-1111-4111-8111-111111111111 trader=22222222-2222-4222-8222-222222222222 error=database unavailable[39m
+PASS src/modules/billing/entitlements/entitlement.spec.ts
+PASS src/modules/copy-trading/copy-order-mapper.service.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [31m  ERROR[39m [38;5;3m[WebhookService] [39m[31mWebhook processing failed for nowpayments:np-payment-123: Provider-confirmed payment amount or currency does not match the internal payment record[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [31m  ERROR[39m [38;5;3m[WebhookService] [39m[31mWebhook processing failed for nowpayments:np-payment-123: Unrecognized provider payment status; payment state update withheld[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [31m  ERROR[39m [38;5;3m[WebhookService] [39m[31mWebhook event normalization failed for nowpayments:np-payment-123: Verified payment event is missing provider timestamp; state update withheld[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [31m  ERROR[39m [38;5;3m[WebhookService] [39m[31mWebhook event normalization failed for nowpayments:np-payment-123: Payment event amount must be an exact decimal string[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=MISSING_FOLLOWER_BALANCE tenant=tenant-1 event=evt-1 : PERCENTAGE_BALANCE sizing requires a positive follower balance[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=INVALID_PERCENTAGE tenant=tenant-1 event=evt-1 : percentage 150 must be within (0, 100][39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=MISSING_PROPORTIONAL_BASIS tenant=tenant-1 event=evt-1 : PROPORTIONAL sizing needs proportionalRatio, or an allocation and the leader total balance; refusing to copy the leader size verbatim[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=SYMBOL_METADATA_UNAVAILABLE tenant=tenant-1 event=evt-1 : symbol metadata lookup failed for BTC-USDT: symbol registry unavailable[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=SYMBOL_NOT_REGISTERED tenant=tenant-1 event=evt-1 : no exchange symbol metadata registered for BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=INVALID_EXCHANGE_PRECISION tenant=tenant-1 event=evt-1 : symbol BTC-USDT has unusable precision (tick=0.01, step=0)[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=INVALID_SIZING_INPUT tenant=tenant-1 event=evt-1 : fixedQuantity "0" is not a positive decimal[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=SIZE_BELOW_STEP tenant=tenant-1 event=evt-1 : sized quantity 0.000001 is below one step (0.00001)[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [32m    LOG[39m [38;5;3m[CopyOrderMapperService] [39m[32mMax notional enforced tenant=tenant-1 notional=3000000 max=100[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=MISSING_REFERENCE_PRICE tenant=tenant-1 event=evt-1 : maxOrderNotional=100 cannot be enforced without a price (market order and no reference price)[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=EXCEEDS_FOLLOWER_BALANCE tenant=tenant-1 event=evt-1 : notional 60000 exceeds follower balance 1000[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:30 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=SYMBOL_BLOCKED tenant=tenant-1 event=evt-1 : symbol BTC-USDT is blocked by policy[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:31 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=SYMBOL_NOT_ALLOWED tenant=tenant-1 event=evt-1 : symbol BTC-USDT is not in the allow-list[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:31 PM [33m   WARN[39m [38;5;3m[CopyOrderMapperService] [39m[33mCopy mapping rejected code=SIDE_NOT_ALLOWED tenant=tenant-1 event=evt-1 : side BUY is not allowed by policy[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook received: provider=nowpayments, signaturePresent=true[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mPayment internal-payment-123 synced to subscription, new status SUCCEEDED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook processed successfully: nowpayments:np-payment-123 → payment internal-payment-123 status SUCCEEDED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook received: provider=stripe, signaturePresent=true[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mPayment internal-payment-123 synced to subscription, new status SUCCEEDED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook processed successfully: stripe:evt-stripe-123 → payment internal-payment-123 status SUCCEEDED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook received: provider=nowpayments, signaturePresent=true[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook received: provider=nowpayments, signaturePresent=true[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook received: provider=nowpayments, signaturePresent=true[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook received: provider=nowpayments, signaturePresent=true[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [33m   WARN[39m [38;5;3m[WebhookService] [39m[33mWebhook signature verification failed for nowpayments: Invalid signature[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:32 PM [32m    LOG[39m [38;5;3m[WebhookService] [39m[32mWebhook received: provider=nowpayments, signaturePresent=true[39m
+PASS src/modules/billing/payments/webhook.service.contract.spec.ts
+PASS src/modules/risk-management/risk-calculations.spec.ts
+PASS src/modules/mobile-release/mobile-release.contract.spec.ts
+PASS src/modules/providers/adapters/provider-integration.contract.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:34 PM [32m    LOG[39m [38;5;3m[ProviderObservationService] [39m[32mProvider observation: stripe PAYMENT WEBHOOK PROCESSED correlationId=corr_123 ref=evt_123[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:34 PM [32m    LOG[39m [38;5;3m[ProviderWebhookService] [39m[32mWebhook processed: stripe payment.succeeded evt_123 correlationId=corr_123[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:34 PM [32m    LOG[39m [38;5;3m[ProviderObservationService] [39m[32mProvider observation: stripe PAYMENT WEBHOOK DUPLICATE correlationId=corr_123 ref=evt_123[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:34 PM [32m    LOG[39m [38;5;3m[ProviderReconciliationService] [39m[32mReconciliation PAYMENT stripe correlationId=corr_123 local=1 provider=1 mismatches=1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:34 PM [32m    LOG[39m [38;5;3m[ProviderObservationService] [39m[32mProvider observation: stripe PAYMENT CREATE PENDING correlationId=corr_123 ref=none[39m
+PASS src/modules/execution/execution-safety.spec.ts
+PASS src/modules/copy-trading/copy-trading-authorization.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [31m  ERROR[39m [38;5;3m[PayoutProviderFactory] [39m[31mSTRIPE payout requested but STRIPE_SECRET_KEY (sk_/rk_) is not configured[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [31m  ERROR[39m [38;5;3m[PayoutProviderFactory] [39m[31mSTRIPE payout requested but STRIPE_SECRET_KEY (sk_/rk_) is not configured[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [31m  ERROR[39m [38;5;3m[PaymentRepository] [39m[31mFailed to create payment record: The table `payments` does not exist[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [31m  ERROR[39m [38;5;3m[PaymentRepository] [39m[31mPayment model unavailable on the Prisma client; refusing to create an unpersisted payment[39m
+PASS src/modules/billing/billing-no-fake-success.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [32m    LOG[39m [38;5;3m[PushNotificationService] [39m[32mPush sent via FCM tenant=t1 user=u1 id=projects/p/messages/123[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [33m   WARN[39m [38;5;3m[NotificationProviderFactory] [39m[33mSMS_PROVIDER=twilio but configuration incomplete (missing: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN or TWILIO_API_KEY_SID/TWILIO_API_KEY_SECRET, TWILIO_MESSAGING_SERVICE_SID or TWILIO_FROM_NUMBER (E.164))[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [33m   WARN[39m [38;5;3m[NotificationProviderFactory] [39m[33mSMS_PROVIDER=nexmo is not supported (supported: twilio); SMS deliveries will fail[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [32m    LOG[39m [38;5;3m[PayoutProviderFactory] [39m[32mConfigured payout provider: STRIPE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [32m    LOG[39m [38;5;3m[PayoutProviderFactory] [39m[32mConfigured payout provider: STRIPE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [32m    LOG[39m [38;5;3m[PayoutProviderFactory] [39m[32mConfigured payout provider: STRIPE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [32m    LOG[39m [38;5;3m[InAppNotificationService] [39m[32mIn-app notification created tenant=t1 user=u1 event=invoice.ready id=n1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [32m    LOG[39m [38;5;3m[InAppNotificationService] [39m[32mIn-app notification created tenant=t1 user=u1 event=e id=n2[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:38 PM [33m   WARN[39m [38;5;3m[InAppNotificationService] [39m[33mRealtime publish failed for notification n2: redis down[39m
+PASS src/common/decimal-string.spec.ts
+PASS src/modules/copy-trading/trader-profile.service.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:40 PM [33m   WARN[39m [38;5;3m[TraderProfileService] [39m[33mFill activity read failed for tenant tenant-a user user-a reason=Error[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:40 PM [33m   WARN[39m [38;5;3m[TraderProfileService] [39m[33mActive follower read failed for tenant tenant-a trader trader-a reason=Error[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:40 PM [33m   WARN[39m [38;5;3m[TraderProfileService] [39m[33mPerformance read failed for tenant tenant-a trader trader-a reason=Error[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:40 PM [32m    LOG[39m [38;5;3m[TraderProfileService] [39m[32mTrader verified id=trader-a tenant=tenant-a by=verifier-1[39m
+PASS src/modules/worker/engine-status-contract.spec.ts
+PASS src/infrastructure/coordination/coordination-membership.spec.ts
+PASS src/modules/auth/sso/sso-transaction.service.spec.ts (5.813 s)
+PASS src/modules/auth/sso/sso-identity.service.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [31m  ERROR[39m [38;5;3m[CustomDomainVerificationService] [39m[31mDNS TXT lookup for _wlct-challenge.brand.example.com failed tenant tenant-a domain brand.example.com reason=EAI_AGAIN[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [32m    LOG[39m [38;5;3m[CustomDomainVerificationService] [39m[32mVerification challenge generated for domain brand.example.com, tenant tenant-a, expires 2026-10-28T13:00:52.879Z[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [32m    LOG[39m [38;5;3m[CustomDomainVerificationService] [39m[32mDomain brand.example.com verified for tenant tenant-a[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [33m   WARN[39m [38;5;3m[CustomDomainVerificationService] [39m[33mDomain brand.example.com verification attempt 1 failed for tenant tenant-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [32m    LOG[39m [38;5;3m[CustomDomainVerificationService] [39m[32mNo TXT record at _wlct-challenge.brand.example.com for tenant tenant-a domain brand.example.com[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [33m   WARN[39m [38;5;3m[CustomDomainVerificationService] [39m[33mDomain brand.example.com verification attempt 1 failed for tenant tenant-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [32m    LOG[39m [38;5;3m[CustomDomainVerificationService] [39m[32mNo TXT record at _wlct-challenge.brand.example.com for tenant tenant-a domain brand.example.com[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [33m   WARN[39m [38;5;3m[CustomDomainVerificationService] [39m[33mDomain brand.example.com verification attempt 1 failed for tenant tenant-a[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:52 PM [33m   WARN[39m [38;5;3m[CustomDomainVerificationService] [39m[33mDomain brand.example.com challenge closed for tenant tenant-a after 5 attempts[39m
+PASS src/modules/tenants/custom-domain.spec.ts
+PASS src/modules/copy-trading/trader-ranking.spec.ts
+PASS src/modules/copy-trading/copy-policy.service.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=st-1 subscription=sub-1 maxNotional=500 slippage=25[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to weaken maxOrderNotional base=500 override=999999 - keeping base[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to weaken slippageTolerance base=25 override=90[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to reduce executionDelayMs below base=500 override=100[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to weaken maxLeverage base=5 override=20[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to loosen stopLossBps base=150 override=400[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=st-1 subscription=sub-1 maxNotional=500 slippage=25[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=st-1 subscription=sub-1 maxNotional=500 slippage=25[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=st-1 subscription=sub-1 maxNotional=500 slippage=25[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=undefined subscription=undefined maxNotional=100000 slippage=100[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=undefined subscription=undefined maxNotional=100000 slippage=100[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mstopLossBps=10000 against entry=50000 yields no positive price for a BUY; no stop-loss will be attached[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:54 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=undefined subscription=undefined maxNotional=100000 slippage=100[39m
+PASS src/modules/partner/partner.controller.spec.ts
+PASS src/modules/research/research-tenant-scope.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[BacktestRepository] [39m[32mBacktest run created id=d31eb682-7172-4779-9de5-d4b574db93e9 tenant=11111111-1111-4111-8111-111111111111 identifier=run-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[BacktestRepository] [39m[32mBacktest run created id=4b93c929-db30-411e-a075-5cf4d5498c90 tenant=22222222-2222-4222-8222-222222222222 identifier=run-b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[BacktestRepository] [39m[32mBacktest idempotent by key=k-shared[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[BacktestRepository] [39m[32mBacktest idempotent by key=k-shared[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[BacktestRepository] [39m[32mBacktest run created id=5cb255b1-6761-4213-8f25-4225ede1d7b6 tenant=11111111-1111-4111-8111-111111111111 identifier=run-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[PaperTradingRepository] [39m[32mPaper session created id=7c754eff-5f09-460d-9640-5384f03588f1 tenant=11111111-1111-4111-8111-111111111111 identifier=s-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[PaperTradingRepository] [39m[32mPaper session created id=7c5e41d4-e7e6-4c1e-b2f1-73eef5df45d8 tenant=22222222-2222-4222-8222-222222222222 identifier=s-b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[PaperTradingRepository] [39m[32mPaper session created id=565a3787-2b04-4550-9761-e0f599438b39 tenant=11111111-1111-4111-8111-111111111111 identifier=s-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[ResearchRepository] [39m[32mResearch dataset created id=a3fd76dd-d219-4d27-9d0c-fb4b8c543114 tenant=22222222-2222-4222-8222-222222222222 fingerprint=fp-b[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[ResearchRepository] [39m[32mResearch strategy version created id=1fb3904f-2d5d-4975-9ffe-f7b589fc0b31 tenant=22222222-2222-4222-8222-222222222222 version=1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[SignalService] [39m[32mSignal created id=3c07096d-f830-4cb1-868c-fcf8ff3b2d72 tenant=22222222-2222-4222-8222-222222222222 symbol=BTCUSDT side=BUY[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:00:57 PM [32m    LOG[39m [38;5;3m[ResearchPromotionService] [39m[32mPromotion request idempotent by key=k-pr[39m
+PASS src/modules/copy-trading/leader-fee.spec.ts
+PASS src/modules/copy-trading/performance-benchmark.spec.ts
+PASS src/modules/providers/adapters/exchange/exchange-adapters.contract.spec.ts
+PASS src/modules/portfolio-accounting/performance.service.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:02 PM [33m   WARN[39m [38;5;3m[PerformanceService] [39m[33mTWR cash-flow source unavailable tenant=11111111-1111-4111-8111-111111111111 profile=22222222-2222-4222-8222-222222222222: storage outage[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:03 PM [32m    LOG[39m [38;5;3m[LeaderEventIngestionService] [39m[32mLeader events tenant=tenant-1 seen=1 dispatched=1 expired=0[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:03 PM [32m    LOG[39m [38;5;3m[LeaderEventIngestionService] [39m[32mLeader events tenant=tenant-1 seen=1 dispatched=0 expired=1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:03 PM [32m    LOG[39m [38;5;3m[LeaderEventIngestionService] [39m[32mLeader events tenant=tenant-1 seen=2 dispatched=1 expired=0[39m
+[32m[Nest] 2264  - [39m09/28/2026, 12:00:00 PM [32m    LOG[39m [38;5;3m[CopyReconciliationService] [39m[32mReconciliation completed tenant=tenant-1 records=1 summary={"MISSING_COPY":1}[39m
+[32m[Nest] 2264  - [39m09/28/2026, 12:00:00 PM [32m    LOG[39m [38;5;3m[CopyReconciliationService] [39m[32mReconciliation completed tenant=tenant-1 records=0 summary={}[39m
+[32m[Nest] 2264  - [39m09/28/2026, 12:00:00 PM [32m    LOG[39m [38;5;3m[CopyReconciliationService] [39m[32mReconciliation completed tenant=tenant-1 records=0 summary={"MISSING_COPY_CHECK_SKIPPED":1}[39m
+PASS src/modules/copy-trading/leader-event.spec.ts
+PASS src/modules/portfolio-accounting/market-data-sources.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:04 PM [33m   WARN[39m [38;5;3m[ValuationService] [39m[33mValuation price fetch failed for X: db down[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:13 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.saml_logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=SAML_SLO_NOT_CONFIGURED[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:13 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=CONFIG_INVALID[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:13 PM [33m   WARN[39m [38;5;3m[SsoLoginService] [39m[33msso.logout_url_unavailable tenant=11111111-1111-4111-8111-111111111111 reason=PROVIDER_UNAVAILABLE[39m
+PASS src/modules/auth/sso/sso-logout.spec.ts (9.811 s)
+PASS src/modules/copy-trading/follower-subscription.service.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:15 PM [32m    LOG[39m [38;5;3m[FollowerSubscriptionService] [39m[32mSubscription paused id=s-1 tenant=tenant-1[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:16 PM [33m   WARN[39m [38;5;3m[FollowerRiskService] [39m[33mRisk rule MAX_SYMBOL_EXPOSURE could not be evaluated, blocking: db unavailable[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:16 PM [33m   WARN[39m [38;5;3m[FollowerRiskService] [39m[33mRisk rule MAX_COPY_COUNT could not be evaluated, blocking: db unavailable[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:16 PM [33m   WARN[39m [38;5;3m[FollowerRiskService] [39m[33mRisk rule DAILY_PAUSE could not be evaluated, blocking: db unavailable[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:16 PM [33m   WARN[39m [38;5;3m[FollowerRiskService] [39m[33mRisk rule CONCENTRATION could not be evaluated, blocking: db unavailable[39m
+PASS src/modules/copy-trading/follower-risk.service.spec.ts
+PASS src/modules/copy-trading/performance-calculation.spec.ts
+PASS src/modules/health/trading-readiness.spec.ts
+PASS src/infrastructure/prisma/rls-coverage.spec.ts
+PASS src/modules/security/enterprise-sso.tenant-admin.spec.ts
+PASS src/config/env-example-coverage.spec.ts
+PASS src/modules/security/saml-slo-configuration.spec.ts
+PASS src/modules/auth/auth.service.sso-enforcement.spec.ts
+PASS src/modules/oms/order-state-machine.spec.ts
+PASS src/modules/portfolio-accounting/statement-persistence.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:27 PM [32m    LOG[39m [38;5;3m[StatementService] [39mObject(4) {
+  event: [32m'portfolio.statement.generated'[39m,
+  statementId: [32m'stmt_11111111_44444444_1792933287036'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  periodId: [32m'44444444-4444-4444-8444-444444444444'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:27 PM [32m    LOG[39m [38;5;3m[StatementService] [39mObject(4) {
+  event: [32m'portfolio.statement.generated'[39m,
+  statementId: [32m'stmt_11111111_44444444_1792933287049'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  periodId: [32m'44444444-4444-4444-8444-444444444444'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:27 PM [32m    LOG[39m [38;5;3m[StatementService] [39mObject(4) {
+  event: [32m'portfolio.statement.generated'[39m,
+  statementId: [32m'stmt_11111111_44444444_1792933287071'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  periodId: [32m'44444444-4444-4444-8444-444444444444'[39m
+}
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:28 PM [33m   WARN[39m [38;5;3m[TaxService] [39m[33mReverse charge not applied for tenant t1 (DE): VAT number INVALID via format; standard VAT charged[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:28 PM [33m   WARN[39m [38;5;3m[TaxService] [39m[33mReverse charge not applied for tenant t1 (DE): VAT number INVALID via vies; standard VAT charged[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:28 PM [33m   WARN[39m [38;5;3m[TaxService] [39m[33mReverse charge not applied for tenant t1 (DE): VAT number UNAVAILABLE via vies; standard VAT charged[39m
+PASS src/modules/billing/finance/tax-reverse-charge.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:29 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:29 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=ec1 alg=ES256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:30 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k1 alg=RS256[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:30 PM [32m    LOG[39m [38;5;3m[OidcProviderService] [39m[32mOIDC ID token verified tenant=11111111-1111-4111-8111-111111111111 kid=k3 alg=RS256[39m
+PASS src/modules/security/sso-token-verification.spec.ts
+PASS src/modules/oms/reconciliation-read-fallback.spec.ts (10.511 s)
+PASS src/modules/oms/position-limit-enforcement.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:43 PM [32m    LOG[39m [38;5;3m[OrderIntentService] [39m[32mOMS intent intent-1 CREATED tenant tenant-1 symbol BTC-USDT qty 0.5[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:43 PM [32m    LOG[39m [38;5;3m[OrderIntentService] [39m[32mOMS intent intent-1 CREATED tenant tenant-1 symbol BTC-USDT qty 0.5[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:43 PM [32m    LOG[39m [38;5;3m[OrderIntentService] [39m[32mOMS intent intent-1 CREATED tenant tenant-1 symbol BTC-USDT qty 0.5[39m
+PASS src/modules/governance/privacy-governance.contract.spec.ts
+PASS src/modules/observability/slo-samples.spec.ts
+PASS src/modules/copy-trading/follower-subscription.outbox.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:46 PM [32m    LOG[39m [38;5;3m[FollowerSubscriptionService] [39m[32mSubscription created and activated id=33333333-3333-4333-8333-333333333333 tenant=11111111-1111-4111-8111-111111111111 follower=44444444-4444-4444-8444-444444444444 trader=55555555-5555-4555-8555-555555555555[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:46 PM [32m    LOG[39m [38;5;3m[FollowerSubscriptionService] [39m[32mSubscription paused id=33333333-3333-4333-8333-333333333333 tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:46 PM [32m    LOG[39m [38;5;3m[FollowerSubscriptionService] [39m[32mSubscription paused id=33333333-3333-4333-8333-333333333333 tenant=11111111-1111-4111-8111-111111111111[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:46 PM [32m    LOG[39m [38;5;3m[FollowerSubscriptionService] [39m[32mSubscription stopped id=33333333-3333-4333-8333-333333333333 tenant=11111111-1111-4111-8111-111111111111[39m
+PASS src/modules/observability/worker-coordination-read.service.spec.ts
+PASS src/modules/billing/enforcement/plan-limit-counting.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:48 PM [32m    LOG[39m [38;5;3m[TraderProfileService] [39m[32mTrader profile created id=85f2fd83-49c6-430e-bbdf-f25999089bc2 tenant=11111111-1111-1111-1111-111111111111 user=u1[39m
+PASS src/modules/partners/partner-settlement.contract.spec.ts
+PASS src/modules/client-lifecycle/exchange-and-portfolio-binding.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:49 PM [32m    LOG[39m [38;5;3m[ExchangeAccountBindingService] [39mObject(4) {
+  event: [32m'client.exchange_account.bound'[39m,
+  tenantId: [32m'11111111-1111-1111-1111-111111111111'[39m,
+  accountId: [32m'acc-1'[39m,
+  exchangeAccountId: [32m'ta-1'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:49 PM [32m    LOG[39m [38;5;3m[PortfolioBindingService] [39mObject(4) {
+  event: [32m'client.portfolio.bound'[39m,
+  tenantId: [32m'11111111-1111-1111-1111-111111111111'[39m,
+  accountId: [32m'acc-1'[39m,
+  portfolioId: [32m'pf-1'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:50 PM [32m    LOG[39m [38;5;3m[TwilioSmsProvider] [39m[32mSMS queued via Twilio sid=SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa to=+88****00 template=payment_failed tenant=tenant_1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:50 PM [32m    LOG[39m [38;5;3m[TwilioSmsProvider] [39m[32mSMS queued via Twilio sid=SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa to=+88****00 template=payment_failed tenant=tenant_1[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:50 PM [33m   WARN[39m [38;5;3m[TwilioSmsProvider] [39m[33mTwilio rejected SMS to=+88****00 tenant=tenant_1 status=400 code=TWILIO_21211[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:50 PM [33m   WARN[39m [38;5;3m[TwilioSmsProvider] [39m[33mTwilio rejected SMS to=+88****00 tenant=tenant_1 status=429 code=TWILIO_20429[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:50 PM [33m   WARN[39m [38;5;3m[TwilioSmsProvider] [39m[33mTwilio rejected SMS to=+88****00 tenant=tenant_1 status=503 code=TWILIO_HTTP_503[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:01:50 PM [33m   WARN[39m [38;5;3m[TwilioSmsProvider] [39m[33mTwilio request failed to=+88****00 tenant=tenant_1: ECONNRESET[39m
+PASS src/modules/billing/notifications/twilio-sms.provider.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:01:51 PM [31m  ERROR[39m [38;5;3m[PartnerAttributionService] [39m[31mattribution idempotency lookup failed tenant=tenant-a reason=Error[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:01:51 PM [31m  ERROR[39m [38;5;3m[PartnerAttributionService] [39m[31mattribution persist failed tenant=tenant-a partner=partner-a corr=corr-a reason=Error[39m
+PASS src/modules/partners/partner-attribution.service.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:51 PM [32m    LOG[39m [38;5;3m[PartnerAttributionService] [39m[32mattribution created id=pattr_0466b04f-2283-46ec-a2a6-2332bb7082c6 partner=partner-a tenant=tenant-a corr=corr-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:51 PM [32m    LOG[39m [38;5;3m[PartnerAttributionService] [39m[32mattribution created id=pattr_962349c2-d69e-4669-814d-d5e7b82b481e partner=partner-a tenant=tenant-b corr=corr-a[39m
+PASS src/modules/developer-platform/developer-event-catalog.spec.ts
+PASS src/modules/risk-management/leverage-policy-route.spec.ts
+PASS src/modules/providers/adapters/payment/stripe.contract.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:53 PM [32m    LOG[39m [38;5;3m[ProviderObservationService] [39m[32mProvider observation: stripe PAYMENT CREATE PENDING correlationId=corr_123 ref=none[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:54 PM [32m    LOG[39m [38;5;3m[ProviderObservationService] [39m[32mProvider observation: custody_generic CUSTODY READ CONFIRMING correlationId=corr_123 ref=0xabc123[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:54 PM [32m    LOG[39m [38;5;3m[ProviderObservationService] [39m[32mProvider observation: custody_generic CUSTODY READ CONFIRMED correlationId=corr_123 ref=none[39m
+PASS src/modules/custody/custody-adapter.contract.spec.ts
+PASS src/modules/billing/finance/vies-vat.client.spec.ts
+PASS src/modules/billing/fees/stripe-connect-payout.provider.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:01:55 PM [32m    LOG[39m [38;5;3m[StripeConnectPayoutProvider] [39m[32mStripe transfer tr_1Nxyz created for settlement set_1 (SUCCEEDED)[39m
+PASS src/modules/security/api-key.repository.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:00 PM [32m    LOG[39m [38;5;3m[WebhookReplayGuard] [39m[32mWebhook duplicate detected (DB): stripe:evt_123 already processed at Sun Oct 25 2026 13:02:00 GMT+0000 (Coordinated Universal Time)[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:00 PM [32m    LOG[39m [38;5;3m[WebhookReplayGuard] [39m[32mWebhook duplicate detected (DB): stripe:evt_123 already processed at Sun Oct 25 2026 13:02:00 GMT+0000 (Coordinated Universal Time)[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:00 PM [32m    LOG[39m [38;5;3m[WebhookReplayGuard] [39m[32mWebhook duplicate detected (DB): stripe:evt_123 already processed at Sun Oct 25 2026 13:02:00 GMT+0000 (Coordinated Universal Time)[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:00 PM [32m    LOG[39m [38;5;3m[WebhookReplayGuard] [39m[32mWebhook duplicate detected (DB): stripe:evt_123 already processed at Sun Oct 25 2026 13:02:00 GMT+0000 (Coordinated Universal Time)[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:00 PM [32m    LOG[39m [38;5;3m[WebhookReplayGuard] [39m[32mWebhook previous failure for stripe:evt_123, allowing retry (attempt 2)[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:00 PM [32m    LOG[39m [38;5;3m[WebhookReplayGuard] [39m[32mWebhook replay detected (cache): stripe:evt_123 already processed[39m
+PASS src/modules/billing/payments/webhook.replay-guard.spec.ts
+PASS src/modules/providers/adapters/payment/nowpayments.contract.spec.ts (7.925 s)
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:08 PM [32m    LOG[39m [38;5;3m[ProviderObservationService] [39m[32mProvider observation: nowpayments PAYMENT CREATE waiting correlationId=corr_456 ref=payment-123[39m
+PASS src/modules/providers/adapters/compliance/compliance-adapters.contract.spec.ts
+PASS src/modules/operations/maintenance-trading-gate.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:02:10 PM [33m   WARN[39m [38;5;3m[MaintenanceModeService] [39m[33mMaintenance fast path unavailable, using the database: redis down[39m
+PASS src/modules/worker/submit-order-payload.spec.ts
+PASS src/modules/custody/custody-authorization.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:13 PM [31m  ERROR[39m [38;5;3m[ConsentService] [39m[31mconsent capture failed tenant=tenant-a purpose=COPY_TRADING_RISK_DISCLOSURE corr=consent-correlation-a reason=Error[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:13 PM [31m  ERROR[39m [38;5;3m[ConsentService] [39m[31mconsent withdrawal failed id=consent-existing tenant=tenant-a corr=withdraw-correlation-a reason=Error[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:13 PM [31m  ERROR[39m [38;5;3m[ConsentService] [39m[31mconsent read failed id=consent-existing tenant=tenant-a reason=Error[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:13 PM [31m  ERROR[39m [38;5;3m[ConsentService] [39m[31mconsent list failed tenant=tenant-a subject=user-a reason=Error[39m
+PASS src/modules/governance/consent.service.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:13 PM [32m    LOG[39m [38;5;3m[ConsentService] [39m[32mconsent captured id=cons_44547df8-b546-43a2-96c8-748b27ccbd47 tenant=tenant-a purpose=COPY_TRADING_RISK_DISCLOSURE corr=consent-correlation-a[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:14 PM [32m    LOG[39m [38;5;3m[PortfolioSnapshotService] [39mObject(4) {
+  event: [32m'portfolio.snapshot.created'[39m,
+  snapshotId: [32m'daily-snapshot-2026-10-09'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  nav: [32m'100.00'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:14 PM [32m    LOG[39m [38;5;3m[PortfolioSnapshotService] [39mObject(3) {
+  event: [32m'portfolio.snapshot.idempotent_hit'[39m,
+  snapshotId: [32m'existing-snapshot'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m
+}
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:14 PM [32m    LOG[39m [38;5;3m[PortfolioSnapshotService] [39mObject(4) {
+  event: [32m'portfolio.snapshot.created'[39m,
+  snapshotId: [32m'existing-snapshot'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  nav: [32m'100.00'[39m
+}
+PASS src/modules/portfolio-accounting/portfolio-snapshot.outbox.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:15 PM [31m  ERROR[39m [38;5;3m[ExchangeCredentialService] [39m[31mSECRET_MANAGER read failed tenant=11111111-1111-1111-1111-111111111111 account=22222222-2222-2222-2222-222222222222 store=vault-kv2 error=SecretStoreError[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:15 PM [31m  ERROR[39m [38;5;3m[ExchangeCredentialService] [39m[31mSECRET_MANAGER read failed tenant=11111111-1111-1111-1111-111111111111 account=22222222-2222-2222-2222-222222222222 store=vault-kv2 error=SecretStoreError[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:15 PM [31m  ERROR[39m [38;5;3m[ExchangeCredentialService] [39m[31mSECRET_MANAGER read failed tenant=11111111-1111-1111-1111-111111111111 account=22222222-2222-2222-2222-222222222222 store=vault-kv2 error=TypeError[39m
+PASS src/modules/exchanges/exchange-connectivity.secret-manager.spec.ts
+PASS src/modules/providers/adapters/exchange/okx.adapter.spec.ts
+PASS src/modules/oms/order-intent.service.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:17 PM [32m    LOG[39m [38;5;3m[OrderIntentService] [39m[32mOMS intent intent-1 CREATED tenant 3f2504e0-4f89-41d3-9a0c-0305e82c3301 symbol BTC-USDT qty 0.01[39m
+PASS src/infrastructure/prisma/null-safe-write.middleware.spec.ts
+PASS src/common/filters/prisma-exception.filter.spec.ts
+PASS src/modules/worker/worker-env-safety.spec.ts
+PASS src/modules/oms/order-lifecycle-outbox.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:21 PM [32m    LOG[39m [38;5;3m[OrderLifecycleService] [39m[32mIntent order-aggregate-1 transitioned SUBMITTED → ACKNOWLEDGED via EXECUTION_ENGINE reason Venue acknowledged the order.[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:21 PM [32m    LOG[39m [38;5;3m[OrderLifecycleService] [39m[32mIntent order-aggregate-1 transitioned ACKNOWLEDGED → FILLED via FILL_MANAGEMENT reason Venue fill completed the order.[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:21 PM [32m    LOG[39m [38;5;3m[OrderLifecycleService] [39m[32mIntent order-aggregate-1 transitioned SUBMITTED → REJECTED via EXECUTION_ENGINE reason Venue rejected the order.[39m
+PASS src/modules/oms/reconciliation-persistence.spec.ts
+PASS src/modules/custody/custody-reconciliation-read-failures.spec.ts
+PASS src/modules/risk-management/customer-exposure.controller.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:35 PM [31m  ERROR[39m [38;5;3m[EmailNotificationProvider] [39m[31mEmail transport unavailable (nodemailer not installed) - NOT sent to=billing@acme.example template=invoice_issued tenant=tenant_1 idempotency=notif_1[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:35 PM [31m  ERROR[39m [38;5;3m[EmailNotificationProvider] [39m[31mSMTP send failed to=billing@acme.example error=421 Service not available, try again later[39m
+Error: 421 Service not available, try again later
+    at Object.<anonymous> (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api/src/modules/billing/notifications/email-notification.provider.spec.ts:97:13)
+    at /home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/node_modules/jest-mock/build/index.js:397:39
+    at Object.<anonymous> (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/node_modules/jest-mock/build/index.js:404:13)
+    at Object.mockConstructor [as sendMail] (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/node_modules/jest-mock/build/index.js:148:19)
+    at EmailNotificationProvider.send (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api/src/modules/billing/notifications/email-notification.provider.ts:98:42)
+    at Object.<anonymous> (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api/src/modules/billing/notifications/email-notification.provider.spec.ts:102:20)
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:35 PM [31m  ERROR[39m [38;5;3m[EmailNotificationProvider] [39m[31mSMTP send failed to=billing@acme.example error=535 Authentication failed[39m
+Error: 535 Authentication failed
+    at Object.<anonymous> (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api/src/modules/billing/notifications/email-notification.provider.spec.ts:112:13)
+    at /home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/node_modules/jest-mock/build/index.js:397:39
+    at Object.<anonymous> (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/node_modules/jest-mock/build/index.js:404:13)
+    at Object.mockConstructor [as sendMail] (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/node_modules/jest-mock/build/index.js:148:19)
+    at EmailNotificationProvider.send (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api/src/modules/billing/notifications/email-notification.provider.ts:98:42)
+    at Object.<anonymous> (/home/user/White-Label01-Crypto-Copy-Trading-App/whitelabel-copytrade/apps/api/src/modules/billing/notifications/email-notification.provider.spec.ts:117:20)
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:35 PM [31m  ERROR[39m [38;5;3m[EmailNotificationProvider] [39m[31mSMTP not configured - cannot send email[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:35 PM [32m    LOG[39m [38;5;3m[EmailNotificationProvider] [39m[32mEmail sent via SMTP to=billing@acme.example template=invoice_issued messageId=<abc@acme.example> tenant=tenant_1[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:02:35 PM [33m   WARN[39m [38;5;3m[EmailNotificationProvider] [39m[33mSMTP_HOST not configured - email delivery will fail with config error[39m
+PASS src/modules/billing/notifications/email-notification.provider.spec.ts (10.573 s)
+PASS src/modules/billing/payments/nowpayments.webhook-signature.contract.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:02:36 PM [33m   WARN[39m [38;5;3m[NowPaymentsAdapter] [39m[33mNOWPayments IPN secret is not configured; rejecting webhook[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:02:36 PM [33m   WARN[39m [38;5;3m[NowPaymentsAdapter] [39m[33mNOWPayments IPN signature verification failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:37 PM [32m    LOG[39m [38;5;3m[ProviderObservationService] [39m[32mProvider observation: custody_generic CUSTODY READ CONFIRMED correlationId=corr_123 ref=none[39m
+PASS src/modules/providers/adapters/custody/custody-adapter.contract.spec.ts
+PASS src/modules/research/signal-filter.service.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [32m    LOG[39m [38;5;3m[SignalFilterService] [39m[32mSignal filter passed tenant=t1 signal=sig-1 symbol=ETH-USDT side=BUY[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [32m    LOG[39m [38;5;3m[SignalFilterService] [39m[32mSignal rejected tenant=t1 signal=sig-1 reason=Compliance BLOCK prevents signal rule=COMPLIANCE_BLOCK[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [32m    LOG[39m [38;5;3m[SignalFilterService] [39m[32mSignal rejected tenant=t1 signal=sig-1 reason=Compliance BLOCK prevents signal rule=COMPLIANCE_BLOCK[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [32m    LOG[39m [38;5;3m[SignalFilterService] [39m[32mSignal rejected tenant=t1 signal=sig-1 reason=Symbol ETH-USDT not tradeable rule=EXCHANGE_NOT_TRADEABLE[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [33m   WARN[39m [38;5;3m[SignalFilterService] [39m[33mSymbol ETH-USDT not found in trading symbols tenant=t1 - allowing but flagged[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [32m    LOG[39m [38;5;3m[SignalFilterService] [39m[32mSignal filter passed tenant=t1 signal=sig-1 symbol=ETH-USDT side=BUY[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [32m    LOG[39m [38;5;3m[SignalFilterService] [39m[32mSignal rejected tenant=t1 signal=sig-1 reason=Symbol ETH-USDT blocked by risk profile rule=RISK_BLOCKED_SYMBOL[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [32m    LOG[39m [38;5;3m[SignalFilterService] [39m[32mSignal filter passed tenant=t1 signal=sig-1 symbol=ETH-USDT side=BUY[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:38 PM [32m    LOG[39m [38;5;3m[SignalFilterService] [39m[32mSignal filter passed tenant=t1 signal=sig-1 symbol=ETH-USDT side=BUY[39m
+PASS src/infrastructure/prisma/prisma-literals.spec.ts
+PASS src/modules/billing/finance/invoice-number.service.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:02:45 PM [31m  ERROR[39m [38;5;3m[SecurityEventService] [39m[31mFailed to record security event LOGIN_SUCCESS: outbox unavailable[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:44 PM [32m    LOG[39m [38;5;3m[InvoiceNumberService] [39m[32mGenerated invoice number: INV-2026-00000001 for tenant abcd1234-0000-0000-0000-000000000000, global seq 1, tenant seq 1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:44 PM [32m    LOG[39m [38;5;3m[InvoiceNumberService] [39m[32mGenerated invoice number: INV-2026-00000002 for tenant abcd1234-0000-0000-0000-000000000000, global seq 2, tenant seq 2[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:02:45 PM [33m   WARN[39m [38;5;3m[SecurityEventService] [39mObject(6) {
+  event: [32m'security.event'[39m,
+  type: [32m'MFA_FAILURE'[39m,
+  severity: [32m'HIGH'[39m,
+  tenantId: [32m'11111111-1111-4111-8111-111111111111'[39m,
+  userId: [32m'user-1'[39m,
+  requestId: [32m'request-1'[39m
+}
+[33m[Nest] 2264  - [39m10/25/2026, 1:02:45 PM [33m   WARN[39m [38;5;3m[SecurityEventService] [39m[33mMFA verification failed.[39m
+PASS src/modules/security/security-event-outbox.spec.ts
+PASS src/common/guards/request-principal.spec.ts
+PASS src/modules/copy-trading/allocation-rebalance.spec.ts
+PASS src/modules/portfolio-accounting/statement-list-state.spec.ts
+PASS src/modules/billing/fees/fee-accrual-outbox.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:48 PM [32m    LOG[39m [38;5;3m[FeeAccrualService] [39m[32mFee accrued tenant=11111111-1111-4111-8111-111111111111 accrual=accrual-1 feeType=PLATFORM_FEE fee=1.25 gross=100.00 bps=125[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:48 PM [32m    LOG[39m [38;5;3m[FeeAccrualService] [39m[32mIdempotent accrual hit by idempotencyKey: fee-key-1[39m
+PASS src/infrastructure/database/read-policy.spec.ts
+PASS src/modules/risk-management/user-position-limit.controller.spec.ts
+PASS src/modules/oms/execution-ack-outbox.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:51 PM [32m    LOG[39m [38;5;3m[ExecutionAckService] [39m[32mDuplicate ack row reused for lifecycle recovery clientOrderId client-order-1 exchangeOrderId exchange-order-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:51 PM [32m    LOG[39m [38;5;3m[OrderLifecycleService] [39m[32mIntent intent-1 transitioned SUBMITTED → ACKNOWLEDGED via EXECUTION_ENGINE reason Acknowledged by venue BINANCE exchangeOrderId exchange-order-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:02:51 PM [32m    LOG[39m [38;5;3m[ExecutionAckService] [39m[32mAck processed intent intent-1 clientOrderId client-order-1 type ACCEPTED venue BINANCE[39m
+PASS src/modules/billing/usage/usage-meter.repository.spec.ts
+PASS src/modules/operations/recovery-plan.spec.ts
+PASS src/modules/maintenance/maintenance-trading-gate.spec.ts (8.257 s)
+PASS src/modules/client-lifecycle/funding-amount-validation.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:03:06 PM [31m  ERROR[39m [38;5;3m[ExchangeRateLimitService] [39m[31mRate limit reservation failed venue=BINANCE tenant=tenant-a error=redis unavailable - denying request[39m
+PASS src/modules/exchanges/exchange-rate-limit.service.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:06 PM [33m   WARN[39m [38;5;3m[ExchangeRateLimitService] [39m[33mRate limit refund failed venue=BINANCE tenant=tenant-a error=expect(received).toBe(expected) // Object.is equality
+
+Expected: 3
+Received: -3[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:06 PM [33m   WARN[39m [38;5;3m[ExchangeRateLimitService] [39m[33mRate limit exceeded venue=BINANCE env=LIVE account=account-a endpoint=ORDER usage=601/600[39m
+PASS src/modules/risk-management/risk-management.module.spec.ts
+PASS src/modules/auth/services/session.service.spec.ts
+PASS src/modules/compliance/compliance-case-outbox.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:09 PM [32m    LOG[39m [38;5;3m[ComplianceCaseRepository] [39m[32mCompliance case created id=90e54054-78a1-488c-b735-ab48b00aa509 tenant=11111111-1111-4111-8111-111111111111 type=TRANSACTION_REVIEW[39m
+PASS src/modules/billing/portal/billing-portal-not-found.spec.ts
+PASS src/modules/copy-trading/trader-profile-visibility.spec.ts
+PASS src/modules/security/security-events.service.outbox.spec.ts
+PASS src/modules/billing/payments/stripe.checkout.contract.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:13 PM [32m    LOG[39m [38;5;3m[StripeAdapter] [39m[32mStripe checkout session created: cs-123 for tenant tenant-123, plan PRO[39m
+PASS src/modules/custody/custody-reconciliation-persistence.spec.ts
+PASS src/modules/copy-trading/copy-trading-pagination.spec.ts
+PASS src/common/guards/bind-tenant-params.guard.spec.ts (6.803 s)
+PASS src/modules/risk/trader-risk-score.spec.ts
+PASS src/modules/mobile-release/mobile-release-policy.service.spec.ts
+PASS src/modules/providers/adapters/payment/payment-normalizer.contract.spec.ts
+PASS src/modules/billing/payments/nowpayments.checkout.contract.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:28 PM [32m    LOG[39m [38;5;3m[NowPaymentsAdapter] [39m[32mNowPayments invoice created: invoice-123 for tenant tenant-123, plan PRO[39m
+PASS src/modules/custody/custody-wallet-visibility.spec.ts
+PASS src/modules/copy-trading/allocation-rebalance.controller.spec.ts
+PASS src/modules/partners/partner-policy.service.spec.ts
+PASS src/common/payment-amount.spec.ts
+PASS src/modules/billing/finance/tax-rates.config.spec.ts
+PASS src/common/dto/pagination-params.spec.ts
+PASS src/modules/billing/saas-admin/dto/white-label-action.dto.spec.ts
+PASS src/modules/oms/oms-execution-handoff.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:35 PM [33m   WARN[39m [38;5;3m[OrderSubmissionResultService] [39m[33mSubmission result for unknown order o-1 tenant t-1; ignoring[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:35 PM [32m    LOG[39m [38;5;3m[OrderLifecycleService] [39m[32mIntent i-1 transitioned ACKNOWLEDGED → PARTIALLY_FILLED via FILL_MANAGEMENT reason Partially filled 0.4/1.0 remaining 0.6 avg 50000[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:35 PM [32m    LOG[39m [38;5;3m[FillManagementService] [39m[32mFill applied tenant t-1 intent i-1 fill vt-1 qty 0.4 price 50000 cumulative 0.4 remaining 0.6[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:35 PM [32m    LOG[39m [38;5;3m[OrderLifecycleService] [39m[32mIntent i-1 transitioned PARTIALLY_FILLED → FILLED via FILL_MANAGEMENT reason Fully filled 1/1.0 avg 50600[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:35 PM [32m    LOG[39m [38;5;3m[FillManagementService] [39m[32mFill applied tenant t-1 intent i-1 fill vt-2 qty 0.6 price 51000 cumulative 1 remaining 0[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[LeaderEventIngestionService] [39m[32mLeader events tenant=tenant-1 seen=1 dispatched=1 expired=0[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[LeaderEventIngestionService] [39m[32mLeader events tenant=tenant-1 seen=1 dispatched=0 expired=1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[LeaderEventIngestionService] [39m[32mLeader events tenant=tenant-1 seen=2 dispatched=1 expired=0[39m
+[32m[Nest] 2264  - [39m09/28/2026, 12:00:00 PM [32m    LOG[39m [38;5;3m[CopyReconciliationService] [39m[32mReconciliation completed tenant=tenant-1 records=1 summary={"MISSING_COPY":1}[39m
+[32m[Nest] 2264  - [39m09/28/2026, 12:00:00 PM [32m    LOG[39m [38;5;3m[CopyReconciliationService] [39m[32mReconciliation completed tenant=tenant-1 records=0 summary={}[39m
+[32m[Nest] 2264  - [39m09/28/2026, 12:00:00 PM [32m    LOG[39m [38;5;3m[CopyReconciliationService] [39m[32mReconciliation completed tenant=tenant-1 records=0 summary={"MISSING_COPY_CHECK_SKIPPED":1}[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mCopy execution created tenant=tenant-1 execution=exec-1 follower=user-f qty=0.02[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy execution exec-1 routing REJECTED: OMS_ROUTING_REJECTED: Live gate BLOCK[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy execution exec-1 intent refused: OMS_INTENT_REFUSED: Risk blocked: DAILY_LOSS[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy execution exec-1 routing FAILED: OMS_ROUTING_FAILED: redis down[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by compliance trader=trader-1 user=trader-user-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mCopy execution created tenant=tenant-1 execution=exec-1 follower=user-f qty=0.02[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: trader trader-1 is SUSPENDED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: trader trader-1 is REJECTED[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strategy-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: trader profile not found tenant=tenant-1 trader=trader-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: compliance lookup failed trader=trader-1: compliance lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: exchange health unavailable tenant=tenant-1: health lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: kill switch lookup failed tenant=tenant-1: killSwitch lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: maintenance lookup failed tenant=tenant-1: maintenance lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by trading maintenance tenant=tenant-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked: venue BINANCE unavailable tenant=tenant-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mCopy execution created tenant=tenant-1 execution=exec-1 follower=user-f qty=0.02[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy blocked for subscription sub-1: FOLLOWER_ACCOUNT_UNREADABLE: followerAccount lookup failed[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=GLOBAL target=-[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=GLOBAL target=-[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=EXCHANGE target=binance[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=EXCHANGE target=BINANCE[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=STRATEGY target=strat-1[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=SYMBOL target=BTC/USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=SYMBOL target=BTCUSDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=SYMBOL target=-[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mLeader event blocked by kill switch tenant=tenant-1 scope=SOMETHING_NEW target=x[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mCopy execution created tenant=tenant-1 execution=exec-1 follower=user-f qty=0.02[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy blocked by kill switch tenant=tenant-1 sub=sub-1 scope=ACCOUNT target=acct-f[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [32m    LOG[39m [38;5;3m[CopyExecutionService] [39m[32mProcessing leader event tenant=tenant-1 event=evt-1 trader=trader-1 strategy=strat-1 symbol=BTC-USDT[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:36 PM [33m   WARN[39m [38;5;3m[CopyExecutionService] [39m[33mCopy blocked by kill switch tenant=tenant-1 sub=sub-1 scope=RISK target=account:acct-f[39m
+PASS src/modules/copy-trading/copy-trading.contract.spec.ts
+PASS src/modules/audit/audit.controller.spec.ts
+PASS src/modules/funding/funding-amount-validation.spec.ts
+PASS src/modules/copy-trading/copy-trading.spec.ts
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=st-1 subscription=sub-1 maxNotional=500 slippage=25[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to weaken maxOrderNotional base=500 override=999999 - keeping base[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to weaken slippageTolerance base=25 override=90[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to reduce executionDelayMs below base=500 override=100[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to weaken maxLeverage base=5 override=20[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mPolicy override attempts to loosen stopLossBps base=150 override=400[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=st-1 subscription=sub-1 maxNotional=500 slippage=25[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=st-1 subscription=sub-1 maxNotional=500 slippage=25[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=st-1 subscription=sub-1 maxNotional=500 slippage=25[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=undefined subscription=undefined maxNotional=100000 slippage=100[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=undefined subscription=undefined maxNotional=100000 slippage=100[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [33m   WARN[39m [38;5;3m[CopyPolicyService] [39m[33mstopLossBps=10000 against entry=50000 yields no positive price for a BUY; no stop-loss will be attached[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [32m    LOG[39m [38;5;3m[CopyPolicyService] [39m[32mEffective copy policy resolved tenant=t1 strategy=undefined subscription=undefined maxNotional=100000 slippage=100[39m
+[32m[Nest] 2264  - [39m10/25/2026, 1:03:40 PM [32m    LOG[39m [38;5;3m[FollowerSubscriptionService] [39m[32mSubscription paused id=s-1 tenant=tenant-1[39m
+PASS src/modules/risk/leverage-policy.spec.ts
+PASS src/modules/copy-trading/copy-trading-safety.spec.ts (11.96 s)
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:52 PM [33m   WARN[39m [38;5;3m[FollowerRiskService] [39m[33mRisk rule MAX_SYMBOL_EXPOSURE could not be evaluated, blocking: db unavailable[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:52 PM [33m   WARN[39m [38;5;3m[FollowerRiskService] [39m[33mRisk rule MAX_COPY_COUNT could not be evaluated, blocking: db unavailable[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:52 PM [33m   WARN[39m [38;5;3m[FollowerRiskService] [39m[33mRisk rule DAILY_PAUSE could not be evaluated, blocking: db unavailable[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:52 PM [33m   WARN[39m [38;5;3m[FollowerRiskService] [39m[33mRisk rule CONCENTRATION could not be evaluated, blocking: db unavailable[39m
+PASS src/modules/oms/final-allocation-and-operations.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:03:55 PM [31m  ERROR[39m [38;5;3m[AmlScreeningService] [39m[31mAML person screening failed tenant=11111111-1111-4111-8111-111111111111 user=33333333-3333-4333-8333-333333333333: screening write unavailable[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:03:55 PM [31m  ERROR[39m [38;5;3m[AmlScreeningService] [39m[31mAML person screening failed tenant=11111111-1111-4111-8111-111111111111 user=33333333-3333-4333-8333-333333333333: review case unavailable[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:03:55 PM [31m  ERROR[39m [38;5;3m[AmlScreeningService] [39m[31mAML person screening failed tenant=11111111-1111-4111-8111-111111111111 user=33333333-3333-4333-8333-333333333333: AML review case persistence returned no durable tenant-bound record[39m
+PASS src/common/api-compatibility-contracts.spec.ts
+PASS src/common/guards/controller-authorization.spec.ts
+[31m[Nest] 2264  - [39m10/25/2026, 1:03:58 PM [31m  ERROR[39m [38;5;3m[TradeLifecycleService] [39m[31mTrade OPEN failed for BTC-USDT fill 3f2504e0-4f89-41d3-9a0c-0305e82c3304: Error[39m
+[31m[Nest] 2264  - [39m10/25/2026, 1:03:58 PM [31m  ERROR[39m [38;5;3m[TradeLifecycleService] [39m[31mTrade flip OPEN failed for BTC-USDT remainder 2: Error[39m
+PASS src/modules/oms/trade-lifecycle.service.spec.ts
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:59 PM [33m   WARN[39m [38;5;3m[SessionSecurityService] [39m[33mrevokeAllSessions failed: connection terminated unexpectedly[39m
+[33m[Nest] 2264  - [39m10/25/2026, 1:03:59 PM [33m   WARN[39m [38;5;3m[OperationalMetricsService] [39m[33mFailed to calculate metrics: connection terminated unexpectedly[39m
+PASS src/common/fail-soft-reads.spec.ts
+PASS src/modules/exchanges/exchange-order-sync.service.spec.ts
+
+Test Suites: 173 passed, 173 total
+Tests:       2891 passed, 2891 total
+Snapshots:   1 passed, 1 total
+Time:        312.724 s
+Ran all test suites.
+Test results written to: ../../../../API-Green-Followup/api-unit-results-final.json

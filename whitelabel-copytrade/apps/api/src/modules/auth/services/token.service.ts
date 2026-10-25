@@ -41,6 +41,7 @@ export interface IssueTokenContext {
 }
 
 /**
+ * # Responsibility: issues and verifies JWTs, persists refresh-token state, and detects reuse.
  * Issues, verifies and rotates JWTs.
  *
  * Refresh tokens are opaque to the client but carry a signed payload for cheap
@@ -96,7 +97,7 @@ export class TokenService {
     const accessToken = await this.jwtService.signAsync(accessPayload, {
       secret: this.config.jwtAccessSigningKey,
       algorithm: this.config.jwtAlgorithm,
-      expiresIn: this.config.accessTokenTtl,
+      expiresIn: this.config.accessTokenTtlSeconds,
       issuer: this.config.jwtIssuer,
       audience: this.config.jwtAudience,
     });
@@ -104,7 +105,7 @@ export class TokenService {
     const refreshToken = await this.jwtService.signAsync(refreshPayload, {
       secret: this.config.jwtRefreshSigningKey,
       algorithm: this.config.jwtAlgorithm,
-      expiresIn: this.config.refreshTokenTtl,
+      expiresIn: this.config.refreshTokenTtlSeconds,
       issuer: this.config.jwtIssuer,
       audience: this.config.jwtAudience,
     });
@@ -304,7 +305,7 @@ export class TokenService {
     const token = await this.jwtService.signAsync(payload, {
       secret: this.config.jwtAccessSigningKey,
       algorithm: this.config.jwtAlgorithm,
-      expiresIn: this.config.twoFactorChallengeTtl,
+      expiresIn: this.config.twoFactorChallengeTtlSeconds,
       issuer: this.config.jwtIssuer,
       audience: this.config.jwtAudience,
     });

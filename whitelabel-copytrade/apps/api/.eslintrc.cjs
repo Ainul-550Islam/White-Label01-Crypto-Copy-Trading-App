@@ -1,11 +1,8 @@
 /** ESLint configuration for the NestJS API. */
+// # Responsibility: applies API lint rules and source/test scope without requiring an unused TypeScript project.
 module.exports = {
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    // Both projects: the build config covers src, the spec config covers the
-    // *.spec.ts files that the build config excludes so they stay out of dist.
-    project: ['tsconfig.json', 'tsconfig.spec.json'],
-    tsconfigRootDir: __dirname,
     sourceType: 'module',
   },
   plugins: ['@typescript-eslint/eslint-plugin'],

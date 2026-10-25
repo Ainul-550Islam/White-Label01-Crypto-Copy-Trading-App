@@ -1,3 +1,4 @@
+// # Responsibility: retain entitlement denial regressions and require the complete non-privileged actor contract for internal tenant checks.
 // # Responsibility: proves entitlement route authorization, tenant-plan restrictions, fail-safe denials, and tenant isolation across canonical and legacy access checks.
 import 'reflect-metadata';
 
@@ -220,7 +221,10 @@ describe('GAP-87 tenant and plan entitlement regression proof', () => {
         subscriptionStatus: SubscriptionStatus.ACTIVE,
       });
       expect(access.reason).toContain('not included in the starter plan');
-      expect(contextBuilder.build).toHaveBeenCalledWith({ tenantId: TENANT_A, userId: 'system' });
+      expect(contextBuilder.build).toHaveBeenCalledWith({
+        tenantId: TENANT_A, userId: 'system', roles: [], ipHash: '',
+        requestId: 'feature-access-check', correlationId: 'feature-access-check',
+      });
       expect(enforcementAudit.logFeatureCheck).toHaveBeenCalledWith(
         enforcementContext,
         expect.objectContaining({ allowed: false, featureKey: 'customDomain' }),

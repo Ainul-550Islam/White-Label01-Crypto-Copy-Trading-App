@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsBoolean, IsArray, IsEnum, IsObject, IsNotEmpty, MaxLength, MinLength, ArrayMaxSize, ValidateIf } from 'class-validator';
+// # Responsibility: declare validated API inputs while keeping arbitrary extension metadata unknown until runtime narrowing.
+import { IsString, IsOptional, IsBoolean, IsArray, IsEnum, IsObject, IsNotEmpty, MaxLength, MinLength, ArrayMaxSize } from 'class-validator';
 import { TraderStrategyStatus, TraderStrategyType } from '../copy-trading.types';
 
 export class CreateTraderProfileDto {
@@ -31,7 +32,7 @@ export class CreateTraderProfileDto {
 
   @IsOptional()
   @IsObject()
-  riskProfile?: Record<string, any>;
+  riskProfile?: Record<string, unknown>;
 
   @IsOptional()
   @IsBoolean()
@@ -69,7 +70,7 @@ export class UpdateTraderProfileDto {
 
   @IsOptional()
   @IsObject()
-  riskProfile?: Record<string, any>;
+  riskProfile?: Record<string, unknown>;
 
   @IsOptional()
   @IsBoolean()
@@ -107,15 +108,15 @@ export class CreateTraderStrategyDto {
 
   @IsOptional()
   @IsObject()
-  riskProfile?: Record<string, any>;
+  riskProfile?: Record<string, unknown>;
 
   @IsOptional()
   @IsObject()
-  feePolicy?: Record<string, any>;
+  feePolicy?: Record<string, unknown>;
 
   @IsOptional()
   @IsObject()
-  strategyConfig?: Record<string, any>;
+  strategyConfig?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()
@@ -149,15 +150,15 @@ export class UpdateTraderStrategyDto {
 
   @IsOptional()
   @IsObject()
-  riskProfile?: Record<string, any>;
+  riskProfile?: Record<string, unknown>;
 
   @IsOptional()
   @IsObject()
-  feePolicy?: Record<string, any>;
+  feePolicy?: Record<string, unknown>;
 
   @IsOptional()
   @IsObject()
-  strategyConfig?: Record<string, any>;
+  strategyConfig?: Record<string, unknown>;
 }
 
 export class TraderStrategyFilterDto {

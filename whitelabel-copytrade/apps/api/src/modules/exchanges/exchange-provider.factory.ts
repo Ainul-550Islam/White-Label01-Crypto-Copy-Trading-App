@@ -1,6 +1,6 @@
-// # Selects live vs paper mode based on explicit safety flags
+// # Responsibility: select explicit venue/environment adapters and runtime-narrow untrusted REST payloads without financial defaults, raw error leaks or any-based schema bypasses.
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ExchangeVenue, ExchangeEnvironment, ExchangeCapability, ExchangeOrderType, ExchangeConnectionState, ExchangeBalance, ExchangePosition, ExchangeOrder, ExchangeFill, ExchangeSymbol, ExchangeCapabilityDiscovery, ExchangePositionSide, ExchangeOrderStatus, ExchangeOrderSide, normalizeTimestampMicros } from './exchange.types';
+import { ExchangeVenue, ExchangeEnvironment, ExchangeCapability, ExchangeOrderType, ExchangeBalance, ExchangePosition, ExchangeOrder, ExchangeFill, ExchangeSymbol, ExchangeCapabilityDiscovery, ExchangePositionSide, ExchangeOrderStatus, ExchangeOrderSide, type ExchangeConnectivityResult } from './exchange.types';
 import { ExchangeProvider, ExchangeProviderError, ExchangeProviderErrorCode, ExchangeProviderContext, ExchangeServerTime, ExchangeAccountMetadata } from './exchange-provider.interface';
 import { ExchangeRegistryService } from './exchange-registry.service';
 import {
@@ -17,6 +17,43 @@ import { KrakenProvider } from './providers/kraken.provider';
 import { CoinbaseProvider } from './providers/coinbase.provider';
 import * as crypto from 'crypto';
 
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Malformed venue object response');
+  const result: Record<string, unknown> = {}; for (const [key, item] of Object.entries(value)) Object.defineProperty(result, key, { value: item, enumerable: true });
+  return result;
+}
+function jsonRows(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) throw new Error('Malformed venue array response');
+  const rows: unknown[] = value; return rows.map(jsonRecord);
+}
+function text(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`Missing venue ${label}`); return value;
+}
+function decimal(value: unknown, label: string): string {
+  if (!isDecimalString(value)) throw new Error(`Invalid exact venue ${label}`); return value;
+}
+function optionalDecimal(value: unknown, label: string): string | null { return value === null || value === undefined ? null : decimal(value, label); }
+function count(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error(`Invalid venue ${label}`); return value;
+}
+function identifier(value: unknown, label: string): string {
+  if (typeof value === 'string' && value.trim() !== '') return value;
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value.toString();
+  throw new Error(`Invalid venue ${label}`);
+}
+function timestampMicros(value: unknown): string {
+  const milliseconds = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  return (BigInt(count(milliseconds, 'millisecond timestamp')) * 1000n).toString();
+}
+function option<T extends string>(value: unknown, values: readonly T[], label: string): T {
+  const result = values.find((candidate) => candidate === value); if (!result) throw new Error(`Unsupported venue ${label}`); return result;
+}
+function boolean(value: unknown, label: string): boolean { if (typeof value !== 'boolean') throw new Error(`Unobserved venue ${label}`); return value; }
+function strings(value: unknown, label: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`Missing venue ${label}`); const items: unknown[] = value; return items.map((item) => text(item, label));
+}
+function failureKind(error: unknown): string { return error instanceof Error ? error.constructor.name : 'UnknownError'; }
 
 // ---------------------------------------------------------------------------
 // Binance adapter - real implementation, no fake data
@@ -65,10 +102,10 @@ class BinanceProvider extends BaseExchangeProvider {
 
   async getServerTime(context: ExchangeProviderContext): Promise<ExchangeServerTime> {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/api/v3/time`;
-    const start = Date.now();
     try {
-      const data = await this.httpGet(url);
-      const serverTimeMs = data.serverTime;
+      const raw: unknown = await this.httpGet(url);
+      const data = jsonRecord(raw);
+      const serverTimeMs = count(data.serverTime, 'server time');
       const localMs = Date.now();
       const drift = localMs - serverTimeMs;
       return {
@@ -76,12 +113,12 @@ class BinanceProvider extends BaseExchangeProvider {
         localTimeMicros: (BigInt(localMs) * BigInt(1000)).toString(),
         driftMs: drift,
       };
-    } catch (e: any) {
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
   }
 
-  async testConnectivity(context: ExchangeProviderContext): Promise<any> {
+  async testConnectivity(context: ExchangeProviderContext): Promise<ExchangeConnectivityResult> {
     // Server time + /api/v3/account through the shared proof: a key that can
     // withdraw is refused, a read-only key connects DEGRADED (it syncs but the
     // venue will refuse orders), and every venue error is classified.
@@ -95,7 +132,8 @@ class BinanceProvider extends BaseExchangeProvider {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/api/v3/account?${query}&signature=${signature}`;
     const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
     try {
-      const data = await this.httpGet(url, headers);
+      const raw: unknown = await this.httpGet(url, headers);
+      const data = jsonRecord(raw);
       return {
         accountId: context.accountId,
         venue: context.venue,
@@ -106,11 +144,11 @@ class BinanceProvider extends BaseExchangeProvider {
         // Absent or malformed flag counts as "can withdraw" - fail closed.
         canWithdraw: data.canWithdraw !== false,
         ipRestricted: false,
-        permissions: data.permissions || [],
+        permissions: strings(data.permissions, 'permissions'),
         uid: null,
         email: null,
       };
-    } catch (e: any) {
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
   }
@@ -139,22 +177,15 @@ class BinanceProvider extends BaseExchangeProvider {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/api/v3/account?${query}&signature=${signature}`;
     const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
     try {
-      const data = await this.httpGet(url, headers);
-      const balances = data.balances || [];
-      return balances
-        .filter((b: any) => isDecimalString(b.free) && isDecimalString(b.locked))
-        .filter((b: any) => signOfDecimalString(b.free) > 0 || signOfDecimalString(b.locked) > 0)
-        .map((b: any) => ({
-          asset: b.asset,
-          free: b.free, // preserve string precision
-          locked: b.locked,
-          total: addDecimalStrings(b.free, b.locked), // exact decimal-string addition, no float rounding
-          providerReference: null,
-          timestampMicros: (BigInt(Date.now()) * BigInt(1000)).toString(),
-          source: 'REST',
-          isSimulated: context.isSandbox,
-        }));
-    } catch (e: any) {
+      const raw: unknown = await this.httpGet(url, headers);
+      const data = jsonRecord(raw);
+      return jsonRows(data.balances).map((balance): ExchangeBalance => {
+        const free = decimal(balance.free, 'free balance'); const locked = decimal(balance.locked, 'locked balance');
+        if (signOfDecimalString(free) < 0 || signOfDecimalString(locked) < 0) throw new Error('Negative venue spot balance');
+        return { asset: text(balance.asset, 'asset'), free, locked, total: addDecimalStrings(free, locked), providerReference: null,
+          timestampMicros: (BigInt(Date.now()) * 1000n).toString(), source: 'REST', isSimulated: context.isSandbox };
+      }).filter((balance) => signOfDecimalString(balance.free) > 0 || signOfDecimalString(balance.locked) > 0);
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
   }
@@ -166,41 +197,31 @@ class BinanceProvider extends BaseExchangeProvider {
 
   async getPositions(context: ExchangeProviderContext): Promise<ExchangePosition[]> {
     // Binance spot has no positions; USD-M futures does. A key without futures
-    // enabled is answered 401/403 (-2015) by the futures host - that is the
-    // truthful "no futures positions" case. Every other failure (network,
-    // rate limit, 5xx, clock) is surfaced instead of being reported as flat.
+    // enabled may be answered 401/403 (-2015) by the futures host. That is
+    // unavailable evidence, not proof that the account is flat. Permission,
+    // network, rate-limit, server and clock failures therefore propagate.
     const timestamp = Date.now();
     const query = `timestamp=${timestamp}`;
     const signature = this.sign(query, context.credentials.apiSecret);
     const url = `${this.futuresBaseUrl(context.environment)}/fapi/v2/positionRisk?${query}&signature=${signature}`;
     const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
-    let data: any;
+    let data: unknown;
     try {
       data = await this.httpGet(url, headers);
-    } catch (e: any) {
-      if (e?.status === 401 || e?.status === 403 || e?.data?.code === -2015) return [];
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
-    if (!Array.isArray(data)) {
-      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'Binance positionRisk returned a non-array body', context.venue, context.environment, true);
-    }
-    return data
-      .filter((p: any) => isDecimalString(p.positionAmt) && signOfDecimalString(p.positionAmt) !== 0)
-      .map((p: any) => ({
-        providerPositionId: null,
-        symbol: canonicalFromConcatenated(p.symbol),
-        exchangeSymbol: p.symbol,
-        side: signOfDecimalString(p.positionAmt) > 0 ? ExchangePositionSide.LONG : ExchangePositionSide.SHORT,
-        quantity: absDecimalString(p.positionAmt),
-        entryPrice: p.entryPrice,
-        markPrice: p.markPrice,
-        liquidationPrice: p.liquidationPrice,
-        leverage: p.leverage,
-        unrealizedPnl: p.unRealizedProfit,
-        realizedPnl: null,
-        timestampMicros: (BigInt(Date.now()) * BigInt(1000)).toString(),
-        isSimulated: context.isSandbox,
-      }));
+    return jsonRows(data).map((position): ExchangePosition | null => {
+      const amount = decimal(position.positionAmt, 'position amount');
+      if (signOfDecimalString(amount) === 0) return null;
+      const symbol = text(position.symbol, 'position symbol');
+      return { providerPositionId: null, symbol: canonicalFromConcatenated(symbol), exchangeSymbol: symbol,
+        side: signOfDecimalString(amount) > 0 ? ExchangePositionSide.LONG : ExchangePositionSide.SHORT, quantity: absDecimalString(amount),
+        entryPrice: decimal(position.entryPrice, 'entry price'), markPrice: optionalDecimal(position.markPrice, 'mark price'),
+        liquidationPrice: optionalDecimal(position.liquidationPrice, 'liquidation price'), leverage: optionalDecimal(position.leverage, 'leverage'),
+        unrealizedPnl: optionalDecimal(position.unRealizedProfit, 'unrealized PnL'), realizedPnl: null,
+        timestampMicros: (BigInt(Date.now()) * 1000n).toString(), isSimulated: context.isSandbox };
+    }).filter((position): position is ExchangePosition => position !== null);
   }
 
   async getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]> {
@@ -214,29 +235,9 @@ class BinanceProvider extends BaseExchangeProvider {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/api/v3/openOrders?${query}&signature=${signature}`;
     const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
     try {
-      const data = await this.httpGet(url, headers);
-      const orders = Array.isArray(data) ? data : [data];
-      return orders.map((o: any) => ({
-        clientOrderId: o.clientOrderId,
-        providerOrderId: o.orderId?.toString() || null,
-        symbol: canonicalFromConcatenated(o.symbol),
-        exchangeSymbol: o.symbol,
-        side: o.side,
-        type: o.type,
-        status: this.mapOrderStatus(o.status),
-        providerRawStatus: o.status,
-        quantity: o.origQty,
-        price: o.price,
-        stopPrice: o.stopPrice || null,
-        filledQuantity: o.executedQty,
-        averagePrice: null,
-        fee: null,
-        feeCurrency: null,
-        createdAtMicros: o.time ? (BigInt(o.time) * BigInt(1000)).toString() : null,
-        updatedAtMicros: o.updateTime ? (BigInt(o.updateTime) * BigInt(1000)).toString() : null,
-        isSimulated: context.isSandbox,
-      }));
-    } catch (e: any) {
+      const raw: unknown = await this.httpGet(url, headers);
+      return jsonRows(raw).map((order) => this.parseOrder(order, context));
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
   }
@@ -252,29 +253,9 @@ class BinanceProvider extends BaseExchangeProvider {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/api/v3/allOrders?${query}&signature=${signature}`;
     const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
     try {
-      const data = await this.httpGet(url, headers);
-      const orders = Array.isArray(data) ? data : [];
-      return orders.map((o: any) => ({
-        clientOrderId: o.clientOrderId,
-        providerOrderId: o.orderId?.toString() || null,
-        symbol: canonicalFromConcatenated(o.symbol),
-        exchangeSymbol: o.symbol,
-        side: o.side,
-        type: o.type,
-        status: this.mapOrderStatus(o.status),
-        providerRawStatus: o.status,
-        quantity: o.origQty,
-        price: o.price,
-        stopPrice: o.stopPrice || null,
-        filledQuantity: o.executedQty,
-        averagePrice: null,
-        fee: null,
-        feeCurrency: null,
-        createdAtMicros: o.time ? (BigInt(o.time) * BigInt(1000)).toString() : null,
-        updatedAtMicros: o.updateTime ? (BigInt(o.updateTime) * BigInt(1000)).toString() : null,
-        isSimulated: context.isSandbox,
-      }));
-    } catch (e: any) {
+      const raw: unknown = await this.httpGet(url, headers);
+      return jsonRows(raw).map((order) => this.parseOrder(order, context));
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
   }
@@ -290,24 +271,16 @@ class BinanceProvider extends BaseExchangeProvider {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/api/v3/myTrades?${query}&signature=${signature}`;
     const headers = { 'X-MBX-APIKEY': context.credentials.apiKey };
     try {
-      const data = await this.httpGet(url, headers);
-      const trades = Array.isArray(data) ? data : [];
-      return trades.map((t: any) => ({
-        providerTradeId: t.id?.toString(),
-        providerOrderId: t.orderId?.toString() || null,
-        clientOrderId: null,
-        symbol: canonicalFromConcatenated(t.symbol),
-        side: t.isBuyer ? ExchangeOrderSide.BUY : ExchangeOrderSide.SELL,
-        price: t.price,
-        quantity: t.qty,
-        quoteQuantity: t.quoteQty,
-        fee: t.commission,
-        feeCurrency: t.commissionAsset,
-        isMaker: t.isMaker,
-        timestampMicros: t.time ? (BigInt(t.time) * BigInt(1000)).toString() : (BigInt(Date.now()) * BigInt(1000)).toString(),
-        isSimulated: context.isSandbox,
+      const raw: unknown = await this.httpGet(url, headers);
+      return jsonRows(raw).map((trade): ExchangeFill => ({
+        providerTradeId: identifier(trade.id, 'trade id'), providerOrderId: trade.orderId === null || trade.orderId === undefined ? null : identifier(trade.orderId, 'order id'),
+        clientOrderId: null, symbol: canonicalFromConcatenated(text(trade.symbol, 'trade symbol')),
+        side: boolean(trade.isBuyer, 'buyer side') ? ExchangeOrderSide.BUY : ExchangeOrderSide.SELL,
+        price: decimal(trade.price, 'fill price'), quantity: decimal(trade.qty, 'fill quantity'), quoteQuantity: optionalDecimal(trade.quoteQty, 'quote quantity'),
+        fee: decimal(trade.commission, 'commission'), feeCurrency: text(trade.commissionAsset, 'fee currency'), isMaker: boolean(trade.isMaker, 'maker flag'),
+        timestampMicros: timestampMicros(trade.time), isSimulated: context.isSandbox,
       }));
-    } catch (e: any) {
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
   }
@@ -315,36 +288,35 @@ class BinanceProvider extends BaseExchangeProvider {
   async getSymbols(context: ExchangeProviderContext): Promise<ExchangeSymbol[]> {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/api/v3/exchangeInfo`;
     try {
-      const data = await this.httpGet(url);
-      const symbols = data.symbols || [];
-      return symbols
-        .filter((s: any) => s.status === 'TRADING')
-        .map((s: any) => {
-          const lotFilter = s.filters?.find((f: any) => f.filterType === 'LOT_SIZE');
-          const priceFilter = s.filters?.find((f: any) => f.filterType === 'PRICE_FILTER');
-          const notionalFilter = s.filters?.find((f: any) => f.filterType === 'MIN_NOTIONAL' || f.filterType === 'NOTIONAL');
-          return {
-            canonicalSymbol: `${s.baseAsset}-${s.quoteAsset}`,
-            exchangeSymbol: s.symbol,
-            baseAsset: s.baseAsset,
-            quoteAsset: s.quoteAsset,
-            contractType: 'SPOT',
-            tickSize: priceFilter?.tickSize || '0.00000001',
-            quantityStep: lotFilter?.stepSize || '0.00000001',
-            minQuantity: lotFilter?.minQty || null,
-            maxQuantity: lotFilter?.maxQty || null,
-            minNotional: notionalFilter?.minNotional || null,
-            maxNotional: null,
-            pricePrecision: s.quotePrecision || 8,
-            quantityPrecision: s.baseAssetPrecision || 8,
-            minLeverage: null,
-            maxLeverage: null,
-            isTradeable: true,
-          };
-        });
-    } catch (e: any) {
+      const raw: unknown = await this.httpGet(url); const data = jsonRecord(raw);
+      return jsonRows(data.symbols).filter((symbol) => symbol.status === 'TRADING').map((symbol): ExchangeSymbol => {
+        const filters = jsonRows(symbol.filters); const lot = filters.find((filter) => filter.filterType === 'LOT_SIZE');
+        const price = filters.find((filter) => filter.filterType === 'PRICE_FILTER'); const notional = filters.find((filter) => filter.filterType === 'MIN_NOTIONAL' || filter.filterType === 'NOTIONAL');
+        if (!lot || !price) throw new Error('Required venue tick/quantity filters unavailable');
+        const baseAsset = text(symbol.baseAsset, 'base asset'); const quoteAsset = text(symbol.quoteAsset, 'quote asset');
+        const tickSize = decimal(price.tickSize, 'tick size'); const quantityStep = decimal(lot.stepSize, 'quantity step');
+        if (signOfDecimalString(tickSize) <= 0 || signOfDecimalString(quantityStep) <= 0) throw new Error('Positive venue tick/quantity constraints required');
+        return { canonicalSymbol: `${baseAsset}-${quoteAsset}`, exchangeSymbol: text(symbol.symbol, 'symbol'), baseAsset, quoteAsset, contractType: 'SPOT',
+          tickSize, quantityStep, minQuantity: optionalDecimal(lot.minQty, 'minimum quantity'), maxQuantity: optionalDecimal(lot.maxQty, 'maximum quantity'),
+          minNotional: optionalDecimal(notional?.minNotional, 'minimum notional'), maxNotional: optionalDecimal(notional?.maxNotional, 'maximum notional'),
+          pricePrecision: count(symbol.quotePrecision, 'quote precision'), quantityPrecision: count(symbol.baseAssetPrecision, 'base precision'),
+          minLeverage: null, maxLeverage: null, isTradeable: true };
+      });
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
+  }
+
+  private parseOrder(order: Record<string, unknown>, context: ExchangeProviderContext): ExchangeOrder {
+    const symbol = text(order.symbol, 'order symbol'); const rawStatus = text(order.status, 'order status');
+    const type = order.type === 'STOP_LOSS' ? ExchangeOrderType.STOP : order.type === 'STOP_LOSS_LIMIT' ? ExchangeOrderType.STOP_LIMIT : option(order.type, Object.values(ExchangeOrderType), 'order type');
+    return { clientOrderId: text(order.clientOrderId, 'client order id'), providerOrderId: identifier(order.orderId, 'order id'),
+      symbol: canonicalFromConcatenated(symbol), exchangeSymbol: symbol, side: option(order.side, Object.values(ExchangeOrderSide), 'order side'), type,
+      status: this.mapOrderStatus(rawStatus), providerRawStatus: rawStatus, quantity: decimal(order.origQty, 'order quantity'),
+      price: optionalDecimal(order.price, 'order price'), stopPrice: optionalDecimal(order.stopPrice, 'stop price'), filledQuantity: decimal(order.executedQty, 'filled quantity'),
+      averagePrice: null, fee: null, feeCurrency: null,
+      createdAtMicros: order.time === null || order.time === undefined ? null : timestampMicros(order.time),
+      updatedAtMicros: order.updateTime === null || order.updateTime === undefined ? null : timestampMicros(order.updateTime), isSimulated: context.isSandbox };
   }
 
   private mapOrderStatus(status: string): ExchangeOrderStatus {
@@ -357,7 +329,7 @@ class BinanceProvider extends BaseExchangeProvider {
       EXPIRED: ExchangeOrderStatus.EXPIRED,
       PENDING_CANCEL: ExchangeOrderStatus.PENDING_CANCEL,
     };
-    return map[status] || ExchangeOrderStatus.NEW;
+    const mapped = map[status]; if (!mapped) throw new Error('Unknown venue order status'); return mapped;
   }
 }
 
@@ -421,20 +393,20 @@ class GenericExchangeProvider extends BaseExchangeProvider {
 
   async getServerTime(context: ExchangeProviderContext): Promise<ExchangeServerTime> {
     const url = `${this.getRestBaseUrlForEnv(context.environment)}/time`;
-    let data: any;
+    let data: unknown;
     try {
       data = await this.httpGet(url);
-    } catch (e: any) {
+    } catch (e) {
       throw this.normalizeError(e, context.venue, context.environment);
     }
-    const serverTimeMs = Number(data?.serverTime ?? data?.time);
+    const body = jsonRecord(data); const serverTimeMs = count(body.serverTime ?? body.time, 'server time');
     if (!Number.isFinite(serverTimeMs) || serverTimeMs <= 0) {
       throw this.notSupported(context, 'server time');
     }
     return this.serverTimeFromMs(serverTimeMs);
   }
 
-  async testConnectivity(context: ExchangeProviderContext): Promise<any> {
+  async testConnectivity(context: ExchangeProviderContext): Promise<ExchangeConnectivityResult> {
     throw this.notSupported(context, 'connectivity verification');
   }
 
@@ -467,15 +439,15 @@ class GenericExchangeProvider extends BaseExchangeProvider {
     throw this.notSupported(context, 'positions');
   }
 
-  async getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]> {
+  async getOpenOrders(context: ExchangeProviderContext): Promise<ExchangeOrder[]> {
     throw this.notSupported(context, 'open orders');
   }
 
-  async getOrderHistory(context: ExchangeProviderContext, symbol?: string, limit?: number): Promise<ExchangeOrder[]> {
+  async getOrderHistory(context: ExchangeProviderContext): Promise<ExchangeOrder[]> {
     throw this.notSupported(context, 'order history');
   }
 
-  async getTradeHistory(context: ExchangeProviderContext, symbol?: string, limit?: number): Promise<ExchangeFill[]> {
+  async getTradeHistory(context: ExchangeProviderContext): Promise<ExchangeFill[]> {
     throw this.notSupported(context, 'trade history');
   }
 
@@ -555,8 +527,8 @@ export class ExchangeProviderFactory implements OnModuleInit {
       }
 
       this.logger.log(`Registered ${this.providers.size} exchange providers: ${Array.from(this.providers.keys()).join(', ')}`);
-    } catch (e: any) {
-      this.logger.error(`Failed to register providers: ${e.message}`);
+    } catch (e) {
+      this.logger.error(`Failed to register providers: ${failureKind(e)}`);
     }
   }
 

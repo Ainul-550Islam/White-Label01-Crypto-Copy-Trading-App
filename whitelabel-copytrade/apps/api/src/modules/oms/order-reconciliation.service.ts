@@ -1,7 +1,8 @@
+// # Responsibility: reconcile OMS intent, exchange order, fills, and lifecycle history without rewriting truth.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ReconciliationCategory, isTerminalState, isValidDecimal, parseScaled, formatScaled, reconciliationErrorCode } from './oms.types';
-import { randomUUID } from 'crypto';
+import { ReconciliationCategory, isTerminalState, isValidDecimal, isValidTransition, reconciliationErrorCode } from './oms.types';
+
 
 /**
  * Order Reconciliation Service — reconciles OMS intent ↔ execution engine ↔ exchange order ↔ fills ↔ positions
@@ -154,7 +155,6 @@ export class OrderReconciliationService {
         const from = transitions[i - 1].toState;
         const to = transitions[i].toState;
         // Use same VALID_TRANSITIONS check
-        const { isValidTransition } = require('./oms.types');
         if (!isValidTransition(from, to)) {
           findings.push({
             category: ReconciliationCategory.IMPOSSIBLE_LIFECYCLE_TRANSITION,

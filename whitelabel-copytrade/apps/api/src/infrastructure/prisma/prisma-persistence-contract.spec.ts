@@ -1,3 +1,4 @@
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { FeeAccrualRepository } from '../../modules/billing/fees/fee-accrual.repository';
@@ -6,6 +7,7 @@ import { PayoutRepository } from '../../modules/billing/fees/payout.repository';
 import { UsageEventRepository } from '../../modules/billing/usage/usage-event.repository';
 import { PaymentRepository } from '../../modules/billing/payments/payment.repository';
 import { InvoiceRepository } from '../../modules/billing/finance/invoice.repository';
+import { OutboxService } from '../outbox/outbox.service';
 import { AccountingAdjustmentService } from '../../modules/portfolio-accounting/accounting-adjustment.service';
 import { AccountingReconciliationService } from '../../modules/portfolio-accounting/accounting-reconciliation.service';
 import { AttributionService } from '../../modules/portfolio-accounting/attribution.service';
@@ -18,6 +20,7 @@ import { TransactionMonitoringService } from '../../modules/compliance/transacti
 import { LifecycleNotificationService } from '../../modules/client-lifecycle/lifecycle-notification.service';
 
 /**
+ * # Responsibility: validates service persistence writes against the generated Prisma DMMF.
  * Persistence contract: the services below call Prisma through `(prisma as any)`,
  * so the compiler cannot check their writes. This fake Prisma client validates
  * every create/update against the generated DMMF the way the real client does
@@ -270,6 +273,12 @@ class FakePrisma {
     return this.tables.get(delegate)!;
   }
 
+  /** Test-only transaction wrapper for services that require tenant-scoped writes. */
+  async withTenantRls<T>(tenantId: string, work: (transaction: FakePrisma) => Promise<T>): Promise<T> {
+    if (!tenantId.trim()) throw new Error('tenantId is required for the fake RLS transaction');
+    return work(this);
+  }
+
   seed(delegate: string, data: Row): Row {
     validateWrite(delegate, data, 'create');
     const row = applyDefaults(delegate, data);
@@ -342,7 +351,46 @@ const policy = {
   feeTreatment: 'NET',
   closeRules: { allowIncompleteValuation: false },
 };
-const policyService = () => ({ resolvePolicy: jest.fn().mockResolvedValue(policy) }) as any;
+function asyncMock(): jest.Mock<(...args: unknown[]) => Promise<unknown>> {
+  return jest.fn<(...args: unknown[]) => Promise<unknown>>();
+}
+
+const policyService = () => ({ resolvePolicy: asyncMock().mockResolvedValue(policy) }) as any;
+
+function toJsonValue(value: unknown): Prisma.JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error('outbox test payload contains a non-finite number');
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(toJsonValue);
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const result: Prisma.JsonObject = {};
+    for (const [key, entry] of Object.entries(record)) {
+      if (entry !== undefined) result[key] = toJsonValue(entry);
+    }
+    return result;
+  }
+  throw new Error('outbox test payload contains a non-JSON value');
+}
+
+function persistenceOutbox(): OutboxService {
+  const outbox = new OutboxService();
+  jest.spyOn(outbox, 'append').mockImplementation(async (_transaction, event) => ({
+    id: `outbox:${event.idempotencyKey}`,
+    tenantId: event.tenantId,
+    aggregateType: event.aggregateType,
+    aggregateId: event.aggregateId,
+    aggregateSequence: 1,
+    eventType: event.eventType,
+    payload: toJsonValue(event.payload),
+    idempotencyKey: event.idempotencyKey,
+    correlationId: event.correlationId ?? null,
+    createdAt: event.occurredAt ?? new Date(),
+  }));
+  return outbox;
+}
 
 describe('Prisma persistence contract (writes validated against the DMMF)', () => {
   let prisma: FakePrisma;
@@ -487,8 +535,9 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
       expect(payment.id).toBe(prisma.rows('payment')[0].id);
     });
 
-    it('Invoice: create persists lines as JSON plus customer and taxSummary', async () => {
-      const repo = new InvoiceRepository(prisma as any);
+    it('Invoice: create persists lines as JSON plus customer and taxSummary and appends its event', async () => {
+      const outbox = persistenceOutbox();
+      const repo = new InvoiceRepository(prisma as any, outbox);
       const invoice = await repo.create({
         tenantId: TENANT,
         currency: 'USD',
@@ -524,6 +573,10 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
       expect(row.customer).toMatchObject({ billingName: 'Acme' });
       expect(row.taxSummary).toHaveLength(1);
       expect(invoice.id).toBe(row.id);
+      expect(outbox.append).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({ tenantId: TENANT, eventType: 'invoice.created', aggregateId: row.id }),
+      );
     });
   });
 
@@ -638,7 +691,7 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
     function snapshotDeps() {
       return {
         nav: {
-          calculateNav: jest.fn().mockResolvedValue({
+          calculateNav: asyncMock().mockResolvedValue({
             nav: '1000',
             grossAssetValue: '1000',
             grossLiability: '0',
@@ -651,19 +704,17 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
           }),
         },
         pnl: {
-          calculateNetPnl: jest
-            .fn()
+          calculateNetPnl: asyncMock()
             .mockResolvedValue({
               netPnl: '10',
               grossPnl: '12',
               fees: '2',
               evidence: { gross: { realized: '8', unrealized: '4' } },
             }),
-          calculateRealizedPnl: jest.fn().mockResolvedValue({ realizedPnl: '8' }),
+          calculateRealizedPnl: asyncMock().mockResolvedValue({ realizedPnl: '8' }),
         },
         performance: {
-          calculateTWR: jest
-            .fn()
+          calculateTWR: asyncMock()
             .mockResolvedValue({
               returnPercent: '1.5',
               evidence: {
@@ -674,12 +725,11 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
                 sourceReferences: [],
               },
             }),
-          persistPerformanceRecord: jest.fn().mockResolvedValue({}),
+          persistPerformanceRecord: asyncMock().mockResolvedValue({}),
         },
-        positions: { getHoldings: jest.fn().mockResolvedValue([]) },
+        positions: { getHoldings: asyncMock().mockResolvedValue([]) },
         cash: {
-          getCashBalance: jest
-            .fn()
+          getCashBalance: asyncMock()
             .mockResolvedValue({
               asset: 'USD',
               balance: '50',
@@ -691,8 +741,9 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
       };
     }
 
-    it('snapshot: fees is a decimal string and performance data is kept in performanceMetrics', async () => {
+    it('snapshot: fees is a decimal string, performance data is kept in performanceMetrics, and its event is appended', async () => {
       const deps = snapshotDeps();
+      const outbox = persistenceOutbox();
       const service = new PortfolioSnapshotService(
         prisma as any,
         deps.nav as any,
@@ -701,6 +752,7 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
         deps.positions as any,
         deps.cash as any,
         policyService(),
+        outbox,
       );
       const snapshot = await service.createSnapshot({
         tenantId: TENANT,
@@ -719,11 +771,16 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
       expect(
         await service.verifySnapshotImmutability(snapshot.snapshotId, snapshot.fingerprint),
       ).toBe(true);
+      expect(outbox.append).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({ tenantId: TENANT, eventType: 'portfolio.snapshot.created', aggregateType: 'portfolio_snapshot' }),
+      );
     });
 
     it('period close: a failed validation can be retried and the period closes with its figures', async () => {
       const deps = snapshotDeps();
       const policies = policyService();
+      const outbox = persistenceOutbox();
       const periods = new AccountingPeriodService(prisma as any, policies);
       const snapshots = new PortfolioSnapshotService(
         prisma as any,
@@ -733,10 +790,10 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
         deps.positions as any,
         deps.cash as any,
         policies,
+        outbox,
       );
       const reconciliation = {
-        reconcilePeriod: jest
-          .fn()
+        reconcilePeriod: asyncMock()
           .mockResolvedValueOnce({
             hasCriticalFailure: true,
             discrepancies: [{ type: 'DUPLICATE_EVENT', severity: 'CRITICAL', details: {} }],
@@ -860,7 +917,7 @@ describe('Prisma persistence contract (writes validated against the DMMF)', () =
     });
 
     it("transaction monitoring: resolveSignal cannot resolve another tenant's signal", async () => {
-      const audit = { record: jest.fn().mockResolvedValue(undefined) };
+      const audit = { record: asyncMock().mockResolvedValue(undefined) };
       const service = new TransactionMonitoringService(
         prisma as any,
         {} as any,

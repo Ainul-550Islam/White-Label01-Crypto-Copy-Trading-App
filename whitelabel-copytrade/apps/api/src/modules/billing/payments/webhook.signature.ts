@@ -1,4 +1,6 @@
+// # Responsibility: verify payment webhooks and derive safe provider event fingerprints.
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { PaymentProvider } from './payment.types';
 import { PaymentConfigService } from './payment.config';
 import { PaymentProviderFactory } from './payment-provider.factory';
@@ -101,14 +103,19 @@ export class WebhookSignatureService {
 
   extractEventId(provider: PaymentProvider, rawEvent: unknown): string | null {
     try {
-      const event = rawEvent as any;
+      if (!rawEvent || typeof rawEvent !== 'object' || Array.isArray(rawEvent)) return null;
+      const event = rawEvent;
 
       switch (provider) {
         case PaymentProvider.STRIPE:
-          return event.id || null;
+          return 'id' in event && typeof event.id === 'string' && event.id ? event.id : null;
 
         case PaymentProvider.NOWPAYMENTS:
-          return event.payment_id?.toString() || event.order_id || null;
+          if ('payment_id' in event && (typeof event.payment_id === 'string' || typeof event.payment_id === 'number')) {
+            const id = String(event.payment_id);
+            if (id) return id;
+          }
+          return 'order_id' in event && typeof event.order_id === 'string' && event.order_id ? event.order_id : null;
 
         default:
           return null;
@@ -120,14 +127,15 @@ export class WebhookSignatureService {
 
   extractEventType(provider: PaymentProvider, rawEvent: unknown): string | null {
     try {
-      const event = rawEvent as any;
+      if (!rawEvent || typeof rawEvent !== 'object' || Array.isArray(rawEvent)) return null;
+      const event = rawEvent;
 
       switch (provider) {
         case PaymentProvider.STRIPE:
-          return event.type || null;
+          return 'type' in event && typeof event.type === 'string' && event.type ? event.type : null;
 
         case PaymentProvider.NOWPAYMENTS:
-          return event.payment_status || null;
+          return 'payment_status' in event && typeof event.payment_status === 'string' && event.payment_status ? event.payment_status : null;
 
         default:
           return null;
@@ -139,9 +147,8 @@ export class WebhookSignatureService {
 
   computeEventHash(provider: PaymentProvider, providerEventId: string, eventType: string, payload?: unknown): string {
     try {
-      const crypto = require('crypto');
       const data = `${provider}:${providerEventId}:${eventType}:${payload ? JSON.stringify(payload).substring(0, 500) : ''}`;
-      return crypto.createHash('sha256').update(data).digest('hex');
+      return createHash('sha256').update(data).digest('hex');
     } catch {
       // Fallback hash
       return `${provider}_${providerEventId}_${eventType}_${Date.now()}`.substring(0, 64);

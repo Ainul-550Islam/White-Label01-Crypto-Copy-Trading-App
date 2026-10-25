@@ -5,19 +5,7 @@
  * Enforces existing platform RBAC and never exposes credentials.
  */
 
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  Headers,
-  HttpCode,
-  HttpStatus,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Headers, HttpCode, HttpStatus } from '@nestjs/common';
 import { Permission } from '@wlct/shared-types';
 import { PlatformOnly, RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProviderDomain, ProviderName } from './provider.types';

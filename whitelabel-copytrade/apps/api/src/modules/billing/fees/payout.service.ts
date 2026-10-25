@@ -1,11 +1,12 @@
+// # Responsibility: orchestrate typed tenant payouts and refuse unconfirmed cancellation of externally submitted payouts.
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PayoutRepository } from './payout.repository';
 import { FeeSettlementRepository } from './fee-settlement.repository';
 import { PayoutProviderFactory } from './payout-provider.factory';
 import { FeeAuditService } from './fee-audit.service';
-import { PayoutStatus, PayoutProvider, BeneficiaryType, PayoutDestination } from './payout.types';
+import { PayoutStatus, PayoutProvider, BeneficiaryType, PayoutDestination, Payout } from './payout.types';
 import { SettlementState } from './fee.types';
-import { parseToMinorUnits, formatFromMinorUnits } from '../finance/money.types';
+import { parseToMinorUnits } from '../finance/money.types';
 import { BillingEventService } from '../notifications/billing-event.service';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 
@@ -44,7 +45,7 @@ export class PayoutService {
     idempotencyKey?: string;
     metadata?: Record<string, unknown>;
     actorId?: string;
-  }): Promise<any> {
+  }): Promise<Payout | null> {
     const idempotencyKey = params.idempotencyKey || `payout_${params.settlementId}_${params.beneficiaryId}_${params.tenantId}`;
 
     // Idempotency check
@@ -81,9 +82,10 @@ export class PayoutService {
       if (requestedMinor <= 0) {
         throw new Error('Payout amount must be positive');
       }
-    } catch (e: any) {
-      if (e.message.includes('exceeds') || e.message.includes('positive')) throw e;
-      throw new Error(`Invalid payout amount: ${requestedAmount} - ${e.message}`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message.includes('exceeds') || message.includes('positive')) throw e;
+      throw new Error(`Invalid payout amount: ${requestedAmount} - ${message}`);
     }
 
     // Beneficiary ownership validation - tenant-scoped
@@ -215,23 +217,23 @@ export class PayoutService {
       this.logger.log(`Payout created id=${payout.id} settlement=${params.settlementId} provider=${provider} status=${providerResult.status} amount=${requestedAmount} ${currency}`);
 
       return updated || payout;
-    } catch (error: any) {
+    } catch (error) {
       // Provider execution failed - mark payout as FAILED, not successful
-      this.logger.error(`Payout provider execution failed for ${payout.id}: ${error.message}`);
+      this.logger.error(`Payout provider execution failed for ${payout.id}: ${error instanceof Error ? error.message : String(error)}`);
 
-      const failed = await this.payoutRepository.updateStatus(payout.id, {
+      await this.payoutRepository.updateStatus(payout.id, {
         status: PayoutStatus.FAILED,
-        failureReason: error.message,
+        failureReason: error instanceof Error ? error.message : String(error),
         failedAt: new Date().toISOString(),
       });
 
-      await this.auditService.logPayoutFailed(params.tenantId, payout.id, params.settlementId, error.message);
+      await this.auditService.logPayoutFailed(params.tenantId, payout.id, params.settlementId, error instanceof Error ? error.message : String(error));
 
       throw error;
     }
   }
 
-  async getPayoutStatus(payoutId: string, tenantId: string): Promise<any> {
+  async getPayoutStatus(payoutId: string, tenantId: string): Promise<Payout | null> {
     const payout = await this.payoutRepository.findById(payoutId, tenantId);
     if (!payout) throw new Error(`Payout not found: ${payoutId}`);
 
@@ -280,7 +282,7 @@ export class PayoutService {
     return payout;
   }
 
-  async retryPayout(payoutId: string, tenantId: string, actorId?: string): Promise<any> {
+  async retryPayout(payoutId: string, tenantId: string, _actorId?: string): Promise<Payout | null> {
     const payout = await this.payoutRepository.findById(payoutId, tenantId);
     if (!payout) throw new Error(`Payout not found: ${payoutId}`);
 
@@ -320,18 +322,18 @@ export class PayoutService {
       await this.auditService.logPayoutProcessing(tenantId, payout.id, payout.settlementId, providerResult.providerPayoutId);
 
       return updated;
-    } catch (e: any) {
+    } catch (e) {
       await this.payoutRepository.updateStatus(payout.id, {
         status: PayoutStatus.FAILED,
-        failureReason: e.message,
+        failureReason: e instanceof Error ? e.message : String(e),
         failedAt: new Date().toISOString(),
       });
-      await this.auditService.logPayoutFailed(tenantId, payout.id, payout.settlementId, e.message);
+      await this.auditService.logPayoutFailed(tenantId, payout.id, payout.settlementId, e instanceof Error ? e.message : String(e));
       throw e;
     }
   }
 
-  async cancelPayout(payoutId: string, tenantId: string, actorId?: string): Promise<any> {
+  async cancelPayout(payoutId: string, tenantId: string, _actorId?: string): Promise<Payout | null> {
     const payout = await this.payoutRepository.findById(payoutId, tenantId);
     if (!payout) throw new Error(`Payout not found: ${payoutId}`);
 
@@ -340,34 +342,23 @@ export class PayoutService {
     }
 
     const provider = this.providerFactory.getProvider(payout.provider);
-    if (provider.cancelPayout && payout.providerPayoutId) {
-      try {
-        const result = await provider.cancelPayout(payout.providerPayoutId);
-        if (result.cancelled) {
-          const updated = await this.payoutRepository.updateStatus(payout.id, {
-            status: PayoutStatus.CANCELLED,
-            cancelledAt: new Date().toISOString(),
-          });
-          return updated;
-        }
-      } catch (e) {
-        this.logger.warn(`Provider cancel failed for ${payoutId}: ${(e as Error).message}`);
-      }
+    if (payout.providerPayoutId) {
+      if (!provider.cancelPayout) throw new Error('Provider cannot confirm cancellation of this submitted payout');
+      const result = await provider.cancelPayout(payout.providerPayoutId);
+      if (!result.cancelled) throw new Error('Provider did not confirm payout cancellation');
     }
 
-    // Fallback: mark as cancelled if provider doesn't support cancellation or provider call failed
-    const updated = await this.payoutRepository.updateStatus(payout.id, {
+    // Without an external reference this is a local cancellation; otherwise confirmation above is required.
+    return this.payoutRepository.updateStatus(payout.id, {
       status: PayoutStatus.CANCELLED,
       cancelledAt: new Date().toISOString(),
     });
-
-    return updated;
   }
 
   async listPayouts(
     tenantId: string,
     filter?: { status?: PayoutStatus; provider?: PayoutProvider; beneficiaryId?: string; currency?: string; fromDate?: Date; toDate?: Date; limit?: number; offset?: number },
-  ): Promise<any[]> {
+  ): Promise<Payout[]> {
     return this.payoutRepository.listByTenant(tenantId, filter);
   }
 

@@ -1,18 +1,5 @@
 // # Exposes case list, detail, assign, note, and decision endpoints
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Patch,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  Req,
-  ForbiddenException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, Req, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Permission } from '@wlct/shared-types';
@@ -27,7 +14,7 @@ import { ComplianceCaseService } from './compliance-case.service';
 import { ComplianceReconciliationService } from './compliance-reconciliation.service';
 import { KycProviderFactory } from './kyc-provider.factory';
 import { AmlProviderFactory } from './aml-provider.factory';
-import { ComplianceQueryDto, KycStatusQueryDto, AmlStatusQueryDto, RiskScoreQueryDto, MonitoringSignalQueryDto, ReconciliationQueryDto } from './dto/compliance-query.dto';
+import { ComplianceQueryDto, KycStatusQueryDto, AmlStatusQueryDto, MonitoringSignalQueryDto, ReconciliationQueryDto } from './dto/compliance-query.dto';
 import { StartKycVerificationDto, RetryKycVerificationDto, ScreenPersonDto, ScreenTransactionDto, CreateComplianceCaseDto } from './dto/kyc-action.dto';
 import {
   AssignCaseDto,
@@ -45,7 +32,7 @@ import {
   ResolveSignalDto,
 } from './dto/compliance-review.dto';
 import { CreatePolicyDto, CalculateRiskScoreDto } from './dto/risk-policy.dto';
-import { KycState, AmlState } from './compliance.types';
+
 
 /**
  * Compliance controller: RBAC tenant-only own data + compliance reviewers scoped + PLATFORM_MANAGE for platform admin/policy

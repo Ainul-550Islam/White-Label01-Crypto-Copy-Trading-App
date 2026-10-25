@@ -1,8 +1,10 @@
+// # Responsibility: resolve canonical tenant features and numeric limits with typed enforcement context and fail-closed malformed inputs.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { EnforcementContextBuilder } from '../enforcement/enforcement.context';
 import { EnforcementService } from '../enforcement/enforcement.service';
-import { EnforcementScope } from '../enforcement/enforcement.types';
+
 import { SaasAdminAuditService } from './saas-admin-audit.service';
 import type { SaasEntitlementSummary, SaasLimitSummary } from './saas-admin.types';
 
@@ -30,24 +32,22 @@ export class TenantFeatureAccessService {
     const billingContext = await this.contextBuilder.resolveBillingContext(tenantId);
 
     // Get feature flags for tenant
-    let featureFlags: any[] = [];
-    try {
-      featureFlags = await (this.prisma as any).tenantFeatureFlag?.findMany({ where: { tenantId } }) ?? [];
-    } catch {
-      featureFlags = [];
-    }
+    const featureFlags: Prisma.TenantFeatureFlagGetPayload<{ include: { featureFlag: { select: { key: true } } } }>[]
+      = await this.prisma.tenantFeatureFlag.findMany({
+        where: { tenantId }, include: { featureFlag: { select: { key: true } } },
+      });
 
     // All feature keys from plan + flags + commercial
     const allFeatureKeys = new Set<string>([
       ...this.COMMERCIAL_FEATURES,
       ...(billingContext.planFeatures || []),
-      ...featureFlags.map((f: any) => f.key),
+      ...featureFlags.map((flag) => flag.featureFlag.key),
     ]);
 
     // Also collect boolean limit keys as features
-    const booleanLimitKeys = ['customDomain', 'whiteLabelMobileApp', 'prioritySupport'];
+    const booleanLimitKeys = ['customDomain', 'whiteLabelMobileApp', 'prioritySupport'] as const;
     for (const k of booleanLimitKeys) {
-      if ((billingContext.planLimits as any)?.[k] !== undefined) {
+      if (billingContext.planLimits[k] !== undefined) {
         allFeatureKeys.add(k);
       }
     }
@@ -81,7 +81,7 @@ export class TenantFeatureAccessService {
     }
 
     try {
-      const enforcementCtx = await this.contextBuilder.build({ tenantId, userId: 'system' } as any);
+      const enforcementCtx = await this.contextBuilder.build({ tenantId, userId: 'system', roles: [], ipHash: '', requestId: 'feature-access-check', correlationId: 'feature-access-check' });
       const result = await this.enforcementService.checkFeature(enforcementCtx, featureKey, { strict: false });
 
       if (result.allowed) {
@@ -89,13 +89,13 @@ export class TenantFeatureAccessService {
         let source: SaasEntitlementSummary['source'] = 'none';
         if ((billingContext.planFeatures || []).includes(featureKey)) {
           source = 'plan_features';
-        } else if ((billingContext.planLimits as any)?.[featureKey] === true) {
+        } else if (this.booleanLimit(billingContext.planLimits, featureKey)) {
           source = 'plan_limits_boolean';
         } else {
           // Check feature flag
           try {
             // The flag key lives on the related FeatureFlag, not on the tenant override row.
-            const flag = await (this.prisma as any).tenantFeatureFlag?.findFirst({ where: { tenantId, featureFlag: { key: featureKey } } });
+            const flag = await this.prisma.tenantFeatureFlag.findFirst({ where: { tenantId, featureFlag: { key: featureKey } } });
             if (flag?.enabled) source = 'feature_flag';
           } catch {}
         }
@@ -118,14 +118,14 @@ export class TenantFeatureAccessService {
           reason: result.reason || `Feature ${featureKey} not included in plan ${billingContext.planCode}`,
         };
       }
-    } catch (error: any) {
+    } catch (error) {
       return {
         featureKey,
         enabled: false,
         source: 'none',
         planCode: billingContext.planCode,
         subscriptionStatus: billingContext.subscriptionStatus,
-        reason: error.message || 'Feature check failed',
+        reason: error instanceof Error ? error.message : 'Feature check failed',
       };
     }
   }
@@ -141,16 +141,16 @@ export class TenantFeatureAccessService {
       'maxCopySubscriptionsPerFollower',
       'maxApiRequestsPerMinute',
       'websocketConnections',
-    ];
+    ] as const;
 
     const results: SaasLimitSummary[] = [];
 
     for (const limitKey of limitKeys) {
-      const configuredLimit = (billingContext.planLimits as any)?.[limitKey] ?? null;
+      const configuredLimit = this.numericLimit(billingContext.planLimits, limitKey);
       const currentUsage = await this.getCurrentUsage(tenantId, limitKey);
       const unlimited = configuredLimit === null || configuredLimit === undefined;
-      const remaining = unlimited ? null : Math.max(0, (configuredLimit as number) - currentUsage);
-      const percentageUsed = unlimited || configuredLimit === 0 ? null : Math.min(100, Math.round((currentUsage / (configuredLimit as number)) * 100));
+      const remaining = unlimited ? null : Math.max(0, configuredLimit - currentUsage);
+      const percentageUsed = unlimited || configuredLimit === 0 ? null : Math.min(100, Math.round((currentUsage / configuredLimit) * 100));
 
       results.push({
         limitKey,
@@ -169,7 +169,7 @@ export class TenantFeatureAccessService {
   async checkLimitAccess(tenantId: string, limitKey: string, requestedAmount = 1): Promise<{ allowed: boolean; limit: number | null; current: number; remaining: number | null; reason?: string }> {
     try {
       const billingContext = await this.contextBuilder.resolveBillingContext(tenantId);
-      const configuredLimit = (billingContext.planLimits as any)?.[limitKey] ?? null;
+      const configuredLimit = this.numericLimit(billingContext.planLimits, limitKey);
 
       if (configuredLimit === null) {
         return { allowed: true, limit: null, current: 0, remaining: null };
@@ -186,14 +186,31 @@ export class TenantFeatureAccessService {
         remaining,
         reason: allowed ? undefined : `Limit ${limitKey} exceeded: ${currentUsage}/${configuredLimit}`,
       };
-    } catch (error: any) {
-      return { allowed: false, limit: null, current: 0, remaining: null, reason: error.message };
+    } catch (error) {
+      return { allowed: false, limit: null, current: 0, remaining: null, reason: error instanceof Error ? error.message : String(error) };
     }
   }
 
   async isFeatureAllowed(tenantId: string, featureKey: string): Promise<boolean> {
     const access = await this.checkFeatureAccess(tenantId, featureKey);
     return access.enabled;
+  }
+
+  private booleanLimit(limits: import('@wlct/shared-types').PlanLimits, featureKey: string): boolean {
+    const keys = ['customDomain', 'whiteLabelMobileApp', 'prioritySupport'] as const;
+    const key = keys.find((candidate) => candidate === featureKey);
+    return key !== undefined && limits[key] === true;
+  }
+
+  private numericLimit(limits: import('@wlct/shared-types').PlanLimits, limitKey: string): number | null {
+    const keys = ['maxUsers', 'maxTraders', 'maxFollowersPerTrader', 'maxExchangeAccountsPerUser',
+      'maxCopySubscriptionsPerFollower', 'maxApiRequestsPerMinute', 'websocketConnections'] as const;
+    const key = keys.find((candidate) => candidate === limitKey);
+    if (!key) throw new Error('Unknown numeric limit key');
+    const value = limits[key];
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('Invalid numeric plan limit');
+    return value;
   }
 
   private async getCurrentUsage(tenantId: string, limitKey: string): Promise<number> {

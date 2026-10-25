@@ -4,7 +4,7 @@ import { CompliancePolicyService } from './compliance-policy.service';
 import { KycProviderFactory } from './kyc-provider.factory';
 import { ComplianceAuditService } from './compliance-audit.service';
 import { ComplianceCaseRepository } from './compliance-case.repository';
-import { KycState, ComplianceDecision, ComplianceCaseType, RiskLevel, sanitizeMetadata, hashPii } from './compliance.types';
+import { KycState, ComplianceDecision, ComplianceCaseType, RiskLevel, hashPii } from './compliance.types';
 import { randomUUID } from 'crypto';
 
 /**

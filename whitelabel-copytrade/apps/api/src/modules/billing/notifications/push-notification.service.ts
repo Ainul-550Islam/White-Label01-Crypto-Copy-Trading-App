@@ -1,6 +1,30 @@
+// # Responsibility: lazily load the optional FCM SDK and send tenant-scoped push notifications without exposing credentials.
 import { Injectable, Logger } from '@nestjs/common';
+import { createRequire } from 'node:module';
 import { INotificationProvider, SendNotificationInput, SendNotificationResult, ProviderDeliveryResultType } from './notification-provider.interface';
 import { NotificationChannel } from './billing-notification.types';
+
+interface FirebasePushMessage {
+  token: string;
+  notification: { title: string; body: string };
+  data: Record<string, string>;
+}
+
+interface FirebaseMessagingClient {
+  send(message: FirebasePushMessage): Promise<string>;
+}
+
+interface FirebaseAdminRuntime {
+  default?: FirebaseAdminRuntime;
+  apps?: readonly unknown[];
+  credential?: {
+    cert?: (serviceAccount: { projectId: string; clientEmail: string; privateKey: string }) => unknown;
+  };
+  messaging?: () => FirebaseMessagingClient;
+  initializeApp?: (options?: { credential?: unknown; projectId?: string }) => unknown;
+}
+
+const loadOptionalDependency = createRequire(__filename);
 
 /**
  * Push notification integration abstraction/adapter using existing mobile
@@ -169,12 +193,11 @@ export class PushNotificationService implements INotificationProvider {
    * environment (GOOGLE_APPLICATION_CREDENTIALS / FIREBASE_CONFIG) on first
    * use. Returns null when unavailable - the caller reports a failure.
    */
-  private async resolveMessaging(): Promise<{ send(message: unknown): Promise<string> } | null> {
+  private async resolveMessaging(): Promise<FirebaseMessagingClient | null> {
     try {
-      // @ts-ignore - optionalDependency: may be absent where the install was skipped
-      const mod: any = await import('firebase-admin' as any).catch(() => null);
-      const admin: any = mod?.default ?? mod;
-      if (!admin || typeof admin.messaging !== 'function') return null;
+      const mod = loadOptionalDependency('firebase-admin') as FirebaseAdminRuntime;
+      const admin = mod.default ?? mod;
+      if (typeof admin.messaging !== 'function') return null;
       if (Array.isArray(admin.apps) && admin.apps.length === 0 && typeof admin.initializeApp === 'function') {
         const serviceAccount = PushNotificationService.serviceAccountFromEnv();
         if (serviceAccount && admin.credential && typeof admin.credential.cert === 'function') {

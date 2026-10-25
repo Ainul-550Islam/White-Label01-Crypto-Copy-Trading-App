@@ -22,7 +22,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     @InjectPinoLogger(RedisService.name) private readonly logger: PinoLogger,
   ) {
     const options = this.buildOptions();
-    this.commandClient = new Redis(options);
+    // Start the command connection from onModuleInit through the health-check
+    // ping, rather than as a side effect of provider construction. This keeps
+    // tooling that inspects the Nest graph (for example OpenAPI export) from
+    // opening Redis sockets without running application lifecycle hooks.
+    this.commandClient = new Redis({ ...options, lazyConnect: true });
     this.subscriberClient = new Redis({ ...options, lazyConnect: true });
     this.publisherClient = new Redis({ ...options, lazyConnect: true });
 

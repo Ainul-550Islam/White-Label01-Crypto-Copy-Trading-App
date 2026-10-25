@@ -1,7 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../../../infrastructure/prisma/prisma.module';
-import { PlansService } from '../plans.service';
-import { SubscriptionsService } from '../subscriptions.service';
+
+
 import { EnforcementModule } from '../enforcement/enforcement.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { FinanceModule } from '../finance/finance.module';

@@ -1,0 +1,286 @@
+{
+  "totals": {
+    "reported": 7,
+    "production": 6,
+    "development": 1,
+    "baselined": 45,
+    "critical": 1,
+    "high": 4
+  },
+  "failures": [
+    {
+      "kind": "new-advisory",
+      "key": "GHSA-2464-fhr4-w9xw|next",
+      "severity": "critical",
+      "devOnly": false,
+      "detail": "next [critical] Next.js: Unauthenticated Remote Code Execution in Image Optimization API when SVG files are used (production-reachable)"
+    },
+    {
+      "kind": "new-advisory",
+      "key": "npm-@nestjs/platform-express|@nestjs/platform-express",
+      "severity": "high",
+      "devOnly": false,
+      "detail": "@nestjs/platform-express [high] advisory against @nestjs/platform-express (production-reachable)"
+    },
+    {
+      "kind": "new-advisory",
+      "key": "GHSA-27r3-jxmh-p828|body-parser",
+      "severity": "high",
+      "devOnly": false,
+      "detail": "body-parser [high] body-parser vulnerable to Denial of Service via trailing bytes after a compressed request body (production-reachable)"
+    },
+    {
+      "kind": "new-advisory",
+      "key": "GHSA-q7qp-rjg7-q26m|multer",
+      "severity": "high",
+      "devOnly": false,
+      "detail": "multer [high] multer vulnerable to Denial of Service via a pending asynchronous fileFilter after request teardown (production-reachable)"
+    },
+    {
+      "kind": "new-advisory",
+      "key": "GHSA-mrhx-c7xc-m3w5|zod",
+      "severity": "high",
+      "devOnly": false,
+      "detail": "zod [high] Zod can exhaust memory while validating oversized constrained collections (production-reachable)"
+    },
+    {
+      "kind": "new-advisory",
+      "key": "GHSA-w74x-v6f9-j3xg|fast-uri",
+      "severity": "moderate",
+      "devOnly": true,
+      "detail": "fast-uri [moderate] fast-uri vulnerable to URI scheme spoofing via percent-encoded scheme decoding (development-only)"
+    },
+    {
+      "kind": "new-advisory",
+      "key": "GHSA-8c8m-p3m8-cjg8|nodemailer",
+      "severity": "moderate",
+      "devOnly": false,
+      "detail": "nodemailer [moderate] Nodemailer: A nested comment ends early in addressparser, releasing the rest of the comment as a recipient (production-reachable)"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/console|@jest/console",
+      "detail": "@jest/console (npm-@jest/console) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/core|@jest/core",
+      "detail": "@jest/core (npm-@jest/core) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/environment|@jest/environment",
+      "detail": "@jest/environment (npm-@jest/environment) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/expect|@jest/expect",
+      "detail": "@jest/expect (npm-@jest/expect) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/fake-timers|@jest/fake-timers",
+      "detail": "@jest/fake-timers (npm-@jest/fake-timers) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/globals|@jest/globals",
+      "detail": "@jest/globals (npm-@jest/globals) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/reporters|@jest/reporters",
+      "detail": "@jest/reporters (npm-@jest/reporters) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/test-result|@jest/test-result",
+      "detail": "@jest/test-result (npm-@jest/test-result) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/test-sequencer|@jest/test-sequencer",
+      "detail": "@jest/test-sequencer (npm-@jest/test-sequencer) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@jest/transform|@jest/transform",
+      "detail": "@jest/transform (npm-@jest/transform) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@next/eslint-plugin-next|@next/eslint-plugin-next",
+      "detail": "@next/eslint-plugin-next (npm-@next/eslint-plugin-next) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@types/jest|@types/jest",
+      "detail": "@types/jest (npm-@types/jest) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@typescript-eslint/eslint-plugin|@typescript-eslint/eslint-plugin",
+      "detail": "@typescript-eslint/eslint-plugin (npm-@typescript-eslint/eslint-plugin) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@typescript-eslint/parser|@typescript-eslint/parser",
+      "detail": "@typescript-eslint/parser (npm-@typescript-eslint/parser) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@typescript-eslint/type-utils|@typescript-eslint/type-utils",
+      "detail": "@typescript-eslint/type-utils (npm-@typescript-eslint/type-utils) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@typescript-eslint/typescript-estree|@typescript-eslint/typescript-estree",
+      "detail": "@typescript-eslint/typescript-estree (npm-@typescript-eslint/typescript-estree) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@typescript-eslint/utils|@typescript-eslint/utils",
+      "detail": "@typescript-eslint/utils (npm-@typescript-eslint/utils) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-babel-jest|babel-jest",
+      "detail": "babel-jest (npm-babel-jest) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "GHSA-vfj7-8cjw-p6xm|braces",
+      "detail": "braces (GHSA-vfj7-8cjw-p6xm) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-chokidar|chokidar",
+      "detail": "chokidar (npm-chokidar) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-create-jest|create-jest",
+      "detail": "create-jest (npm-create-jest) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-eslint-config-next|eslint-config-next",
+      "detail": "eslint-config-next (npm-eslint-config-next) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-expect|expect",
+      "detail": "expect (npm-expect) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-fast-glob|fast-glob",
+      "detail": "fast-glob (npm-fast-glob) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-globby|globby",
+      "detail": "globby (npm-globby) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest|jest",
+      "detail": "jest (npm-jest) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-circus|jest-circus",
+      "detail": "jest-circus (npm-jest-circus) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-cli|jest-cli",
+      "detail": "jest-cli (npm-jest-cli) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-config|jest-config",
+      "detail": "jest-config (npm-jest-config) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-environment-node|jest-environment-node",
+      "detail": "jest-environment-node (npm-jest-environment-node) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-haste-map|jest-haste-map",
+      "detail": "jest-haste-map (npm-jest-haste-map) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-message-util|jest-message-util",
+      "detail": "jest-message-util (npm-jest-message-util) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-resolve|jest-resolve",
+      "detail": "jest-resolve (npm-jest-resolve) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-resolve-dependencies|jest-resolve-dependencies",
+      "detail": "jest-resolve-dependencies (npm-jest-resolve-dependencies) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-runner|jest-runner",
+      "detail": "jest-runner (npm-jest-runner) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-runtime|jest-runtime",
+      "detail": "jest-runtime (npm-jest-runtime) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-snapshot|jest-snapshot",
+      "detail": "jest-snapshot (npm-jest-snapshot) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-jest-watcher|jest-watcher",
+      "detail": "jest-watcher (npm-jest-watcher) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-micromatch|micromatch",
+      "detail": "micromatch (npm-micromatch) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-ts-node-dev|ts-node-dev",
+      "detail": "ts-node-dev (npm-ts-node-dev) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-@istanbuljs/load-nyc-config|@istanbuljs/load-nyc-config",
+      "detail": "@istanbuljs/load-nyc-config (npm-@istanbuljs/load-nyc-config) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-argparse|argparse",
+      "detail": "argparse (npm-argparse) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-babel-plugin-istanbul|babel-plugin-istanbul",
+      "detail": "babel-plugin-istanbul (npm-babel-plugin-istanbul) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "npm-js-yaml|js-yaml",
+      "detail": "js-yaml (npm-js-yaml) is still listed as accepted but is no longer reported; remove the exception"
+    },
+    {
+      "kind": "stale-exception",
+      "key": "GHSA-hp3w-g68c-fv3c|sprintf-js",
+      "detail": "sprintf-js (GHSA-hp3w-g68c-fv3c) is still listed as accepted but is no longer reported; remove the exception"
+    }
+  ]
+}

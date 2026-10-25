@@ -3,7 +3,7 @@
  * Deterministic tests for KYC and AML adapters
  */
 
-import { ProviderDomain, ProviderName, ProviderCapability, ProviderErrorCode } from '../../provider.types';
+import { ProviderCapability } from '../../provider.types';
 import { ProviderPolicyService } from '../../provider-policy.service';
 import { ProviderRequestService } from '../../provider-request.service';
 import { ProviderObservationService } from '../../provider-observation.service';

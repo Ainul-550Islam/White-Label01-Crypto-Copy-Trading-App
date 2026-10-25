@@ -1,6 +1,7 @@
+// # Responsibility: declare validated API inputs while keeping arbitrary extension metadata unknown until runtime narrowing.
 // # Validates case review decisions and mandatory rationale
-import { IsOptional, IsString, IsEnum, IsNotEmpty, MaxLength, IsUUID, IsArray, IsObject } from 'class-validator';
-import { ComplianceDecision, ComplianceCaseState, RiskLevel } from '../compliance.types';
+import { IsOptional, IsString, IsEnum, IsNotEmpty, MaxLength, IsObject } from 'class-validator';
+import { ComplianceDecision } from '../compliance.types';
 
 export class AssignCaseDto {
   @IsString()
@@ -72,7 +73,7 @@ export class MakeDecisionDto {
 
   @IsOptional()
   @IsObject()
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export class RequestEDDDto {
@@ -87,7 +88,7 @@ export class RequestEDDDto {
 
   @IsOptional()
   @IsObject()
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export class RequestReverificationDto {
@@ -114,7 +115,7 @@ export class RequestHoldDto {
 
   @IsOptional()
   @IsObject()
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export class RequestReleaseDto {
@@ -130,7 +131,7 @@ export class RequestReleaseDto {
 
   @IsOptional()
   @IsObject()
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export class ResolveCaseDto {
@@ -188,7 +189,7 @@ export class EvaluateTransactionDto {
 
   @IsOptional()
   @IsObject()
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export class ResolveSignalDto {

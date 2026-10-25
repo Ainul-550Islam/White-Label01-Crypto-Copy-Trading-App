@@ -1,4 +1,6 @@
+// # Responsibility: enforce persistent replay protection and idempotency for tenant payment webhooks.
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { CacheService } from '../../../infrastructure/redis/cache.service';
 import { PaymentProvider } from './payment.types';
@@ -310,9 +312,8 @@ export class WebhookReplayGuard {
 
   private computeEventHash(event: NormalizedWebhookEvent): string {
     try {
-      const crypto = require('crypto');
       const data = `${event.provider}:${event.providerEventId}:${event.eventType}:${event.providerPaymentId || ''}:${JSON.stringify(event.amount || {})}`;
-      return crypto.createHash('sha256').update(data).digest('hex');
+      return createHash('sha256').update(data).digest('hex');
     } catch {
       return this.computeSimpleHash(`${event.provider}:${event.providerEventId}:${event.eventType}`);
     }
@@ -320,8 +321,7 @@ export class WebhookReplayGuard {
 
   private computeSimpleHash(data: string): string {
     try {
-      const crypto = require('crypto');
-      return crypto.createHash('sha256').update(data).digest('hex');
+      return createHash('sha256').update(data).digest('hex');
     } catch {
       return data.substring(0, 64);
     }
@@ -403,7 +403,6 @@ export class WebhookReplayGuard {
 
   private generateId(): string {
     try {
-      const { randomUUID } = require('crypto');
       return randomUUID();
     } catch {
       return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;

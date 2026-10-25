@@ -1,3 +1,4 @@
+// # Responsibility: define lifecycle state contracts and validate untrusted enum/metadata values before persistence.
 /**
  * Part 20 — Institutional Client Lifecycle, Account Administration & Funding Control Plane
  * Canonical client, account, relationship, onboarding, approval, funding, withdrawal, restriction,
@@ -13,6 +14,8 @@
  */
 
 import { createHash } from 'crypto';
+import { BadRequestException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 
 export enum ClientProfileStatus {
   PENDING = 'PENDING',
@@ -266,7 +269,7 @@ export function formatScaled(scaled: bigint): string {
   const abs = isNeg ? -scaled : scaled;
   const intPart = abs / SCALE_FACTOR;
   const fracPart = abs % SCALE_FACTOR;
-  let fracStr = fracPart.toString().padStart(DECIMAL_SCALE, '0').replace(/0+$/, '');
+  const fracStr = fracPart.toString().padStart(DECIMAL_SCALE, '0').replace(/0+$/, '');
   const result = fracStr ? `${intPart.toString()}.${fracStr}` : intPart.toString();
   return isNeg ? `-${result}` : result;
 }
@@ -366,4 +369,46 @@ export interface TradingEligibilityResult {
   calculationVersion: string;
   policyVersion: string;
   evaluatedAt: string;
+}
+
+/** Validate a runtime string against actual canonical enum membership. */
+export function lifecycleEnum<T extends string>(values: readonly T[], value: string, field: string): T {
+  const resolved = values.find((member) => member === value);
+  if (resolved === undefined) throw new BadRequestException(`Invalid ${field}`);
+  return resolved;
+}
+
+/** Narrow legacy persisted JSON before object merging; scalar/array values are not metadata records. */
+export function lifecycleJsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+/** Serialize and validate metadata to the exact Prisma input contract, without a broad cast. */
+export function lifecycleMetadata(value: unknown): Prisma.InputJsonObject {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BadRequestException('Lifecycle metadata must be an object');
+  let parsed: unknown;
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) throw new Error('Undefined JSON serialization');
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new BadRequestException('Lifecycle metadata must be JSON serializable');
+  }
+  if (!isLifecycleJsonObject(parsed)) throw new BadRequestException('Lifecycle metadata must contain valid JSON object values');
+  return parsed;
+}
+
+function isLifecycleJsonObject(value: unknown): value is Prisma.InputJsonObject {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.values(value).every((entry: unknown) => isLifecycleJsonValue(entry));
+}
+
+function isLifecycleJsonValue(value: unknown): value is Prisma.InputJsonValue | null {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    const entries: unknown[] = value;
+    return entries.every((entry) => isLifecycleJsonValue(entry));
+  }
+  return isLifecycleJsonObject(value);
 }

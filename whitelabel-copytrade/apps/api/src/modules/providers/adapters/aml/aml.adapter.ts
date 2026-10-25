@@ -5,16 +5,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  ProviderDomain,
-  ProviderName,
-  ProviderCapability,
-  ProviderResult,
-  NormalizedAmlResult,
-  ProviderErrorCode,
-  RetryClassification,
-  ProviderOperationType,
-} from '../../provider.types';
+import { ProviderDomain, ProviderName, ProviderCapability, ProviderResult, NormalizedAmlResult, ProviderErrorCode, ProviderOperationType } from '../../provider.types';
 import { ProviderRequestService } from '../../provider-request.service';
 import { ProviderObservationService } from '../../provider-observation.service';
 

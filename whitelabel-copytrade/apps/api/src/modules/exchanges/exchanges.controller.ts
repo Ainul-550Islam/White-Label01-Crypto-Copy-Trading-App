@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
+// # Responsibility: retain RBAC while using verified actor/request identity, account-owner scope and validated venue/environment bindings; unavailable update/enable operations must not pretend to have persisted changes.
+import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, Req, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { Permission, hasPermission } from '@wlct/shared-types';
+import type { AppRequest } from '../../common/types/request.types';
+import { Permission, hasPermission, type AuthenticatedActor } from '@wlct/shared-types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CurrentTenant, TenantId } from '../../common/decorators/current-tenant.decorator';
+import { TenantId } from '../../common/decorators/current-tenant.decorator';
 import { ExchangeAccountService } from './exchange-account.service';
 import { ExchangeConnectivityService } from './exchange-connectivity.service';
 import { ExchangeBalanceSyncService } from './exchange-balance-sync.service';
@@ -16,8 +18,8 @@ import { ExchangeRoutingService } from './exchange-routing.service';
 import { ExchangeRegistryService } from './exchange-registry.service';
 import { ExchangeProviderFactory } from './exchange-provider.factory';
 import { CreateExchangeAccountDto, UpdateExchangeAccountDto, EnableExchangeAccountDto, DisableExchangeAccountDto, RevokeExchangeAccountDto, RotateCredentialsDto, ListExchangeAccountsDto } from './dto/exchange-account.dto';
-import { CheckConnectivityDto, RefreshCapabilitiesDto, CheckHealthDto, SyncBalancesDto, SyncPositionsDto, SyncOrdersDto, RouteExchangeDto, ListSymbolsDto } from './dto/exchange-connectivity.dto';
-import { ExchangeVenue, ExchangeEnvironment } from './exchange.types';
+import { CheckConnectivityDto, RefreshCapabilitiesDto, SyncBalancesDto, SyncPositionsDto, SyncOrdersDto, RouteExchangeDto, ListSymbolsDto } from './dto/exchange-connectivity.dto';
+import { ExchangeEnvironment, ExchangeVenue } from './exchange.types';
 
 /**
  * RBAC-protected exchange API for account connection, health, sync, routing.
@@ -80,14 +82,14 @@ export class ExchangesController {
   // administrator permissions.
 
   /** Tenant-wide authority over every account in the tenant. */
-  private static hasTenantWideAccountAuthority(user: any): boolean {
-    const granted: string[] = Array.isArray(user?.permissions) ? user.permissions : [];
-    return user?.isPlatformUser === true || hasPermission(granted, Permission.TRADING_MANAGE) || hasPermission(granted, Permission.PLATFORM_MANAGE);
+  private static hasTenantWideAccountAuthority(user: AuthenticatedActor): boolean {
+    const granted = user.permissions;
+    return user.isPlatformUser === true || hasPermission(granted, Permission.TRADING_MANAGE) || hasPermission(granted, Permission.PLATFORM_MANAGE);
   }
 
   /** Resolves the account or throws 404 when it does not exist or is not the caller's. */
-  private async requireAccessibleAccount(tenantId: string, id: string, user: any) {
-    const ownerScope = ExchangesController.hasTenantWideAccountAuthority(user) ? null : user.userId || user.id;
+  private async requireAccessibleAccount(tenantId: string, id: string, user: AuthenticatedActor) {
+    const ownerScope = ExchangesController.hasTenantWideAccountAuthority(user) ? null : user.userId;
     const account = await this.accountService.getAccount(tenantId, id, ownerScope);
     if (!account) throw new NotFoundException('Exchange account not found');
     return account;
@@ -95,10 +97,10 @@ export class ExchangesController {
 
   @Post('accounts')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE)
-  async connectAccount(@Body() dto: CreateExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async connectAccount(@Body() dto: CreateExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
     return this.accountService.connectAccount({
       tenantId,
-      userId: user.userId || user.id,
+      userId: user.userId,
       venue: dto.venue,
       environment: dto.environment,
       label: dto.label,
@@ -109,16 +111,16 @@ export class ExchangesController {
       credentialRef: dto.credentialRef || null,
       idempotencyKey: dto.idempotencyKey,
       ipAllowlist: dto.ipAllowlist,
-      actorId: user.userId || user.id,
-      requestId: req.headers['x-request-id'],
+      actorId: user.userId,
+      requestId: req.requestId,
     });
   }
 
   @Get('accounts')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ)
-  async listAccounts(@Query() query: ListExchangeAccountsDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async listAccounts(@Query() query: ListExchangeAccountsDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
     const isPrivileged = ExchangesController.hasTenantWideAccountAuthority(user);
-    const requesterUserId = user.userId || user.id;
+    const requesterUserId = user.userId;
 
     return this.accountService.listAccounts(
       tenantId,
@@ -126,7 +128,7 @@ export class ExchangesController {
         userId: query.userId,
         venue: query.venue,
         environment: query.environment,
-        status: query.status as any,
+        status: query.status,
         page: query.page,
         limit: query.limit,
         search: query.search,
@@ -138,59 +140,57 @@ export class ExchangesController {
 
   @Get('accounts/:id')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ)
-  async getAccount(@Param('id') id: string, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async getAccount(@Param('id') id: string, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
     return this.requireAccessibleAccount(tenantId, id, user);
   }
 
   @Put('accounts/:id')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE, Permission.TRADING_WRITE)
-  async updateAccount(@Param('id') id: string, @Body() dto: UpdateExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async updateAccount(@Param('id') id: string, @Body() dto: UpdateExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
     // For now, only label update is supported via repository - we implement via direct check
-    const account = await this.accountService.getAccount(tenantId, id, user.userId || user.id);
+    const account = await this.accountService.getAccount(tenantId, id, user.userId);
     if (!account) throw new BadRequestException('Account not found');
-    // Update label if provided - using Prisma directly for simplicity
-    return account;
+    if (dto.label !== undefined) throw new ServiceUnavailableException('A durable account-label update adapter is not configured; no account change was made');
+    throw new BadRequestException('No supported account update supplied');
   }
 
   @Post('accounts/:id/enable')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE, Permission.TRADING_MANAGE)
-  async enableAccount(@Param('id') id: string, @Body() dto: EnableExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async enableAccount(@Param('id') id: string, @Body() dto: EnableExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
     if (dto.liveTradingRequested) {
       return this.accountService.enableLiveTrading({
         tenantId,
         accountId: id,
-        actorId: user.userId || user.id,
-        requestId: req.headers['x-request-id'],
+        actorId: user.userId,
+        requestId: req.requestId,
       });
     }
-    // Regular enable not implemented as separate - accounts are enabled on connect
-    const account = await this.accountService.getAccount(tenantId, id, null);
-    if (!account) throw new BadRequestException('Account not found');
-    return account;
+    await this.requireAccessibleAccount(tenantId, id, user);
+    throw new ServiceUnavailableException('Regular account enablement is not configured; returning an unchanged account would not prove enablement');
   }
 
   @Post('accounts/:id/disable')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE)
-  async disableAccount(@Param('id') id: string, @Body() dto: DisableExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async disableAccount(@Param('id') id: string, @Body() dto: DisableExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
     await this.requireAccessibleAccount(tenantId, id, user);
-    const result = await this.accountService.disableAccount(tenantId, id, user.userId || user.id, dto.reason, req.headers['x-request-id']);
+    const result = await this.accountService.disableAccount(tenantId, id, user.userId, dto.reason, req.requestId);
     if (!result) throw new BadRequestException('Account not found');
     return result;
   }
 
   @Post('accounts/:id/revoke')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE)
-  async revokeAccount(@Param('id') id: string, @Body() dto: RevokeExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async revokeAccount(@Param('id') id: string, @Body() dto: RevokeExchangeAccountDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
     await this.requireAccessibleAccount(tenantId, id, user);
-    const result = await this.accountService.revokeAccount(tenantId, id, user.userId || user.id, req.headers['x-request-id']);
+    const result = await this.accountService.revokeAccount(tenantId, id, user.userId, req.requestId);
     if (!result) throw new BadRequestException('Account not found');
     return result;
   }
 
   @Post('accounts/:id/rotate')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE, Permission.TRADING_WRITE)
-  async rotateCredentials(@Param('id') id: string, @Body() dto: RotateCredentialsDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
-    const existing = await this.accountService.getAccount(tenantId, id, null);
+  async rotateCredentials(@Param('id') id: string, @Body() dto: RotateCredentialsDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
+    const existing = await this.requireAccessibleAccount(tenantId, id, user);
     if (!existing) throw new BadRequestException('Account not found');
 
     const result = await this.accountService.rotateCredentials({
@@ -203,8 +203,8 @@ export class ExchangesController {
       passphrase: dto.passphrase,
       credentialSource: dto.credentialSource || 'ENVELOPE_DB',
       credentialRef: dto.credentialRef || null,
-      actorId: user.userId || user.id,
-      requestId: req.headers['x-request-id'],
+      actorId: user.userId,
+      requestId: req.requestId,
     });
 
     if (!result) throw new BadRequestException('Rotation failed');
@@ -213,8 +213,8 @@ export class ExchangesController {
 
   @Post('accounts/:id/refresh-capabilities')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async refreshCapabilities(@Param('id') id: string, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
-    const result = await this.accountService.refreshCapabilities(tenantId, id, user.userId || user.id, req.headers['x-request-id']);
+  async refreshCapabilities(@Param('id') id: string, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
+    const result = await this.accountService.refreshCapabilities(tenantId, id, user.userId, req.requestId);
     if (!result) throw new BadRequestException('Account not found');
     return result;
   }
@@ -223,9 +223,9 @@ export class ExchangesController {
 
   @Post('connectivity/check')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async checkConnectivity(@Body() dto: CheckConnectivityDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async checkConnectivity(@Body() dto: CheckConnectivityDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
     if (dto.accountId) {
-      const account = await this.accountService.getAccount(tenantId, dto.accountId, null);
+      const account = await this.requireAccessibleAccount(tenantId, dto.accountId, user);
       if (!account) throw new BadRequestException('Account not found');
       return this.connectivityService.checkConnectivity({
         tenantId,
@@ -245,7 +245,7 @@ export class ExchangesController {
       connected: false,
       degraded: false,
       state: providerAvailable ? 'DISCONNECTED' : 'FAILED',
-      latencyMs: 0,
+      latencyMs: null,
       serverTimeMicros: null,
       clockDriftMs: null,
       capabilities: this.registryService.listCapabilities(dto.venue),
@@ -258,9 +258,9 @@ export class ExchangesController {
 
   @Post('capabilities/discover')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async discoverCapabilities(@Body() dto: RefreshCapabilitiesDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async discoverCapabilities(@Body() dto: RefreshCapabilitiesDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
     if (!dto.accountId) throw new BadRequestException('accountId required');
-    const account = await this.accountService.getAccount(tenantId, dto.accountId, null);
+    const account = await this.requireAccessibleAccount(tenantId, dto.accountId, user);
     if (!account) throw new BadRequestException('Account not found');
 
     return this.connectivityService.discoverCapabilities({
@@ -275,13 +275,14 @@ export class ExchangesController {
 
   @Get('health')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async listHealth(@TenantId() tenantId: string) {
-    return this.healthService.listHealthByTenant(tenantId);
+  async listHealth(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
+    return this.healthService.listHealthByTenant(tenantId, ExchangesController.hasTenantWideAccountAuthority(user) ? undefined : user.userId);
   }
 
   @Get('health/:accountId')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async getHealth(@Param('accountId') accountId: string, @TenantId() tenantId: string) {
+  async getHealth(@Param('accountId') accountId: string, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
+    await this.requireAccessibleAccount(tenantId, accountId, user);
     const health = await this.healthService.getHealth(tenantId, accountId);
     if (!health) throw new BadRequestException('Health not found');
     return health;
@@ -289,8 +290,8 @@ export class ExchangesController {
 
   @Post('health/:accountId/check')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async checkHealth(@Param('accountId') accountId: string, @TenantId() tenantId: string) {
-    const account = await this.accountService.getAccount(tenantId, accountId, null);
+  async checkHealth(@Param('accountId') accountId: string, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
+    const account = await this.requireAccessibleAccount(tenantId, accountId, user);
     if (!account) throw new BadRequestException('Account not found');
 
     return this.healthService.checkHealth({
@@ -305,8 +306,8 @@ export class ExchangesController {
 
   @Post('sync/balances')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async syncBalances(@Body() dto: SyncBalancesDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
-    const account = await this.accountService.getAccount(tenantId, dto.accountId, null);
+  async syncBalances(@Body() dto: SyncBalancesDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
+    const account = await this.requireAccessibleAccount(tenantId, dto.accountId, user);
     if (!account) throw new BadRequestException('Account not found');
 
     return this.balanceSyncService.syncBalances({
@@ -314,15 +315,15 @@ export class ExchangesController {
       accountId: account.accountId,
       venue: account.venue,
       environment: account.environment,
-      actorId: user.userId || user.id,
-      requestId: req.headers['x-request-id'],
+      actorId: user.userId,
+      requestId: req.requestId,
     });
   }
 
   @Post('sync/positions')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async syncPositions(@Body() dto: SyncPositionsDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
-    const account = await this.accountService.getAccount(tenantId, dto.accountId, null);
+  async syncPositions(@Body() dto: SyncPositionsDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
+    const account = await this.requireAccessibleAccount(tenantId, dto.accountId, user);
     if (!account) throw new BadRequestException('Account not found');
 
     return this.positionSyncService.syncPositions({
@@ -330,15 +331,15 @@ export class ExchangesController {
       accountId: account.accountId,
       venue: account.venue,
       environment: account.environment,
-      actorId: user.userId || user.id,
-      requestId: req.headers['x-request-id'],
+      actorId: user.userId,
+      requestId: req.requestId,
     });
   }
 
   @Post('sync/orders')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async syncOrders(@Body() dto: SyncOrdersDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
-    const account = await this.accountService.getAccount(tenantId, dto.accountId, null);
+  async syncOrders(@Body() dto: SyncOrdersDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
+    const account = await this.requireAccessibleAccount(tenantId, dto.accountId, user);
     if (!account) throw new BadRequestException('Account not found');
 
     const ordersResult = await this.orderSyncService.syncOrders({
@@ -347,8 +348,8 @@ export class ExchangesController {
       venue: account.venue,
       environment: account.environment,
       symbol: dto.symbol,
-      actorId: user.userId || user.id,
-      requestId: req.headers['x-request-id'],
+      actorId: user.userId,
+      requestId: req.requestId,
     });
 
     const fillsResult = await this.orderSyncService.syncFills({
@@ -357,8 +358,8 @@ export class ExchangesController {
       venue: account.venue,
       environment: account.environment,
       symbol: dto.symbol,
-      actorId: user.userId || user.id,
-      requestId: req.headers['x-request-id'],
+      actorId: user.userId,
+      requestId: req.requestId,
     });
 
     return { orders: ordersResult, fills: fillsResult };
@@ -368,19 +369,19 @@ export class ExchangesController {
 
   @Post('routing/decide')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async route(@Body() dto: RouteExchangeDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async route(@Body() dto: RouteExchangeDto, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor, @Req() req: Pick<AppRequest, 'requestId'>) {
     return this.routingService.route({
       tenantId,
-      userId: user.userId || user.id,
-      operation: dto.operation as any,
+      userId: user.userId,
+      operation: dto.operation,
       symbol: dto.symbol,
-      requiredCapability: dto.requiredCapability as any,
+      requiredCapability: dto.requiredCapability,
       environment: dto.environment,
       accountId: dto.accountId || null,
       complianceAllowed: dto.complianceAllowed,
       riskAllowed: dto.riskAllowed,
-      actorId: user.userId || user.id,
-      requestId: req.headers['x-request-id'],
+      actorId: user.userId,
+      requestId: req.requestId,
     });
   }
 
@@ -409,8 +410,8 @@ export class ExchangesController {
 
   @Post('symbols/:accountId/sync')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_MANAGE, Permission.TRADING_WRITE)
-  async syncSymbols(@Param('accountId') accountId: string, @TenantId() tenantId: string) {
-    const account = await this.accountService.getAccount(tenantId, accountId, null);
+  async syncSymbols(@Param('accountId') accountId: string, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
+    const account = await this.requireAccessibleAccount(tenantId, accountId, user);
     if (!account) throw new BadRequestException('Account not found');
 
     return this.symbolService.syncSymbols({
@@ -425,14 +426,17 @@ export class ExchangesController {
 
   @Get('rate-limits/:accountId')
   @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ, Permission.TRADING_READ)
-  async getRateLimits(@Param('accountId') accountId: string, @Query('venue') venue: string, @Query('environment') environment: string, @Query('endpointClass') endpointClass: string, @TenantId() tenantId: string) {
-    const account = await this.accountService.getAccount(tenantId, accountId, null);
+  async getRateLimits(@Param('accountId') accountId: string, @Query('venue') venue: string, @Query('environment') environment: string, @Query('endpointClass') endpointClass: string, @TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor) {
+    const account = await this.requireAccessibleAccount(tenantId, accountId, user);
     if (!account) throw new BadRequestException('Account not found');
 
+    const boundVenue = venue ? Object.values(ExchangeVenue).find((candidate) => candidate === venue) : account.venue;
+    const boundEnvironment = environment ? Object.values(ExchangeEnvironment).find((candidate) => candidate === environment) : account.environment;
+    if (!boundVenue || !boundEnvironment || boundVenue !== account.venue || boundEnvironment !== account.environment) throw new BadRequestException('Rate-limit query must match the account venue/environment');
     return this.rateLimitService.getRateLimitState({
       tenantId,
-      venue: (venue as any) || account.venue,
-      environment: (environment as any) || account.environment,
+      venue: boundVenue,
+      environment: boundEnvironment,
       accountId: account.accountId,
       endpointClass: endpointClass || 'PRIVATE',
     });

@@ -1,0 +1,11 @@
+{
+  "historicalPart6Cases": 2854,
+  "literalNamesRetained": 2852,
+  "unchangedDateParameterizedCasesWithDifferentRuntimeDateNames": 2,
+  "dynamicDateCaseSourceFilesByteUnchanged": true,
+  "historicalCasesRetainedAfterOnlyDateNameNormalization": 2854,
+  "historicalCasesRemoved": 0,
+  "newCases": 42,
+  "currentCases": 2896,
+  "allCurrentAssertionsPassed": true
+}

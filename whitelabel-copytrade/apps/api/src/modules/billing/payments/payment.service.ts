@@ -1,17 +1,9 @@
+// # Responsibility: preserve typed payment state transitions, audit actions, provider references, and notification plan context.
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PaymentRepository } from './payment.repository';
 import { PaymentProviderFactory } from './payment-provider.factory';
 import { PaymentEventsAuditService } from './payment-events.audit';
-import {
-  PaymentStatus,
-  TransactionState,
-  PaymentProvider,
-  type PaymentRecord,
-  type PaymentCreationInput,
-  type PaymentUpdateInput,
-  type NormalizedPaymentResult,
-  isValidPaymentTransition,
-} from './payment.types';
+import { PaymentStatus, PaymentProvider, type PaymentRecord, type PaymentCreationInput, type PaymentUpdateInput, type NormalizedPaymentResult, isValidPaymentTransition } from './payment.types';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 import { BillingEventService } from '../notifications/billing-event.service';
@@ -187,14 +179,14 @@ export class PaymentService {
 
       switch (status) {
         case PaymentStatus.SUCCEEDED:
-          await this.billingEventService.onPaymentSucceeded({ ...baseParams, planName: (payment as any).planName, planCode: (payment as any).planCode });
+          await this.billingEventService.onPaymentSucceeded({ ...baseParams, planName: payment.planName ?? undefined, planCode: payment.planCode ?? undefined });
           break;
         case PaymentStatus.FAILED:
-          await this.billingEventService.onPaymentFailed({ ...baseParams, planName: (payment as any).planName });
+          await this.billingEventService.onPaymentFailed({ ...baseParams, planName: payment.planName ?? undefined });
           break;
         case PaymentStatus.PENDING:
         case PaymentStatus.PROCESSING:
-          await this.billingEventService.onPaymentPending({ ...baseParams, planName: (payment as any).planName });
+          await this.billingEventService.onPaymentPending({ ...baseParams, planName: payment.planName ?? undefined });
           break;
         default:
           break;
@@ -262,12 +254,12 @@ export class PaymentService {
       },
     });
 
-    this.triggerBillingEvent(updated, providerResult.status as any).catch((e) => this.logger.warn(`Failed to trigger billing notification for provider result payment ${paymentId}: ${e.message}`));
+    this.triggerBillingEvent(updated, providerResult.status).catch((e) => this.logger.warn(`Failed to trigger billing notification for provider result payment ${paymentId}: ${e.message}`));
 
     return updated;
   }
 
-  async markPaymentSucceeded(paymentId: string, providerReference?: any): Promise<PaymentRecord> {
+  async markPaymentSucceeded(paymentId: string, providerReference?: PaymentUpdateInput['providerReference']): Promise<PaymentRecord> {
     return this.updatePaymentStatus(paymentId, PaymentStatus.SUCCEEDED, {
       providerReference,
       paidAt: new Date(),
@@ -300,7 +292,7 @@ export class PaymentService {
     });
   }
 
-  private mapStatusToAuditAction(status: PaymentStatus): any {
+  private mapStatusToAuditAction(status: PaymentStatus): Parameters<PaymentEventsAuditService['logPaymentEvent']>[0]['action'] {
     switch (status) {
       case PaymentStatus.CREATED:
         return 'PAYMENT_CREATED';

@@ -237,8 +237,6 @@ export class CopyOrderMapperService {
     // Required, never defaulted: a wrong step is an order the venue rejects, and
     // a fabricated one hides the fact that we never checked the venue's rules.
     let exchangeSymbol = input.leaderEvent.exchangeSymbol;
-    let tickSize: Decimal;
-    let quantityStep: Decimal;
     let minQuantity: Decimal | null = null;
     let minNotional: Decimal | null = null;
 
@@ -267,8 +265,8 @@ export class CopyOrderMapperService {
         `symbol ${input.leaderEvent.symbol} has unusable precision (tick=${symbolMeta.tickSize}, step=${symbolMeta.quantityStep})`,
       );
     }
-    tickSize = tick;
-    quantityStep = step;
+    const tickSize = tick;
+    const quantityStep = step;
     exchangeSymbol = symbolMeta.exchangeSymbol ?? exchangeSymbol;
 
     if (symbolMeta.minQuantity) {

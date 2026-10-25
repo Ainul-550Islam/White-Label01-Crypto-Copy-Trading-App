@@ -1,3 +1,4 @@
+// # Responsibility: keep existing tenant/risk calculations and fail-closed source reads while narrowing untrusted decimal values without any bypasses.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
@@ -12,7 +13,7 @@ import { resolveDayStartEquity, scopeAccountIdsOf } from './day-start-equity';
  * - Fail-closed: if PnL source unavailable, UNKNOWN/REVIEW per policy.
  */
 
-function isValidDecimal(v: any): boolean {
+function isValidDecimal(v: unknown): boolean {
   return typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v);
 }
 const SCALE = 1_000_000_000_000n;
@@ -31,14 +32,6 @@ function formatScaled(b: bigint): string {
   const frac = abs % SCALE;
   const fracStr = frac.toString().padStart(12, '0').replace(/0+$/, '');
   return (neg ? '-' : '') + (fracStr ? `${intP}.${fracStr}` : `${intP}`);
-}
-function cmp(a: string, b: string): number {
-  const av = parseScaled(a);
-  const bv = parseScaled(b);
-  return av < bv ? -1 : av > bv ? 1 : 0;
-}
-function add(a: string, b: string): string {
-  return formatScaled(parseScaled(a) + parseScaled(b));
 }
 function sub(a: string, b: string): string {
   return formatScaled(parseScaled(a) - parseScaled(b));
@@ -98,7 +91,7 @@ export class DailyLossLimitService {
     const dayEnd = new Date(`${tradingDay}T23:59:59.999Z`);
 
     // Get fills for today for realized PnL
-    const fills = await this.prisma.fill.findMany({
+    await this.prisma.fill.findMany({
       where: {
         order: { tenantId, ...(accountId ? { accountId } : {}) },
         createdAt: { gte: dayStart, lte: dayEnd },
@@ -147,7 +140,7 @@ export class DailyLossLimitService {
 
     let dailyPnl: string | null = null;
     let realizedPnl: string | null = null;
-    let unrealizedPnl: string | null = formatScaled(unrealizedTotal);
+    const unrealizedPnl: string | null = formatScaled(unrealizedTotal);
 
     if (startingEquity && isValidDecimal(startingEquity)) {
       dailyPnl = sub(currentEquityStr, startingEquity);

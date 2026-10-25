@@ -1,5 +1,7 @@
+// # Responsibility: perform preflight validation against the real mobile project and Flutter toolchain.
 import { Injectable } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { isAbsolute, join, resolve } from 'path';
 
@@ -218,7 +220,6 @@ export class MobileBuildValidationService {
       return { version: null, available: false };
     }
     try {
-      const { execFileSync } = require('child_process') as typeof import('child_process');
       const out = execFileSync(flutterBin, ['--version', '--machine'], {
         timeout: 30_000,
         encoding: 'utf8',

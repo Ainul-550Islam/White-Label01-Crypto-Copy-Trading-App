@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, IsArray, IsNotEmpty, MaxLength, IsUrl, ArrayMinSize, Matches } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsArray, IsNotEmpty, MaxLength, IsUrl, ArrayMinSize } from 'class-validator';
 import { BillingNotificationEventKey } from '../billing-notification.types';
 
 export class CreateWebhookSubscriptionDto {

@@ -1,4 +1,5 @@
-import { AmlState, ComplianceDecision, RiskLevel, AmlScreeningResult } from './compliance.types';
+// # Responsibility: define AML provider contracts whose safe-metadata extension values remain unknown until validated.
+import { AmlScreeningResult } from './compliance.types';
 
 /**
  * Provider-neutral AML/sanctions screening contract for person/entity screening, transaction screening, watchlist status, and normalized results.
@@ -14,7 +15,7 @@ export interface ScreenPersonInput {
   dateOfBirthHash?: string;
   jurisdiction: string;
   idempotencyKey: string;
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export interface ScreenEntityInput {
@@ -24,7 +25,7 @@ export interface ScreenEntityInput {
   countryCode?: string;
   jurisdiction: string;
   idempotencyKey: string;
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export interface ScreenTransactionInput {
@@ -37,7 +38,7 @@ export interface ScreenTransactionInput {
   counterpartyHash?: string;
   jurisdiction: string;
   idempotencyKey: string;
-  safeMetadata?: Record<string, any>;
+  safeMetadata?: Record<string, unknown>;
 }
 
 export interface GetScreeningResultInput {

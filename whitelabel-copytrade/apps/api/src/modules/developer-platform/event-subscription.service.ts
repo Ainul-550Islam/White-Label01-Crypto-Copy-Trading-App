@@ -9,20 +9,10 @@
  * into a subscription of tenant B (CHECK 42).
  */
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import {
-  buildEventEnvelope,
-  DEVELOPER_ERROR_CODES,
-  DEVELOPER_EVENT_TYPES,
-  DeveloperError,
-  eventDefinition,
-  eventMatchesFilter,
-  idempotencyKey,
-  type DeveloperEventEnvelope,
-  type EventSubscriptionFilter,
-} from './developer.types';
+import { buildEventEnvelope, DEVELOPER_ERROR_CODES, DEVELOPER_EVENT_TYPES, DeveloperError, eventDefinition, eventMatchesFilter, idempotencyKey, type EventSubscriptionFilter } from './developer.types';
 import {
   developerEventPayloadSchema,
   validateDeveloperEventPayload,

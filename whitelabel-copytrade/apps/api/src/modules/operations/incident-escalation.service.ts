@@ -3,7 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OperationsPolicyService } from './operations-policy.service';
 import { OperationalAuditService } from './operational-audit.service';
 import { IncidentService } from './incident.service';
-import { OperationalIncidentSeverity, OperationalIncidentState, redactSecrets } from './operations.types';
+import { OperationalIncidentState, redactSecrets } from './operations.types';
 
 /**
  * Applies explicit escalation policy based on incident severity, dependency criticality,

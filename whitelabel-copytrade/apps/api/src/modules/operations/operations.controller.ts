@@ -1,16 +1,5 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Param,
-  Body,
-  Query,
-  UseGuards,
-  Req,
-  ForbiddenException,
-  BadRequestException,
-} from '@nestjs/common';
+// # Responsibility: use typed verified-principal tenant scope and userId for operations; deny tenantless ordinary callers instead of widening to platform reads.
+import { Controller, Get, Post, Param, Body, Query, Req, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Permission } from '@wlct/shared-types';
 import { AllowAnyAuthenticated, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { SystemReadinessService } from './system-readiness.service';
@@ -31,18 +20,7 @@ import { OperationalAuditService } from './operational-audit.service';
 import { OperationalMetricsService } from './operational-metrics.service';
 import { OperationsPolicyService } from './operations-policy.service';
 
-import {
-  CreateIncidentDto,
-  AcknowledgeIncidentDto,
-  ResolveIncidentDto,
-  SuppressIncidentDto,
-  ReopenIncidentDto,
-  EscalateIncidentDto,
-  AssignIncidentDto,
-  OperatorActionDto,
-  RecoveryActionDto,
-  ExecuteRecoveryDto,
-} from './dto/incident-action.dto';
+import { CreateIncidentDto, AcknowledgeIncidentDto, ResolveIncidentDto, SuppressIncidentDto, ReopenIncidentDto, EscalateIncidentDto, AssignIncidentDto, OperatorActionDto, ExecuteRecoveryDto } from './dto/incident-action.dto';
 import {
   CreateMaintenanceWindowDto,
   CancelMaintenanceWindowDto,
@@ -74,8 +52,10 @@ import {
   OperatorDiagnosticDto,
 } from './dto/readiness-action.dto';
 
-import { OperationalMaintenanceScope } from './operations.types';
-import { authTenantIdOrNull, authUserIdOrNull, isPlatformPrincipal } from '../../common/guards/request-principal';
+import { OperationalMaintenanceScope, OperationalTriggerType, OperationalAuditEventType } from './operations.types';
+import { authTenantIdOrNull, isPlatformPrincipal } from '../../common/guards/request-principal';
+
+type OperationsRequest = NonNullable<Parameters<typeof authTenantIdOrNull>[0]> & { requestId?: string; correlationId?: string };
 
 /**
  * Tenant-safe and platform-safe API controller exposing operational status, readiness,
@@ -117,16 +97,20 @@ export class OperationsController {
     private readonly policyService: OperationsPolicyService,
   ) {}
 
-  private getTenantIdFromRequest(req: any): string | null {
+  private getTenantIdFromRequest(req: OperationsRequest): string | null {
     // Tenant of the verified token only (never a header or other request field).
-    return authTenantIdOrNull(req);
+    const tenantId = authTenantIdOrNull(req);
+    if (!tenantId && !isPlatformPrincipal(req)) throw new ForbiddenException('Tenant context required');
+    return tenantId;
   }
 
-  private getActorIdFromRequest(req: any): string | null {
-    return authUserIdOrNull(req);
+  private getActorIdFromRequest(req: OperationsRequest): string | null {
+    const userId = req.user?.userId;
+    if (typeof userId !== 'string' || !userId.trim()) throw new ForbiddenException('Authenticated userId required');
+    return userId;
   }
 
-  private isPlatformUser(req: any): boolean {
+  private isPlatformUser(req: OperationsRequest): boolean {
     // Server-side platform flag only. The previous role-name match treated any
     // key containing "admin" (e.g. TENANT_ADMIN) as platform, which let a
     // tenant administrator pass another tenant's id and read its operations
@@ -134,7 +118,7 @@ export class OperationsController {
     return isPlatformPrincipal(req);
   }
 
-  private enforceTenantIsolation(requestedTenantId: string | null, req: any): void {
+  private enforceTenantIsolation(requestedTenantId: string | null, req: OperationsRequest): void {
     const userTenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
     if (isPlatform) return; // platform can access all with RBAC
@@ -147,7 +131,7 @@ export class OperationsController {
     }
   }
 
-  private enforcePlatformRBAC(req: any): void {
+  private enforcePlatformRBAC(req: OperationsRequest): void {
     if (!this.isPlatformUser(req)) {
       throw new ForbiddenException('Platform operation requires platform RBAC');
     }
@@ -157,7 +141,7 @@ export class OperationsController {
 
   @Get('readiness')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getReadiness(@Query() query: ReadinessQueryDto, @Req() req: any) {
+  async getReadiness(@Query() query: ReadinessQueryDto, @Req() req: OperationsRequest) {
     const tenantId = query.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     // If tenantId null and not platform user, forbid platform visibility
@@ -171,7 +155,7 @@ export class OperationsController {
   }
 
   @Post('readiness/check')
-  async triggerReadinessCheck(@Body() dto: TriggerReadinessCheckDto, @Req() req: any) {
+  async triggerReadinessCheck(@Body() dto: TriggerReadinessCheckDto, @Req() req: OperationsRequest) {
     const tenantId = dto.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     if (tenantId === null && !this.isPlatformUser(req)) throw new ForbiddenException('Platform readiness check requires platform RBAC');
@@ -181,7 +165,7 @@ export class OperationsController {
 
   @Get('readiness/latest')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getLatestReadiness(@Query() query: ReadinessQueryDto, @Req() req: any) {
+  async getLatestReadiness(@Query() query: ReadinessQueryDto, @Req() req: OperationsRequest) {
     const tenantId = query.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     return this.readinessService.getLatest(tenantId ?? null);
@@ -191,7 +175,7 @@ export class OperationsController {
 
   @Get('dependencies')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getDependencies(@Query() query: DependencyQueryDto, @Req() req: any) {
+  async getDependencies(@Query() query: DependencyQueryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     // Platform-only operations remain protected — but dependency health can be tenant-scoped
     const results = await this.dependencyHealthService.checkAll(tenantId);
@@ -199,7 +183,7 @@ export class OperationsController {
   }
 
   @Post('dependencies/check')
-  async triggerDependencyCheck(@Body() dto: TriggerDependencyCheckDto, @Req() req: any) {
+  async triggerDependencyCheck(@Body() dto: TriggerDependencyCheckDto, @Req() req: OperationsRequest) {
     const tenantId = dto.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     const results = await this.dependencyHealthService.checkAll(tenantId ?? null);
@@ -210,14 +194,18 @@ export class OperationsController {
 
   @Get('queues/health')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getQueueHealth(@Req() req: any) {
+  async getQueueHealth(@Req() req: OperationsRequest) {
+    // These evaluators expose platform-wide queues/jobs and have no tenant filter.
+    this.enforcePlatformRBAC(req);
     // Platform operation — but allow tenant to see own queue health if needed
     const results = await this.queueHealthService.evaluate();
     return { data: results, total: results.length };
   }
 
   @Post('queues/check')
-  async triggerQueueCheck(@Body() dto: TriggerQueueCheckDto, @Req() req: any) {
+  async triggerQueueCheck(@Body() dto: TriggerQueueCheckDto, @Req() req: OperationsRequest) {
+    // These evaluators expose platform-wide queues/jobs and have no tenant filter.
+    this.enforcePlatformRBAC(req);
     const results = await this.queueHealthService.evaluate();
     if (dto.queueName) {
       const filtered = results.filter((r) => r.queueName === dto.queueName);
@@ -230,13 +218,17 @@ export class OperationsController {
 
   @Get('jobs/health')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getJobHealth(@Req() req: any) {
+  async getJobHealth(@Req() req: OperationsRequest) {
+    // These evaluators expose platform-wide queues/jobs and have no tenant filter.
+    this.enforcePlatformRBAC(req);
     const results = await this.jobHealthService.evaluate();
     return { data: results, total: results.length };
   }
 
   @Post('jobs/check')
-  async triggerJobCheck(@Body() dto: TriggerJobCheckDto, @Req() req: any) {
+  async triggerJobCheck(@Body() dto: TriggerJobCheckDto, @Req() req: OperationsRequest) {
+    // These evaluators expose platform-wide queues/jobs and have no tenant filter.
+    this.enforcePlatformRBAC(req);
     const results = await this.jobHealthService.evaluate();
     if (dto.jobName) {
       const filtered = results.filter((r) => r.jobName === dto.jobName);
@@ -249,11 +241,11 @@ export class OperationsController {
 
   @Get('incidents')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async listIncidents(@Query() query: IncidentQueryDto, @Req() req: any) {
+  async listIncidents(@Query() query: IncidentQueryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
     // Tenant isolation: tenant cannot read another tenant's incidents
-    const effectiveTenantId = isPlatform ? (query as any).tenantId ?? null : tenantId;
+    const effectiveTenantId = isPlatform ? query.tenantId ?? null : tenantId;
     if (!isPlatform && tenantId === null) throw new ForbiddenException('Tenant context required');
     return this.incidentService.listIncidents({
       tenantId: effectiveTenantId ?? null,
@@ -269,7 +261,7 @@ export class OperationsController {
 
   @Get('incidents/:id')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getIncident(@Param('id') id: string, @Req() req: any) {
+  async getIncident(@Param('id') id: string, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
     const effectiveTenantId = isPlatform ? null : tenantId;
@@ -278,7 +270,7 @@ export class OperationsController {
   }
 
   @Post('incidents')
-  async createIncident(@Body() dto: CreateIncidentDto, @Req() req: any) {
+  async createIncident(@Body() dto: CreateIncidentDto, @Req() req: OperationsRequest) {
     const actorId = this.getActorIdFromRequest(req);
     const tenantId = dto.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
@@ -296,13 +288,13 @@ export class OperationsController {
       scopeTarget: dto.scopeTarget ?? null,
       evidence: dto.evidence ?? {},
       correlationId: dto.correlationId ?? null,
-      requestId: dto.requestId ?? null,
+      requestId: req.requestId ?? null,
       actorId: actorId ?? null,
     });
   }
 
   @Post('incidents/:id/acknowledge')
-  async acknowledgeIncident(@Param('id') id: string, @Body() dto: AcknowledgeIncidentDto, @Req() req: any) {
+  async acknowledgeIncident(@Param('id') id: string, @Body() dto: AcknowledgeIncidentDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.incidentService.acknowledge({
@@ -311,12 +303,12 @@ export class OperationsController {
       actorId: actorId ?? null,
       reason: dto.reason ?? null,
       correlationId: dto.correlationId ?? null,
-      requestId: dto.requestId ?? null,
+      requestId: req.requestId ?? null,
     });
   }
 
   @Post('incidents/:id/resolve')
-  async resolveIncident(@Param('id') id: string, @Body() dto: ResolveIncidentDto, @Req() req: any) {
+  async resolveIncident(@Param('id') id: string, @Body() dto: ResolveIncidentDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.incidentService.resolve({
@@ -325,12 +317,12 @@ export class OperationsController {
       actorId: actorId ?? null,
       reason: dto.reason,
       correlationId: dto.correlationId ?? null,
-      requestId: dto.requestId ?? null,
+      requestId: req.requestId ?? null,
     });
   }
 
   @Post('incidents/:id/suppress')
-  async suppressIncident(@Param('id') id: string, @Body() dto: SuppressIncidentDto, @Req() req: any) {
+  async suppressIncident(@Param('id') id: string, @Body() dto: SuppressIncidentDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.incidentService.suppress({
@@ -340,12 +332,12 @@ export class OperationsController {
       reason: dto.reason,
       suppressUntil: dto.suppressUntil ? new Date(dto.suppressUntil) : null,
       correlationId: dto.correlationId ?? null,
-      requestId: dto.requestId ?? null,
+      requestId: req.requestId ?? null,
     });
   }
 
   @Post('incidents/:id/reopen')
-  async reopenIncident(@Param('id') id: string, @Body() dto: ReopenIncidentDto, @Req() req: any) {
+  async reopenIncident(@Param('id') id: string, @Body() dto: ReopenIncidentDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.incidentService.reopen({
@@ -354,12 +346,12 @@ export class OperationsController {
       actorId: actorId ?? null,
       reason: dto.reason,
       correlationId: dto.correlationId ?? null,
-      requestId: dto.requestId ?? null,
+      requestId: req.requestId ?? null,
     });
   }
 
   @Post('incidents/:id/escalate')
-  async escalateIncident(@Param('id') id: string, @Body() dto: EscalateIncidentDto, @Req() req: any) {
+  async escalateIncident(@Param('id') id: string, @Body() dto: EscalateIncidentDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.escalationService.evaluateAndEscalate({
@@ -371,7 +363,7 @@ export class OperationsController {
   }
 
   @Post('incidents/:id/assign')
-  async assignIncident(@Param('id') id: string, @Body() dto: AssignIncidentDto, @Req() req: any) {
+  async assignIncident(@Param('id') id: string, @Body() dto: AssignIncidentDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.incidentService.assignOperator({
@@ -386,10 +378,10 @@ export class OperationsController {
 
   @Get('reconciliations')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async listReconciliations(@Query() query: ReconciliationQueryDto, @Req() req: any) {
+  async listReconciliations(@Query() query: ReconciliationQueryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
-    const effectiveTenantId = isPlatform ? (query as any).tenantId ?? null : tenantId;
+    const effectiveTenantId = isPlatform ? query.tenantId ?? null : tenantId;
     return this.reconciliationOrchestrator.listRuns({
       tenantId: effectiveTenantId ?? null,
       type: query.type,
@@ -401,13 +393,13 @@ export class OperationsController {
 
   @Get('reconciliations/:id')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getReconciliation(@Param('id') id: string, @Req() req: any) {
+  async getReconciliation(@Param('id') id: string, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     return this.reconciliationOrchestrator.getRun(tenantId ?? null, id);
   }
 
   @Post('reconciliations/trigger')
-  async triggerReconciliation(@Body() dto: TriggerReconciliationDto, @Req() req: any) {
+  async triggerReconciliation(@Body() dto: TriggerReconciliationDto, @Req() req: OperationsRequest) {
     const tenantId = dto.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     const actorId = this.getActorIdFromRequest(req);
@@ -415,20 +407,20 @@ export class OperationsController {
       tenantId: tenantId ?? null,
       type: dto.type,
       requestedBy: actorId ?? null,
-      triggerType: 'MANUAL' as any,
+      triggerType: OperationalTriggerType.MANUAL,
       correlationId: dto.correlationId ?? null,
     });
   }
 
   @Get('reconciliations/schedules')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getReconciliationSchedules(@Req() req: any) {
+  async getReconciliationSchedules(@Req() req: OperationsRequest) {
     this.enforcePlatformRBAC(req);
     return { data: this.reconciliationSchedule.getSchedules() };
   }
 
   @Post('reconciliations/schedule/all')
-  async scheduleAllReconciliations(@Req() req: any) {
+  async scheduleAllReconciliations(@Req() req: OperationsRequest) {
     this.enforcePlatformRBAC(req);
     await this.reconciliationSchedule.scheduleAll();
     return { scheduled: true };
@@ -442,7 +434,7 @@ export class OperationsController {
    */
   @Get('maintenance/current')
   @AllowAnyAuthenticated()
-  async currentMaintenance(@Req() req: any) {
+  async currentMaintenance(@Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     if (!tenantId) throw new ForbiddenException('Tenant context required');
     return this.maintenanceWindowService.getCurrentForTenant(tenantId);
@@ -450,10 +442,10 @@ export class OperationsController {
 
   @Get('maintenance')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async listMaintenance(@Query() query: MaintenanceQueryDto, @Req() req: any) {
+  async listMaintenance(@Query() query: MaintenanceQueryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
-    const effectiveTenantId = isPlatform ? (query as any).tenantId ?? null : tenantId;
+    const effectiveTenantId = isPlatform ? query.tenantId ?? null : tenantId;
     return this.maintenanceWindowService.listWindows({
       tenantId: effectiveTenantId ?? null,
       scope: query.scope,
@@ -467,13 +459,13 @@ export class OperationsController {
 
   @Get('maintenance/:id')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getMaintenance(@Param('id') id: string, @Req() req: any) {
+  async getMaintenance(@Param('id') id: string, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     return this.maintenanceWindowService.getWindow(tenantId ?? null, id);
   }
 
   @Post('maintenance')
-  async createMaintenance(@Body() dto: CreateMaintenanceWindowDto, @Req() req: any) {
+  async createMaintenance(@Body() dto: CreateMaintenanceWindowDto, @Req() req: OperationsRequest) {
     const tenantId = dto.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     // Maintenance authorization: platform scopes require platform role
@@ -496,7 +488,7 @@ export class OperationsController {
   }
 
   @Post('maintenance/:id/cancel')
-  async cancelMaintenance(@Param('id') id: string, @Body() dto: CancelMaintenanceWindowDto, @Req() req: any) {
+  async cancelMaintenance(@Param('id') id: string, @Body() dto: CancelMaintenanceWindowDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.maintenanceWindowService.cancelWindow({
@@ -509,7 +501,7 @@ export class OperationsController {
   }
 
   @Post('maintenance/enter')
-  async enterMaintenance(@Body() dto: EnterMaintenanceDto, @Req() req: any) {
+  async enterMaintenance(@Body() dto: EnterMaintenanceDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     // Maintenance does not bypass live gate — enforced inside service, but also check here
     if (dto.scope === OperationalMaintenanceScope.PLATFORM && !this.isPlatformUser(req)) {
@@ -531,12 +523,12 @@ export class OperationsController {
   }
 
   @Post('maintenance/exit')
-  async exitMaintenance(@Body() dto: ExitMaintenanceDto, @Req() req: any) {
+  async exitMaintenance(@Body() dto: ExitMaintenanceDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.maintenanceModeService.exitMaintenance({
       tenantId: tenantId ?? null,
-      scope: dto.scope ?? 'SERVICE' as any,
+      scope: dto.scope ?? OperationalMaintenanceScope.SERVICE,
       scopeTarget: dto.scopeTarget ?? null,
       windowId: dto.windowId ?? null,
       requestedBy: actorId ?? null,
@@ -548,10 +540,10 @@ export class OperationsController {
 
   @Get('degradations')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async listDegradations(@Query() query: DegradationQueryDto, @Req() req: any) {
+  async listDegradations(@Query() query: DegradationQueryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
-    const effectiveTenantId = isPlatform ? (query as any).tenantId ?? null : tenantId;
+    const effectiveTenantId = isPlatform ? query.tenantId ?? null : tenantId;
     return this.degradationService.listDegradations({
       tenantId: effectiveTenantId ?? null,
       serviceName: query.serviceName,
@@ -562,7 +554,7 @@ export class OperationsController {
   }
 
   @Post('degradations')
-  async setDegradation(@Body() dto: SetDegradationDto, @Req() req: any) {
+  async setDegradation(@Body() dto: SetDegradationDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     // Degradation state restrictions — platform service degradation requires platform RBAC
@@ -583,7 +575,7 @@ export class OperationsController {
   }
 
   @Post('degradations/clear')
-  async clearDegradation(@Body() dto: ClearDegradationDto & { serviceName: string }, @Req() req: any) {
+  async clearDegradation(@Body() dto: ClearDegradationDto & { serviceName: string }, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     return this.degradationService.clearDegradation({
@@ -599,16 +591,17 @@ export class OperationsController {
 
   @Get('recovery/plans')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getRecoveryPlans(@Req() req: any) {
+  async getRecoveryPlans(@Req() req: OperationsRequest) {
+    this.getTenantIdFromRequest(req);
     return { data: this.recoveryPlanService.getPlans() };
   }
 
   @Get('recovery/runs')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async listRecoveryRuns(@Query() query: RecoveryQueryDto, @Req() req: any) {
+  async listRecoveryRuns(@Query() query: RecoveryQueryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
-    const effectiveTenantId = isPlatform ? (query as any).tenantId ?? null : tenantId;
+    const effectiveTenantId = isPlatform ? query.tenantId ?? null : tenantId;
     return this.recoveryPlanService.listRecoveryRuns({
       tenantId: effectiveTenantId ?? null,
       planId: query.planId,
@@ -621,13 +614,13 @@ export class OperationsController {
 
   @Get('recovery/runs/:id')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getRecoveryRun(@Param('id') id: string, @Req() req: any) {
+  async getRecoveryRun(@Param('id') id: string, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     return this.recoveryPlanService.getRecoveryRun(tenantId ?? null, id);
   }
 
   @Post('recovery/request')
-  async requestRecovery(@Body() dto: RequestRecoveryDto, @Req() req: any) {
+  async requestRecovery(@Body() dto: RequestRecoveryDto, @Req() req: OperationsRequest) {
     const tenantId = dto.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     const actorId = this.getActorIdFromRequest(req);
@@ -644,7 +637,7 @@ export class OperationsController {
   }
 
   @Post('recovery/runs/:id/approve')
-  async approveRecovery(@Param('id') id: string, @Body() dto: ApproveRecoveryDto, @Req() req: any) {
+  async approveRecovery(@Param('id') id: string, @Body() dto: ApproveRecoveryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     if (!actorId) throw new ForbiddenException('Approval requires authentication');
@@ -658,7 +651,7 @@ export class OperationsController {
   }
 
   @Post('recovery/runs/:id/execute')
-  async executeRecovery(@Param('id') id: string, @Body() dto: ExecuteRecoveryDto, @Req() req: any) {
+  async executeRecovery(@Param('id') id: string, @Body() dto: ExecuteRecoveryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     if (!actorId) throw new ForbiddenException('Execution requires authentication');
@@ -674,7 +667,7 @@ export class OperationsController {
   // --- Operator Actions ---
 
   @Post('actions')
-  async executeOperatorAction(@Body() dto: OperatorActionDto, @Req() req: any) {
+  async executeOperatorAction(@Body() dto: OperatorActionDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const actorId = this.getActorIdFromRequest(req);
     if (!actorId) throw new ForbiddenException('Operator action requires authentication');
@@ -688,16 +681,16 @@ export class OperationsController {
       preconditions: dto.preconditions ?? {},
       payload: dto.payload ?? {},
       correlationId: dto.correlationId ?? null,
-      requestId: dto.requestId ?? null,
+      requestId: req.requestId ?? null,
     });
   }
 
   @Get('actions')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async listActions(@Query() query: ActionQueryDto, @Req() req: any) {
+  async listActions(@Query() query: ActionQueryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
-    const effectiveTenantId = isPlatform ? (query as any).tenantId ?? null : tenantId;
+    const effectiveTenantId = isPlatform ? query.tenantId ?? null : tenantId;
     return this.operatorActionService.listActions({
       tenantId: effectiveTenantId ?? null,
       actionType: query.actionType,
@@ -710,7 +703,7 @@ export class OperationsController {
 
   @Get('actions/:id')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getAction(@Param('id') id: string, @Req() req: any) {
+  async getAction(@Param('id') id: string, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     return this.operatorActionService.getAction(tenantId ?? null, id);
   }
@@ -719,13 +712,15 @@ export class OperationsController {
 
   @Get('runbooks')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getRunbooks(@Req() req: any) {
+  async getRunbooks(@Req() req: OperationsRequest) {
+    this.getTenantIdFromRequest(req);
     return { data: this.runbookService.getRunbooks() };
   }
 
   @Get('runbooks/:id')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getRunbook(@Param('id') id: string, @Req() req: any) {
+  async getRunbook(@Param('id') id: string, @Req() req: OperationsRequest) {
+    this.getTenantIdFromRequest(req);
     const rb = this.runbookService.getRunbook(id);
     if (!rb) throw new BadRequestException(`Runbook ${id} not found`);
     return rb;
@@ -735,10 +730,10 @@ export class OperationsController {
 
   @Get('audit')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async listAudit(@Query() query: AuditQueryDto, @Req() req: any) {
+  async listAudit(@Query() query: AuditQueryDto, @Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     const isPlatform = this.isPlatformUser(req);
-    const effectiveTenantId = isPlatform ? (query as any).tenantId ?? null : tenantId;
+    const effectiveTenantId = isPlatform ? query.tenantId ?? null : tenantId;
     // Tenant cannot read another tenant's audit records
     return this.auditService.list({
       tenantId: effectiveTenantId ?? null,
@@ -757,7 +752,7 @@ export class OperationsController {
 
   @Get('metrics')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getMetrics(@Query() query: MetricsQueryDto, @Req() req: any) {
+  async getMetrics(@Query() query: MetricsQueryDto, @Req() req: OperationsRequest) {
     const tenantId = query.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     const from = query.from ? new Date(query.from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -767,7 +762,7 @@ export class OperationsController {
 
   @Get('metrics/current')
   @RequirePermissions(Permission.OPERATIONS_READ)
-  async getCurrentMetrics(@Req() req: any) {
+  async getCurrentMetrics(@Req() req: OperationsRequest) {
     const tenantId = this.getTenantIdFromRequest(req);
     return this.metricsService.getCurrentMetrics(tenantId ?? null);
   }
@@ -775,7 +770,7 @@ export class OperationsController {
   // --- Diagnostics ---
 
   @Post('diagnostics')
-  async runDiagnostics(@Body() dto: OperatorDiagnosticDto, @Req() req: any) {
+  async runDiagnostics(@Body() dto: OperatorDiagnosticDto, @Req() req: OperationsRequest) {
     const tenantId = dto.tenantId ?? this.getTenantIdFromRequest(req);
     this.enforceTenantIsolation(tenantId ?? null, req);
     const actorId = this.getActorIdFromRequest(req);
@@ -795,7 +790,7 @@ export class OperationsController {
 
     await this.auditService.record({
       tenantId: tenantId ?? null,
-      eventType: 'OPERATOR_ACTION' as any,
+      eventType: OperationalAuditEventType.OPERATOR_ACTION,
       actorId: actorId ?? null,
       actorType: actorId ? 'USER' : 'SYSTEM',
       targetType: 'DIAGNOSTIC',

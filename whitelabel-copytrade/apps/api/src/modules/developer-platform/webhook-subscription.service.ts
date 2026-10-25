@@ -10,16 +10,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import {
-  constantTimeEqual,
-  credentialDigest,
-  DEVELOPER_ERROR_CODES,
-  DeveloperError,
-  eventDefinition,
-  idempotencyKey,
-  isKnownEventType,
-  validateScopes,
-} from './developer.types';
+import { constantTimeEqual, credentialDigest, DEVELOPER_ERROR_CODES, DeveloperError, idempotencyKey, isKnownEventType, validateScopes } from './developer.types';
 import { DeveloperAuditService, type DeveloperAuditActor } from './developer-audit.service';
 import {
   DEVELOPER_POLICY_DATA_PORT,

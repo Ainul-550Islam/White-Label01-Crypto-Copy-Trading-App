@@ -1,5 +1,6 @@
+// # Responsibility: model scoped test persistence with typed rows, filters, unique constraints, and ordering.
 /**
- * TEST-ONLY in-memory stand-in for the Prisma client delegates used through
+ * # Responsibility: TEST-ONLY in-memory stand-in for Prisma delegates used through
  * `(prisma as any).<model>`. Excluded from the production build by the
  * `**\/*spec.ts` pattern of tsconfig.build.json and not collected by jest
  * (the testRegex only matches `.spec.ts`).
@@ -21,14 +22,43 @@
 
 import { randomUUID } from 'crypto';
 
-export type Row = Record<string, any>;
+export type Row = Record<string, unknown>;
 
 function isPlainObject(value: unknown): value is Row {
   return typeof value === 'object' && value !== null && !(value instanceof Date) && !Array.isArray(value);
 }
 
-function comparable(value: any): any {
+function comparable(value: unknown): unknown {
   return value instanceof Date ? value.getTime() : value;
+}
+
+function isList(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+/** Preserve JavaScript scalar comparison semantics without asserting arbitrary rows are numbers. */
+function numericScalar(value: unknown): number | bigint | undefined {
+  if (typeof value === 'number' || typeof value === 'bigint') return value;
+  if (typeof value === 'string' || typeof value === 'boolean' || value === null) return Number(value);
+  return undefined;
+}
+
+function matchesComparison(left: unknown, right: unknown, operator: 'lt' | 'lte' | 'gt' | 'gte'): boolean {
+  const x = comparable(left);
+  const y = comparable(right);
+  if (typeof x === 'string' && typeof y === 'string') {
+    if (operator === 'lt') return x < y;
+    if (operator === 'lte') return x <= y;
+    if (operator === 'gt') return x > y;
+    return x >= y;
+  }
+  const a = numericScalar(x);
+  const b = numericScalar(y);
+  if (a === undefined || b === undefined) return false;
+  if (operator === 'lt') return a < b;
+  if (operator === 'lte') return a <= b;
+  if (operator === 'gt') return a > b;
+  return a >= b;
 }
 
 function isNullish(value: unknown): boolean {
@@ -40,12 +70,12 @@ export function rowMatches(row: Row, where: Row | undefined): boolean {
   for (const [key, condition] of Object.entries(where)) {
     if (condition === undefined) continue;
     if (key === 'AND') {
-      const all = Array.isArray(condition) ? condition : [condition];
-      if (!all.every((c: Row) => rowMatches(row, c))) return false;
+      const all = isList(condition) ? condition : [condition];
+      if (!all.every((c) => isPlainObject(c) && rowMatches(row, c))) return false;
       continue;
     }
     if (key === 'OR') {
-      if (!(condition as Row[]).some((c) => rowMatches(row, c))) return false;
+      if (!isList(condition) || !condition.some((c) => isPlainObject(c) && rowMatches(row, c))) return false;
       continue;
     }
     const value = row[key];
@@ -57,12 +87,12 @@ export function rowMatches(row: Row, where: Row | undefined): boolean {
       if ('not' in condition) {
         if (condition.not === null ? isNullish(value) : comparable(value) === comparable(condition.not)) return false;
       }
-      if ('in' in condition && !(condition.in as any[]).map(comparable).includes(comparable(value))) return false;
+      if ('in' in condition && (!isList(condition.in) || !condition.in.map(comparable).includes(comparable(value)))) return false;
       if (isNullish(value) && ('lt' in condition || 'lte' in condition || 'gt' in condition || 'gte' in condition)) return false;
-      if ('lt' in condition && !(comparable(value) < comparable(condition.lt))) return false;
-      if ('lte' in condition && !(comparable(value) <= comparable(condition.lte))) return false;
-      if ('gt' in condition && !(comparable(value) > comparable(condition.gt))) return false;
-      if ('gte' in condition && !(comparable(value) >= comparable(condition.gte))) return false;
+      if ('lt' in condition && !matchesComparison(value, condition.lt, 'lt')) return false;
+      if ('lte' in condition && !matchesComparison(value, condition.lte, 'lte')) return false;
+      if ('gt' in condition && !matchesComparison(value, condition.gt, 'gt')) return false;
+      if ('gte' in condition && !matchesComparison(value, condition.gte, 'gte')) return false;
       continue;
     }
     if (comparable(value) !== comparable(condition)) return false;
@@ -80,10 +110,15 @@ export class InMemoryPrisma {
   constructor(private readonly uniques: Record<string, Array<string | string[]>> = {}) {
     return new Proxy(this, {
       get: (target, prop: string | symbol) => {
-        if (typeof prop === 'symbol' || prop in target) return (target as any)[prop];
+        if (typeof prop === 'symbol' || prop in target) return Reflect.get(target, prop);
         return target.delegate(prop);
       },
     });
+  }
+
+  /** Typed delegate access for new tests; the proxy remains compatible with existing repository fixtures. */
+  model(delegate: string) {
+    return this.delegate(delegate);
   }
 
   rows(delegate: string): Row[] {
@@ -91,11 +126,17 @@ export class InMemoryPrisma {
     return this.tables.get(delegate)!;
   }
 
-  seed(delegate: string, data: Row): Row {
+  seed<T extends Row>(delegate: string, data: T): T {
     this.assertUnique(delegate, data);
     const row = { ...data };
     this.rows(delegate).push(row);
     return { ...row };
+  }
+
+  /** Test-only transaction wrapper for repositories that require tenant RLS. */
+  async withTenantRls<T>(tenantId: string, work: (transaction: InMemoryPrisma) => Promise<T>): Promise<T> {
+    if (!tenantId.trim()) throw new Error('tenantId is required for the in-memory RLS transaction');
+    return work(this);
   }
 
   private assertUnique(delegate: string, data: Row): void {
@@ -131,7 +172,7 @@ export class InMemoryPrisma {
           result = result.sort((a, b) => {
             const x = comparable(a[field]);
             const y = comparable(b[field]);
-            return x === y ? 0 : x < y ? -sign : sign;
+            return x === y ? 0 : matchesComparison(x, y, 'lt') ? -sign : sign;
           });
         }
         const start = skip ?? 0;

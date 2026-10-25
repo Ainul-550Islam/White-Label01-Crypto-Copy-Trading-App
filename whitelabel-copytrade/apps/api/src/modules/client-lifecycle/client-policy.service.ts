@@ -1,3 +1,4 @@
+// # Responsibility: resolve lifecycle policy while preserving security/compliance/risk requirements and canonical policy lookups.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AppConfigService } from '../../config/app-config.service';
@@ -78,8 +79,8 @@ export class ClientPolicyService {
 
     // Reuse existing KYC/AML, Security, Risk, Compliance, Billing, Finance, Exchanges, Portfolio Accounting, Operations, Notifications, IAM services
     let allowedCurrencies: string[] = ['USD', 'USDT', 'USDC', 'BTC', 'ETH'];
-    let maxFundingAmount: string | null = null;
-    let maxWithdrawalAmount: string | null = null;
+    const maxFundingAmount: string | null = null;
+    const maxWithdrawalAmount: string | null = null;
 
     try {
       const tenant = await this.prisma.tenant.findUnique({
@@ -93,7 +94,7 @@ export class ClientPolicyService {
 
     // Check existing security/compliance/risk configuration for thresholds
     try {
-      const securityPolicy = await (this.prisma as any).securityPolicy?.findFirst?.({ where: { tenantId } });
+      const securityPolicy = await this.prisma.securityPolicy.findFirst({ where: { tenantId } });
       if (securityPolicy) {
         // Reuse existing policy if defined — do not invent thresholds
         this.logger.debug({ event: 'client.policy.securityPolicyFound', tenantId });

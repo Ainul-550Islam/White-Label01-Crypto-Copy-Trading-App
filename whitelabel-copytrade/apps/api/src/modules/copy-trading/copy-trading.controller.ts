@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Request, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { TraderProfileService } from './trader-profile.service';
 import { TraderStrategyService } from './trader-strategy.service';
 import { FollowerSubscriptionService } from './follower-subscription.service';
@@ -15,7 +15,7 @@ import { CopySubscriptionRepository } from './copy-subscription.repository';
 import { CopyExecutionRepository } from './copy-execution.repository';
 import { CreateTraderProfileDto, UpdateTraderProfileDto, CreateTraderStrategyDto, UpdateTraderStrategyDto, TraderStrategyFilterDto } from './dto/trader-strategy.dto';
 import { CreateFollowerSubscriptionDto, UpdateFollowerSubscriptionDto, FollowerSubscriptionFilterDto, CopyExecutionFilterDto } from './dto/follower-subscription.dto';
-import { CreateCopyPolicyDto, LeaderEventDto } from './dto/copy-policy.dto';
+import { LeaderEventDto } from './dto/copy-policy.dto';
 import { TraderStrategy, TraderStrategyStatus, TraderVerificationState } from './copy-trading.types';
 import { Permission } from '@wlct/shared-types';
 import { RequireAnyPermission, RequirePermissions } from '../../common/decorators/permissions.decorator';

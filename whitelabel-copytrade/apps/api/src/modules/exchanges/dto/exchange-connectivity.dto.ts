@@ -1,4 +1,5 @@
-import { IsString, IsEnum, IsOptional, IsBoolean, IsUUID, MinLength, MaxLength } from 'class-validator';
+// # Responsibility: validate exchange environment/operation/capability membership and expose unknown telemetry as nullable rather than measured zero.
+import { IsString, IsEnum, IsOptional, IsBoolean, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeCapability } from '../exchange.types';
 
@@ -90,13 +91,13 @@ export class RouteExchangeDto {
   @IsOptional()
   venue?: ExchangeVenue;
 
-  @IsString()
-  requiredCapability!: string;
+  @IsEnum(ExchangeCapability)
+  requiredCapability!: ExchangeCapability;
 
   @IsEnum(ExchangeEnvironment)
   environment!: ExchangeEnvironment;
 
-  @IsString()
+  @IsIn(['READ', 'MARKET_DATA', 'TRADE', 'WITHDRAWAL'])
   operation!: 'READ' | 'MARKET_DATA' | 'TRADE' | 'WITHDRAWAL';
 
   @IsOptional()
@@ -163,9 +164,10 @@ export class HealthSafeResponseDto {
   environment!: ExchangeEnvironment;
   state!: string;
   latencyMs!: number | null;
-  authFailures!: number;
-  apiErrors!: number;
-  rateLimitPressure!: number;
+  authFailures!: number | null;
+  apiErrors!: number | null;
+  rateLimitPressure!: number | null;
+  dataCompleteness!: 'OBSERVED' | 'UNKNOWN';
   syncAgeMs!: number | null;
   clockDriftMs!: number | null;
   websocketConnected!: boolean | null;

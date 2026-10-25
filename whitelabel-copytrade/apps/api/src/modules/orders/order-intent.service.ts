@@ -1,9 +1,9 @@
-// # Enforces pre-trade risk and venue filter checks prior to OMS persistence
+// # Responsibility: delegate the order-intent compatibility entry point to canonical OMS and pre-trade risk contracts.
 import { OrderIntentService } from '../oms/order-intent.service';
 import {
   RiskService,
-  type PreTradeOrderRuleInput,
-  type PreTradeOrderRuleResult,
+  type PreTradeCheckInput as PreTradeOrderRuleInput,
+  type PreTradeCheckResult as PreTradeOrderRuleResult,
 } from '../risk/risk.service';
 
 export {

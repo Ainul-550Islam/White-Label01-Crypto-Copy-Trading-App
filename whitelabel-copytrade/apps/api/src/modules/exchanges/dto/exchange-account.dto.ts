@@ -1,4 +1,4 @@
-import { IsString, IsEnum, IsOptional, IsBoolean, IsArray, IsUUID, MinLength, MaxLength, IsNotEmpty, IsIn, ArrayMaxSize, ValidateIf } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsBoolean, IsArray, MinLength, MaxLength, IsIn, ArrayMaxSize } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeAccountState } from '../exchange.types';
 

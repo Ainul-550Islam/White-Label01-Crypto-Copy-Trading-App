@@ -1,0 +1,5 @@
+
+> whitelabel-copytrade@1.0.0 check:route-authorization
+> node apps/api/scripts/check-route-authorization.js
+
+Route authorization check OK: 874 routes in 54 controllers; 91 undecorated, all in reviewed controllers.

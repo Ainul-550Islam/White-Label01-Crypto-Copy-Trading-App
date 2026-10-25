@@ -1,4 +1,4 @@
-// # NEW — Verifies live/paper mode selection, signing, and fail-closed error handling for all 5 venues
+// # Responsibility: verifies live/paper mode selection, signing, and fail-closed behavior across venue adapters.
 /**
  * Deterministic contract tests for the per-venue exchange providers
  * (Bybit, OKX, Kraken, Coinbase) and the provider factory registration.
@@ -8,6 +8,7 @@
  * network access. Signatures are checked against independent re-computations
  * of each venue's published algorithm.
  */
+import { afterEach, describe, expect, jest, test } from '@jest/globals';
 import * as crypto from 'crypto';
 import { ExchangeEnvironment, ExchangeVenue, ExchangeOrderStatus, ExchangePositionSide, ExchangeOrderSide, ExchangeConnectionState, ExchangeOrderType } from '../exchange.types';
 import { ExchangeProviderContext, ExchangeProviderError, ExchangeProviderErrorCode } from '../exchange-provider.interface';
@@ -15,6 +16,10 @@ import { BybitProvider } from './bybit.provider';
 import { OkxProvider, okxCanonical } from './okx.provider';
 import { KrakenProvider, krakenAsset, krakenPairParts, KRAKEN_WITHDRAW_PROBE_KEY } from './kraken.provider';
 import { CoinbaseProvider, buildCoinbaseJwt, loadCoinbaseKey } from './coinbase.provider';
+import { BybitProvider as RegisteredBybitProvider } from '../providers/bybit.provider';
+import { OkxProvider as RegisteredOkxProvider } from '../providers/okx.provider';
+import { KrakenProvider as RegisteredKrakenProvider } from '../providers/kraken.provider';
+import { CoinbaseProvider as RegisteredCoinbaseProvider } from '../providers/coinbase.provider';
 import { canonicalFromConcatenated, addDecimalStrings, subtractDecimalStrings } from '../base-exchange-provider';
 import { ExchangeProviderFactory } from '../exchange-provider.factory';
 import { ExchangeRegistryService } from '../exchange-registry.service';
@@ -492,10 +497,10 @@ describe('ExchangeProviderFactory registration', () => {
     const registry = new ExchangeRegistryService();
     const factory = new ExchangeProviderFactory(registry);
     factory.onModuleInit();
-    expect(factory.getProvider(ExchangeVenue.BYBIT, ExchangeEnvironment.TESTNET)).toBeInstanceOf(BybitProvider);
-    expect(factory.getProvider(ExchangeVenue.OKX, ExchangeEnvironment.LIVE)).toBeInstanceOf(OkxProvider);
-    expect(factory.getProvider(ExchangeVenue.KRAKEN, ExchangeEnvironment.LIVE)).toBeInstanceOf(KrakenProvider);
-    expect(factory.getProvider(ExchangeVenue.COINBASE, ExchangeEnvironment.SANDBOX)).toBeInstanceOf(CoinbaseProvider);
+    expect(factory.getProvider(ExchangeVenue.BYBIT, ExchangeEnvironment.TESTNET)).toBeInstanceOf(RegisteredBybitProvider);
+    expect(factory.getProvider(ExchangeVenue.OKX, ExchangeEnvironment.LIVE)).toBeInstanceOf(RegisteredOkxProvider);
+    expect(factory.getProvider(ExchangeVenue.KRAKEN, ExchangeEnvironment.LIVE)).toBeInstanceOf(RegisteredKrakenProvider);
+    expect(factory.getProvider(ExchangeVenue.COINBASE, ExchangeEnvironment.SANDBOX)).toBeInstanceOf(RegisteredCoinbaseProvider);
     expect(() => factory.getProvider(ExchangeVenue.KRAKEN, ExchangeEnvironment.SANDBOX)).toThrow(ExchangeProviderError);
 
     const coinbase = registry.getVenue(ExchangeVenue.COINBASE)!;

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ComplianceAuditService } from './compliance-audit.service';
-import { KycState, AmlState, ComplianceDecision, RiskLevel } from './compliance.types';
+import { KycState, AmlState, ComplianceDecision } from './compliance.types';
 
 /**
  * Reconciliation: detect state inconsistencies between verification, screening, cases, and controlled restrictions.

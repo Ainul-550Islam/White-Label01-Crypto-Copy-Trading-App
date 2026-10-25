@@ -1,7 +1,8 @@
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
-import { NestExpressApplication } from '@nestjs/platform-express';
+import { ExpressAdapter } from '@nestjs/platform-express';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { VersioningType } from '@nestjs/common';
 import compression from 'compression';
@@ -25,15 +26,19 @@ import { HEADER_REQUEST_ID } from '@wlct/config';
  * Redis and BullMQ can drain in-flight work during a rolling deploy.
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    bufferLogs: true,
-    // Keep the exact request bytes on req.rawBody (applied to the parsers
-    // registered with app.useBodyParser below). Payment-provider webhooks sign
-    // the raw body; verifying a re-serialised JSON object never matches.
-    rawBody: true,
-    // The global exception filter owns error shaping; disable Nest's default.
-    abortOnError: false,
-  });
+  const app = await NestFactory.create<NestExpressApplication>(
+    AppModule,
+    new ExpressAdapter(),
+    {
+      bufferLogs: true,
+      // Keep the exact request bytes on req.rawBody (applied to the parsers
+      // registered with app.useBodyParser below). Payment-provider webhooks sign
+      // the raw body; verifying a re-serialised JSON object never matches.
+      rawBody: true,
+      // The global exception filter owns error shaping; disable Nest's default.
+      abortOnError: false,
+    },
+  );
 
   const logger = app.get(PinoLogger);
   app.useLogger(logger);

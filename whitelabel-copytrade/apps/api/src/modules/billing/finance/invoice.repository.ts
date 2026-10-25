@@ -1,7 +1,9 @@
+// # Responsibility: persist and read invoice records through the API repository boundary.
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
-import type { InvoiceRecord, InvoiceFilter, CreateInvoiceInput, UpdateInvoiceInput, InvoiceStatus, InvoiceWithLines, InvoiceLineItem } from './invoice.types';
+import type { InvoiceRecord, InvoiceFilter, CreateInvoiceInput, UpdateInvoiceInput, InvoiceStatus } from './invoice.types';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 
@@ -454,7 +456,6 @@ export class InvoiceRepository {
 
   private generateId(): string {
     try {
-      const { randomUUID } = require('crypto');
       return randomUUID();
     } catch {
       return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;

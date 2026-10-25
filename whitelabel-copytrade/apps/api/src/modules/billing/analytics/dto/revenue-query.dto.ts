@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsDateString, IsBoolean, IsArray, IsIn } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsDateString, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ReportingPeriodType, CohortDefinition, BillingInterval } from '../revenue-analytics.types';
 

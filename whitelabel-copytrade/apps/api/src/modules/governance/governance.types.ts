@@ -385,6 +385,8 @@ export interface GovernanceReconciliationMismatch {
   detectedAt: string;
   correlationId: string;
   sourceReferences?: string[];
+  /** A detected diagnostic is not durable evidence when its required write failed. */
+  persistence?: 'DURABLE' | 'FAILED';
 }
 
 export const PRIVACY_REQUEST_TRANSITIONS: Record<PrivacyRequestState, PrivacyRequestState[]> = {

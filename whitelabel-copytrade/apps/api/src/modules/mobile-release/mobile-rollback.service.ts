@@ -5,14 +5,7 @@ import { MobileReleasePolicyService } from './mobile-release-policy.service';
 import { MobileReleaseService } from './mobile-release.service';
 import { MobileRolloutService } from './mobile-rollout.service';
 import { MobileArtifactVerificationService } from './mobile-artifact-verification.service';
-import {
-  AUDIT_ACTIONS,
-  MobileActor,
-  MobileReleaseError,
-  MobileReleaseState,
-  MOBILE_ERROR_CODES,
-  ROLLBACK_ELIGIBLE_RELEASE_STATES,
-} from './mobile-release.types';
+import { AUDIT_ACTIONS, MobileActor, MobileReleaseError, MOBILE_ERROR_CODES, ROLLBACK_ELIGIBLE_RELEASE_STATES } from './mobile-release.types';
 import { MobileReleaseAuditService } from './mobile-release-audit.service';
 
 /**

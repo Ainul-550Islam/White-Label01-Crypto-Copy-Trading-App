@@ -3,7 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { UsageEventRepository } from './usage-event.repository';
 import { UsageMeterRepository } from './usage-meter.repository';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { MeterKey, UsageScope, ENFORCED_METER_TO_LIMIT_KEY } from './usage-metering.types';
+import { MeterKey } from './usage-metering.types';
 
 /**
  * Compares runtime counters against durable metering totals and identifies

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { BillingNotificationEventKey, WebhookSubscription, DeliveryStatus, SafeNotificationPayload } from './billing-notification.types';
+import { BillingNotificationEventKey, WebhookSubscription, SafeNotificationPayload } from './billing-notification.types';
 import { BillingNotificationAuditService } from './billing-notification.audit';
 import { randomUUID, createHmac } from 'crypto';
 import { isRecordNotFound } from '../../../common/errors/prisma-not-found';

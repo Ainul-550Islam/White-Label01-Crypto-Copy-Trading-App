@@ -3,7 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ClientProfileRepository } from './client-profile.repository';
 import { OnboardingWorkflowService } from './onboarding-workflow.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
-import { deterministicIdempotencyKey, ClientOnboardingState, redactPiiAndSecrets } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, ClientOnboardingState } from './client-lifecycle.types';
 
 /**
  * Orchestrates the client onboarding workflow from registration/request through required

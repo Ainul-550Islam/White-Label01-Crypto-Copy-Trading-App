@@ -1,3 +1,4 @@
+// # Responsibility: create and transition invoices from typed canonical payment, plan, tax, and discount evidence.
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { InvoiceRepository } from './invoice.repository';
 import { InvoiceNumberService } from './invoice-number.service';
@@ -7,13 +8,14 @@ import { PaymentService } from '../payments/payment.service';
 import { PlansService } from '../plans.service';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingEventService } from '../notifications/billing-event.service';
-import type { InvoiceRecord, CreateInvoiceInput, InvoiceStatus, InvoiceLineType, DiscountType } from './invoice.types';
-import { InvoiceStatus as InvoiceStatusEnum, isValidInvoiceTransition } from './invoice.types';
-import type { Money } from './money.types';
-import { createMoney, addMoney, subtractMoney, sumMoney, parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency } from './money.types';
+import type { InvoiceRecord, CreateInvoiceInput, InvoiceStatus } from './invoice.types';
+import { InvoiceStatus as InvoiceStatusEnum, InvoiceLineType, DiscountType, isValidInvoiceTransition } from './invoice.types';
+
+import { createMoney, parseToMinorUnits, formatFromMinorUnits } from './money.types';
 import { AppException } from '../../../common/errors/app.exception';
 import { ErrorCode } from '@wlct/shared-types';
 import { BillingInterval } from '@wlct/shared-types';
+import { PaymentStatus } from '../payments/payment.types';
 
 /**
  * Main invoice orchestration: generate invoice from canonical plan/payment/subscription data,
@@ -52,7 +54,7 @@ export class InvoiceService {
     // Get canonical payment record - price comes from here, not hardcoded
     const payment = await this.paymentService.getPaymentById(paymentId);
 
-    if (payment.status !== 'SUCCEEDED' as any) {
+    if (payment.status !== PaymentStatus.SUCCEEDED) {
       throw new AppException({
         code: ErrorCode.VALIDATION_ERROR,
         message: `Invoice can only be created for succeeded payments, current status: ${payment.status}`,
@@ -70,6 +72,11 @@ export class InvoiceService {
         code: ErrorCode.NOT_FOUND,
         message: `Plan not found: ${payment.planId}`,
       });
+    }
+
+    const billingInterval = Object.values(BillingInterval).find((value) => value === plan.interval);
+    if (!billingInterval) {
+      throw new AppException({ code: ErrorCode.VALIDATION_ERROR, message: 'Unsupported canonical invoice billing interval' });
     }
 
     // Get tenant billing customer
@@ -91,7 +98,7 @@ export class InvoiceService {
 
     const lines: CreateInvoiceInput['lines'] = [
       {
-        type: 'SUBSCRIPTION' as any,
+        type: InvoiceLineType.SUBSCRIPTION,
         description: `${plan.name} - ${plan.interval} subscription`,
         quantity: 1,
         unitPrice: planPriceMoney,
@@ -99,7 +106,7 @@ export class InvoiceService {
         planId: plan.id,
         subscriptionId: payment.subscriptionId || undefined,
         billingPeriodStart: new Date().toISOString(),
-        billingPeriodEnd: this.calculatePeriodEnd(new Date(), plan.interval as BillingInterval).toISOString(),
+        billingPeriodEnd: this.calculatePeriodEnd(new Date(), billingInterval).toISOString(),
         metadata: {
           planCode: plan.code,
           billingInterval: plan.interval,
@@ -109,17 +116,23 @@ export class InvoiceService {
 
     // Apply discount if supported by existing billing configuration
     // For now, no discount unless metadata contains it
-    if ((payment as any).metadata?.discount) {
-      const discount = (payment as any).metadata.discount;
+    const discount = payment.metadata?.discount;
+    if (discount) {
+      if (typeof discount !== 'object' || Array.isArray(discount) || !('amount' in discount)) {
+        throw new AppException({ code: ErrorCode.VALIDATION_ERROR, message: 'Invalid stored invoice discount evidence' });
+      }
       if (discount.amount) {
+        if (typeof discount.amount !== 'string') {
+          throw new AppException({ code: ErrorCode.VALIDATION_ERROR, message: 'Stored invoice discount amount must be a decimal string' });
+        }
         const discountMoney = createMoney(discount.amount, currency);
         lines.push({
-          type: 'DISCOUNT' as any,
-          description: discount.description || 'Discount',
+          type: InvoiceLineType.DISCOUNT,
+          description: 'description' in discount && typeof discount.description === 'string' && discount.description ? discount.description : 'Discount',
           quantity: 1,
           unitPrice: discountMoney,
           amount: discountMoney,
-          discountType: 'FIXED_AMOUNT' as any,
+          discountType: DiscountType.FIXED_AMOUNT,
           discountValue: discount.amount,
         });
       }
@@ -154,7 +167,7 @@ export class InvoiceService {
 
     if (taxResult.taxAmount && parseToMinorUnits(taxResult.taxAmount.amount, currency) > 0) {
       lines.push({
-        type: 'TAX' as any,
+        type: InvoiceLineType.TAX,
         description: `Tax (${(taxResult.taxRate / 100).toFixed(2)}%) - ${taxResult.jurisdiction || ''}`,
         quantity: 1,
         unitPrice: taxResult.taxAmount,
@@ -181,8 +194,8 @@ export class InvoiceService {
 
     const billingPeriod = {
       start: new Date(),
-      end: this.calculatePeriodEnd(new Date(), plan.interval as BillingInterval),
-      interval: plan.interval as BillingInterval,
+      end: this.calculatePeriodEnd(new Date(), billingInterval),
+      interval: billingInterval,
     };
 
     const idempotencyKey = `invoice_${payment.id}_${payment.tenantId}`;
@@ -198,7 +211,7 @@ export class InvoiceService {
       planId: plan.id,
       planCode: plan.code,
       planName: plan.name,
-      provider: payment.provider as any,
+      provider: payment.provider,
       idempotencyKey,
       lines,
       taxSummary: taxResult.taxAmount ? [
@@ -215,7 +228,7 @@ export class InvoiceService {
       customer,
       paymentReference: {
         paymentId: payment.id,
-        provider: payment.provider as any,
+        provider: payment.provider,
         providerPaymentId: payment.providerPaymentId || undefined,
         paidAt: payment.paidAt?.toISOString(),
       },
@@ -242,8 +255,8 @@ export class InvoiceService {
     // Generate unique invoice number concurrency-safe
     const invoiceNumber = await this.invoiceNumberService.generateInvoiceNumber(payment.tenantId, invoice.id);
     const finalizedInvoice = await this.invoiceRepository.update(invoice.id, {
-      status: InvoiceStatusEnum.OPEN as any,
-      metadata: { ...((invoice.metadata as any) || {}), invoiceNumber },
+      status: InvoiceStatusEnum.OPEN,
+      metadata: { ...(invoice.metadata || {}), invoiceNumber },
     });
 
     // Finalize invoice
@@ -273,7 +286,7 @@ export class InvoiceService {
       return invoice;
     }
 
-    if (!isValidInvoiceTransition(invoice.status as any, InvoiceStatusEnum.FINALIZED as any)) {
+    if (!isValidInvoiceTransition(invoice.status, InvoiceStatusEnum.FINALIZED)) {
       throw new AppException({
         code: ErrorCode.VALIDATION_ERROR,
         message: `Invalid invoice transition: ${invoice.status} → FINALIZED`,
@@ -281,7 +294,7 @@ export class InvoiceService {
     }
 
     const finalized = await this.invoiceRepository.update(invoiceId, {
-      status: InvoiceStatusEnum.FINALIZED as any,
+      status: InvoiceStatusEnum.FINALIZED,
       finalizedAt: new Date(),
     });
 
@@ -299,7 +312,7 @@ export class InvoiceService {
         invoiceNumber: finalized.invoiceNumber,
         amount: finalized.total,
         currency: finalized.currency,
-        planName: (finalized as any).planName,
+        planName: finalized.planName ?? undefined,
         supportEmail: process.env.SUPPORT_EMAIL || 'support@example.com',
         appName: process.env.APP_NAME || 'WLCT',
       }).catch((e) => this.logger.warn(`Failed to trigger invoice finalized notification: ${e.message}`));
@@ -320,11 +333,11 @@ export class InvoiceService {
 
     let newStatus: InvoiceStatus;
     if (paidMinor >= totalMinor) {
-      newStatus = InvoiceStatusEnum.PAID as any;
+      newStatus = InvoiceStatusEnum.PAID;
     } else if (paidMinor > 0) {
-      newStatus = InvoiceStatusEnum.PARTIALLY_PAID as any;
+      newStatus = InvoiceStatusEnum.PARTIALLY_PAID;
     } else {
-      newStatus = invoice.status as any;
+      newStatus = invoice.status;
     }
 
     const updated = await this.invoiceRepository.update(invoiceId, {
@@ -349,7 +362,7 @@ export class InvoiceService {
         invoiceNumber: updated.invoiceNumber,
         amount: paidAmount,
         currency: updated.currency,
-        planName: (updated as any).planName,
+        planName: updated.planName ?? undefined,
         supportEmail: process.env.SUPPORT_EMAIL || 'support@example.com',
         appName: process.env.APP_NAME || 'WLCT',
       }).catch((e) => this.logger.warn(`Failed to trigger invoice paid notification: ${e.message}`));
@@ -372,9 +385,9 @@ export class InvoiceService {
     }
 
     const voided = await this.invoiceRepository.update(invoiceId, {
-      status: InvoiceStatusEnum.VOID as any,
+      status: InvoiceStatusEnum.VOID,
       voidedAt: new Date(),
-      metadata: { ...((invoice.metadata as any) || {}), voidReason: reason },
+      metadata: { ...(invoice.metadata || {}), voidReason: reason },
     });
 
     await this.audit.logInvoiceVoided(

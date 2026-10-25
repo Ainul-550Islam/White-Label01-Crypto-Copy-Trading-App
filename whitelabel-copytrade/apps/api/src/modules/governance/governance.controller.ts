@@ -1,16 +1,8 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  Req,
-  BadRequestException,
-} from '@nestjs/common';
-import { Permission } from '@wlct/shared-types';
+// # Responsibility: preserve permission/tenant guards while binding audit/reviewer identity to the verified actor, validating query membership, and checking report/delivery route coherence.
+import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Permission, type AuthenticatedActor } from '@wlct/shared-types';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PrivacyRequestState, RetentionState, LegalHoldState, ReportState, GovernanceActionType, type GovernanceReconciliationMismatch } from './governance.types';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { BindTenantParamsGuard } from '../../common/guards/bind-tenant-params.guard';
 import { PrivacyRequestService } from './privacy-request.service';
@@ -27,11 +19,9 @@ import { ComplianceReportValidationService } from './compliance-report-validatio
 import { ComplianceReportCertificationService } from './compliance-report-certification.service';
 import { ComplianceReportDeliveryService } from './compliance-report-delivery.service';
 import { EvidencePackageService } from './evidence-package.service';
-import { GovernanceAuditService } from './governance-audit.service';
 import { GovernanceAuditExportService } from './governance-audit-export.service';
 import { GovernanceReconciliationService } from './governance-reconciliation.service';
 import { GovernanceMetricsService } from './governance-metrics.service';
-import { GovernanceActionService } from './governance-action.service';
 import { GovernanceReportQueryService } from './governance-report-query.service';
 import { DataClassificationService } from './data-classification.service';
 import { DataInventoryService } from './data-inventory.service';
@@ -63,6 +53,10 @@ import {
   GovernanceQueryDto,
 } from './dto/privacy-request.dto';
 
+const MISMATCH_TYPES: GovernanceReconciliationMismatch['type'][] = ['REPORT_SOURCE_MISSING', 'REPORT_SOURCE_STALE', 'PRIVACY_REQUEST_STUCK',
+  'DELETION_BLOCKED_WITHOUT_REASON', 'RETENTION_EXPIRED_WITHOUT_ACTION', 'LEGAL_HOLD_CONFLICT', 'CERTIFICATION_MISSING',
+  'DELIVERY_STATUS_UNKNOWN', 'EVIDENCE_INCOMPLETE', 'TENANT_SCOPE_MISMATCH', 'AUDIT_EXPORT_INCOMPLETE'];
+
 /**
  * Privacy, retention, legal holds, consents, regulatory reports and evidence.
  *
@@ -93,11 +87,9 @@ export class GovernanceController {
     private readonly certificationService: ComplianceReportCertificationService,
     private readonly deliveryService: ComplianceReportDeliveryService,
     private readonly evidence: EvidencePackageService,
-    private readonly audit: GovernanceAuditService,
     private readonly auditExport: GovernanceAuditExportService,
     private readonly reconciliation: GovernanceReconciliationService,
     private readonly metrics: GovernanceMetricsService,
-    private readonly actionService: GovernanceActionService,
     private readonly queryService: GovernanceReportQueryService,
     private readonly classification: DataClassificationService,
     private readonly inventory: DataInventoryService,
@@ -106,7 +98,8 @@ export class GovernanceController {
 
   // --- Privacy Requests ---
   @Post('privacy-requests')
-  async createPrivacyRequest(@Body() dto: CreatePrivacyRequestDto) {
+  async createPrivacyRequest(@Body() dto: CreatePrivacyRequestDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.createdBy);
     return this.privacyRequest.createRequest({
       tenantId: dto.tenantId,
       subjectUserId: dto.subjectUserId,
@@ -116,18 +109,19 @@ export class GovernanceController {
       reason: dto.reason,
       idempotencyKey: dto.idempotencyKey,
       correlationId: dto.correlationId,
-      createdBy: dto.createdBy,
+      createdBy: actorId,
     });
   }
 
   @Put('privacy-requests/:id/transition')
-  async transitionPrivacyRequest(@Param('id') id: string, @Body() dto: TransitionPrivacyRequestDto) {
+  async transitionPrivacyRequest(@Param('id') id: string, @Body() dto: TransitionPrivacyRequestDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.privacyRequest.transitionRequest({
       tenantId: dto.tenantId,
       requestId: id,
       targetState: dto.targetState,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
       reason: dto.reason,
       verificationEvidence: dto.verificationEvidence,
     });
@@ -140,7 +134,7 @@ export class GovernanceController {
     return this.queryService.queryPrivacyRequests({
       tenantId: q.tenantId,
       subjectUserId: q.subjectUserId,
-      state: q.state as any,
+      state: this.enumOption(q.state, Object.values(PrivacyRequestState), 'privacy state'),
       correlationId: q.correlationId ?? `corr_${Date.now()}`,
     });
   }
@@ -165,7 +159,8 @@ export class GovernanceController {
   }
 
   @Post('privacy-requests/:id/export')
-  async exportForRequest(@Param('id') id: string, @Body() body: { tenantId: string; jurisdiction: string; correlationId: string; operatorId: string }) {
+  async exportForRequest(@Param('id') id: string, @Body() body: { tenantId: string; jurisdiction: string; correlationId: string; operatorId: string }, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(body.tenantId, actor, body.operatorId);
     const req = await this.privacyRequest.getRequest(body.tenantId, id);
     return this.privacyExport.generateExport({
       tenantId: body.tenantId,
@@ -173,32 +168,34 @@ export class GovernanceController {
       subjectUserId: req.subjectUserId,
       jurisdiction: body.jurisdiction,
       correlationId: body.correlationId,
-      operatorId: body.operatorId,
+      operatorId: actorId,
     });
   }
 
   @Post('privacy-requests/:id/deletion-check')
-  async checkDeletion(@Param('id') id: string, @Body() dto: PrivacyDeletionCheckDto) {
+  async checkDeletion(@Param('id') id: string, @Body() dto: PrivacyDeletionCheckDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.privacyDeletion.checkDeletionEligibility({
       tenantId: dto.tenantId,
       subjectUserId: dto.subjectUserId,
       requestId: id,
       jurisdiction: dto.jurisdiction,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
     });
   }
 
   @Post('privacy-requests/:id/deletion-execute')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
-  async executeDeletion(@Param('id') id: string, @Body() dto: PrivacyDeletionExecuteDto) {
+  async executeDeletion(@Param('id') id: string, @Body() dto: PrivacyDeletionExecuteDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.privacyDeletion.executeDeletion({
       tenantId: dto.tenantId,
       subjectUserId: dto.subjectUserId,
       requestId: id,
       jurisdiction: dto.jurisdiction,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
       dryRun: dto.dryRun,
     });
   }
@@ -212,7 +209,8 @@ export class GovernanceController {
   }
 
   @Post('retention/evaluate')
-  async evaluateRetention(@Body() dto: EvaluateRetentionDto) {
+  async evaluateRetention(@Body() dto: EvaluateRetentionDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.retentionEngine.evaluateCandidate({
       tenantId: dto.tenantId,
       dataClass: dto.dataClass,
@@ -221,19 +219,20 @@ export class GovernanceController {
       jurisdiction: dto.jurisdiction,
       retentionStartAt: dto.retentionStartAt,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
     });
   }
 
   @Post('retention/:id/action')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
-  async executeRetentionAction(@Param('id') id: string, @Body() dto: ExecuteRetentionActionDto) {
+  async executeRetentionAction(@Param('id') id: string, @Body() dto: ExecuteRetentionActionDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.retentionEngine.executeAction({
       tenantId: dto.tenantId,
       candidateId: id,
       action: dto.action,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
       reason: dto.reason,
     });
   }
@@ -242,12 +241,13 @@ export class GovernanceController {
   @RequirePermissions(Permission.COMPLIANCE_READ)
   async listRetentionCandidates(@Query() q: GovernanceQueryDto) {
     if (!q.tenantId) throw new BadRequestException('tenantId required');
-    return this.retentionEngine.listCandidates(q.tenantId, { state: q.state as any });
+    return this.retentionEngine.listCandidates(q.tenantId, { state: this.enumOption(q.state, Object.values(RetentionState), 'retention state') });
   }
 
   // --- Legal Hold ---
   @Post('legal-holds')
-  async createLegalHold(@Body() dto: CreateLegalHoldDto) {
+  async createLegalHold(@Body() dto: CreateLegalHoldDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.createdBy);
     return this.legalHold.createHold({
       tenantId: dto.tenantId ?? null,
       caseReference: dto.caseReference,
@@ -255,29 +255,31 @@ export class GovernanceController {
       affectedDataClasses: dto.affectedDataClasses,
       affectedJurisdictions: dto.affectedJurisdictions,
       affectedSubjects: dto.affectedSubjects,
-      createdBy: dto.createdBy,
+      createdBy: actorId,
       correlationId: dto.correlationId,
       expiresAt: dto.expiresAt ?? null,
     });
   }
 
   @Post('legal-holds/:id/activate')
-  async activateLegalHold(@Param('id') id: string, @Body() dto: ActivateLegalHoldDto) {
+  async activateLegalHold(@Param('id') id: string, @Body() dto: ActivateLegalHoldDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.activatedBy);
     return this.legalHold.activateHold({
       holdId: id,
       tenantId: dto.tenantId ?? null,
-      activatedBy: dto.activatedBy,
+      activatedBy: actorId,
       correlationId: dto.correlationId,
     });
   }
 
   @Post('legal-holds/:id/release')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
-  async releaseLegalHold(@Param('id') id: string, @Body() dto: ReleaseLegalHoldDto) {
+  async releaseLegalHold(@Param('id') id: string, @Body() dto: ReleaseLegalHoldDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.releasedBy);
     return this.legalHold.releaseHold({
       holdId: id,
       tenantId: dto.tenantId ?? null,
-      releasedBy: dto.releasedBy,
+      releasedBy: actorId,
       correlationId: dto.correlationId,
       reason: dto.reason,
     });
@@ -286,7 +288,7 @@ export class GovernanceController {
   @Get('legal-holds')
   @RequirePermissions(Permission.COMPLIANCE_READ)
   async listLegalHolds(@Query('tenantId') tenantId: string, @Query('state') state: string) {
-    return this.legalHold.listHolds(tenantId ?? null, { state: state as any });
+    return this.legalHold.listHolds(tenantId ?? null, { state: this.enumOption(state, Object.values(LegalHoldState), 'legal-hold state') });
   }
 
   @Get('legal-holds/active')
@@ -297,7 +299,8 @@ export class GovernanceController {
 
   // --- Consent ---
   @Post('consents')
-  async captureConsent(@Body() dto: CaptureConsentDto) {
+  async captureConsent(@Body() dto: CaptureConsentDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.capturedBy);
     return this.consent.captureConsent({
       tenantId: dto.tenantId,
       subjectUserId: dto.subjectUserId,
@@ -306,19 +309,20 @@ export class GovernanceController {
       policyReference: dto.policyReference,
       source: dto.source,
       correlationId: dto.correlationId,
-      capturedBy: dto.capturedBy,
+      capturedBy: actorId,
       evidenceReference: dto.evidenceReference,
     });
   }
 
   @Post('consents/:id/withdraw')
-  async withdrawConsent(@Param('id') id: string, @Body() dto: WithdrawConsentDto) {
+  async withdrawConsent(@Param('id') id: string, @Body() dto: WithdrawConsentDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.withdrawnBy);
     return this.consent.withdrawConsent({
       tenantId: dto.tenantId,
       consentId: id,
       subjectUserId: dto.subjectUserId,
       correlationId: dto.correlationId,
-      withdrawnBy: dto.withdrawnBy,
+      withdrawnBy: actorId,
       reason: dto.reason,
     });
   }
@@ -332,7 +336,8 @@ export class GovernanceController {
 
   // --- Compliance Reports ---
   @Post('reports')
-  async generateReport(@Body() dto: GenerateReportDto) {
+  async generateReport(@Body() dto: GenerateReportDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.createdBy);
     return this.reportService.generateReport({
       tenantId: dto.tenantId,
       reportType: dto.reportType,
@@ -340,7 +345,7 @@ export class GovernanceController {
       periodStart: dto.periodStart,
       periodEnd: dto.periodEnd,
       correlationId: dto.correlationId,
-      createdBy: dto.createdBy,
+      createdBy: actorId,
       sourceData: dto.sourceData,
     });
   }
@@ -353,7 +358,7 @@ export class GovernanceController {
       tenantId: q.tenantId,
       reportType: q.reportType,
       jurisdiction: q.jurisdiction,
-      state: q.state as any,
+      state: this.enumOption(q.state, Object.values(ReportState), 'report state'),
       correlationId: q.correlationId ?? `corr_${Date.now()}`,
     });
   }
@@ -366,35 +371,40 @@ export class GovernanceController {
   }
 
   @Post('reports/:id/validate')
-  async validateReport(@Param('id') id: string, @Body() dto: ValidateReportDto) {
+  async validateReport(@Param('id') id: string, @Body() dto: ValidateReportDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.validatorId);
     return this.validationService.validateReport({
       tenantId: dto.tenantId,
       reportId: id,
       correlationId: dto.correlationId,
-      validatorId: dto.validatorId,
+      validatorId: actorId,
       sourceAvailability: dto.sourceAvailability,
     });
   }
 
   @Post('reports/:id/certification/request')
-  async requestCertification(@Param('id') id: string, @Body() dto: RequestCertificationDto) {
+  async requestCertification(@Param('id') id: string, @Body() dto: RequestCertificationDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.requesterId);
     return this.certificationService.requestCertification({
       tenantId: dto.tenantId,
       reportId: id,
       correlationId: dto.correlationId,
-      requesterId: dto.requesterId,
+      requesterId: actorId,
     });
   }
 
   @Post('reports/:id/certification/:certId/certify')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
-  async certifyReport(@Param('id') id: string, @Param('certId') certId: string, @Body() dto: CertifyReportDto) {
+  async certifyReport(@Param('id') id: string, @Param('certId') certId: string, @Body() dto: CertifyReportDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.reviewerId);
+    const reviewerRole = dto.reviewerRole.toUpperCase();
+    if (!actor.roles.some((role) => role.toUpperCase() === reviewerRole)) throw new ForbiddenException('Reviewer role must be held by the authenticated actor');
     return this.certificationService.certifyReport({
       tenantId: dto.tenantId,
       reportId: id,
       certificationId: certId,
-      reviewerId: dto.reviewerId,
-      reviewerRole: dto.reviewerRole,
+      reviewerId: actorId,
+      reviewerRole,
       decision: dto.decision,
       comments: dto.comments,
       correlationId: dto.correlationId,
@@ -402,45 +412,55 @@ export class GovernanceController {
   }
 
   @Post('reports/:id/delivery/queue')
-  async queueDelivery(@Param('id') id: string, @Body() dto: QueueDeliveryDto) {
+  async queueDelivery(@Param('id') id: string, @Body() dto: QueueDeliveryDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.deliveryService.queueDelivery({
       tenantId: dto.tenantId,
       reportId: id,
       channel: dto.channel,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
     });
   }
 
   @Post('reports/:id/delivery/:deliveryId/submit')
-  async submitDelivery(@Param('id') id: string, @Param('deliveryId') deliveryId: string, @Body() dto: SubmitDeliveryDto) {
+  async submitDelivery(@Param('id') id: string, @Param('deliveryId') deliveryId: string, @Body() dto: SubmitDeliveryDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
+    const delivery = await this.deliveryService.getDelivery(dto.tenantId, deliveryId);
+    if (delivery.reportId !== id) throw new BadRequestException('Delivery does not belong to the report route');
     return this.deliveryService.submitDelivery({
       tenantId: dto.tenantId,
       deliveryId,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
       deliveryEvidence: dto.deliveryEvidence,
     });
   }
 
   @Post('reports/:id/delivery/:deliveryId/delivered')
-  async markDelivered(@Param('id') id: string, @Param('deliveryId') deliveryId: string, @Body() dto: MarkDeliveredDto) {
+  async markDelivered(@Param('id') id: string, @Param('deliveryId') deliveryId: string, @Body() dto: MarkDeliveredDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
+    const delivery = await this.deliveryService.getDelivery(dto.tenantId, deliveryId);
+    if (delivery.reportId !== id) throw new BadRequestException('Delivery does not belong to the report route');
     return this.deliveryService.markDelivered({
       tenantId: dto.tenantId,
       deliveryId,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
       deliveryEvidence: dto.deliveryEvidence,
     });
   }
 
   @Post('reports/:id/delivery/:deliveryId/failed')
-  async markFailed(@Param('id') id: string, @Param('deliveryId') deliveryId: string, @Body() dto: MarkFailedDto) {
+  async markFailed(@Param('id') id: string, @Param('deliveryId') deliveryId: string, @Body() dto: MarkFailedDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
+    const delivery = await this.deliveryService.getDelivery(dto.tenantId, deliveryId);
+    if (delivery.reportId !== id) throw new BadRequestException('Delivery does not belong to the report route');
     return this.deliveryService.markFailed({
       tenantId: dto.tenantId,
       deliveryId,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
       failureReason: dto.failureReason,
     });
   }
@@ -468,7 +488,8 @@ export class GovernanceController {
 
   // --- Evidence ---
   @Post('evidence-packages')
-  async createEvidencePackage(@Body() dto: CreateEvidencePackageDto) {
+  async createEvidencePackage(@Body() dto: CreateEvidencePackageDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.createdBy);
     return this.evidence.createPackage({
       tenantId: dto.tenantId,
       caseReference: dto.caseReference,
@@ -478,19 +499,20 @@ export class GovernanceController {
       redactionPolicy: dto.redactionPolicy,
       generator: dto.generator,
       correlationId: dto.correlationId,
-      createdBy: dto.createdBy,
+      createdBy: actorId,
       auditReference: dto.auditReference,
     });
   }
 
   @Post('evidence-packages/:id/finalize')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER)
-  async finalizeEvidencePackage(@Param('id') id: string, @Body() dto: FinalizeEvidencePackageDto) {
+  async finalizeEvidencePackage(@Param('id') id: string, @Body() dto: FinalizeEvidencePackageDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.evidence.finalizePackage({
       tenantId: dto.tenantId,
       packageId: id,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
     });
   }
 
@@ -519,24 +541,26 @@ export class GovernanceController {
 
   @Post('audit/export')
   @RequirePermissions(Permission.COMPLIANCE_READ, Permission.AUDIT_LOG_READ)
-  async exportAudit(@Body() dto: AuditExportDto) {
+  async exportAudit(@Body() dto: AuditExportDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.auditExport.exportAuditTrail({
       tenantId: dto.tenantId,
       periodStart: dto.periodStart,
       periodEnd: dto.periodEnd,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
-      filters: dto.filters as any,
+      operatorId: actorId,
+      filters: this.auditFilters(dto.filters),
     });
   }
 
   // --- Reconciliation ---
   @Post('reconciliation/detect')
-  async detectReconciliation(@Body() dto: ReconciliationDetectDto) {
+  async detectReconciliation(@Body() dto: ReconciliationDetectDto, @CurrentUser() actor: AuthenticatedActor) {
+    const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.reconciliation.detectMismatches({
       tenantId: dto.tenantId,
       correlationId: dto.correlationId,
-      operatorId: dto.operatorId,
+      operatorId: actorId,
       reportId: dto.reportId,
     });
   }
@@ -545,7 +569,7 @@ export class GovernanceController {
   @RequirePermissions(Permission.COMPLIANCE_READ)
   async listMismatches(@Query('tenantId') tenantId: string, @Query('reportId') reportId: string, @Query('type') type: string) {
     if (!tenantId) throw new BadRequestException('tenantId required');
-    return this.reconciliation.listMismatches(tenantId, { reportId, type: type as any });
+    return this.reconciliation.listMismatches(tenantId, { reportId, type: this.enumOption(type, MISMATCH_TYPES, 'reconciliation type') });
   }
 
   // --- Metrics ---
@@ -598,4 +622,26 @@ export class GovernanceController {
   async getPolicy(@Param('jurisdiction') jurisdiction: string, @Query('tenantId') tenantId: string) {
     return this.policyService.buildPolicy(tenantId ?? null, jurisdiction);
   }
+  private boundIdentity(tenantId: string | undefined, actor: AuthenticatedActor, claimed: string | undefined): string {
+    // BindTenantParamsGuard separately enforces the explicitly selected tenant for platform operators.
+    if (!tenantId || !actor.userId || (!actor.isPlatformUser && actor.tenantId !== tenantId)) throw new ForbiddenException('Authenticated tenant actor required');
+    if (claimed !== undefined && claimed !== actor.userId) throw new ForbiddenException('Body audit identity cannot override the authenticated actor');
+    return actor.userId;
+  }
+
+  private enumOption<T extends string>(value: string | undefined, values: readonly T[], label: string): T | undefined {
+    if (value === undefined || value === '') return undefined;
+    const option = values.find((candidate) => candidate === value);
+    if (!option) throw new BadRequestException(`Invalid ${label}`);
+    return option;
+  }
+
+  private auditFilters(filters: AuditExportDto['filters']): { actionType?: GovernanceActionType; subjectUserId?: string } | undefined {
+    if (filters === undefined) return undefined;
+    if (filters === null || typeof filters !== 'object' || Array.isArray(filters)
+      || Object.keys(filters).some((key) => !['actionType', 'subjectUserId'].includes(key))
+      || (filters.subjectUserId !== undefined && typeof filters.subjectUserId !== 'string')) throw new BadRequestException('Invalid audit export filters');
+    return { actionType: this.enumOption(filters.actionType, Object.values(GovernanceActionType), 'audit action type'), subjectUserId: filters.subjectUserId };
+  }
+
 }

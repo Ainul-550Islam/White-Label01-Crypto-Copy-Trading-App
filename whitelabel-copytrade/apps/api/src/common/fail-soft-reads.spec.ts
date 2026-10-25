@@ -1,3 +1,4 @@
+import { describe, expect, it, jest } from '@jest/globals';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { Prisma } from '@prisma/client';
@@ -14,6 +15,7 @@ import { OperationalMetricsService } from '../modules/operations/operational-met
 import { CostBasisService } from '../modules/portfolio-accounting/cost-basis.service';
 import { ReconciliationOrchestratorService } from '../modules/operations/reconciliation-orchestrator.service';
 
+// # Responsibility: ensures failed reads cannot become permissive empty values and audits exceptions.
 /**
  * Fail-soft reads (round 8).
  *
@@ -34,6 +36,10 @@ import { ReconciliationOrchestratorService } from '../modules/operations/reconci
  */
 
 const STORAGE_DOWN = new Error('connection terminated unexpectedly');
+
+function asyncMock(): jest.Mock<(...args: unknown[]) => Promise<unknown>> {
+  return jest.fn<(...args: unknown[]) => Promise<unknown>>();
+}
 
 describe('isRecordNotFound', () => {
   it('recognises Prisma P2025 as "not found"', () => {
@@ -61,7 +67,7 @@ describe('isRecordNotFound', () => {
 
 describe('fail-open checks now fail closed (the error propagates)', () => {
   it('AccountRestrictionService.hasRestriction: a failed read is not "no restriction"', async () => {
-    const prisma = { accountRestriction: { findFirst: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { accountRestriction: { findFirst: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
     const service = new AccountRestrictionService(prisma as any, {} as any);
     await expect(
       service.hasRestriction({ tenantId: 't1', accountId: 'a1', restrictionType: 'TRADING_BLOCK' as any }),
@@ -69,7 +75,7 @@ describe('fail-open checks now fail closed (the error propagates)', () => {
   });
 
   it('AccountRestrictionService.hasRestriction still answers true/false from a successful read', async () => {
-    const findFirst = jest.fn().mockResolvedValueOnce({ id: 'r1' }).mockResolvedValueOnce(null);
+    const findFirst = asyncMock().mockResolvedValueOnce({ id: 'r1' }).mockResolvedValueOnce(null);
     const service = new AccountRestrictionService({ accountRestriction: { findFirst } } as any, {} as any);
     const params = { tenantId: 't1', accountId: 'a1', restrictionType: 'TRADING_BLOCK' as any };
     await expect(service.hasRestriction(params)).resolves.toBe(true);
@@ -77,21 +83,21 @@ describe('fail-open checks now fail closed (the error propagates)', () => {
   });
 
   it('AccountingPeriodService.isPeriodClosed: a failed read is not "period open"', async () => {
-    const prisma = { portfolioAccountingPeriod: { findFirst: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { portfolioAccountingPeriod: { findFirst: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
     const service = new AccountingPeriodService(prisma as any, {} as any);
     await expect(service.isPeriodClosed({ tenantId: 't1', profileId: 'p1', at: new Date() })).rejects.toBe(STORAGE_DOWN);
   });
 
   it('SessionSecurityService.isSessionRevoked: a failed read is not "not revoked"', async () => {
-    const prisma = { userSession: { findUnique: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
-    const cache = { get: jest.fn().mockResolvedValue(null) };
+    const prisma = { userSession: { findUnique: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
+    const cache = { get: asyncMock().mockResolvedValue(null) };
     const service = new SessionSecurityService(prisma as any, {} as any, {} as any, {} as any, cache as any);
     await expect(service.isSessionRevoked('s1')).rejects.toBe(STORAGE_DOWN);
   });
 
   it('SessionSecurityService.isSessionRevoked still honours the cache and the stored revokedAt', async () => {
-    const findUnique = jest.fn().mockResolvedValue({ revokedAt: new Date() });
-    const cache = { get: jest.fn().mockResolvedValueOnce({ reason: 'x' }).mockResolvedValueOnce(null) };
+    const findUnique = asyncMock().mockResolvedValue({ revokedAt: new Date() });
+    const cache = { get: asyncMock().mockResolvedValueOnce({ reason: 'x' }).mockResolvedValueOnce(null) };
     const service = new SessionSecurityService({ userSession: { findUnique } } as any, {} as any, {} as any, {} as any, cache as any);
     await expect(service.isSessionRevoked('s1')).resolves.toBe(true);
     await expect(service.isSessionRevoked('s1')).resolves.toBe(true);
@@ -99,7 +105,7 @@ describe('fail-open checks now fail closed (the error propagates)', () => {
   });
 
   it('SessionSecurityService.revokeAllSessions: a failed read is not "0 sessions revoked"', async () => {
-    const prisma = { userSession: { findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { userSession: { findMany: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
     const service = new SessionSecurityService(prisma as any, {} as any, {} as any, {} as any, { set: jest.fn() } as any);
     await expect(service.revokeAllSessions({ userId: 'u1', tenantId: 't1', reason: 'password_changed' })).rejects.toBe(
       STORAGE_DOWN,
@@ -109,8 +115,8 @@ describe('fail-open checks now fail closed (the error propagates)', () => {
   it('SsoProviderFactory.isSsoEnforced / listTenantProviders: a failed read is not "SSO not enforced"', async () => {
     const prisma = {
       ssoConfiguration: {
-        findFirst: jest.fn().mockRejectedValue(STORAGE_DOWN),
-        findMany: jest.fn().mockRejectedValue(STORAGE_DOWN),
+        findFirst: asyncMock().mockRejectedValue(STORAGE_DOWN),
+        findMany: asyncMock().mockRejectedValue(STORAGE_DOWN),
       },
     };
     const factory = new SsoProviderFactory(prisma as any, {} as any, {} as any);
@@ -121,7 +127,7 @@ describe('fail-open checks now fail closed (the error propagates)', () => {
 
 describe('fail-soft reads now propagate', () => {
   it('PaymentRepository lookups used by webhooks and idempotent retries do not report "no such payment" on failure', async () => {
-    const prisma = { payment: { findFirst: jest.fn().mockRejectedValue(STORAGE_DOWN), findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { payment: { findFirst: asyncMock().mockRejectedValue(STORAGE_DOWN), findMany: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
     const repository = new PaymentRepository(prisma as any);
     await expect(repository.findByIdempotencyKey('idem-1', 't1')).rejects.toBe(STORAGE_DOWN);
     await expect(repository.findByProviderPaymentId('pi_1', 'STRIPE' as any)).rejects.toBe(STORAGE_DOWN);
@@ -129,13 +135,13 @@ describe('fail-soft reads now propagate', () => {
   });
 
   it('PaymentRepository still answers null for a payment that is really absent', async () => {
-    const prisma = { payment: { findFirst: jest.fn().mockResolvedValue(null) } };
+    const prisma = { payment: { findFirst: asyncMock().mockResolvedValue(null) } };
     await expect(new PaymentRepository(prisma as any).findByIdempotencyKey('idem-1', 't1')).resolves.toBeNull();
   });
 
   it('CostBasisService does not compute FIFO cost basis against an unread lot list', async () => {
-    const prisma = { portfolioPositionLot: { findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
-    const policy = { resolvePolicy: jest.fn().mockResolvedValue({}) };
+    const prisma = { portfolioPositionLot: { findMany: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
+    const policy = { resolvePolicy: asyncMock().mockResolvedValue({}) };
     const service = new CostBasisService(prisma as any, {} as any, policy as any);
     await expect(
       service.calculateCostBasisForFill({
@@ -153,7 +159,7 @@ describe('fail-soft reads now propagate', () => {
   });
 
   it('OperationalMetricsService does not publish zeros as measured observations', async () => {
-    const prisma = { operationalIncident: { findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { operationalIncident: { findMany: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
     const service = new OperationalMetricsService(prisma as any);
     await expect(service.calculateMetrics({ tenantId: 't1', from: new Date(Date.now() - 3600_000), to: new Date() })).rejects.toBe(
       STORAGE_DOWN,
@@ -163,7 +169,7 @@ describe('fail-soft reads now propagate', () => {
 
 describe('CopySubscriptionRepository.updateState is tenant-scoped and distinguishes a missing row from storage failure', () => {
   it('answers null when no row matches the tenant and expected state', async () => {
-    const prisma = { copySubscription: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) } };
+    const prisma = { copySubscription: { updateMany: asyncMock().mockResolvedValue({ count: 0 }) } };
     await expect(new CopySubscriptionRepository(prisma as any).updateState('s1', 't1', 'PAUSED' as any)).resolves.toBeNull();
     expect(prisma.copySubscription.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 's1', tenantId: 't1' } }),
@@ -171,7 +177,7 @@ describe('CopySubscriptionRepository.updateState is tenant-scoped and distinguis
   });
 
   it('propagates any storage failure instead of claiming that the row is missing', async () => {
-    const prisma = { copySubscription: { updateMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { copySubscription: { updateMany: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
     await expect(new CopySubscriptionRepository(prisma as any).updateState('s1', 't1', 'PAUSED' as any)).rejects.toBe(
       STORAGE_DOWN,
     );
@@ -180,7 +186,7 @@ describe('CopySubscriptionRepository.updateState is tenant-scoped and distinguis
 
 describe('health and reconciliation report a failed read as a failure, not as clean', () => {
   it('DependencyHealthService.checkRisk is UNKNOWN (not HEALTHY with 0 policies) when the read fails', async () => {
-    const prisma = { institutionalRiskPolicy: { count: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { institutionalRiskPolicy: { count: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
     const service = new DependencyHealthService(prisma as any, {} as any, {} as any, {} as any, {} as any);
     const result = await service.checkRisk('t1');
     expect(result.state).toBe('UNKNOWN');
@@ -188,7 +194,7 @@ describe('health and reconciliation report a failed read as a failure, not as cl
   });
 
   it('DependencyHealthService.checkRisk is HEALTHY with the real count when the read succeeds', async () => {
-    const prisma = { institutionalRiskPolicy: { count: jest.fn().mockResolvedValue(3) } };
+    const prisma = { institutionalRiskPolicy: { count: asyncMock().mockResolvedValue(3) } };
     const service = new DependencyHealthService(prisma as any, {} as any, {} as any, {} as any, {} as any);
     const result = await service.checkRisk('t1');
     expect(result.state).toBe('HEALTHY');
@@ -196,7 +202,7 @@ describe('health and reconciliation report a failed read as a failure, not as cl
   });
 
   it('ReconciliationOrchestratorService: an unreadable OMS order table is FAILED, not SUCCEEDED with 0 mismatches', async () => {
-    const prisma = { omsOrderIntent: { findMany: jest.fn().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { omsOrderIntent: { findMany: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
     const service = new ReconciliationOrchestratorService(prisma as any, {} as any, {} as any, {} as any);
     const result = await (service as any).reconcileOmsOrder('t1');
     expect(result.status).toBe('FAILED');
@@ -204,7 +210,7 @@ describe('health and reconciliation report a failed read as a failure, not as cl
   });
 
   it('ReconciliationOrchestratorService: a readable table still reconciles', async () => {
-    const prisma = { omsOrderIntent: { findMany: jest.fn().mockResolvedValue([{ id: 'o1' }]) } };
+    const prisma = { omsOrderIntent: { findMany: asyncMock().mockResolvedValue([{ id: 'o1' }]) } };
     const service = new ReconciliationOrchestratorService(prisma as any, {} as any, {} as any, {} as any);
     const result = await (service as any).reconcileOmsOrder('t1');
     expect(result.status).toBe('SUCCEEDED');
@@ -228,22 +234,21 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
   'billing/analytics/analytics-cache.service.ts': { count: 4, reason: 'cache get/invalidate; a cache miss or failure falls back to computing the value' },
   'billing/analytics/revenue-cohort.service.ts': { count: 1, reason: 'cohort key derivation from a date (pure computation)' },
   'billing/entitlements/entitlement.resolver.ts': { count: 3, reason: 'EntitlementResolver is exported but not registered in any Nest module (no route reaches it)' },
-  'billing/fees/fee-analytics.service.ts': { count: 1, reason: 'parsing a decimal string into minor units' },
   'billing/fees/payout-provider.factory.ts': { count: 1, reason: 'provider availability probe; unavailable is the fail-closed answer' },
   'billing/finance/invoice-number.service.ts': { count: 2, reason: 'Redis sequence readers with no callers (numbers are allocated elsewhere)' },
   'billing/limits/limit.resolver.ts': { count: 3, reason: 'LimitResolver is exported but not registered in any Nest module (no route reaches it)' },
   'billing/notifications/notification-worker.service.ts': { count: 1, reason: 'worker loop: logs the (now propagated) repository error and retries on the next tick' },
   'billing/notifications/push-notification.service.ts': { count: 1, reason: 'optional firebase-admin module import' },
   'billing/payments/payment-provider.factory.ts': { count: 1, reason: 'provider enabled flag from config; disabled is the fail-closed answer' },
+  'billing/payments/webhook.service.ts': { count: 1, reason: 'malformed canonical payment amount or currency fails validation and rejects the webhook' },
   'billing/payments/webhook.signature.ts': { count: 2, reason: 'reading id/type fields from an already-parsed provider event' },
-  'oms/allocation.service.ts': { count: 1, reason: 'multi-step write flow that logs its failure (write side, not a read)' },
   'oms/execution-latency.service.ts': { count: 1, reason: 'parsing a microsecond string' },
   'oms/execution-quality.service.ts': { count: 1, reason: 'parsing a scaled decimal' },
   'oms/order-submission-result.service.ts': { count: 1, reason: 'JSON.parse of a queue return value' },
   'compliance/compliance-case.repository.ts': { count: 1, reason: 'reviewer assignment write flow that logs its failure (write side)' },
   'compliance/transaction-monitoring.service.ts': { count: 1, reason: 'signal acknowledgement updateMany that logs its failure (write side)' },
-  'copy-trading/copy-execution.repository.ts': { count: 1, reason: 'status-transition write that logs its failure (write side)' },
   'copy-trading/copy-execution.service.ts': { count: 5, reason: 'fail-closed pre-trade guards: a failed lookup BLOCKS the leader event and logs it' },
+  'copy-trading/performance-calculation.service.ts': { count: 1, reason: 'invalid exact-decimal compounding input returns unavailable performance evidence' },
   'custody/custody-audit.service.ts': { count: 1, reason: 'audit record create that logs its failure (write side)' },
   'exchanges/exchange-rate-limit.service.ts': { count: 1, reason: 'rate-limit state from the cache (status read, not storage)' },
   'exchanges/exchange-symbol.service.ts': { count: 1, reason: 'symbol string parsing' },
@@ -261,6 +266,8 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
   'providers/provider-webhook.service.ts': { count: 4, reason: 'webhook signature verification (false = reject) and body parsing' },
   'research/market-data-service.ts': { count: 1, reason: 'market-data provider availability probe (gated provider)' },
   'research/research-repository.ts': { count: 1, reason: 'research audit-log create (write side)' },
+  'risk-management/concentration-risk.service.ts': { count: 1, reason: 'invalid exact-decimal risk evidence is returned as unknown, never as a measured value' },
+  'risk-management/correlation-risk.service.ts': { count: 1, reason: 'invalid exact-decimal correlation arithmetic is returned as unknown, never as uncorrelated' },
   'risk/risk-state.service.ts': { count: 1, reason: 'parsing a stored policy document' },
   'security/sso-flow.types.ts': { count: 1, reason: 'URL parsing' },
 };
@@ -272,7 +279,6 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
 const ALLOWED_PROMISE_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
   'billing/finance/vies-vat.client.ts': { count: 1, reason: 'parsing a provider response body' },
   'billing/notifications/email-notification.provider.ts': { count: 1, reason: 'optional nodemailer module import' },
-  'billing/notifications/push-notification.service.ts': { count: 1, reason: 'optional firebase-admin module import' },
   'billing/notifications/twilio-sms.provider.ts': { count: 1, reason: 'parsing a provider response body' },
   'billing/payments/checkout.service.ts': { count: 1, reason: 'secondary mark-failed write inside an error path that then reports the failure' },
   'billing/saas-admin/tenant-feature-access.service.ts': { count: 1, reason: 'best-effort audit of a read-only feature check' },

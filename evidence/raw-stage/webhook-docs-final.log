@@ -1,0 +1,5 @@
+
+> whitelabel-copytrade@1.0.0 webhook-docs:check
+> node scripts/gen-webhook-docs.mjs --check
+
+Webhook documentation is current (36 catalog entries, 36 schemas).

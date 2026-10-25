@@ -1,3 +1,4 @@
+// # Responsibility: display tenant usage from canonical counts and validated plan-limit metadata without unsafe access casts.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { SubscriptionsService } from '../subscriptions.service';
@@ -5,7 +6,7 @@ import { EnforcementService } from '../enforcement/enforcement.service';
 import { EnforcementContextBuilder } from '../enforcement/enforcement.context';
 import { EnforcementScope } from '../enforcement/enforcement.types';
 import type { PortalUsageSummary, PortalUsageItem, PortalFeatureAvailability } from './billing-portal.types';
-import { BillingInterval } from '@wlct/shared-types';
+
 
 /**
  * Customer-visible usage summary.
@@ -25,7 +26,9 @@ export class BillingUsageSummaryService {
 
   async getUsageSummary(tenantId: string): Promise<PortalUsageSummary> {
     const subscription = await this.subscriptionsService.getCurrent(tenantId);
-    const limits = subscription?.plan?.limits || await this.subscriptionsService.getLimits(tenantId);
+    const rawLimits: unknown = subscription?.plan?.limits || await this.subscriptionsService.getLimits(tenantId);
+    if (!this.isLimitObject(rawLimits)) throw new Error('Canonical plan limits must be an object');
+    const limits = rawLimits;
 
     // Resolve actual usage counts from canonical sources
     const [usersCount, tradersCount, followersCount, exchangeAccountsCount, copySubsCount] = await Promise.all([
@@ -35,14 +38,6 @@ export class BillingUsageSummaryService {
       this.countExchangeAccounts(tenantId),
       this.countCopySubscriptions(tenantId),
     ]);
-
-    // Build enforcement context for feature checks (uses canonical plan limits)
-    let enforcementContext: any = null;
-    try {
-      enforcementContext = await this.contextBuilder.build({ tenantId, userId: 'system' } as any);
-    } catch {
-      // Fallback if context builder fails
-    }
 
     const limitDefinitions: Array<{ key: string; label: string; current: number; scope: EnforcementScope }> = [
       { key: 'maxUsers', label: 'Users', current: usersCount, scope: EnforcementScope.TENANT },
@@ -55,10 +50,14 @@ export class BillingUsageSummaryService {
     ];
 
     const items: PortalUsageItem[] = limitDefinitions.map((def) => {
-      const limitValue = (limits as any)?.[def.key] ?? null;
+      const candidate = limits[def.key];
+      if (candidate !== null && candidate !== undefined && (typeof candidate !== 'number' || !Number.isFinite(candidate) || candidate < 0)) {
+        throw new Error('Invalid numeric portal plan limit');
+      }
+      const limitValue = candidate ?? null;
       const unlimited = limitValue === null || limitValue === undefined;
-      const remaining = unlimited ? null : Math.max(0, (limitValue as number) - def.current);
-      const percentageUsed = unlimited || limitValue === 0 ? null : Math.min(100, Math.round((def.current / (limitValue as number)) * 100));
+      const remaining = unlimited ? null : Math.max(0, limitValue - def.current);
+      const percentageUsed = unlimited || limitValue === 0 ? null : Math.min(100, Math.round((def.current / limitValue) * 100));
 
       return {
         key: def.key,
@@ -75,7 +74,7 @@ export class BillingUsageSummaryService {
     // Feature availability from canonical plan
     const featureKeys = ['customDomain', 'whiteLabelMobileApp', 'prioritySupport'];
     const features: PortalFeatureAvailability[] = featureKeys.map((key) => {
-      const fromLimits = (limits as any)?.[key] === true;
+      const fromLimits = limits[key] === true;
       const fromFeaturesArray = (subscription?.plan?.features || []).includes(key);
       const included = fromLimits || fromFeaturesArray;
 
@@ -132,8 +131,12 @@ export class BillingUsageSummaryService {
   }
 
   private async countCopySubscriptions(tenantId: string): Promise<number> {
-    const result = await (this.prisma as any).copySubscription?.count({ where: { tenantId } });
+    const result = await this.prisma.copySubscription.count({ where: { tenantId } });
     return result ?? 0;
+  }
+
+  private isLimitObject(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
   private featureLabel(key: string): string {

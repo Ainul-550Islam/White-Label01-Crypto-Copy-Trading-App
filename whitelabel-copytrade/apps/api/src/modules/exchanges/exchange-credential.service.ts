@@ -1,12 +1,29 @@
+// # Responsibility: encrypt/reference backend-only credentials, bind native credential mutations to tenant/nondeleted accounts, validate envelope shape, and keep failure diagnostics free of raw secret-bearing messages.
+import { Prisma } from '@prisma/client';
+import type { SealedPayload } from '@wlct/utils';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CryptoService } from '../../infrastructure/crypto/crypto.service';
 import { AppConfigService } from '../../config/app-config.service';
-import { ExchangeVenue, ExchangeEnvironment, maskApiKey, sanitizeExchangeMetadata } from './exchange.types';
+import { CryptoService } from '../../infrastructure/crypto/crypto.service';
+import { ExchangeVenue, ExchangeEnvironment, maskApiKey } from './exchange.types';
 import { ErrorCode } from '@wlct/shared-types';
 import { AppException } from '../../common/errors/app.exception';
 import { ExchangeProviderError, ExchangeProviderErrorCode } from './exchange-provider.interface';
 import { EXCHANGE_SECRET_STORE, SecretStore, SecretStoreError, createSecretStoreFromEnv } from './secret-store';
+
+function object(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+function failureKind(error: unknown): string { return error instanceof Error ? error.constructor.name : 'UnknownError'; }
+function sealedPayload(value: unknown): value is SealedPayload {
+  return object(value) && value.algorithm === 'aes-256-gcm' && value.version === 1
+    && typeof value.ciphertext === 'string' && value.ciphertext.length > 0
+    && typeof value.iv === 'string' && value.iv.length > 0 && typeof value.authTag === 'string' && value.authTag.length > 0
+    && typeof value.wrappedKey === 'string' && value.wrappedKey.length > 0 && typeof value.keyId === 'string' && value.keyId.length > 0;
+}
+function parsePayload(serialized: string): SealedPayload {
+  const value: unknown = JSON.parse(serialized);
+  if (!sealedPayload(value)) throw new Error('Malformed encryption envelope');
+  return value;
+}
 
 export interface CreateCredentialInput {
   tenantId: string;
@@ -100,7 +117,7 @@ export class ExchangeCredentialService {
         } catch (error) {
           throw new ExchangeProviderError(
             ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE,
-            `SECRET_MANAGER misconfigured: ${(error as Error).message}`,
+            `SECRET_MANAGER misconfigured: ${error instanceof SecretStoreError ? error.message : failureKind(error)}`,
             venue,
             environment,
             false,
@@ -133,7 +150,7 @@ export class ExchangeCredentialService {
     }
     return new ExchangeProviderError(
       ExchangeProviderErrorCode.PROVIDER_UNAVAILABLE,
-      `SECRET_MANAGER ${what} failed: ${(error as Error)?.name ?? 'Error'}`,
+      `SECRET_MANAGER ${what} failed: ${failureKind(error)}`,
       venue,
       environment,
       true,
@@ -224,7 +241,7 @@ export class ExchangeCredentialService {
           venue: input.venue,
         });
       } catch (error) {
-        this.logger.error(`SECRET_MANAGER write failed tenant=${input.tenantId} account=${input.accountId} venue=${input.venue} env=${input.environment} store=${store.kind} error=${(error as Error)?.name}`);
+        this.logger.error(`SECRET_MANAGER write failed tenant=${input.tenantId} account=${input.accountId} venue=${input.venue} env=${input.environment} store=${store.kind} error=${failureKind(error)}`);
         throw this.secretStoreFailure(error, input.venue, input.environment, 'write');
       }
       this.logger.log(`Credential stored via SECRET_MANAGER (${store.kind}) tenant=${input.tenantId} account=${input.accountId} venue=${input.venue} env=${input.environment} ref=${credentialRef}`);
@@ -236,8 +253,9 @@ export class ExchangeCredentialService {
         const sealedSecret = this.crypto.encrypt(input.apiSecret, aad);
         apiKeyCiphertext = JSON.stringify(sealedKey);
         apiSecretCiphertext = JSON.stringify(sealedSecret);
-        encryptedDataKey = (sealedKey as any).wrappedKey || (sealedSecret as any).wrappedKey || 'envelope';
-        encryptionKeyId = (sealedKey as any).keyId || 'active';
+        if (!sealedPayload(sealedKey) || !sealedPayload(sealedSecret)) throw new Error('Invalid encryption envelope');
+        encryptedDataKey = sealedKey.wrappedKey;
+        encryptionKeyId = sealedKey.keyId;
 
         if (input.passphrase) {
           const sealedPassphrase = this.crypto.encrypt(input.passphrase, aad);
@@ -245,8 +263,8 @@ export class ExchangeCredentialService {
         }
 
         this.logger.log(`Credential sealed via ENVELOPE_DB tenant=${input.tenantId} account=${input.accountId} venue=${input.venue} env=${input.environment}`);
-      } catch (e: any) {
-        this.logger.error(`Failed to encrypt credential tenant=${input.tenantId} account=${input.accountId} error=${e.name}`);
+      } catch (e) {
+        this.logger.error(`Failed to encrypt credential tenant=${input.tenantId} account=${input.accountId} error=${failureKind(e)}`);
         throw new ExchangeProviderError(
           ExchangeProviderErrorCode.SERVER_ERROR,
           'Failed to encrypt credential material',
@@ -257,7 +275,7 @@ export class ExchangeCredentialService {
       }
     } else if (input.credentialSource === 'ENVIRONMENT') {
       // Development only - does not scale past one tenant and cannot be rotated per customer
-      if (process.env.NODE_ENV === 'production') {
+      if (this.config.isProduction || process.env.NODE_ENV === 'production') {
         throw new AppException({
           code: ErrorCode.BAD_REQUEST,
           message: 'The ENVIRONMENT credential source is not available in production.',
@@ -280,7 +298,7 @@ export class ExchangeCredentialService {
     try {
       const now = new Date();
       await this.prisma.tradingAccount.update({
-        where: { id: input.accountId },
+        where: { id: input.accountId, tenantId: input.tenantId, deletedAt: null },
         data: {
           apiKeyCiphertext,
           apiSecretCiphertext,
@@ -289,22 +307,22 @@ export class ExchangeCredentialService {
           encryptionKeyId,
           apiKeyBlindIndex,
           apiKeyLastFour,
-          credentialSource: input.credentialSource as any,
+          credentialSource: input.credentialSource,
           credentialRef,
           credentialRotatedAt: now,
           updatedAt: now,
         },
       });
-    } catch (e: any) {
+    } catch (e) {
       // The blind index is unique per tenant: the same API key is already
       // connected here. That is the caller's input, not a venue failure.
-      if (e?.code === 'P2002') {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new AppException({
           code: ErrorCode.CONFLICT,
           message: 'This API key is already connected in this organisation.',
         });
       }
-      this.logger.error(`Failed to persist credential reference tenant=${input.tenantId} account=${input.accountId} error=${e.message}`);
+      this.logger.error(`Failed to persist credential reference tenant=${input.tenantId} account=${input.accountId} error=${failureKind(e)}`);
       throw new ExchangeProviderError(
         ExchangeProviderErrorCode.SERVER_ERROR,
         'Failed to persist credential reference',
@@ -332,7 +350,7 @@ export class ExchangeCredentialService {
     // Rotation invalidates old reference according to policy
     // Validate old reference exists and belongs to same tenant/account
     const existing = await this.prisma.tradingAccount.findFirst({
-      where: { id: input.accountId, tenantId: input.tenantId },
+      where: { id: input.accountId, tenantId: input.tenantId, deletedAt: null },
       select: { id: true, apiKeyBlindIndex: true, credentialRef: true, credentialSource: true },
     });
 
@@ -371,32 +389,32 @@ export class ExchangeCredentialService {
     // destroy leaves an orphaned secret, never a usable credential.
     try {
       const current = await this.prisma.tradingAccount.findFirst({
-        where: { id: accountId, tenantId },
+        where: { id: accountId, tenantId, deletedAt: null },
         select: { credentialSource: true, credentialRef: true },
       });
       if (current?.credentialSource === 'SECRET_MANAGER' && current.credentialRef) {
         const store = this.resolveSecretStore(venue, environment);
         await store.destroy(current.credentialRef);
       }
-    } catch (e: any) {
-      this.logger.warn(`SECRET_MANAGER destroy skipped tenant=${tenantId} account=${accountId} error=${e?.name ?? 'Error'}: ${e?.message ?? ''}`);
+    } catch (e) {
+      this.logger.warn(`SECRET_MANAGER destroy skipped tenant=${tenantId} account=${accountId} error=${failureKind(e)}`);
     }
     try {
       await this.prisma.tradingAccount.update({
-        where: { id: accountId },
+        where: { id: accountId, tenantId, deletedAt: null },
         data: {
           apiKeyCiphertext: null,
           apiSecretCiphertext: null,
           passphraseCiphertext: null,
           encryptedDataKey: null,
           credentialRef: null,
-          status: 'DISABLED' as any,
+          status: 'DISABLED',
           updatedAt: new Date(),
         },
       });
       this.logger.log(`Credential revoked tenant=${tenantId} account=${accountId} venue=${venue} env=${environment}`);
-    } catch (e: any) {
-      this.logger.error(`Failed to revoke credential tenant=${tenantId} account=${accountId} error=${e.message}`);
+    } catch (e) {
+      this.logger.error(`Failed to revoke credential tenant=${tenantId} account=${accountId} error=${failureKind(e)}`);
       throw new ExchangeProviderError(
         ExchangeProviderErrorCode.SERVER_ERROR,
         'Failed to revoke credential',
@@ -409,7 +427,7 @@ export class ExchangeCredentialService {
 
   async validateCredentialReference(tenantId: string, accountId: string): Promise<{ valid: boolean; source: string; ref: string | null; lastFour: string | null }> {
     const account = await this.prisma.tradingAccount.findFirst({
-      where: { id: accountId, tenantId },
+      where: { id: accountId, tenantId, deletedAt: null },
       select: { credentialSource: true, credentialRef: true, apiKeyLastFour: true, apiKeyCiphertext: true, apiSecretCiphertext: true },
     });
 
@@ -427,8 +445,8 @@ export class ExchangeCredentialService {
         const store = this.resolveSecretStore(ExchangeVenue.BINANCE, ExchangeEnvironment.LIVE);
         const exists = await store.exists(account.credentialRef);
         return { valid: exists, source: account.credentialSource, ref: account.credentialRef, lastFour: account.apiKeyLastFour };
-      } catch (e: any) {
-        this.logger.warn(`SECRET_MANAGER existence check failed tenant=${tenantId} account=${accountId} error=${e?.name ?? 'Error'}`);
+      } catch (e) {
+        this.logger.warn(`SECRET_MANAGER existence check failed tenant=${tenantId} account=${accountId} error=${failureKind(e)}`);
         return { valid: false, source: account.credentialSource, ref: account.credentialRef, lastFour: account.apiKeyLastFour };
       }
     }
@@ -452,7 +470,7 @@ export class ExchangeCredentialService {
     // This method is backend-only, never exposed via API
     // Used only by provider adapters to authenticate with exchange
     const account = await this.prisma.tradingAccount.findFirst({
-      where: { id: accountId, tenantId },
+      where: { id: accountId, tenantId, deletedAt: null },
       select: { apiKeyCiphertext: true, apiSecretCiphertext: true, passphraseCiphertext: true, credentialSource: true, credentialRef: true },
     });
 
@@ -469,7 +487,7 @@ export class ExchangeCredentialService {
       try {
         secret = await store.read(account.credentialRef);
       } catch (error) {
-        this.logger.error(`SECRET_MANAGER read failed tenant=${tenantId} account=${accountId} store=${store.kind} error=${(error as Error)?.name}`);
+        this.logger.error(`SECRET_MANAGER read failed tenant=${tenantId} account=${accountId} store=${store.kind} error=${failureKind(error)}`);
         throw this.secretStoreFailure(error, venue, environment, 'read');
       }
       // Environment binding: a secret written for TESTNET must never
@@ -497,18 +515,18 @@ export class ExchangeCredentialService {
       }
       try {
         const aad = this.getAad(tenantId, accountId);
-        const keyPayload = JSON.parse(account.apiKeyCiphertext);
-        const secretPayload = JSON.parse(account.apiSecretCiphertext);
+        const keyPayload = parsePayload(account.apiKeyCiphertext);
+        const secretPayload = parsePayload(account.apiSecretCiphertext);
         const apiKey = this.crypto.decrypt(keyPayload, aad);
         const apiSecret = this.crypto.decrypt(secretPayload, aad);
         let passphrase: string | undefined;
         if (account.passphraseCiphertext) {
-          const passPayload = JSON.parse(account.passphraseCiphertext);
+          const passPayload = parsePayload(account.passphraseCiphertext);
           passphrase = this.crypto.decrypt(passPayload, aad);
         }
         return { apiKey, apiSecret, passphrase };
-      } catch (e: any) {
-        this.logger.error(`Failed to decrypt credentials tenant=${tenantId} account=${accountId} error=${e.name}`);
+      } catch (e) {
+        this.logger.error(`Failed to decrypt credentials tenant=${tenantId} account=${accountId} error=${failureKind(e)}`);
         throw new ExchangeProviderError(ExchangeProviderErrorCode.AUTH_FAILED, 'Failed to decrypt credentials', venue, environment, false);
       }
     }

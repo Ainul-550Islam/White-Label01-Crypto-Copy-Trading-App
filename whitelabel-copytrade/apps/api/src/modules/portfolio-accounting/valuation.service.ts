@@ -1,15 +1,8 @@
+// # Responsibility: calculate portfolio valuation only from verified prices and explicit completeness evidence.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
-import {
-  PortfolioValuationState,
-  deterministicIdempotencyKey,
-  mul,
-  add,
-  isValidDecimal,
-  redactSecrets,
-  ValuationEvidence,
-} from './portfolio-accounting.types';
+import { PortfolioValuationState, deterministicIdempotencyKey, mul, div, sub, add, ValuationEvidence } from './portfolio-accounting.types';
 
 /**
  * Produces point-in-time portfolio valuation from actual authoritative holdings plus
@@ -107,7 +100,6 @@ export class ValuationService {
 
       if (reversePrice.price) {
         try {
-          const { div } = require('./portfolio-accounting.types');
           const inverted = div('1', reversePrice.price);
           return { rate: inverted, source: reversePrice.source, timestamp: reversePrice.timestamp, status: 'CONVERTED_INVERSE' };
         } catch {
@@ -271,7 +263,6 @@ export class ValuationService {
 
     const netValued = (() => {
       try {
-        const { sub } = require('./portfolio-accounting.types');
         return sub(grossAssetValue, grossLiability);
       } catch {
         return grossAssetValue;

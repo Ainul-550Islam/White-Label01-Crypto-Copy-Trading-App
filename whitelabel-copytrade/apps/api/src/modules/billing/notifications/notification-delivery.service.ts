@@ -1,3 +1,4 @@
+// # Responsibility: deliver canonical typed notification jobs with explicit provider acceptance and failure/retry outcomes.
 import { Injectable, Logger } from '@nestjs/common';
 import {
   BillingNotificationEventKey,
@@ -6,15 +7,25 @@ import {
   NotificationCategory,
   DeliveryStatus,
   SafeNotificationPayload,
+  BillingNotificationJob,
 } from './billing-notification.types';
 import { NotificationJobRepository } from './notification-job.repository';
 import { NotificationTemplateService } from './notification-template.service';
 import { NotificationPreferenceService } from './notification-preference.service';
-import { BillingNotificationAuditService, NotificationAuditOperation } from './billing-notification.audit';
+import { BillingNotificationAuditService } from './billing-notification.audit';
 import { NotificationProviderFactory } from './notification-provider.factory';
 import { InAppNotificationService } from './in-app-notification.service';
 import { BillingWebhookNotificationService } from './billing-webhook-notification.service';
-import { randomUUID } from 'crypto';
+
+
+interface NotificationDispatchResult {
+  accepted: boolean;
+  providerReference: string | null;
+  retryable: boolean;
+  failureReason?: string;
+  errorCode?: string;
+}
+
 
 /**
  * Request → Preference → Template → Persistent Job → Provider Dispatch → Result → Status → Audit.
@@ -46,7 +57,7 @@ export class NotificationDeliveryService {
     idempotencyKey: string;
     isMandatory: boolean;
     locale?: string;
-  }): Promise<any> {
+  }): Promise<BillingNotificationJob> {
     const locale = params.locale || 'en';
 
     // Idempotency check
@@ -92,10 +103,10 @@ export class NotificationDeliveryService {
 
     if (template) {
       try {
-        rendered = this.templateService.renderTemplate(template, params.safePayload as any);
-      } catch (e: any) {
-        this.logger.warn(`Template render failed for ${params.templateKey}: ${e.message}`);
-        await this.auditService.logTemplateRenderFailed(params.tenantId, params.templateKey, e.message);
+        rendered = this.templateService.renderTemplate(template, params.safePayload);
+      } catch (e) {
+        this.logger.warn(`Template render failed for ${params.templateKey}: ${e instanceof Error ? e.message : String(e)}`);
+        await this.auditService.logTemplateRenderFailed(params.tenantId, params.templateKey, e instanceof Error ? e.message : String(e));
         // Continue with fallback
         rendered = {
           subject: `${params.eventKey} - Notification`,
@@ -151,7 +162,7 @@ export class NotificationDeliveryService {
     return job;
   }
 
-  async deliverJob(jobId: string): Promise<any> {
+  async deliverJob(jobId: string): Promise<BillingNotificationJob | null> {
     const job = await this.jobRepository.findById(jobId);
     if (!job) throw new Error(`Notification job not found: ${jobId}`);
 
@@ -183,7 +194,7 @@ export class NotificationDeliveryService {
     });
 
     try {
-      let result: any;
+      let result: NotificationDispatchResult;
 
       if (job.channel === NotificationChannel.IN_APP) {
         result = await this.deliverInApp(job);
@@ -226,32 +237,33 @@ export class NotificationDeliveryService {
           return updated;
         }
       }
-    } catch (e: any) {
-      this.logger.error(`Delivery failed for job ${jobId}: ${e.message}`, e.stack);
+    } catch (e) {
+      this.logger.error(`Delivery failed for job ${jobId}: ${e instanceof Error ? e.message : String(e)}`, e instanceof Error ? e.stack : undefined);
 
-      const isTemporary = !e.message.includes('not configured') && !e.message.includes('Invalid') && !e.message.includes('Cannot disable');
+      const message = e instanceof Error ? e.message : String(e);
+      const isTemporary = !message.includes('not configured') && !message.includes('Invalid') && !message.includes('Cannot disable');
 
       if (isTemporary && job.attemptCount + 1 < job.maxAttempts) {
         const nextAttempt = this.calculateNextAttempt(job.attemptCount + 1);
         const updated = await this.jobRepository.updateStatus(job.id, {
           deliveryStatus: DeliveryStatus.RETRY_SCHEDULED,
           nextAttemptAt: nextAttempt,
-          failureReason: e.message,
+          failureReason: e instanceof Error ? e.message : String(e),
         });
-        await this.auditService.logRetryScheduled(job.tenantId, job.id, job.attemptCount + 1, nextAttempt, e.message);
+        await this.auditService.logRetryScheduled(job.tenantId, job.id, job.attemptCount + 1, nextAttempt, message);
         return updated;
       } else {
         const updated = await this.jobRepository.updateStatus(job.id, {
           deliveryStatus: isTemporary ? DeliveryStatus.FAILED : DeliveryStatus.PERMANENT_FAILURE,
-          failureReason: e.message,
+          failureReason: e instanceof Error ? e.message : String(e),
         });
-        await this.auditService.logNotificationFailed(job.tenantId, job.id, job.eventKey, job.channel, e.message, isTemporary);
+        await this.auditService.logNotificationFailed(job.tenantId, job.id, job.eventKey, job.channel, message, isTemporary);
         return updated;
       }
     }
   }
 
-  private async deliverInApp(job: any): Promise<{ accepted: boolean; providerReference: string | null; retryable: boolean; failureReason?: string }> {
+  private async deliverInApp(job: BillingNotificationJob): Promise<{ accepted: boolean; providerReference: string | null; retryable: boolean; failureReason?: string }> {
     try {
       if (!job.userId) {
         // For tenant-level, need to find admin users - for now fail gracefully
@@ -279,17 +291,17 @@ export class NotificationDeliveryService {
         providerReference: record.id,
         retryable: false,
       };
-    } catch (e: any) {
+    } catch (e) {
       return {
         accepted: false,
         providerReference: null,
         retryable: true,
-        failureReason: e.message,
+        failureReason: e instanceof Error ? e.message : String(e),
       };
     }
   }
 
-  private async deliverWebhook(job: any): Promise<{ accepted: boolean; providerReference: string | null; retryable: boolean; failureReason?: string }> {
+  private async deliverWebhook(job: BillingNotificationJob): Promise<{ accepted: boolean; providerReference: string | null; retryable: boolean; failureReason?: string }> {
     try {
       const result = await this.webhookService.deliverWebhook({
         tenantId: job.tenantId,
@@ -314,17 +326,17 @@ export class NotificationDeliveryService {
           failureReason: `Webhook delivery failed: ${result.failed} failed`,
         };
       }
-    } catch (e: any) {
+    } catch (e) {
       return {
         accepted: false,
         providerReference: null,
         retryable: true,
-        failureReason: e.message,
+        failureReason: e instanceof Error ? e.message : String(e),
       };
     }
   }
 
-  private async deliverViaProvider(job: any): Promise<{ accepted: boolean; providerReference: string | null; retryable: boolean; failureReason?: string; errorCode?: string }> {
+  private async deliverViaProvider(job: BillingNotificationJob): Promise<{ accepted: boolean; providerReference: string | null; retryable: boolean; failureReason?: string; errorCode?: string }> {
     const provider = this.providerFactory.getProvider(job.channel);
 
     if (!provider.isAvailable()) {
@@ -338,8 +350,8 @@ export class NotificationDeliveryService {
     }
 
     const result = await provider.send({
-      recipientEmail: job.safePayload.userEmail || job.safePayload.customerEmail || (job.recipient as any).email,
-      recipientPhone: (job.recipient as any)?.phone || job.safePayload.userPhone || job.safePayload.customerPhone,
+      recipientEmail: job.safePayload.userEmail || this.optionalText(job.safePayload.customerEmail) || job.recipient.email,
+      recipientPhone: job.recipient.phone || this.optionalText(job.safePayload.userPhone) || this.optionalText(job.safePayload.customerPhone),
       recipientUserId: job.userId,
       tenantId: job.tenantId,
       subject: job.renderedSubject || `${job.eventKey} - Notification`,
@@ -360,6 +372,10 @@ export class NotificationDeliveryService {
       failureReason: result.failureReason,
       errorCode: result.errorCode,
     };
+  }
+
+  private optionalText(value: unknown): string | undefined {
+    return typeof value === 'string' && value ? value : undefined;
   }
 
   private getMaxAttemptsForChannel(channel: NotificationChannel, priority: NotificationPriority): number {

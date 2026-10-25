@@ -1,8 +1,10 @@
+// # Responsibility: enforce typed tenant ownership checks, idempotency, and ambiguity restrictions without swallowing storage failures.
 import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Prisma, RelationshipStatus, type AccountOwnership } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ClientPolicyService } from './client-policy.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
-import { deterministicIdempotencyKey, AccountOwnershipType, RelationshipStatus } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, AccountOwnershipType, lifecycleEnum } from './client-lifecycle.types';
 
 /**
  * Controls client/trader/follower/managed-account ownership relationships, validates tenant boundaries,
@@ -29,7 +31,7 @@ export class AccountOwnershipService {
     createdBy?: string | null;
     source?: string | null;
     correlationId?: string | null;
-  }): Promise<any> {
+  }): Promise<AccountOwnership> {
     const { tenantId, accountId, clientProfileId = null, ownerId, ownerType, ownershipType = AccountOwnershipType.OWNER, createdBy = null, source = null, correlationId = null } = params;
 
     const policy = await this.policyService.resolvePolicy({ tenantId, accountId });
@@ -37,24 +39,24 @@ export class AccountOwnershipService {
     // No cross-tenant ownership relationship may be created
     if (!policy.ownershipRules.allowCrossTenantOwnership) {
       try {
-        const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
+        const account = await this.prisma.institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
         if (!account) throw new BadRequestException('Account not found or tenant mismatch');
 
         // Verify owner belongs to same tenant — check User or ClientProfile tenant
         if (clientProfileId) {
-          const clientProfile = await (this.prisma as any).clientProfile.findFirst({ where: { id: clientProfileId, tenantId } });
+          const clientProfile = await this.prisma.clientProfile.findFirst({ where: { id: clientProfileId, tenantId } });
           if (!clientProfile) throw new ForbiddenException('Cross-tenant ownership rejected — client profile belongs to different tenant');
         }
 
         // Check max owners per account
-        const existingOwners = await (this.prisma as any).accountOwnership.count({
+        const existingOwners = await this.prisma.accountOwnership.count({
           where: { tenantId, accountId, status: 'ACTIVE' },
         });
         if (existingOwners >= policy.ownershipRules.maxOwnersPerAccount) {
           throw new BadRequestException(`Max owners per account (${policy.ownershipRules.maxOwnersPerAccount}) exceeded`);
         }
       } catch (e) {
-        if (e instanceof BadRequestException || e instanceof ForbiddenException) throw e;
+        throw e;
       }
     }
 
@@ -65,31 +67,29 @@ export class AccountOwnershipService {
       externalRef: `${accountId}:${ownerId}:${ownershipType}`,
     });
 
-    try {
-      const existing = await (this.prisma as any).accountOwnership.findFirst({ where: { tenantId, idempotencyKey } });
-      if (existing) return existing;
-    } catch {}
+    const existing = await this.prisma.accountOwnership.findFirst({ where: { tenantId, idempotencyKey } });
+    if (existing) return existing;
 
     // Prevent ambiguous ownership — check if same owner already has active ownership
     try {
-      const ambiguous = await (this.prisma as any).accountOwnership.findFirst({
-        where: { tenantId, accountId, ownerId, ownershipType: ownershipType as any, status: 'ACTIVE' },
+      const ambiguous = await this.prisma.accountOwnership.findFirst({
+        where: { tenantId, accountId, ownerId, ownershipType: ownershipType, status: 'ACTIVE' },
       });
       if (ambiguous) {
         throw new BadRequestException('Ambiguous ownership — owner already has active ownership of this type');
       }
     } catch (e) {
-      if (e instanceof BadRequestException) throw e;
+      throw e;
     }
 
-    const ownership = await (this.prisma as any).accountOwnership.create({
+    const ownership = await this.prisma.accountOwnership.create({
       data: {
         tenantId,
         accountId,
         clientProfileId: clientProfileId ?? null,
         ownerId,
         ownerType,
-        ownershipType: ownershipType as any,
+        ownershipType: ownershipType,
         status: 'ACTIVE',
         effectiveAt: new Date(),
         createdBy: createdBy ?? null,
@@ -122,14 +122,14 @@ export class AccountOwnershipService {
     revokedBy?: string | null;
     reason?: string;
     correlationId?: string | null;
-  }): Promise<any> {
+  }): Promise<AccountOwnership> {
     const { tenantId, ownershipId, revokedBy = null, reason, correlationId = null } = params;
 
-    const ownership = await (this.prisma as any).accountOwnership.findFirst({ where: { id: ownershipId, tenantId } });
+    const ownership = await this.prisma.accountOwnership.findFirst({ where: { id: ownershipId, tenantId } });
     if (!ownership) throw new BadRequestException('Ownership not found');
 
-    const updated = await (this.prisma as any).accountOwnership.update({
-      where: { id: ownershipId },
+    const updated = await this.prisma.accountOwnership.update({
+      where: { id: ownershipId, tenantId },
       data: { status: 'REVOKED', endedAt: new Date() },
     });
 
@@ -157,28 +157,28 @@ export class AccountOwnershipService {
     status?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+  }): Promise<{ data: AccountOwnership[]; total: number; page: number; limit: number }> {
     const { tenantId, accountId, ownerId, clientProfileId, status, page = 1, limit = 50 } = params;
-    const where: any = { tenantId };
+    const where: Prisma.AccountOwnershipWhereInput = { tenantId };
     if (accountId) where.accountId = accountId;
     if (ownerId) where.ownerId = ownerId;
     if (clientProfileId) where.clientProfileId = clientProfileId;
-    if (status) where.status = status;
+    if (status) where.status = lifecycleEnum(Object.values(RelationshipStatus), status, 'ownership status');
 
     const [data, total] = await Promise.all([
-      (this.prisma as any).accountOwnership.findMany({
+      this.prisma.accountOwnership.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      (this.prisma as any).accountOwnership.count({ where }),
+      this.prisma.accountOwnership.count({ where }),
     ]);
     return { data, total, page, limit };
   }
 
   async verifyOwnership(params: { tenantId: string; accountId: string; ownerId: string }): Promise<boolean> {
-    const ownership = await (this.prisma as any).accountOwnership.findFirst({
+    const ownership = await this.prisma.accountOwnership.findFirst({
       where: { tenantId: params.tenantId, accountId: params.accountId, ownerId: params.ownerId, status: 'ACTIVE' },
     });
     return !!ownership;

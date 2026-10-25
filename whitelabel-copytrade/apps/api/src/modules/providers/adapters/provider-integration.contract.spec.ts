@@ -3,7 +3,7 @@
  * Real deterministic contract tests for shared provider control layer
  */
 
-import { ProviderDomain, ProviderName, ProviderCapability, ProviderErrorCode, RetryClassification, ProviderOperationType } from '../provider.types';
+import { ProviderDomain, ProviderName, ProviderErrorCode, RetryClassification, ProviderOperationType } from '../provider.types';
 import { ProviderPolicyService } from '../provider-policy.service';
 import { ProviderRequestService } from '../provider-request.service';
 import { ProviderObservationService } from '../provider-observation.service';

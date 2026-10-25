@@ -404,7 +404,7 @@ export class CopyExecutionService {
     // closed and says so, because sizing money against an unknown balance is
     // exactly the case that must not be guessed at.
     let followerBalance: string | null = null;
-    let leaderTotalBalance: string | null = null;
+    const leaderTotalBalance: string | null = null;
 
     if (subscription.followerAccountId) {
       try {

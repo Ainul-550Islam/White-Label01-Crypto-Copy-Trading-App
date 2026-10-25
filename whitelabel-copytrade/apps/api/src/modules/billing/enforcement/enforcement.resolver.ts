@@ -4,7 +4,7 @@ import { SubscriptionStatus, type PlanLimits } from '@wlct/shared-types';
 
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { CacheService } from '../../../infrastructure/redis/cache.service';
-import { NotFoundException } from '../../../common/errors/app.exception';
+
 
 const RESOLVER_CACHE_TTL = 30;
 

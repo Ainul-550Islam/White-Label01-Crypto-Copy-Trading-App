@@ -1,5 +1,5 @@
 // # Validates withdrawal request and admin review payloads
-import { IsString, IsOptional, IsNumber, IsObject, IsEnum } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 
 export class SubmitWithdrawalDto {
   @IsString()

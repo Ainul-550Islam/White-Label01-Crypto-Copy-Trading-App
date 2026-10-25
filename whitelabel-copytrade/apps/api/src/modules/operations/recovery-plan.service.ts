@@ -3,13 +3,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
 import { OperationalAuditService } from './operational-audit.service';
 import { OperationsPolicyService } from './operations-policy.service';
-import {
-  OperationalRecoveryState,
-  RECOVERY_VALID_TRANSITIONS,
-  isValidTransition,
-  deterministicIdempotencyKey,
-  redactSecrets,
-} from './operations.types';
+import { OperationalRecoveryState, deterministicIdempotencyKey, redactSecrets } from './operations.types';
 import { randomUUID } from 'crypto';
 
 /**

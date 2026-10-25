@@ -1,17 +1,10 @@
+// # Responsibility: Group typed subscriptions into explicit cohorts and validate stored JSON date evidence.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  ReportingPeriod,
-  CohortDefinition,
-  CohortMetrics,
-  CohortAnalysis,
-  MoneyAmount,
-  zeroMoney,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-  calculateRate,
-} from './revenue-analytics.types';
+import { ReportingPeriod, CohortDefinition, CohortMetrics, CohortAnalysis, parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency, calculateRate } from './revenue-analytics.types';
+
+type SubscriptionWithPlan = Prisma.TenantSubscriptionGetPayload<{ include: { plan: true } }>;
 
 /**
  * Cohort analysis by signup/subscription start period, retention, recurring revenue, churn, revenue movement.
@@ -37,7 +30,7 @@ export class RevenueCohortService {
     const subscriptions = await this.fetchSubscriptionsForCohort({ definition: params.definition, start, end, currency });
 
     // Group by cohort period (YYYY-MM)
-    const cohortGroups = new Map<string, any[]>();
+    const cohortGroups = new Map<string, SubscriptionWithPlan[]>();
     for (const sub of subscriptions) {
       const cohortKey = this.getCohortKey(sub, params.definition);
       if (!cohortKey) continue;
@@ -167,7 +160,7 @@ export class RevenueCohortService {
     };
   }
 
-  private getCohortKey(sub: any, definition: CohortDefinition): string | null {
+  private getCohortKey(sub: SubscriptionWithPlan, definition: CohortDefinition): string | null {
     try {
       switch (definition) {
         case CohortDefinition.SIGNUP_MONTH:
@@ -177,8 +170,12 @@ export class RevenueCohortService {
           return new Date(sub.createdAt).toISOString().slice(0, 7);
         case CohortDefinition.FIRST_PAID_MONTH:
           // Use first paid invoice or payment date if available, fallback to subscription
-          if (sub.metadata && (sub.metadata as any).firstPaidAt) {
-            return new Date((sub.metadata as any).firstPaidAt).toISOString().slice(0, 7);
+          if (sub.metadata && typeof sub.metadata === 'object' && !Array.isArray(sub.metadata)) {
+            const firstPaidAt = sub.metadata.firstPaidAt;
+            if (firstPaidAt) {
+              if (typeof firstPaidAt !== 'string' && typeof firstPaidAt !== 'number') return null;
+              return new Date(firstPaidAt).toISOString().slice(0, 7);
+            }
           }
           return new Date(sub.createdAt).toISOString().slice(0, 7);
         default:
@@ -198,15 +195,15 @@ export class RevenueCohortService {
     start: Date;
     end: Date;
     currency: string;
-  }): Promise<any[]> {
+  }): Promise<SubscriptionWithPlan[]> {
     try {
-      const where: any = {
+      const where: Prisma.TenantSubscriptionWhereInput = {
         createdAt: { gte: params.start, lte: params.end },
       };
-      const subs = await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
-      return subs.filter((s: any) => !s.plan || s.plan.currency?.toUpperCase() === params.currency);
-    } catch (e: any) {
-      this.logger.warn(`Failed to fetch subscriptions for cohort: ${e.message}`);
+      const subs = await this.prisma.tenantSubscription.findMany({ where, include: { plan: true } }) || [];
+      return subs.filter((s) => !s.plan || s.plan.currency?.toUpperCase() === params.currency);
+    } catch (e) {
+      this.logger.warn(`Failed to fetch subscriptions for cohort: ${e instanceof Error ? e.message : String(e)}`);
       throw e;
     }
   }

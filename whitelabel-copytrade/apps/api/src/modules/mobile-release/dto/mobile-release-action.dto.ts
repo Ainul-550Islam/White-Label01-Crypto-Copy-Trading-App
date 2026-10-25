@@ -1,12 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
+import { IsIn, IsOptional, IsString, Length, Matches } from 'class-validator';
 
-import {
-  MOBILE_ENVIRONMENT_DECORATOR,
-  MOBILE_ENVIRONMENT_VALUES,
-  MOBILE_PLATFORM_DECORATOR,
-  MOBILE_PLATFORM_VALUES,
-} from './mobile-app.dto';
+
 
 /**
  * Release lifecycle action DTOs.

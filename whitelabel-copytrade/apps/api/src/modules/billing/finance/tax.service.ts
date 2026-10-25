@@ -3,7 +3,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { TaxProviderFactory } from './tax-provider.interface';
 import type { TaxCalculationInput, TaxCalculationResult, TaxBreakdown, TaxValidationResult, CustomerTaxInfo } from './tax.types';
 import { TaxCategory, TaxType, ExemptionReason, REVERSE_CHARGE_COUNTRIES, EU_COUNTRIES } from './tax.types';
-import type { Money } from './money.types';
+
 import { loadTaxRateTable, resolveTaxRate, TaxRateTable } from './tax-rates.config';
 import {
   ViesVatClient,
@@ -13,7 +13,7 @@ import {
   vatValidationModeFromEnv,
   verifyVatForReverseCharge,
 } from './vies-vat.client';
-import { createMoney, calculatePercentageAmount, addMoney, parseToMinorUnits } from './money.types';
+import { createMoney, calculatePercentageAmount, addMoney } from './money.types';
 
 /**
  * Determines applicable tax/VAT rules from customer/tenant billing information,

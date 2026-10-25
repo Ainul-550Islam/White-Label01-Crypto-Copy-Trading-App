@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEmail, IsEnum, IsNotEmpty, MinLength, IsPhoneNumber } from 'class-validator';
+import { IsOptional, IsString, IsEmail, IsEnum, IsNotEmpty, MinLength } from 'class-validator';
 
 /**
  * Validated DTOs for client-profile creation/update.

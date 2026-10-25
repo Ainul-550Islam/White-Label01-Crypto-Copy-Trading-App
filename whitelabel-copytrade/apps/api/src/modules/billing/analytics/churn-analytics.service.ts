@@ -1,17 +1,10 @@
+// # Responsibility: Calculate tenant-scoped churn and revenue retention from typed subscription and plan evidence.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  ReportingPeriod,
-  ChurnMetrics,
-  ChurnType,
-  MoneyAmount,
-  SubscriptionStatus,
-  zeroMoney,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-  calculateRate,
-} from './revenue-analytics.types';
+import { ReportingPeriod, ChurnMetrics, ChurnType, SubscriptionStatus, parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency, calculateRate } from './revenue-analytics.types';
+
+type SubscriptionWithPlan = Prisma.TenantSubscriptionGetPayload<{ include: { plan: true } }>;
 
 /**
  * Customer/subscription churn calculations from canonical subscription state transitions and billing history.
@@ -53,7 +46,7 @@ export class ChurnAnalyticsService {
     let failedPaymentCount = 0;
     let expirationCount = 0;
     let revenueChurnMinor = 0;
-    let churnedCustomerIds = new Set<string>();
+    const churnedCustomerIds = new Set<string>();
 
     for (const sub of churnedSubscriptions) {
       churnedCustomerIds.add(sub.tenantId);
@@ -166,7 +159,7 @@ export class ChurnAnalyticsService {
     };
   }
 
-  private classifyChurnType(sub: any): ChurnType {
+  private classifyChurnType(sub: SubscriptionWithPlan): ChurnType {
     const reason = (sub.cancelReason || '').toLowerCase();
     const status = sub.status;
 
@@ -179,7 +172,10 @@ export class ChurnAnalyticsService {
     if (reason && reason.length > 0) return ChurnType.VOLUNTARY;
 
     // Check if dunning case exists
-    if (sub.metadata && (sub.metadata as any).dunningCaseId) return ChurnType.FAILED_PAYMENT;
+    const metadata = sub.metadata;
+    if (metadata && typeof metadata === 'object' && !Array.isArray(metadata) && metadata.dunningCaseId) {
+      return ChurnType.FAILED_PAYMENT;
+    }
 
     return ChurnType.UNKNOWN;
   }
@@ -188,33 +184,33 @@ export class ChurnAnalyticsService {
     return { start: new Date(period.startDate), end: new Date(period.endDate) };
   }
 
-  private async fetchActiveAtDate(params: { tenantId?: string; date: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchActiveAtDate(params: { tenantId?: string; date: Date }): Promise<SubscriptionWithPlan[]> {
+    const where: Prisma.TenantSubscriptionWhereInput = {
       status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
       currentPeriodStart: { lte: params.date },
       currentPeriodEnd: { gte: params.date },
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
+    return await this.prisma.tenantSubscription.findMany({ where, include: { plan: true } }) || [];
   }
 
-  private async fetchChurnedInPeriod(params: { tenantId?: string; start: Date; end: Date }): Promise<any[]> {
-    const where: any = {
+  private async fetchChurnedInPeriod(params: { tenantId?: string; start: Date; end: Date }): Promise<SubscriptionWithPlan[]> {
+    const where: Prisma.TenantSubscriptionWhereInput = {
       status: { in: [SubscriptionStatus.CANCELED, SubscriptionStatus.EXPIRED] },
       OR: [{ canceledAt: { gte: params.start, lte: params.end } }, { currentPeriodEnd: { gte: params.start, lte: params.end } }],
     };
     if (params.tenantId) where.tenantId = params.tenantId;
-    return await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
+    return await this.prisma.tenantSubscription.findMany({ where, include: { plan: true } }) || [];
   }
 
   private async calculateMrrAtDate(params: { tenantId?: string; currency: string; date: Date }): Promise<{ totalMinor: number }> {
     try {
-      const where: any = {
+      const where: Prisma.TenantSubscriptionWhereInput = {
         status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE] },
         currentPeriodEnd: { gte: params.date },
       };
       if (params.tenantId) where.tenantId = params.tenantId;
-      const subs = await (this.prisma as any).tenantSubscription?.findMany({ where, include: { plan: true } }) || [];
+      const subs = await this.prisma.tenantSubscription.findMany({ where, include: { plan: true } }) || [];
       let totalMinor = 0;
       for (const sub of subs) {
         const plan = sub.plan;
@@ -237,8 +233,9 @@ export class ChurnAnalyticsService {
         totalMinor += mrrMinor * (sub.seatsPurchased || 1);
       }
       return { totalMinor };
-    } catch {
-      return { totalMinor: 0 };
+    } catch (error) {
+      this.logger.warn(`Failed to calculate churn MRR baseline: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     }
   }
 }

@@ -1,3 +1,4 @@
+// # Responsibility: reconcile tenant fee accruals, settlements, and payouts without silently repairing ledger data.
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { forEachTenant, listBillableTenantIds } from '../finance/tenant-iteration';
@@ -8,7 +9,7 @@ import { FeeLedgerService } from './fee-ledger.service';
 import { FeeAuditService } from './fee-audit.service';
 import { ReconciliationIssue, FeeAccrualStatus, SettlementState, FeeSourceType } from './fee.types';
 import { PayoutStatus } from './payout.types';
-import { parseToMinorUnits } from '../finance/money.types';
+import { formatFromMinorUnits, parseToMinorUnits } from '../finance/money.types';
 
 /**
  * Reconciles source amount -> fee calculation -> accrual -> ledger -> settlement -> payout
@@ -254,18 +255,18 @@ export class FeeReconciliationService {
     }
 
     // 4. Detect duplicate fees (same source + feeType)
-    const sourceMap = new Map<string, number>();
+    const sourceMap = new Map<string, { sourceType: FeeSourceType; sourceId: string; count: number }>();
     for (const accrual of accruals) {
-      const key = `${accrual.tenantId}_${accrual.sourceType}_${accrual.sourceId}_${accrual.feeType}`;
-      sourceMap.set(key, (sourceMap.get(key) || 0) + 1);
+      const key = JSON.stringify([accrual.tenantId, accrual.sourceType, accrual.sourceId, accrual.feeType]);
+      const prior = sourceMap.get(key);
+      sourceMap.set(key, { sourceType: accrual.sourceType, sourceId: accrual.sourceId, count: (prior?.count || 0) + 1 });
     }
-    for (const [key, count] of sourceMap) {
+    for (const [key, { sourceType, sourceId, count }] of sourceMap) {
       if (count > 1) {
-        const [tenantIdPart, sourceType, sourceId, feeType] = key.split('_');
         issues.push({
           severity: 'CRITICAL',
           category: 'DUPLICATE_FEE',
-          sourceType: sourceType as FeeSourceType,
+          sourceType,
           sourceId,
           description: `Duplicate fee accruals detected for key ${key}: count=${count}`,
           detectedAt: new Date().toISOString(),
@@ -312,17 +313,16 @@ export class FeeReconciliationService {
     };
   }
 
-  async reconcileAllTenants(options?: { fromDate?: Date; toDate?: Date; limit?: number }): Promise<any[]> {
+  async reconcileAllTenants(options?: { fromDate?: Date; toDate?: Date; limit?: number }): Promise<Array<Awaited<ReturnType<FeeReconciliationService['reconcileTenant']>> | { tenantId: string; error: string }>> {
     const tenantIds = await listBillableTenantIds(this.prisma, options?.limit ?? 1000);
     const results = await forEachTenant(tenantIds, (tenantId) => this.reconcileTenant(tenantId, { fromDate: options?.fromDate, toDate: options?.toDate }));
     const failed = results.filter((r) => r.error).length;
     this.logger.log(`Fee reconciliation all tenants=${tenantIds.length} failed=${failed}`);
-    return results.map((r) => (r.error ? { tenantId: r.tenantId, error: r.error } : r.result));
+    return results.map((r) => (r.error ? { tenantId: r.tenantId, error: r.error } : r.result ?? { tenantId: r.tenantId, error: 'Reconciliation returned no result' }));
   }
 
   private formatMinor(minor: number, currency: string): string {
     try {
-      const { formatFromMinorUnits } = require('../finance/money.types');
       return formatFromMinorUnits(minor, currency);
     } catch {
       return minor.toString();

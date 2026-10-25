@@ -1,6 +1,9 @@
+// # Responsibility: validate and expose payment-provider runtime configuration without leaking secrets.
 import { Injectable } from '@nestjs/common';
 import { AppConfigService } from '../../../config/app-config.service';
 import { PaymentProvider } from './payment.types';
+
+export const STRIPE_API_VERSION = '2023-10-16';
 
 /**
  * Validated runtime payment configuration.
@@ -29,7 +32,7 @@ export interface PaymentProviderConfig {
 export interface StripeConfig {
   secretKey: string;
   webhookSecret: string;
-  apiVersion: string;
+  apiVersion: typeof STRIPE_API_VERSION;
   maxNetworkRetries: number;
   timeoutMs: number;
 }
@@ -217,7 +220,7 @@ export class PaymentConfigService {
       config.stripe = {
         secretKey: stripeSecretKey,
         webhookSecret: stripeWebhookSecret,
-        apiVersion: '2023-10-16',
+        apiVersion: STRIPE_API_VERSION,
         maxNetworkRetries: 2,
         timeoutMs: 30000,
       };

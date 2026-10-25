@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
-import { deterministicIdempotencyKey, redactSecrets, add, sub, mul, div } from './portfolio-accounting.types';
+import { sub, mul, div } from './portfolio-accounting.types';
 
 /**
  * Manages benchmark definitions and observations using verified market/index data, never fabricated.

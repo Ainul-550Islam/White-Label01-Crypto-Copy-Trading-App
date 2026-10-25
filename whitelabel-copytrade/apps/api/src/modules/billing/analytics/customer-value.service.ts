@@ -1,15 +1,10 @@
+// # Responsibility: Derive customer value and explicitly scoped ARPU from canonical billing records.
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma, Payment, Refund } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  ReportingPeriod,
-  CustomerValueMetrics,
-  ValueEstimationType,
-  MoneyAmount,
-  zeroMoney,
-  parseToMinorUnits,
-  formatFromMinorUnits,
-  getMinorUnitForCurrency,
-} from './revenue-analytics.types';
+import { ReportingPeriod, CustomerValueMetrics, ValueEstimationType, MoneyAmount, parseToMinorUnits, formatFromMinorUnits, getMinorUnitForCurrency } from './revenue-analytics.types';
+
+type SubscriptionWithPlan = Prisma.TenantSubscriptionGetPayload<{ include: { plan: true } }>;
 
 /**
  * Customer commercial analytics: ARPU, tenure, total paid, refund amount, current recurring value, plan movement, LTV inputs, segmentation.
@@ -34,7 +29,7 @@ export class CustomerValueService {
     const refunds = await this.fetchRefunds({ tenantId: params.tenantId, currency, start, end });
 
     // Current active subscription
-    const activeSub = subscriptions.find((s: any) => ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(s.status) && new Date(s.currentPeriodEnd) >= new Date());
+    const activeSub = subscriptions.find((s) => ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(s.status) && new Date(s.currentPeriodEnd) >= new Date());
 
     let currentMrrMinor = 0;
     let currentArrMinor = 0;
@@ -89,7 +84,7 @@ export class CustomerValueService {
     let lastSubDate: Date | null = null;
 
     if (subscriptions.length > 0) {
-      const sorted = subscriptions.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const sorted = subscriptions.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       firstSubDate = new Date(sorted[0].createdAt);
       lastSubDate = new Date(sorted[sorted.length - 1].currentPeriodEnd);
       tenureDays = Math.round((lastSubDate.getTime() - firstSubDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -97,8 +92,8 @@ export class CustomerValueService {
 
     // Plan history
     const planHistory = subscriptions
-      .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-      .map((s: any) => ({
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .map((s) => ({
         planId: s.planId,
         planCode: s.plan?.code || s.planId,
         from: new Date(s.createdAt).toISOString(),
@@ -202,7 +197,7 @@ export class CustomerValueService {
     const { start, end } = this.parsePeriod(params.period);
     const limit = params.limit || 20;
 
-    const payments = await (this.prisma as any).payment?.findMany({
+    const payments = await this.prisma.payment.findMany({
       where: {
         currency,
         status: { in: ['SUCCEEDED', 'PAID', 'COMPLETED'] },
@@ -226,7 +221,7 @@ export class CustomerValueService {
       let currentMrrMinor = 0;
       let planCode: string | undefined;
       try {
-        const active = await (this.prisma as any).tenantSubscription?.findFirst({
+        const active = await this.prisma.tenantSubscription.findFirst({
           where: { tenantId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
           include: { plan: true },
           orderBy: { createdAt: 'desc' },
@@ -248,7 +243,10 @@ export class CustomerValueService {
           }
           planCode = active.plan.code;
         }
-      } catch {}
+      } catch (error) {
+        this.logger.warn(`Failed to read current recurring value: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
 
       results.push({
         tenantId,
@@ -266,24 +264,24 @@ export class CustomerValueService {
     return { start: new Date(period.startDate), end: new Date(period.endDate) };
   }
 
-  private async fetchSubscriptions(params: { tenantId: string }): Promise<any[]> {
-    return await (this.prisma as any).tenantSubscription?.findMany({ where: { tenantId: params.tenantId }, include: { plan: true } }) || [];
+  private async fetchSubscriptions(params: { tenantId: string }): Promise<SubscriptionWithPlan[]> {
+    return await this.prisma.tenantSubscription.findMany({ where: { tenantId: params.tenantId }, include: { plan: true } }) || [];
   }
 
-  private async fetchPayments(params: { tenantId: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    return await (this.prisma as any).payment?.findMany({ where: { tenantId: params.tenantId, currency: params.currency, createdAt: { gte: params.start, lte: params.end } } }) || [];
+  private async fetchPayments(params: { tenantId: string; currency: string; start: Date; end: Date }): Promise<Payment[]> {
+    return await this.prisma.payment.findMany({ where: { tenantId: params.tenantId, currency: params.currency, createdAt: { gte: params.start, lte: params.end } } }) || [];
   }
 
-  private async fetchRefunds(params: { tenantId: string; currency: string; start: Date; end: Date }): Promise<any[]> {
-    return await (this.prisma as any).refund?.findMany({ where: { tenantId: params.tenantId, currency: params.currency, createdAt: { gte: params.start, lte: params.end } } }) || [];
+  private async fetchRefunds(params: { tenantId: string; currency: string; start: Date; end: Date }): Promise<Refund[]> {
+    return await this.prisma.refund.findMany({ where: { tenantId: params.tenantId, currency: params.currency, createdAt: { gte: params.start, lte: params.end } } }) || [];
   }
 
-  private async fetchPaymentsForArpu(params: { currency: string; start: Date; end: Date; tenantIds?: string[] }): Promise<any[]> {
-    const where: any = {
+  private async fetchPaymentsForArpu(params: { currency: string; start: Date; end: Date; tenantIds?: string[] }): Promise<Payment[]> {
+    const where: Prisma.PaymentWhereInput = {
       currency: params.currency,
       createdAt: { gte: params.start, lte: params.end },
     };
     if (params.tenantIds && params.tenantIds.length > 0) where.tenantId = { in: params.tenantIds };
-    return await (this.prisma as any).payment?.findMany({ where }) || [];
+    return await this.prisma.payment.findMany({ where }) || [];
   }
 }

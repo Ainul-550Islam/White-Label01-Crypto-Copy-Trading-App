@@ -67,12 +67,12 @@ from wlct_trading.risk import RiskEngine, RiskLimits
 
 from app.config import Settings
 from app.credential_registry import CredentialRegistryWiring, build_credential_registry
-from app.exchanges.credentials import CredentialWiring, build_credential_provider
 from app.distributed_locks import (
     DistributedLockConfig,
     DistributedLockWiring,
     build_distributed_lock_manager,
 )
+from app.exchanges.credentials import CredentialWiring, build_credential_provider
 from app.orders.placement import PlacementWiring, build_placement_reviewer
 from app.venue_attestation import (
     VenueAttestationConfig,

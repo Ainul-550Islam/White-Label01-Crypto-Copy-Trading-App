@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+// # Responsibility: compute tenant-bound risk evidence from canonical sources and retain persisted JSON provenance without fake successful fallbacks.
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import type { KycProfile, ComplianceScreeningRequest, TransactionMonitoringSignal } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CompliancePolicyService } from './compliance-policy.service';
+import { CompliancePolicyService, complianceJsonInput, complianceObject } from './compliance-policy.service';
 import { ComplianceAuditService } from './compliance-audit.service';
-import { RiskLevel, RiskScore, ComplianceDecision, KycState, AmlState, sanitizeMetadata } from './compliance.types';
+import { RiskLevel, RiskScore, ComplianceDecision, AmlState, type CompliancePolicy } from './compliance.types';
 import { randomUUID } from 'crypto';
 
 /**
@@ -31,9 +33,10 @@ export class RiskScoringService {
     let totalWeight = 0;
 
     // Gather inputs
-    const kycProfile = await this.getKycProfile(params.userId);
+    const kycProfile = await this.getKycProfile(params.tenantId, params.userId);
     const amlRequests = await this.getAmlRequests(params.tenantId, params.userId);
-    const user = await this.getUser(params.userId);
+    const user = await this.getUser(params.tenantId, params.userId);
+    if (!user) throw new BadRequestException('Risk-scoring user not found for this tenant');
     const transactionSignals = await this.getTransactionSignals(params.tenantId, params.userId);
     const failedKycAttempts = await this.getFailedKycAttempts(params.tenantId, params.userId);
 
@@ -47,9 +50,9 @@ export class RiskScoringService {
       else if (kycProfile.status === 'EXPIRED') score = 70;
       else if (kycProfile.status === 'APPROVED') score = 0;
 
-      contributingRules.push({ ruleId: 'KYC_VERIFICATION_REQUIRED', weight: kycRule.weight || 30, score, description: kycRule.description });
-      totalScore += score * (kycRule.weight || 30);
-      totalWeight += kycRule.weight || 30;
+      contributingRules.push({ ruleId: 'KYC_VERIFICATION_REQUIRED', weight: kycRule.weight ?? 30, score, description: kycRule.description });
+      totalScore += score * (kycRule.weight ?? 30);
+      totalWeight += kycRule.weight ?? 30;
     }
 
     // Rule: AML_SCREENING_REQUIRED
@@ -65,20 +68,20 @@ export class RiskScoringService {
       else if (latestAml.amlState === AmlState.PROVIDER_UNAVAILABLE) score = 40;
       else if (latestAml.amlState === AmlState.CLEAR) score = 0;
 
-      contributingRules.push({ ruleId: 'AML_SCREENING_REQUIRED', weight: amlRule.weight || 25, score, description: amlRule.description });
-      totalScore += score * (amlRule.weight || 25);
-      totalWeight += amlRule.weight || 25;
+      contributingRules.push({ ruleId: 'AML_SCREENING_REQUIRED', weight: amlRule.weight ?? 25, score, description: amlRule.description });
+      totalScore += score * (amlRule.weight ?? 25);
+      totalWeight += amlRule.weight ?? 25;
     }
 
     // Rule: SANCTIONS_CHECK
     const sanctionsRule = policy.rules.find((r) => r.ruleId === 'SANCTIONS_CHECK');
     if (sanctionsRule?.enabled) {
       let score = 0;
-      const hasMatch = amlRequests.some((r: any) => r.amlState === AmlState.MATCH || r.amlState === AmlState.BLOCKED);
+      const hasMatch = amlRequests.some((r) => r.amlState === AmlState.MATCH || r.amlState === AmlState.BLOCKED);
       if (hasMatch) score = 100;
-      contributingRules.push({ ruleId: 'SANCTIONS_CHECK', weight: sanctionsRule.weight || 40, score, description: sanctionsRule.description });
-      totalScore += score * (sanctionsRule.weight || 40);
-      totalWeight += sanctionsRule.weight || 40;
+      contributingRules.push({ ruleId: 'SANCTIONS_CHECK', weight: sanctionsRule.weight ?? 40, score, description: sanctionsRule.description });
+      totalScore += score * (sanctionsRule.weight ?? 40);
+      totalWeight += sanctionsRule.weight ?? 40;
     }
 
     // Rule: HIGH_RISK_COUNTRY
@@ -86,9 +89,9 @@ export class RiskScoringService {
     if (highRiskRule?.enabled && user?.countryCode) {
       const isHighRisk = await this.policyService.isCountryHighRisk(user.countryCode, policy);
       const score = isHighRisk ? 80 : 0;
-      contributingRules.push({ ruleId: 'HIGH_RISK_COUNTRY', weight: highRiskRule.weight || 35, score, description: `${highRiskRule.description} country=${user.countryCode}` });
-      totalScore += score * (highRiskRule.weight || 35);
-      totalWeight += highRiskRule.weight || 35;
+      contributingRules.push({ ruleId: 'HIGH_RISK_COUNTRY', weight: highRiskRule.weight ?? 35, score, description: `${highRiskRule.description} country=${user.countryCode}` });
+      totalScore += score * (highRiskRule.weight ?? 35);
+      totalWeight += highRiskRule.weight ?? 35;
     }
 
     // Rule: BLOCKED_COUNTRY
@@ -96,9 +99,9 @@ export class RiskScoringService {
     if (blockedRule?.enabled && user?.countryCode) {
       const isBlocked = await this.policyService.isCountryBlocked(user.countryCode, policy);
       const score = isBlocked ? 100 : 0;
-      contributingRules.push({ ruleId: 'BLOCKED_COUNTRY', weight: blockedRule.weight || 100, score, description: `${blockedRule.description} country=${user.countryCode}` });
-      totalScore += score * (blockedRule.weight || 100);
-      totalWeight += blockedRule.weight || 100;
+      contributingRules.push({ ruleId: 'BLOCKED_COUNTRY', weight: blockedRule.weight ?? 100, score, description: `${blockedRule.description} country=${user.countryCode}` });
+      totalScore += score * (blockedRule.weight ?? 100);
+      totalWeight += blockedRule.weight ?? 100;
     }
 
     // Rule: FAILED_KYC_ATTEMPTS
@@ -108,9 +111,9 @@ export class RiskScoringService {
       if (failedKycAttempts >= 3) score = 80;
       else if (failedKycAttempts >= 2) score = 50;
       else if (failedKycAttempts >= 1) score = 20;
-      contributingRules.push({ ruleId: 'FAILED_KYC_ATTEMPTS', weight: failedKycRule.weight || 25, score, description: `${failedKycRule.description} attempts=${failedKycAttempts}` });
-      totalScore += score * (failedKycRule.weight || 25);
-      totalWeight += failedKycRule.weight || 25;
+      contributingRules.push({ ruleId: 'FAILED_KYC_ATTEMPTS', weight: failedKycRule.weight ?? 25, score, description: `${failedKycRule.description} attempts=${failedKycAttempts}` });
+      totalScore += score * (failedKycRule.weight ?? 25);
+      totalWeight += failedKycRule.weight ?? 25;
     }
 
     // Rule: TRANSACTION_AMOUNT_REVIEW / UNUSUAL_TRADING_ACTIVITY
@@ -119,9 +122,9 @@ export class RiskScoringService {
       let score = 0;
       if (transactionSignals.length > 5) score = 60;
       else if (transactionSignals.length > 2) score = 30;
-      contributingRules.push({ ruleId: 'UNUSUAL_TRADING_ACTIVITY', weight: txRule.weight || 30, score, description: `${txRule.description} signals=${transactionSignals.length}` });
-      totalScore += score * (txRule.weight || 30);
-      totalWeight += txRule.weight || 30;
+      contributingRules.push({ ruleId: 'UNUSUAL_TRADING_ACTIVITY', weight: txRule.weight ?? 30, score, description: `${txRule.description} signals=${transactionSignals.length}` });
+      totalScore += score * (txRule.weight ?? 30);
+      totalWeight += txRule.weight ?? 30;
     }
 
     // Rule: ACCOUNT_AGE
@@ -132,9 +135,9 @@ export class RiskScoringService {
       if (ageDays < 1) score = 50;
       else if (ageDays < 7) score = 30;
       else if (ageDays < 30) score = 10;
-      contributingRules.push({ ruleId: 'ACCOUNT_AGE', weight: ageRule.weight || 15, score, description: `${ageRule.description} ageDays=${ageDays.toFixed(1)}` });
-      totalScore += score * (ageRule.weight || 15);
-      totalWeight += ageRule.weight || 15;
+      contributingRules.push({ ruleId: 'ACCOUNT_AGE', weight: ageRule.weight ?? 15, score, description: `${ageRule.description} ageDays=${ageDays.toFixed(1)}` });
+      totalScore += score * (ageRule.weight ?? 15);
+      totalWeight += ageRule.weight ?? 15;
     }
 
     const finalScore = totalWeight > 0 ? Math.min(100, Math.round(totalScore / totalWeight)) : 0;
@@ -154,7 +157,7 @@ export class RiskScoringService {
 
     // Persist
     try {
-      await (this.prisma as any).riskScoreRecord?.create({
+      await this.prisma.riskScoreRecord.create({
         data: {
           id: randomUUID(),
           tenantId: params.tenantId,
@@ -164,14 +167,15 @@ export class RiskScoringService {
           ruleIds: contributingRules.map((r) => r.ruleId),
           policyVersion: policy.policyVersion,
           // RiskScoreRecord keeps rules, methodology and context in contributingFactors.
-          contributingFactors: { rules: contributingRules, methodology: 'weighted_rule_based_v1', jurisdiction, totalWeight } as any,
+          contributingFactors: complianceJsonInput({ rules: contributingRules, methodology: 'weighted_rule_based_v1', jurisdiction, totalWeight }),
           calculatedAt: new Date(),
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
           idempotencyKey,
         },
       });
-    } catch (e: any) {
-      this.logger.warn(`Failed to persist risk score: ${e.message}`);
+    } catch (e) {
+      this.logger.warn(`Failed to persist risk score: ${e instanceof Error ? e.message : String(e)}`);
+      throw e;
     }
 
     await this.auditService.recordRiskScoreCalculated(params.tenantId, params.userId, finalScore, riskLevel, contributingRules.map((r) => r.ruleId));
@@ -180,23 +184,40 @@ export class RiskScoringService {
   }
 
   async getLatestScore(tenantId: string, userId: string): Promise<RiskScore | null> {
-    const record = await (this.prisma as any).riskScoreRecord?.findFirst({
+    const record = await this.prisma.riskScoreRecord.findFirst({
       where: { tenantId, userId },
       orderBy: { calculatedAt: 'desc' },
     });
 
     if (!record) return null;
+    if (!Number.isSafeInteger(record.score) || record.score < 0 || record.score > 100) throw new Error('Persisted risk score is invalid');
+
+    const factors = complianceObject(record.contributingFactors);
+    if (!factors || !Array.isArray(factors.rules) || typeof factors.methodology !== 'string') {
+      throw new Error('Persisted risk-score provenance is unavailable or malformed');
+    }
+    const rules: unknown[] = factors.rules;
+    const contributingRules: RiskScore['contributingRules'] = rules.map((entry) => {
+      const rule = complianceObject(entry);
+      if (!rule || typeof rule.ruleId !== 'string' || typeof rule.weight !== 'number' || !Number.isFinite(rule.weight)
+        || rule.weight < 0 || typeof rule.score !== 'number' || !Number.isFinite(rule.score) || rule.score < 0 || rule.score > 100 || typeof rule.description !== 'string') {
+        throw new Error('Persisted risk-score rule provenance is malformed');
+      }
+      return { ruleId: rule.ruleId, weight: rule.weight, score: rule.score, description: rule.description };
+    });
+    const riskLevel = Object.values(RiskLevel).find((value) => value === record.riskLevel);
+    if (!riskLevel) throw new Error('Persisted risk level is invalid');
 
     return {
       userId: record.userId,
       tenantId: record.tenantId,
       score: record.score,
-      riskLevel: record.riskLevel as RiskLevel,
-      contributingRules: record.contributingRules || [],
+      riskLevel,
+      contributingRules,
       policyVersion: record.policyVersion,
       calculatedAt: new Date(record.calculatedAt).toISOString(),
       expiresAt: record.expiresAt ? new Date(record.expiresAt).toISOString() : undefined,
-      methodology: record.methodology || 'weighted_rule_based_v1',
+      methodology: factors.methodology,
     };
   }
 
@@ -219,7 +240,7 @@ export class RiskScoringService {
     }
 
     // Blocked country overrides
-    const user = await this.getUser(params.userId);
+    const user = await this.getUser(params.tenantId, params.userId);
     if (user?.countryCode && (await this.policyService.isCountryBlocked(user.countryCode, policy))) {
       decision = ComplianceDecision.BLOCK;
       reasonCodes.push('BLOCKED_COUNTRY');
@@ -234,7 +255,7 @@ export class RiskScoringService {
     };
   }
 
-  private mapScoreToRiskLevel(score: number, policy: any): RiskLevel {
+  private mapScoreToRiskLevel(score: number, policy: CompliancePolicy): RiskLevel {
     if (score <= policy.riskThresholds.lowMax) return RiskLevel.LOW;
     if (score <= policy.riskThresholds.mediumMax) return RiskLevel.MEDIUM;
     if (score <= policy.riskThresholds.highMax) return RiskLevel.HIGH;
@@ -242,39 +263,39 @@ export class RiskScoringService {
     return RiskLevel.UNKNOWN;
   }
 
-  private async getKycProfile(userId: string): Promise<any | null> {
-    return await (this.prisma as any).kycProfile?.findUnique({ where: { userId } });
+  private async getKycProfile(tenantId: string, userId: string): Promise<KycProfile | null> {
+    return await this.prisma.kycProfile.findFirst({ where: { tenantId, userId } });
   }
 
-  private async getAmlRequests(tenantId: string, userId: string): Promise<any[]> {
-    return await (this.prisma as any).complianceScreeningRequest?.findMany({
+  private async getAmlRequests(tenantId: string, userId: string): Promise<ComplianceScreeningRequest[]> {
+    return await this.prisma.complianceScreeningRequest.findMany({
       where: { tenantId, userId, type: { in: ['AML', 'TRANSACTION'] } },
       orderBy: { createdAt: 'desc' },
       take: 10,
-    }) || [];
+    });
   }
 
-  private async getUser(userId: string): Promise<any | null> {
+  private async getUser(tenantId: string, userId: string): Promise<{ createdAt: Date; countryCode: string | null } | null> {
     // The user's country lives on UserProfile (User has no countryCode column).
-    const user = await (this.prisma as any).user?.findUnique({
-      where: { id: userId },
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
       select: { createdAt: true, profile: { select: { countryCode: true } } },
     });
     return user ? { createdAt: user.createdAt, countryCode: user.profile?.countryCode ?? null } : null;
   }
 
-  private async getTransactionSignals(tenantId: string, userId: string): Promise<any[]> {
-    return await (this.prisma as any).transactionMonitoringSignal?.findMany({
+  private async getTransactionSignals(tenantId: string, userId: string): Promise<TransactionMonitoringSignal[]> {
+    return await this.prisma.transactionMonitoringSignal.findMany({
       where: { tenantId, userId },
       orderBy: { createdAt: 'desc' },
       take: 20,
-    }) || [];
+    });
   }
 
   private async getFailedKycAttempts(tenantId: string, userId: string): Promise<number> {
-    const count = await (this.prisma as any).complianceScreeningRequest?.count({
+    const count = await this.prisma.complianceScreeningRequest.count({
       where: { tenantId, userId, type: 'KYC', kycState: 'REJECTED' },
     });
-    return count || 0;
+    return count;
   }
 }

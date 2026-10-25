@@ -1,6 +1,6 @@
-import { IsOptional, IsString, IsEnum, IsDateString, IsInt, Min, Max, IsUUID, IsArray } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsDateString, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ComplianceCaseState, ComplianceCaseType, RiskLevel, ComplianceDecision, KycState, AmlState, Jurisdiction } from '../compliance.types';
+import { ComplianceCaseState, ComplianceCaseType, RiskLevel, ComplianceDecision, KycState, AmlState } from '../compliance.types';
 
 export class ComplianceQueryDto {
   @IsOptional()

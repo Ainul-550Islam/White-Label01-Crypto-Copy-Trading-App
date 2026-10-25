@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+// # Responsibility: persist native exchange-account metadata and counters with tenant predicates on every mutation; credentials remain excluded from public records.
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeAccountState, ExchangeConnectionState, ExchangeHealthState, ExchangeCapability } from './exchange.types';
 import { randomUUID } from 'crypto';
-import type { Prisma } from '@prisma/client';
+import { CredentialSource, TradingVenue, type Prisma } from '@prisma/client';
 import { isRecordNotFound } from '../../common/errors/prisma-not-found';
 
 export interface CreateExchangeAccountInput {
@@ -47,7 +48,7 @@ export interface ExchangeAccountRecord {
   updatedAt: Date;
   deletedAt: Date | null;
   idempotencyKey: string | null;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 /**
@@ -98,11 +99,11 @@ export class ExchangeAccountRepository {
     // Idempotency check
     if (input.idempotencyKey) {
       const existing = await this.prisma.tradingAccount.findFirst({
-        where: { tenantId: input.tenantId, label: input.label, exchangeId: input.exchangeId } as any,
+        where: { tenantId: input.tenantId, label: input.label, exchangeId: input.exchangeId, userId: input.userId, deletedAt: null },
         select: ExchangeAccountRepository.SAFE_SELECT,
       });
       // Simple idempotency via label+tenant+exchange - if exists and not deleted, return
-      if (existing && !(existing as any).deletedAt) {
+      if (existing && !existing.deletedAt) {
         this.logger.log(`Idempotent account return tenant=${input.tenantId} label=${input.label} venue=${input.venue}`);
         return this.mapToRecord(existing);
       }
@@ -115,6 +116,8 @@ export class ExchangeAccountRepository {
     const isSandbox = input.environment !== ExchangeEnvironment.LIVE;
     const tradingMode = isSandbox ? 'PAPER' : 'LIVE';
     const marketType = 'SPOT';
+    const credentialSource = Object.values(CredentialSource).find((value) => value === input.credentialSource);
+    if (!credentialSource || input.isSandbox !== isSandbox) throw new BadRequestException('Invalid account credential source/environment binding');
 
     try {
       const created = await this.prisma.tradingAccount.create({
@@ -124,16 +127,16 @@ export class ExchangeAccountRepository {
           exchangeId: input.exchangeId,
           userId: input.userId,
           label: input.label,
-          status: 'PENDING_VALIDATION' as any,
-          marketType: marketType as any,
-          tradingMode: tradingMode as any,
+          status: 'PENDING_VALIDATION',
+          marketType,
+          tradingMode,
           isSandbox,
           liveTradingEnabled: false, // Never auto-enable live per security requirement
           privateStreamEnabled: false,
-          credentialSource: input.credentialSource as any,
+          credentialSource,
           credentialRef: input.credentialRef || null,
           apiKeyLastFour: input.apiKeyLastFour || '****',
-          apiKeyBlindIndex: input.apiKeyBlindIndex || 'pending_' + Math.random().toString(36).substring(2, 10),
+          apiKeyBlindIndex: input.apiKeyBlindIndex || `pending:${id}`,
           canTrade: false,
           canReadData: false,
           canWithdraw: false,
@@ -148,8 +151,8 @@ export class ExchangeAccountRepository {
 
       this.logger.log(`Exchange account created id=${created.id} tenant=${input.tenantId} venue=${input.venue} env=${input.environment}`);
       return this.mapToRecord(created);
-    } catch (e: any) {
-      if (e.code === 'P2002') {
+    } catch (e) {
+      if (e !== null && typeof e === 'object' && 'code' in e && e.code === 'P2002') {
         // Unique constraint - try to find existing
         const existing = await this.prisma.tradingAccount.findFirst({
           where: { tenantId: input.tenantId, exchangeId: input.exchangeId, userId: input.userId, label: input.label },
@@ -159,7 +162,7 @@ export class ExchangeAccountRepository {
           return this.mapToRecord(existing);
         }
       }
-      this.logger.error(`Failed to create exchange account tenant=${input.tenantId} venue=${input.venue} error=${e.message}`);
+      this.logger.error(`Failed to create exchange account tenant=${input.tenantId} venue=${input.venue} error=${e instanceof Error ? e.name : 'UnknownError'}`);
       throw e;
     }
   }
@@ -173,7 +176,7 @@ export class ExchangeAccountRepository {
   }
 
   async findByIdWithUserCheck(id: string, tenantId: string, userId?: string | null): Promise<ExchangeAccountRecord | null> {
-    const where: any = { id, tenantId, deletedAt: null };
+    const where: Prisma.TradingAccountWhereInput = { id, tenantId, deletedAt: null };
     if (userId) {
       where.userId = userId;
     }
@@ -199,13 +202,15 @@ export class ExchangeAccountRepository {
     const page = filters?.page || 1;
     const limit = Math.min(filters?.limit || 20, 100);
     const skip = (page - 1) * limit;
+    const nativeVenue = filters?.venue ? Object.values(TradingVenue).find((value) => value === filters.venue) : undefined;
+    if (filters?.venue && !nativeVenue) throw new BadRequestException('Venue is not supported by the native account schema');
 
     const where: Prisma.TradingAccountWhereInput = {
       tenantId,
       deletedAt: null,
       ...(filters?.userId ? { userId: filters.userId } : {}),
-      ...(filters?.venue ? { exchange: { venue: filters.venue as any } } : {}),
-      ...(filters?.status ? { status: ExchangeAccountRepository.toDbStatus(filters.status) as any } : {}),
+      ...(nativeVenue ? { exchange: { venue: nativeVenue } } : {}),
+      ...(filters?.status ? { status: ExchangeAccountRepository.toDbStatus(filters.status) } : {}),
       ...(filters?.environment
         ? filters.environment === ExchangeEnvironment.LIVE
           ? { isSandbox: false }
@@ -257,11 +262,12 @@ export class ExchangeAccountRepository {
   }
 
   async updateStatus(id: string, tenantId: string, status: ExchangeAccountState, errorCode?: string | null, errorMessage?: string | null): Promise<ExchangeAccountRecord | null> {
+    if (errorMessage) this.logger.debug(`Native account status reason supplied tenant=${tenantId} account=${id}; reason text is not stored because the schema has no failure-message column`);
     try {
       const updated = await this.prisma.tradingAccount.update({
-        where: { id },
+        where: { id, tenantId, deletedAt: null },
         data: {
-          status: ExchangeAccountRepository.toDbStatus(status) as any,
+          status: ExchangeAccountRepository.toDbStatus(status),
           lastFailureCode: errorCode || null,
           lastFailureAt: errorCode ? new Date() : undefined,
           updatedAt: new Date(),
@@ -269,8 +275,8 @@ export class ExchangeAccountRepository {
         select: ExchangeAccountRepository.SAFE_SELECT,
       });
       // Verify tenant ownership after update (defense in depth)
-      if ((updated as any).tenantId !== tenantId) {
-        this.logger.error(`Tenant mismatch on updateStatus id=${id} expected=${tenantId} got=${(updated as any).tenantId}`);
+      if (updated.tenantId !== tenantId) {
+        this.logger.error(`Tenant mismatch on updateStatus id=${id} expected=${tenantId} got=${updated.tenantId}`);
         return null;
       }
       return this.mapToRecord(updated);
@@ -283,7 +289,7 @@ export class ExchangeAccountRepository {
   async updateHealth(id: string, tenantId: string, health: { lastVerifiedAt?: Date; consecutiveFailures?: number; canTrade?: boolean; canReadData?: boolean; canWithdraw?: boolean; verifiedPermissions?: string[]; lastFailureCode?: string | null }): Promise<ExchangeAccountRecord | null> {
     try {
       const updated = await this.prisma.tradingAccount.update({
-        where: { id },
+        where: { id, tenantId, deletedAt: null },
         data: {
           lastVerifiedAt: health.lastVerifiedAt || undefined,
           consecutiveFailures: health.consecutiveFailures,
@@ -297,7 +303,7 @@ export class ExchangeAccountRepository {
         },
         select: ExchangeAccountRepository.SAFE_SELECT,
       });
-      if ((updated as any).tenantId !== tenantId) return null;
+      if (updated.tenantId !== tenantId) return null;
       return this.mapToRecord(updated);
     } catch (error) {
       if (isRecordNotFound(error)) return null;
@@ -308,11 +314,11 @@ export class ExchangeAccountRepository {
   async enableAccount(id: string, tenantId: string): Promise<ExchangeAccountRecord | null> {
     try {
       const updated = await this.prisma.tradingAccount.update({
-        where: { id },
-        data: { status: 'ACTIVE' as any, updatedAt: new Date() },
+        where: { id, tenantId, deletedAt: null },
+        data: { status: 'ACTIVE', updatedAt: new Date() },
         select: ExchangeAccountRepository.SAFE_SELECT,
       });
-      if ((updated as any).tenantId !== tenantId) return null;
+      if (updated.tenantId !== tenantId) return null;
       this.logger.log(`Account enabled id=${id} tenant=${tenantId}`);
       return this.mapToRecord(updated);
     } catch (error) {
@@ -324,11 +330,11 @@ export class ExchangeAccountRepository {
   async disableAccount(id: string, tenantId: string, reason?: string): Promise<ExchangeAccountRecord | null> {
     try {
       const updated = await this.prisma.tradingAccount.update({
-        where: { id },
-        data: { status: 'DISABLED' as any, updatedAt: new Date(), lastFailureCode: reason?.substring(0, 64) || 'MANUAL_DISABLE' },
+        where: { id, tenantId, deletedAt: null },
+        data: { status: 'DISABLED', updatedAt: new Date(), lastFailureCode: reason?.substring(0, 64) || 'MANUAL_DISABLE' },
         select: ExchangeAccountRepository.SAFE_SELECT,
       });
-      if ((updated as any).tenantId !== tenantId) return null;
+      if (updated.tenantId !== tenantId) return null;
       this.logger.log(`Account disabled id=${id} tenant=${tenantId} reason=${reason || 'manual'}`);
       return this.mapToRecord(updated);
     } catch (error) {
@@ -358,7 +364,7 @@ export class ExchangeAccountRepository {
     const result = await this.prisma.tradingAccount.updateMany({
       where: { id, tenantId },
       data: {
-        status: 'CREDENTIALS_INVALID' as any,
+        status: 'CREDENTIALS_INVALID',
         lastFailureCode: failureCode.substring(0, 64),
         lastFailureAt: new Date(),
         apiKeyCiphertext: null,
@@ -377,9 +383,9 @@ export class ExchangeAccountRepository {
   async revokeAccount(id: string, tenantId: string): Promise<ExchangeAccountRecord | null> {
     try {
       const updated = await this.prisma.tradingAccount.update({
-        where: { id },
+        where: { id, tenantId, deletedAt: null },
         data: {
-          status: 'DISABLED' as any,
+          status: 'DISABLED',
           apiKeyBlindIndex: ExchangeAccountRepository.releasedBlindIndex(id),
           apiKeyCiphertext: null,
           apiSecretCiphertext: null,
@@ -391,7 +397,7 @@ export class ExchangeAccountRepository {
         },
         select: ExchangeAccountRepository.SAFE_SELECT,
       });
-      if ((updated as any).tenantId !== tenantId) return null;
+      if (updated.tenantId !== tenantId) return null;
       this.logger.log(`Account revoked id=${id} tenant=${tenantId}`);
       return this.mapToRecord(updated);
     } catch (error) {
@@ -404,11 +410,11 @@ export class ExchangeAccountRepository {
     // This must be gated by existing live enablement outside repository - repository itself does not authorize live
     try {
       const updated = await this.prisma.tradingAccount.update({
-        where: { id },
+        where: { id, tenantId, deletedAt: null },
         data: { liveTradingEnabled: enabled, updatedAt: new Date() },
         select: ExchangeAccountRepository.SAFE_SELECT,
       });
-      if ((updated as any).tenantId !== tenantId) return null;
+      if (updated.tenantId !== tenantId) return null;
       this.logger.log(`Live trading ${enabled ? 'enabled' : 'disabled'} id=${id} tenant=${tenantId}`);
       return this.mapToRecord(updated);
     } catch (error) {
@@ -420,7 +426,7 @@ export class ExchangeAccountRepository {
   async updateSyncMetadata(id: string, tenantId: string, metadata: { lastSyncAt?: Date; capabilities?: ExchangeCapability[] }): Promise<void> {
     try {
       await this.prisma.tradingAccount.update({
-        where: { id },
+        where: { id, tenantId, deletedAt: null },
         data: {
           lastVerifiedAt: metadata.lastSyncAt || undefined,
           updatedAt: new Date(),
@@ -428,9 +434,16 @@ export class ExchangeAccountRepository {
           verifiedPermissions: metadata.capabilities || undefined,
         },
       });
-    } catch (e: any) {
-      this.logger.warn(`Failed to update sync metadata id=${id} error=${e.message}`);
+    } catch (e) {
+      this.logger.warn(`Failed to update sync metadata id=${id} error=${e instanceof Error ? e.name : 'UnknownError'}`);
+      throw e;
     }
+  }
+
+  async recordConnectivityFailure(id: string, tenantId: string, failureCode: string): Promise<boolean> {
+    const result = await this.prisma.tradingAccount.updateMany({ where: { id, tenantId, deletedAt: null },
+      data: { consecutiveFailures: { increment: 1 }, lastFailureCode: failureCode.substring(0, 64), lastFailureAt: new Date() } });
+    return result.count === 1;
   }
 
   async countByUser(tenantId: string, userId: string): Promise<number> {
@@ -449,8 +462,9 @@ export class ExchangeAccountRepository {
     return record ? this.mapToRecord(record) : null;
   }
 
-  private mapToRecord(row: any): ExchangeAccountRecord {
-    const venue = row.exchange?.venue || 'BINANCE';
+  private mapToRecord(row: Prisma.TradingAccountGetPayload<{ select: typeof ExchangeAccountRepository.SAFE_SELECT }>): ExchangeAccountRecord {
+    const venue = Object.values(ExchangeVenue).find((value) => value === row.exchange.venue);
+    if (!venue) throw new BadRequestException('Stored exchange venue is unsupported');
     const environment = row.isSandbox ? ExchangeEnvironment.TESTNET : ExchangeEnvironment.LIVE;
     // Map TradingAccountStatus to ExchangeAccountState
     const statusMap: Record<string, ExchangeAccountState> = {
@@ -463,7 +477,7 @@ export class ExchangeAccountRepository {
     const status = statusMap[row.status] || ExchangeAccountState.PENDING;
 
     // Derive health state from consecutive failures and last failure
-    let healthState = ExchangeHealthState.HEALTHY;
+    let healthState = row.lastVerifiedAt ? ExchangeHealthState.HEALTHY : ExchangeHealthState.UNAVAILABLE;
     if (row.consecutiveFailures > 5) healthState = ExchangeHealthState.DEGRADED;
     if (row.consecutiveFailures > 10) healthState = ExchangeHealthState.UNAVAILABLE;
     if (row.lastFailureCode && row.lastFailureCode.includes('AUTH')) healthState = ExchangeHealthState.AUTH_FAILED;
@@ -476,7 +490,7 @@ export class ExchangeAccountRepository {
       tenantId: row.tenantId,
       userId: row.userId || null,
       exchangeId: row.exchangeId,
-      venue: venue as ExchangeVenue,
+      venue,
       label: row.label,
       status,
       environment,
@@ -485,11 +499,15 @@ export class ExchangeAccountRepository {
       credentialRef: row.credentialRef || null,
       apiKeyLastFour: row.apiKeyLastFour || null,
       apiKeyBlindIndex: row.apiKeyBlindIndex || null,
-      capabilities: (row.verifiedPermissions as ExchangeCapability[]) || [],
+      capabilities: row.verifiedPermissions.flatMap((permission) => {
+        const capability = Object.values(ExchangeCapability).find((value) => value === permission);
+        return capability ? [capability] : [];
+      }),
       healthState,
       connectionState,
       lastVerifiedAt: row.lastVerifiedAt || null,
-      lastSyncAt: row.lastVerifiedAt || null,
+      // The schema has no durable sync timestamp; credential verification is not an account-data synchronization.
+      lastSyncAt: null,
       lastErrorCode: row.lastFailureCode || null,
       lastErrorMessage: null,
       liveTradingEnabled: row.liveTradingEnabled || false,

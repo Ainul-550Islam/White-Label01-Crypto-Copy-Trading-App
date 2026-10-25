@@ -8,11 +8,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { RateLimitService } from './rate-limit.service';
 import { EnforcementContextBuilder } from './enforcement.context';
 import { EnforcementAuditService } from './enforcement.audit';
-import {
-  EnforcementDecisionCode,
-  type EnforcementActor,
-  type QuotaCheckResult,
-} from './enforcement.types';
+import { type EnforcementActor } from './enforcement.types';
 import { RateLimitExceededError } from './enforcement.errors';
 import type { AppRequest } from '../../../common/types/request.types';
 

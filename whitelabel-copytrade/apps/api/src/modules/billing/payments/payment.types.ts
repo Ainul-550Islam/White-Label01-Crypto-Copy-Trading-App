@@ -1,5 +1,5 @@
 import type { ISODateString, UUID } from '@wlct/shared-types';
-import { BillingInterval, SubscriptionStatus } from '@wlct/shared-types';
+import { BillingInterval } from '@wlct/shared-types';
 
 /**
  * Payment domain types - shared across all payment adapters and services.

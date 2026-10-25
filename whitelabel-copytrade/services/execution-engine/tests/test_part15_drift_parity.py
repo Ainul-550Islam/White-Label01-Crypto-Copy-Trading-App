@@ -55,15 +55,9 @@ from app.schemas import EnablementRequest
 
 ROOT = Path(__file__).resolve().parents[3]
 RLS_DIR = ROOT / "apps" / "api" / "prisma" / "rls"
-MIGRATION = (
-    ROOT
-    / "apps"
-    / "api"
-    / "prisma"
-    / "migrations"
-    / "20260923090000_part11_row_level_security"
-    / "migration.sql"
-)
+MIGRATION_DIRECTORY = ROOT / "apps" / "api" / "prisma" / "migrations"
+MIGRATION_FILES = sorted(MIGRATION_DIRECTORY.glob("*_part11_row_level_security/migration.sql"))
+assert MIGRATION_FILES, "the Part 11 RLS migration history is missing"
 PRISMA_SERVICE = ROOT / "apps" / "api" / "src" / "infrastructure" / "prisma" / "prisma.service.ts"
 ENGINE_APP = ROOT / "services" / "execution-engine" / "app"
 ENGINE_CLIENT = (
@@ -116,7 +110,7 @@ READ_ONLY = "SET TRANSACTION READ ONLY"
 
 ENABLE = rls_artifact("enable.sql")
 DISABLE = rls_artifact("disable.sql")
-MIGRATION_SQL = MIGRATION.read_text(encoding="utf-8")
+MIGRATION_SQL = "\n".join(path.read_text(encoding="utf-8") for path in MIGRATION_FILES)
 
 
 class TestProbeTableSetMatchesTheArtifacts:
@@ -143,24 +137,24 @@ class TestProbeTableSetMatchesTheArtifacts:
         manifest = coverage_manifest()
         assert len(covered_tables(ENABLE)) == len(manifest["covered"])
         assert {entry["table"] for entry in manifest["covered"]} == set(covered_tables(ENABLE))
-        # The number the docs quote, in a test that reads the artifacts: 182
-        # after the regeneration that followed the domain-persistence table
-        # migration (20260923085000): the previous 161 (the Part 28 set of 153
-        # at stamp 20260923090000 plus the eight developer_* tenant tables from
-        # 20260923080000) plus the 21 tenant-owned billing, governance and
-        # partner tables. The six new platform-scoped tables (nullable
-        # tenant_id) joined the exclusion list, which is now 30.
-        # 186 after Part 11 production SSO (20260923089000): the four
-        # tenant-owned tables sso_auth_transactions, sso_identities,
-        # sso_assertion_replays and sso_audit_events; exclusions unchanged.
-        # It is pinned rather than derived because the whole point of the
-        # pairing tests is that enable.sql, disable.sql, rls_coverage.json and
-        # the prose agree - a number computed from one of them cannot show the
-        # other three disagree.
-        assert len(covered_tables(ENABLE)) == 186
+        # The historical count reached 182 after the regeneration that followed
+        # the domain-persistence migration (20260923085000): the previous 161
+        # (the Part 28 set of 153 at stamp 20260923090000 plus the eight
+        # developer_* tenant tables from 20260923080000) plus the 21
+        # tenant-owned billing, governance and partner tables. Six new
+        # platform-scoped tables (nullable tenant_id) joined the exclusion list.
+        # Part 11 production SSO (20260923089000) added four tenant-owned tables
+        # and brought coverage to 186; the two developer-platform tables in
+        # migration 20261006120000 brought it to 188, UserPositionLimit
+        # (20261007130000) to 189, and OutboxEvent (20261008130000) to 190.
+        # The exclusion list
+        # remains 30. The current count is pinned rather than derived because
+        # the pairing tests must detect disagreement among enable.sql,
+        # disable.sql, rls_coverage.json and the stated count.
+        assert len(covered_tables(ENABLE)) == 190
         assert len(coverage_manifest()["excluded"]) == 30
 
-    def test_every_covered_table_has_a_policy_in_the_migration(self) -> None:
+    def test_every_covered_table_has_a_policy_in_the_migration_history(self) -> None:
         policies = migrated_tables(MIGRATION_SQL)
         for table in covered_tables(ENABLE):
             assert table in policies, f"{table} is enabled but has no policy"

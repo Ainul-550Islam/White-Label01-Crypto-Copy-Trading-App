@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { TradeLifecycleService } from './trade-lifecycle.service';
-import { isValidDecimal, parseScaled, formatScaled, add } from './oms.types';
+import { isValidDecimal, parseScaled, formatScaled } from './oms.types';
 import { randomUUID } from 'crypto';
 
 /**
