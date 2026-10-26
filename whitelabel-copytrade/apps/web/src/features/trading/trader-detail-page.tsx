@@ -2,6 +2,8 @@
 'use client';
 import type { JSX } from 'react';
 
+import { useState } from 'react';
+
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { tradingApi } from '@/api/trading-api';
@@ -11,6 +13,72 @@ import { StatusBadge } from '@/components/status-badge';
 import { LoadingState } from '@/components/loading-state';
 import { ErrorState } from '@/components/error-state';
 import { TraderRiskScore } from './trader-risk-score';
+import { ShareTraderDialog } from './share-trader-dialog';
+import { shareApi, type ShareLinkSummary } from '@/api/copy-ops-api';
+
+/**
+ * Stable empty list for the share query's initial state.
+ *
+ * `?? []` in the render would make a new array every time and force the memoised
+ * filtering inside the dialog to recompute for no reason.
+ */
+const NO_SHARE_LINKS: readonly ShareLinkSummary[] = [];
+
+/**
+ * The owner's entry point to a public share link.
+ *
+ * Only rendered for the trader themselves: a visitor must not see a button that
+ * opens a dialog whose every action the API would refuse. The section is also the
+ * only place a customer can find links they handed out earlier, including revoked
+ * ones, because "it is gone" has to be checkable rather than asserted.
+ */
+function ShareProfileSection({
+  traderId,
+  displayName,
+  existingLinks,
+}: {
+  traderId: string;
+  displayName: string;
+  existingLinks: readonly ShareLinkSummary[];
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const mine = existingLinks.filter((link) => link.subjectType === 'TRADER' && link.subjectId === traderId);
+  const live = mine.filter((link) => link.revokedAt === null);
+
+  return (
+    <section className="rounded border bg-card p-4" aria-label="Share your profile">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="font-semibold">Share your profile</h2>
+          <p className="mt-1 text-xs text-muted">
+            A share link shows only the details you tick, and nothing is shared until you choose. Links expire, and you
+            can revoke one at any time.
+          </p>
+        </div>
+        <button type="button" className="rounded border px-3 py-1.5 text-sm hover:bg-slate-50" onClick={() => setOpen(true)}>
+          Create a share link
+        </button>
+      </div>
+
+      {mine.length > 0 && (
+        <p className="mt-2 text-xs text-muted">
+          {live.length === 0
+            ? 'You have no active share links for this profile.'
+            : `${live.length} active share link${live.length === 1 ? '' : 's'} for this profile.`}
+        </p>
+      )}
+
+      <ShareTraderDialog
+        open={open}
+        subjectType="TRADER"
+        subjectId={traderId}
+        subjectLabel={displayName}
+        onClose={() => setOpen(false)}
+        existing={[...mine]}
+      />
+    </section>
+  );
+}
 
 export function TraderDetailPage({ id }: { id: string }): JSX.Element {
   const { data, isLoading, error, refetch } = useQuery({
@@ -27,6 +95,13 @@ export function TraderDetailPage({ id }: { id: string }): JSX.Element {
     queryFn: () => customerExposureApi.getTraderExposure(id),
     enabled: data?.viewerIsOwner === true,
     staleTime: 5_000,
+  });
+  const existingLinksQuery = useQuery({
+    queryKey: ['share-links'],
+    queryFn: () => shareApi.list(),
+    enabled: data?.viewerIsOwner === true,
+    staleTime: 30_000,
+    retry: false,
   });
 
   if (isLoading) return <LoadingState />;
@@ -90,6 +165,14 @@ export function TraderDetailPage({ id }: { id: string }): JSX.Element {
                 : exposure.data ? <p role="status" className="mt-2 text-sm">{exposure.data.state} · as of {exposure.data.asOf}; simulated records and cash balances are excluded.</p>
                   : <p role="status" className="mt-2 text-sm text-muted">Your trader-profile exposure is unavailable.</p>}
           </section>
+        )}
+
+        {data.viewerIsOwner && (
+          <ShareProfileSection
+            traderId={data.traderId}
+            displayName={data.displayName}
+            existingLinks={existingLinksQuery.data ?? NO_SHARE_LINKS}
+          />
         )}
 
         <div className="rounded border bg-card p-4">

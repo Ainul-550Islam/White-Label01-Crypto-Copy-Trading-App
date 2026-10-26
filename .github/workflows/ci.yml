@@ -114,6 +114,19 @@ jobs:
       - name: Client API contract check (web, admin web and mobile calls hit declared routes with accepted query keys)
         run: npm run check:web-api-contract
 
+      # These three checks existed as npm scripts but ran in no workflow, so the
+      # only CI that GitHub executes (this one) never saw a broken Next.js entry
+      # point, a developer note rendered to customers, or Tailwind utilities
+      # missing from the production stylesheet.
+      - name: Check Next.js request entrypoints (middleware vs proxy, one per app)
+        run: npm run check:next-entrypoints   # scripts/check-next-entrypoints.mjs
+
+      - name: Check rendered UI copy for developer notes
+        run: npm run check:ui-copy-leaks   # scripts/check-ui-copy-leaks.mjs
+
+      - name: Step-up path check (action-bound, mutating, permission-decorated)
+        run: npm run check:step-up-paths   # scripts/check-step-up-paths.mjs
+
       - name: Script unit tests (contract checker, DR manifest, retention)
         run: node --test scripts/
 
@@ -130,6 +143,10 @@ jobs:
           API_BASE_URL: http://api:4000/api
           ADMIN_TENANT_SLUG: platform
           SESSION_COOKIE_SECRET: build_time_placeholder_not_used_at_runtime
+
+      # Reads apps/web/.next/static, so it can only run after the build above.
+      - name: Verify generated customer-web Tailwind utilities
+        run: npm run check:tailwind-output   # apps/web/scripts/check-tailwind-output.mjs
 
       - name: TypeScript SDK (build + node:test route-parity suite)
         run: |

@@ -2,7 +2,15 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 /**
- * Request proxy.
+ * Request proxy - the ONE request entrypoint of the admin console.
+ *
+ * Next 16 accepts a single request entrypoint per application and reads this
+ * one; a sibling middleware entrypoint made `next build` fail outright ("both
+ * middleware and proxy files detected"), which is why this file is the only one
+ * that exists. Everything the deleted middleware module did - the login
+ * redirect, the per-request CSP nonce, the matcher - is here, because the two
+ * files were byte-identical in behaviour; the parameterised security headers
+ * below are the additions that only ever lived in neither of them.
  *
  * Two jobs, both cheap:
  *  1. Bounce unauthenticated navigation to /login before a server component
@@ -14,6 +22,24 @@ import { NextResponse, type NextRequest } from 'next/server';
  * validates every token. This is a redirect optimisation, not access control.
  */
 const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/two-factor', '/api/auth/refresh'];
+
+/**
+ * Headers that are identical on every response. Kept in one place so a header
+ * added for one route cannot be forgotten on another: the proxy runs for every
+ * non-static request, which is what makes it the right layer for them.
+ */
+const STATIC_SECURITY_HEADERS: ReadonlyArray<readonly [string, string]> = [
+  ['X-Content-Type-Options', 'nosniff'],
+  ['Referrer-Policy', 'strict-origin-when-cross-origin'],
+  // The console never needs any of these device APIs; denying them means an
+  // injected script cannot ask for them either.
+  ['Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()'],
+  // Frame-ancestors in the CSP below is the enforcing rule; this is the
+  // belt-and-braces header older browsers still read.
+  ['X-Frame-Options', 'DENY'],
+  ['Cross-Origin-Opener-Policy', 'same-origin'],
+  ['Cross-Origin-Resource-Policy', 'same-origin'],
+];
 
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
@@ -55,8 +81,9 @@ export function proxy(request: NextRequest): NextResponse {
   ].join('; ');
 
   response.headers.set('Content-Security-Policy', csp);
-  response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  for (const [name, value] of STATIC_SECURITY_HEADERS) {
+    response.headers.set(name, value);
+  }
 
   return response;
 }

@@ -1,0 +1,109 @@
+diff --git a/whitelabel-copytrade/apps/api/prisma/schema.prisma b/whitelabel-copytrade/apps/api/prisma/schema.prisma
+index dc20f27..7efadcb 100644
+--- a/whitelabel-copytrade/apps/api/prisma/schema.prisma
++++ b/whitelabel-copytrade/apps/api/prisma/schema.prisma
+@@ -1057,6 +1057,104 @@ model TenantFeatureFlag {
+   @@map("tenant_feature_flags")
+ }
+ 
++
++// ===== BATCH 04 =====
++enum ProfitShareStatementStatus {
++  DRAFT
++  FINALIZED
++  SUPERSEDED
++}
++
++model FeeScheduleVersion {
++  id                String   @id @default(uuid()) @db.Uuid
++  tenantId          String?  @map("tenant_id") @db.Uuid
++  version           Int
++  effectiveFrom     DateTime @map("effective_from") @db.Timestamptz(6)
++  effectiveUntil    DateTime? @map("effective_until") @db.Timestamptz(6)
++  managementFeeRate String   @map("management_fee_rate") @db.VarChar(64)
++  profitShareRate   String   @map("profit_share_rate") @db.VarChar(64)
++  currency          String   @db.VarChar(3)
++  publishedBy       String   @map("published_by") @db.Uuid
++  publishedAt       DateTime @default(now()) @map("published_at") @db.Timestamptz(6)
++  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
++
++  @@unique([tenantId, version])
++  @@index([tenantId, effectiveFrom, effectiveUntil])
++  @@map("fee_schedule_versions")
++}
++
++model ProfitShareStatement {
++  id                 String                      @id @default(uuid()) @db.Uuid
++  tenantId           String                      @map("tenant_id") @db.Uuid
++  followerUserId     String                      @map("follower_user_id") @db.Uuid
++  traderUserId       String                      @map("trader_user_id") @db.Uuid
++  periodStart        DateTime                    @map("period_start") @db.Timestamptz(6)
++  periodEnd          DateTime                    @map("period_end") @db.Timestamptz(6)
++  version            Int                         @default(1)
++  status             ProfitShareStatementStatus @default(DRAFT)
++  currency           String                      @db.VarChar(3)
++  grossProfit        String                      @map("gross_profit") @db.VarChar(128)
++  profitShareAmount  String                      @map("profit_share_amount") @db.VarChar(128)
++  highWaterMark      String                      @map("high_water_mark") @db.VarChar(128)
++  roundingRule       String                      @map("rounding_rule") @db.VarChar(64)
++  supersedesId       String?                     @map("supersedes_id") @db.Uuid
++  finalizedAt        DateTime?                   @map("finalized_at") @db.Timestamptz(6)
++  createdAt          DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
++  lines              ProfitShareStatementLine[]
++
++  @@unique([tenantId, followerUserId, traderUserId, periodStart, periodEnd, currency, version])
++  @@index([tenantId, followerUserId, periodStart, periodEnd, status])
++  @@map("profit_share_statements")
++}
++
++model ProfitShareStatementLine {
++  id             String               @id @default(uuid()) @db.Uuid
++  statementId    String               @map("statement_id") @db.Uuid
++  sourceLedgerId String               @map("source_ledger_id") @db.VarChar(64)
++  sourceUserId   String               @map("source_user_id") @db.Uuid
++  currency       String               @db.VarChar(3)
++  profitAmount   String               @map("profit_amount") @db.VarChar(128)
++  feeAmount      String               @map("fee_amount") @db.VarChar(128)
++  postedAt       DateTime             @map("posted_at") @db.Timestamptz(6)
++  statement      ProfitShareStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
++
++  @@unique([statementId, sourceLedgerId])
++  @@index([sourceUserId, postedAt])
++  @@map("profit_share_statement_lines")
++}
++
++model UserPreferences {
++  id              String   @id @default(uuid()) @db.Uuid
++  tenantId        String   @map("tenant_id") @db.Uuid
++  userId          String   @map("user_id") @db.Uuid
++  locale          String   @default("en") @db.VarChar(8)
++  displayCurrency String   @default("USD") @map("display_currency") @db.VarChar(3)
++  timezone        String   @default("UTC") @db.VarChar(64)
++  dateFormat      String   @default("ISO") @map("date_format") @db.VarChar(8)
++  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
++  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
++
++  @@unique([tenantId, userId])
++  @@index([tenantId, userId])
++  @@map("user_preferences")
++}
++
++model PolicyAcceptance {
++  id          String    @id @default(uuid()) @db.Uuid
++  tenantId    String    @map("tenant_id") @db.Uuid
++  userId      String    @map("user_id") @db.Uuid
++  document    String    @db.VarChar(64)
++  version     String    @db.VarChar(64)
++  contentHash String    @map("content_hash") @db.Char(64)
++  acceptedAt  DateTime  @default(now()) @map("accepted_at") @db.Timestamptz(6)
++  withdrawnAt DateTime? @map("withdrawn_at") @db.Timestamptz(6)
++  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
++
++  @@unique([tenantId, userId, document, version, contentHash])
++  @@index([tenantId, userId, document, acceptedAt])
++  @@map("policy_acceptances")
++}
++
+ // -----------------------------------------------------------------------------
+ // Compliance and notifications (foundation only)
+ // -----------------------------------------------------------------------------

@@ -1,0 +1,11 @@
+// # Responsibility: proves follower statements reconcile exact decimals to settled accruals and posted tenant ledger entries.
+import { ProfitShareStatementService } from './profit-share-statement.service';
+import type { PrismaService } from '../../infrastructure/prisma/prisma.service';
+
+describe('ProfitShareStatementService',()=>{
+  const tenant='11111111-1111-4111-8111-111111111111';const user='22222222-2222-4222-8222-222222222222';
+  const db={feeAccrual:{findMany:jest.fn()},billingLedgerEntry:{findMany:jest.fn()}};
+  let service:ProfitShareStatementService;
+  beforeEach(()=>{jest.clearAllMocks();service=new ProfitShareStatementService(db as unknown as PrismaService);db.feeAccrual.findMany.mockResolvedValue([{id:'accrual-1',sourceAmount:'1000.123456789',feeAmount:'25',currency:'USD',rateBps:250,createdAt:new Date('2026-10-01T00:00:00Z'),settlementTimestamp:new Date('2026-10-02T00:00:00Z')},{id:'accrual-unposted',sourceAmount:'20',feeAmount:'1',currency:'EUR',rateBps:500,createdAt:new Date(),settlementTimestamp:null}]);db.billingLedgerEntry.findMany.mockResolvedValue([{sourceId:'accrual-1',amount:'25.00000001',currency:'USD',entryType:'CREDIT',effectiveAt:new Date('2026-10-02T00:00:00Z'),metadata:{}},{sourceId:'accrual-1',amount:'0.00000001',currency:'USD',entryType:'DEBIT',effectiveAt:new Date('2026-10-03T00:00:00Z'),metadata:{reversal:true}}]);});
+  it('filters accruals by tenant and follower, excludes unposted rows, and uses exact posted-ledger net',async()=>{const result=await service.getForFollower(tenant,user);expect(db.feeAccrual.findMany).toHaveBeenCalledWith(expect.objectContaining({where:expect.objectContaining({tenantId:tenant,feeSourceType:'TRADING_PERFORMANCE',feeType:'PERFORMANCE_FEE',status:'SETTLED',metadata:{path:['followerId'],equals:user}}),take:500}));expect(db.billingLedgerEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({where:expect.objectContaining({tenantId:tenant,sourceType:'FEE',status:'POSTED',accountCategory:'PERFORMANCE_FEE_REVENUE'})}));expect(result.currencyTotals).toEqual({USD:'25'});expect(result.rows).toHaveLength(1);expect(result.rows[0].postedNetFeeAmount).toBe('25');expect(result.excludedWithoutPostedLedger).toBe(1);expect(result.source).toBe('posted billing ledger');});
+});

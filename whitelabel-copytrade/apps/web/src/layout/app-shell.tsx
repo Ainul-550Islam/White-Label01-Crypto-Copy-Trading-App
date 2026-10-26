@@ -6,6 +6,7 @@ import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
 import { MobileNavigation } from './mobile-navigation';
 import { MaintenanceBanner } from '@/components/maintenance-banner';
+import { VenueStatusBanner } from '@/features/trading/venue-status-banner';
 
 interface AppShellProps {
   children: ReactNode;
@@ -15,6 +16,9 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
   return (
     <div className="min-h-screen bg-background">
       <MaintenanceBanner />
+      {/* Above the topbar: a customer must learn the exchange is paused before
+          they reach an order ticket, not after the order fails to fill. */}
+      <VenueStatusBanner />
       <Topbar />
       <div className="flex">
         <aside className="hidden w-64 shrink-0 border-r bg-card md:block">

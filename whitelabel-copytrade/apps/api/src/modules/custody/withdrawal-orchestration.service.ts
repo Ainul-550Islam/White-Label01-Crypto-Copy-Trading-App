@@ -7,6 +7,7 @@ import { BlockchainProviderFactory } from './blockchain-provider.factory';
 import { TransactionService } from './transaction.service';
 import { CustodyAuditService } from './custody-audit.service';
 import { CustodyPolicyService } from './custody-policy.service';
+import { WithdrawalDestinationPolicyService } from './withdrawal-destination-policy.service';
 import { deterministicIdempotencyKey, CustodyWithdrawalState, WITHDRAWAL_VALID_TRANSITIONS, redactSecrets } from './custody.types';
 
 /**
@@ -26,6 +27,7 @@ export class WithdrawalOrchestrationService {
     private readonly transactionService: TransactionService,
     private readonly auditService: CustodyAuditService,
     private readonly custodyPolicyService: CustodyPolicyService,
+    private readonly destinationPolicy: WithdrawalDestinationPolicyService,
   ) {}
 
   async submitWithdrawal(params: {
@@ -61,6 +63,31 @@ export class WithdrawalOrchestrationService {
     if (!eligibility.eligible) {
       // DO NOT SUBMIT if any mandatory gate fails
       throw new BadRequestException(`Withdrawal safety gates failed — DO NOT SUBMIT: ${eligibility.blockingReasons.join(', ')}`);
+    }
+
+    // Where the withdrawal belongs to a customer (their user id is carried in the
+    // row's metadata), the destination must also be on that customer's approved
+    // list. This is checked on the SUBMIT path as well as at creation, because a
+    // destination can be revoked between the two and the whole point of the
+    // allowlist is that a revoked address stops receiving funds immediately.
+    //
+    // A withdrawal with no customer attached is an operator-initiated custody
+    // movement: it already passes approval, permission and step-up gates that a
+    // customer never holds, and it is not addressed to a customer's private
+    // address list.
+    const requestedByUserId = this.readRequestedByUserId(withdrawal.metadata);
+    if (requestedByUserId) {
+      const destination = await this.destinationPolicy.evaluateWithdrawal({
+        tenantId,
+        userId: requestedByUserId,
+        network: String(withdrawal.networkId ?? ''),
+        address: String(withdrawal.destinationAddress ?? ''),
+      });
+      if (destination.decision !== 'ALLOW') {
+        throw new BadRequestException(
+          `Withdrawal destination is not approved — DO NOT SUBMIT: ${destination.message}`,
+        );
+      }
     }
 
     // Check approval exists — existing withdrawal approval requirements must not be bypassed
@@ -184,6 +211,19 @@ export class WithdrawalOrchestrationService {
     this.logger.log({ event: 'custody.withdrawal.submitted', tenantId, custodyWithdrawalId, transactionHash: providerResult?.transactionHash });
 
     return submitted;
+  }
+
+  /**
+   * The customer behind a withdrawal, when one is recorded. Metadata is free-form
+   * JSON, so this reads defensively: anything that is not a UUID-shaped string is
+   * treated as absent rather than coerced into a destination lookup.
+   */
+  private readRequestedByUserId(metadata: unknown): string | null {
+    if (!metadata || typeof metadata !== 'object') return null;
+    const value = (metadata as Record<string, unknown>).requestedByUserId;
+    if (typeof value !== 'string' || value.length === 0) return null;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuid.test(value) ? value : null;
   }
 
   private async getDecimalsForAsset(assetId: string): Promise<number> {

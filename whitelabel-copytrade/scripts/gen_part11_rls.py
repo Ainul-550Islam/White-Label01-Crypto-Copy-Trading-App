@@ -284,6 +284,33 @@ def main() -> int:
     previously_covered = prior_policy_tables(args.stamp)
     policy_delta = [(table, model) for table, model in covered if table not in previously_covered]
 
+    # One table list, two files. `enable.sql` and `disable.sql` are rendered from
+    # the SAME `covered` list in this process, and the pair is re-derived from
+    # the rendered text below before either file is written: an ENABLE without
+    # its DISABLE is a rollback path that silently leaves one table protected
+    # (or unprotected) forever, and the execution engine's Part 15 parity test
+    # pins the two files as an exact pair. Deriving them from one list makes the
+    # counts agree by construction; the check makes a future refactor that
+    # reintroduces a second list fail here instead of in a release.
+    enable_sql = build_enable(covered, excluded, args.stamp)
+    disable_sql = build_disable(covered, args.stamp)
+    enable_tables = set(re.findall(r'ALTER TABLE "([^"]+)" ENABLE ROW LEVEL SECURITY;', enable_sql))
+    disable_tables = set(re.findall(r'ALTER TABLE "([^"]+)" DISABLE ROW LEVEL SECURITY;', disable_sql))
+    forced_tables = set(re.findall(r'ALTER TABLE "([^"]+)" FORCE ROW LEVEL SECURITY;', enable_sql))
+    unforced_tables = set(re.findall(r'ALTER TABLE "([^"]+)" NO FORCE ROW LEVEL SECURITY;', disable_sql))
+    if not (enable_tables == disable_tables == forced_tables == unforced_tables):
+        raise SystemExit(
+            "enable.sql and disable.sql are not an exact pair: "
+            f"enable={len(enable_tables)} force={len(forced_tables)} "
+            f"disable={len(disable_tables)} no-force={len(unforced_tables)}; "
+            f"only in enable={sorted(enable_tables - disable_tables)[:5]} "
+            f"only in disable={sorted(disable_tables - enable_tables)[:5]}"
+        )
+    if len(enable_tables) != len(covered):
+        raise SystemExit(
+            f"rendered pair covers {len(enable_tables)} tables but the schema parse found {len(covered)}"
+        )
+
     mig_dir = MIGRATIONS / f"{args.stamp}_rls_policy_gap_close"
     mig_dir.mkdir(parents=True, exist_ok=True)
     (mig_dir / "migration.sql").write_text(
@@ -291,8 +318,8 @@ def main() -> int:
         encoding="utf-8",
     )
     RLS_DIR.mkdir(parents=True, exist_ok=True)
-    (RLS_DIR / "enable.sql").write_text(build_enable(covered, excluded, args.stamp), encoding="utf-8")
-    (RLS_DIR / "disable.sql").write_text(build_disable(covered, args.stamp), encoding="utf-8")
+    (RLS_DIR / "enable.sql").write_text(enable_sql, encoding="utf-8")
+    (RLS_DIR / "disable.sql").write_text(disable_sql, encoding="utf-8")
     (RLS_DIR / "grant.sql").write_text(build_grant(args.stamp), encoding="utf-8")
     (RLS_DIR / "rls_coverage.json").write_text(
         json.dumps(
@@ -310,6 +337,7 @@ def main() -> int:
         encoding="utf-8",
     )
     print(f"covered: {len(covered)} tables, excluded: {len(excluded)}")
+    print(f"enable/disable pair verified: {len(enable_tables)} tables each")
     print(f"additive migration policies: {len(policy_delta)} new tables")
     print(f"wrote {mig_dir}/migration.sql, {RLS_DIR}/{{enable,disable,grant}}.sql, rls_coverage.json")
     return 0

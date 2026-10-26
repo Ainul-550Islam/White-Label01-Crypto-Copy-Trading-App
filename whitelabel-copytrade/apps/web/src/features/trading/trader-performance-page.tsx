@@ -18,6 +18,7 @@ import {
   formatWinRatePercent,
 } from "./trader-metric-definitions";
 import { TraderPerformanceChart } from "./trader-performance-chart";
+import { PerformanceMethodology } from "./performance-methodology";
 
 export function TraderPerformancePage({ id, initialWindow }: { id: string; initialWindow?: string }): JSX.Element {
   const [selectedMetricKey, setSelectedMetricKey] = useState<MetricKey>("realizedPnl");
@@ -83,6 +84,11 @@ export function TraderPerformancePage({ id, initialWindow }: { id: string; initi
                 </Link>
               </div>
             </div>
+
+            {/* The API has not supplied a verified method on this legacy performance
+                response. Show the explicit unavailable disclosure rather than imply
+                that the metrics are period-linked or independently verified. */}
+            <PerformanceMethodology />
 
             {/* Key Metric Cards with Interactive Formula Inspector */}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

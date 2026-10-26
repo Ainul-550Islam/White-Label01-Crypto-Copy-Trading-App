@@ -1,67 +1,94 @@
 // # Verifies action-bound step-up access and audit records for every allow and deny.
+import { ForbiddenException } from '@nestjs/common';
+import { ErrorCode } from '@wlct/shared-types';
+
 import { StepUpGuard } from './step-up.guard';
 
-function makeContext(
-  action: string,
-  actor: unknown = { userId: 'user-a', tenantId: 'tenant-a', sessionId: 'session-a' },
-) {
-  const handler = jest.fn();
+function makeContext(action: string | undefined, actor: unknown = { userId: 'user-a', tenantId: 'tenant-a', sessionId: 'session-a' }) {
   const request = {
     actor,
     tenantContext: { tenantId: 'tenant-a' },
     ipHash: 'ip-hash',
     headers: { 'user-agent': 'browser' },
     requestId: 'request-a',
-    originalUrl: '/v1/payouts',
+    originalUrl: '/v1/payouts?limit=1',
     method: 'POST',
   };
   const reflector = { getAllAndOverride: jest.fn((_key: string, _targets: unknown[]) => action) };
-  const isFresh = jest.fn();
-  const recordImmediate = jest.fn().mockResolvedValue(undefined);
-  const guard = new StepUpGuard(
-    reflector as never,
-    { isFresh } as never,
-    { recordImmediate } as never,
-  );
+  const consumeForRoute = jest.fn();
+  const guard = new StepUpGuard(reflector as never, { consumeForRoute } as never);
   const context = {
-    getHandler: () => handler,
+    getHandler: () => () => undefined,
     getClass: () => class Route {},
     switchToHttp: () => ({ getRequest: () => request }),
   } as never;
-  return { guard, context, isFresh, recordImmediate, request, handler };
+  return { guard, context, consumeForRoute, request };
 }
 
 describe('StepUpGuard', () => {
-  it('allows a fresh exact-action grant and records an allow audit event', async () => {
-    const mocks = makeContext('PAYOUT_CREATE');
-    mocks.isFresh.mockResolvedValue(true);
-    await expect(mocks.guard.canActivate(mocks.context)).resolves.toBe(true);
-    expect(mocks.isFresh).toHaveBeenCalledWith(mocks.request.actor, 'PAYOUT_CREATE');
-    expect(mocks.recordImmediate).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'STEP_UP_ROUTE_ALLOWED' }),
+  it('allows a consumed exact-action proof without writing a second audit row', async () => {
+    const { guard, context, consumeForRoute, request } = makeContext('PAYOUT_CREATE');
+    consumeForRoute.mockResolvedValue(true);
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+
+    expect(consumeForRoute).toHaveBeenCalledWith(
+      request.actor,
+      'PAYOUT_CREATE',
+      expect.objectContaining({ ipHash: 'ip-hash', requestId: 'request-a', method: 'POST', path: '/v1/payouts' }),
     );
   });
 
-  it('denies missing/expired proofs with STEP_UP_REQUIRED and audits the denied action', async () => {
-    const mocks = makeContext('PAYOUT_APPROVE');
-    mocks.isFresh.mockResolvedValue(false);
-    await expect(mocks.guard.canActivate(mocks.context)).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'STEP_UP_REQUIRED', action: 'PAYOUT_APPROVE' }),
+  it('denies a missing/expired proof with STEP_UP_REQUIRED and 403', async () => {
+    const { guard, context, consumeForRoute } = makeContext('PAYOUT_APPROVE');
+    consumeForRoute.mockResolvedValue(false);
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(guard.canActivate(context)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: ErrorCode.STEP_UP_REQUIRED, action: 'PAYOUT_APPROVE' }),
       status: 403,
     });
-    expect(mocks.recordImmediate).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'STEP_UP_ROUTE_DENIED', outcome: 'FAILURE' }),
-    );
   });
 
-  it('does not require proof for handlers without @RequireStepUp metadata', async () => {
-    const mocks = makeContext('');
-    const reflector = { getAllAndOverride: jest.fn(() => undefined) };
+  it('does not require a proof for handlers without @RequireStepUp metadata', async () => {
+    const { guard, context, consumeForRoute } = makeContext(undefined);
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(consumeForRoute).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unauthenticated caller on a sensitive route without consulting the store', async () => {
+    const { guard, context, consumeForRoute } = makeContext('EXCHANGE_KEY_ROTATE', null);
+    consumeForRoute.mockResolvedValue(false);
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('reads the metadata from the handler before the class', async () => {
+    const getAllAndOverride = jest.fn(() => 'CUSTODY_SWEEP');
     const guard = new StepUpGuard(
-      reflector as never,
-      { isFresh: jest.fn() } as never,
-      { recordImmediate: jest.fn() } as never,
+      { getAllAndOverride } as never,
+      { consumeForRoute: jest.fn().mockResolvedValue(true) } as never,
     );
-    await expect(guard.canActivate(mocks.context)).resolves.toBe(true);
+    const handler = () => undefined;
+    const controller = class Route {};
+    const context = {
+      getHandler: () => handler,
+      getClass: () => controller,
+      switchToHttp: () => ({
+        getRequest: () => ({
+          actor: { userId: 'user-a', tenantId: 'tenant-a', sessionId: 'session-a' },
+          ipHash: 'ip-hash',
+          headers: {},
+          requestId: 'request-a',
+          originalUrl: '/v1/custody/sweep',
+          method: 'POST',
+        }),
+      }),
+    } as never;
+
+    await guard.canActivate(context);
+
+    expect(getAllAndOverride).toHaveBeenCalledWith('security:require-step-up', [handler, controller]);
   });
 });

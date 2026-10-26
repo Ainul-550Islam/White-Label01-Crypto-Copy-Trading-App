@@ -203,4 +203,49 @@ export const exchangeApi = {
 
   getAccountHealth: async (id: string): Promise<ExchangeConnectivity> =>
     toConnectivity(await apiClient.get<BackendConnectivity>(`/v1/execution/accounts/${encodeURIComponent(id)}/connectivity`)),
+
+  /**
+   * Replace the stored credential. Two-phase on the server: the candidate is
+   * verified against the venue while the old key is still live, and the old key is
+   * only removed once the switch commits. Requires a fresh step-up proof for
+   * EXCHANGE_KEY_ROTATE.
+   *
+   * The response's `status` is not inferred from the HTTP code: a REFUSED rotation
+   * is a 200 with `previousKeyRetained: true`, because "nothing changed" is a
+   * successful answer to the request.
+   */
+  rotateAccountCredentials: async (
+    id: string,
+    data: { apiKey: string; secret: string; passphrase?: string },
+  ): Promise<{
+    status: string;
+    code: string;
+    message: string;
+    apiKeyLastFour: string | null;
+    previousKeyRetained: boolean;
+  }> => {
+    const raw = await apiClient.post<{
+      status?: string;
+      code?: string;
+      message?: string;
+      apiKeyLastFour?: string | null;
+      previousKeyRetained?: boolean;
+    }>(`/v1/exchanges/accounts/${encodeURIComponent(id)}/rotate`, {
+      apiKey: data.apiKey.trim(),
+      // The wire field name lives here and nowhere else: screens hand over a value
+      // called `secret`, so no component has to know what the API calls it.
+      apiSecret: data.secret.trim(),
+      ...(data.passphrase ? { passphrase: data.passphrase.trim() } : {}),
+      idempotencyKey: newIdempotencyKey('rotate'),
+    });
+    return {
+      status: raw?.status === 'ROTATED' ? 'ROTATED' : 'REFUSED',
+      code: raw?.code ?? 'ROTATION_UNKNOWN',
+      message: raw?.message ?? 'The exchange did not confirm the rotation. Your previous key is still in use.',
+      apiKeyLastFour: raw?.apiKeyLastFour ?? null,
+      // The safe default: anything unreadable means we do not know that the old key
+      // was removed, so the UI must say the previous key is still in use.
+      previousKeyRetained: raw?.previousKeyRetained !== false,
+    };
+  },
 };

@@ -237,3 +237,139 @@ export const securityApi = {
     };
   },
 };
+
+/**
+ * Step-up: the second factor for a single sensitive action.
+ *
+ * A step-up proof is bound to (session, action) and is single-use, so it cannot be
+ * hoarded: the dialog asks for a code, receives a proof, and the very next request
+ * for that action consumes it. Anything else - retrying the request first, keeping
+ * the proof for later, reusing it for a second action - is refused by the API, and
+ * the dialog surfaces that refusal rather than looping.
+ */
+export type StepUpMethod = 'TOTP' | 'PASSWORD' | 'RECOVERY_CODE';
+
+export interface StepUpProof {
+  proofId: string;
+  action: string;
+  method: StepUpMethod;
+  expiresAt: string;
+  ttlSeconds: number;
+}
+
+export interface StepUpProofInput {
+  action: string;
+  method: StepUpMethod;
+  code?: string;
+  password?: string;
+  recoveryCode?: string;
+}
+
+/** True when an API error is the 403 that means "prove it is you, then retry". */
+export function isStepUpRequired(error: unknown): boolean {
+  const candidate = error as { status?: number; code?: string; body?: { code?: string } } | null;
+  if (!candidate) return false;
+  const code = candidate.code ?? candidate.body?.code;
+  return code === 'STEP_UP_REQUIRED' || (candidate.status === 403 && String(code ?? '').includes('STEP_UP'));
+}
+
+export const stepUpApi = {
+  issue: (input: StepUpProofInput): Promise<StepUpProof> =>
+    apiClient.post<StepUpProof>('/v1/auth/step-up', {
+      action: input.action,
+      method: input.method,
+      ...(input.code ? { code: input.code } : {}),
+      ...(input.password ? { password: input.password } : {}),
+      ...(input.recoveryCode ? { recoveryCode: input.recoveryCode } : {}),
+    }),
+
+  status: (action: string): Promise<{ fresh: boolean; action: string | null; expiresAt: string | null }> =>
+    apiClient.get<{ fresh: boolean; action: string | null; expiresAt: string | null }>('/v1/auth/step-up/status', {
+      searchParams: { action },
+    }),
+};
+
+/**
+ * Withdrawal destinations: the customer's own address allowlist.
+ *
+ * `status` is the authority on whether an address may receive funds. A PENDING
+ * address is NOT usable, and the UI must show the countdown rather than a
+ * disabled checkbox the customer cannot explain.
+ */
+export type WithdrawalDestinationStatus = 'PENDING' | 'ACTIVE' | 'REVOKED';
+
+export interface WithdrawalDestination {
+  id: string;
+  network: string;
+  address: string;
+  label: string;
+  status: WithdrawalDestinationStatus;
+  activatesAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+  remainingCooldownMs: number;
+}
+
+export interface WithdrawalDestinationMutation {
+  ok: boolean;
+  code: string;
+  message: string;
+  destination?: WithdrawalDestination;
+  remainingCooldownMs?: number | null;
+}
+
+export const withdrawalDestinationApi = {
+  list: async (): Promise<WithdrawalDestination[]> => {
+    const page = await apiClient.get<{ data: WithdrawalDestination[]; total: number }>('/v1/custody/destinations');
+    return page?.data ?? [];
+  },
+
+  /** Requires a fresh step-up proof for PAYOUT_CREATE; call stepUpApi.issue first. */
+  add: (input: { network: string; address: string; label: string }): Promise<WithdrawalDestinationMutation> =>
+    apiClient.post<WithdrawalDestinationMutation>('/v1/custody/destinations', input),
+
+  revoke: (id: string, reason?: string): Promise<WithdrawalDestinationMutation> =>
+    apiClient.delete<WithdrawalDestinationMutation>(`/v1/custody/destinations/${encodeURIComponent(id)}`, {
+      ...(reason ? { body: { reason } } : {}),
+    }),
+};
+
+/**
+ * Account recovery. These three calls are the public flow, so they must work
+ * without a session: `skipAuthRefresh` keeps a 401 (or a 429) from triggering a
+ * refresh loop on a signed-out browser.
+ */
+export interface RecoveryRequestResponse {
+  accepted: true;
+  message: string;
+  deliveryQueued: boolean;
+}
+
+export interface RecoveryVerifyResponse {
+  valid: boolean;
+  reason: string | null;
+  message: string;
+}
+
+export interface RecoveryCompleteResponse {
+  status: string;
+  reason: string | null;
+  message: string;
+  sessionsRevoked: number;
+  requiresTwoFactorEnrolment: boolean;
+}
+
+export const accountRecoveryApi = {
+  request: (email: string): Promise<RecoveryRequestResponse> =>
+    apiClient.post<RecoveryRequestResponse>('/v1/auth/recovery/request', { email }, { skipAuthRefresh: true }),
+
+  verify: (token: string): Promise<RecoveryVerifyResponse> =>
+    apiClient.post<RecoveryVerifyResponse>('/v1/auth/recovery/verify', { token }, { skipAuthRefresh: true }),
+
+  complete: (token: string, newPassword: string): Promise<RecoveryCompleteResponse> =>
+    apiClient.post<RecoveryCompleteResponse>(
+      '/v1/auth/recovery/complete',
+      { token, newPassword },
+      { skipAuthRefresh: true },
+    ),
+};

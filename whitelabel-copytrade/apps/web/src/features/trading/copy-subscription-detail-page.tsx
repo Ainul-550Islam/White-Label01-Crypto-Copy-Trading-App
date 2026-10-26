@@ -14,6 +14,7 @@ import { CopyExecutionDetail } from "./copy-execution-detail";
 import { CopyRiskGuardrails } from "./copy-risk-guardrails";
 import { CopyReconciliationStatus } from "./copy-reconciliation-status";
 import { useCopyExecutionEvents } from "./use-copy-execution-events";
+import { copyOpsApi } from "@/api/copy-ops-api";
 
 export function CopySubscriptionDetailPage({
   subscriptionId,
@@ -27,6 +28,17 @@ export function CopySubscriptionDetailPage({
   const detailQuery = useQuery({
     queryKey: ["copy-subscription-detail", subscriptionId],
     queryFn: () => tradingApi.getSubscriptionDetail(subscriptionId),
+  });
+
+  // The selected execution's attempt history. Fetched only for the execution the
+  // customer opened, and refreshed while they look at it: a retry that succeeds
+  // seconds after the panel opens should appear without a manual reload.
+  const timelineQuery = useQuery({
+    queryKey: ["copy-execution-timeline", selectedExecution?.executionId ?? "none"],
+    queryFn: () => copyOpsApi.getExecutionTimeline(selectedExecution?.executionId ?? ""),
+    enabled: selectedExecution !== null,
+    refetchInterval: 15_000,
+    placeholderData: (previous) => previous,
   });
 
   const { transportMode, lastEventAt } = useCopyExecutionEvents({
@@ -225,6 +237,7 @@ export function CopySubscriptionDetailPage({
               <CopyExecutionDetail
                 execution={selectedExecution}
                 onClose={() => setSelectedExecution(null)}
+                timeline={timelineQuery.isSuccess ? timelineQuery.data : undefined}
               />
             )}
 

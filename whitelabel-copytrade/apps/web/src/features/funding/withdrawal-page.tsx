@@ -15,6 +15,7 @@ import {
   accountAllows,
   useFundingAccounts,
 } from "./account-select";
+import { WithdrawalDestinationManager } from "./withdrawal-destination-manager";
 
 export function WithdrawalPage(): JSX.Element {
   const queryClient = useQueryClient();
@@ -171,6 +172,13 @@ export function WithdrawalPage(): JSX.Element {
         onCancel={() => setConfirmOpen(false)}
         isLoading={loading}
       />
+      {/* The allowlist sits under the form because it answers the question the form
+          raises: "where is this allowed to go?" A destination that is still in its
+          cooldown is refused by the API, and this panel is where the customer sees
+          that before submitting rather than after. */}
+      <div className="mt-6">
+        <WithdrawalDestinationManager />
+      </div>
     </PageContainer>
   );
 }

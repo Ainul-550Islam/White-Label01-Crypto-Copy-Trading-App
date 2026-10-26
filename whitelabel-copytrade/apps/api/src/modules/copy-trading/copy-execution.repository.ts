@@ -3,6 +3,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { CopyExecutionStatus, CopySizingMode, CopyRiskDecision } from './copy-trading.types';
+// The lifecycle is owned by one table (copy-execution-status.ts); this repository enforces it
+// rather than restating part of it. Before, only FILLED was protected and every other terminal
+// state could be rewritten by a second updateStatus call.
+import { canTransitionCopyExecution, isTerminalCopyExecutionStatus } from './copy-execution-status';
 import { randomUUID } from 'crypto';
 
 function copyExecutionEventType(status: CopyExecutionStatus): string | null {
@@ -187,17 +191,17 @@ export class CopyExecutionRepository {
         const existing = await tx.copyExecution.findFirst({ where: { id, tenantId } });
         if (!existing) return null;
 
-        const terminal = [
-          CopyExecutionStatus.FILLED,
-          CopyExecutionStatus.FAILED,
-          CopyExecutionStatus.REJECTED,
-          CopyExecutionStatus.BLOCKED,
-        ];
-        if (terminal.includes(existing.status as CopyExecutionStatus) && existing.status !== status) {
-          if (existing.status === CopyExecutionStatus.FILLED && status !== CopyExecutionStatus.FILLED) {
-            this.logger.warn(`Invalid status transition rejected id=${id} from=${existing.status} to=${status}`);
-            return existing;
-          }
+        // Terminal states are final and every non-terminal edge is checked against the one
+        // lifecycle table. A refused transition returns the row unchanged (the caller sees the
+        // truth) and is logged, because a silently ignored update is how a customer ends up
+        // looking at a FILLED order the database has already marked FAILED.
+        if (isTerminalCopyExecutionStatus(existing.status) && existing.status !== status) {
+          this.logger.warn(`Terminal copy execution state is immutable id=${id} from=${existing.status} to=${status}`);
+          return existing;
+        }
+        if (!canTransitionCopyExecution(existing.status, status)) {
+          this.logger.warn(`Invalid status transition rejected id=${id} from=${existing.status} to=${status}`);
+          return existing;
         }
 
         const updated = await tx.copyExecution.update({

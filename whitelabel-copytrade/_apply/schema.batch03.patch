@@ -1,0 +1,149 @@
+diff --git a/whitelabel-copytrade/apps/api/prisma/schema.prisma b/whitelabel-copytrade/apps/api/prisma/schema.prisma
+index dc20f27..ff14095 100644
+--- a/whitelabel-copytrade/apps/api/prisma/schema.prisma
++++ b/whitelabel-copytrade/apps/api/prisma/schema.prisma
+@@ -12236,3 +12236,144 @@ model OutboxEvent {
+   @@index([tenantId, aggregateType, aggregateId, aggregateSequence])
+   @@map("outbox_events")
+ }
++
++// =============================================================================
++// ===== BATCH 03 =====
++// Batch 03's tables. Appended - never interleaved - because Batch 04 edits this
++// file at the same time and appends under its own header. Deliberately no
++// `@relation` to existing models: a back-relation would force an edit inside
++// `User`/`Tenant`/`TradingAccount`, which is exactly the shared-file overlap
++// these tables avoid. `tenant_id` and `user_id` are plain uuid columns here and
++// the foreign keys are created in
++// migrations/20261201000000_batch03_tables/migration.sql, so the database
++// constraint exists even though the Prisma schema does not express it.
++// =============================================================================
++
++/// The follower's global active-copy budget: one row per (tenant, user).
++/// `max_active_exposure` is quote-asset capital across ALL active copy
++/// subscriptions; `per_trader_cap` is an optional tighter bound inside it.
++model CopyBudget {
++  id       String @id @default(uuid()) @db.Uuid
++  tenantId String @map("tenant_id") @db.Uuid
++  userId   String @map("user_id") @db.Uuid
++
++  maxActiveExposure Decimal  @map("max_active_exposure") @db.Decimal(28, 12)
++  perTraderCap      Decimal? @map("per_trader_cap") @db.Decimal(28, 12)
++  /// Quote asset the two limits are denominated in. A copy in another quote
++  /// asset is refused until an FX rate exists for it - never converted at a guess.
++  currency          String   @default("USDT") @db.VarChar(12)
++
++  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
++  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
++
++  @@unique([tenantId, userId])
++  @@index([tenantId, userId, updatedAt])
++  @@map("copy_budgets")
++}
++
++/// Withdrawal destination lifecycle. A destination is unusable until its
++/// cooldown has elapsed, so a stolen session cannot exfiltrate to a fresh
++/// address in one request.
++enum WithdrawalDestinationStatus {
++  PENDING
++  ACTIVE
++  REVOKED
++}
++
++model WithdrawalDestination {
++  id       String @id @default(uuid()) @db.Uuid
++  tenantId String @map("tenant_id") @db.Uuid
++  userId   String @map("user_id") @db.Uuid
++
++  network String @db.VarChar(32)
++  /// Normalised address: per-network case/checksum rules applied before storage,
++  /// so two spellings of one address cannot become two whitelist entries.
++  address String @db.VarChar(128)
++  label   String @db.VarChar(80)
++
++  status     WithdrawalDestinationStatus @default(PENDING)
++  activatesAt DateTime @map("activates_at") @db.Timestamptz(6)
++  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
++
++  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
++  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
++
++  @@unique([tenantId, userId, network, address])
++  @@index([tenantId, userId, status])
++  @@map("withdrawal_destinations")
++}
++
++/// One known sign-in device per (tenant, user, fingerprint hash). The raw
++/// fingerprint, IP and user agent are never stored - only a keyed hash, so the
++/// table cannot be turned into a device-tracking log by whoever reads it.
++model LoginDevice {
++  id       String @id @default(uuid()) @db.Uuid
++  tenantId String @map("tenant_id") @db.Uuid
++  userId   String @map("user_id") @db.Uuid
++
++  fingerprintHash String  @map("fingerprint_hash") @db.VarChar(64)
++  countryCode     String? @map("country_code") @db.Char(2)
++  /// Last observed coarse location, used only for the impossible-travel bound.
++  lastLatitude    Decimal? @map("last_latitude") @db.Decimal(9, 6)
++  lastLongitude   Decimal? @map("last_longitude") @db.Decimal(9, 6)
++  lastSeenAt      DateTime @map("last_seen_at") @db.Timestamptz(6)
++  firstSeenAt     DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
++  trusted         Boolean  @default(false)
++
++  @@unique([tenantId, userId, fingerprintHash])
++  @@index([tenantId, userId, lastSeenAt])
++  @@map("login_devices")
++}
++
++/// Single-use account-recovery token. Only the hash is stored; the plaintext
++/// exists once, in the response to the request that created it.
++model AccountRecoveryToken {
++  id       String @id @default(uuid()) @db.Uuid
++  tenantId String @map("tenant_id") @db.Uuid
++  userId   String @map("user_id") @db.Uuid
++
++  tokenHash  String    @map("token_hash") @db.VarChar(64)
++  method     String    @default("EMAIL") @db.VarChar(24)
++  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
++  usedAt     DateTime? @map("used_at") @db.Timestamptz(6)
++  requestIpHash String? @map("request_ip_hash") @db.VarChar(64)
++
++  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
++
++  @@unique([tenantId, tokenHash])
++  @@index([tenantId, userId, expiresAt])
++  @@map("account_recovery_tokens")
++}
++
++/// What a share link points at. Kept separate from TraderStrategyStatus: a
++/// strategy can be published and still not be shareable.
++enum PublicShareSubjectType {
++  TRADER
++  STRATEGY
++}
++
++model PublicShareLink {
++  id       String @id @default(uuid()) @db.Uuid
++  tenantId String @map("tenant_id") @db.Uuid
++  ownerUserId String @map("owner_user_id") @db.Uuid
++
++  subjectType PublicShareSubjectType @map("subject_type")
++  subjectId   String @map("subject_id") @db.Uuid
++
++  /// Opaque id carried inside the signed token; the row is looked up by it, so
++  /// revoking is a row change and not a key rotation.
++  tokenId   String    @map("token_id") @db.Uuid
++  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
++  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
++
++  /// The field allow-list the owner opted in to. The projection reads this and
++  /// nothing else, so a new profile field is not published by accident.
++  fieldsJson Json @map("fields_json")
++
++  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
++
++  @@unique([tokenId])
++  @@index([tenantId, ownerUserId, subjectType, subjectId])
++  @@map("public_share_links")
++}
++

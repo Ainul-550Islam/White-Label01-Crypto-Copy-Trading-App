@@ -1,0 +1,3179 @@
+diff --git a/whitelabel-copytrade/.github/workflows/infra.yml b/whitelabel-copytrade/.github/workflows/infra.yml
+index 97e52d3..b14b3be 100644
+--- a/whitelabel-copytrade/.github/workflows/infra.yml
++++ b/whitelabel-copytrade/.github/workflows/infra.yml
+@@ -23,7 +23,7 @@ jobs:
+     timeout-minutes: 30
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+@@ -52,7 +52,7 @@ jobs:
+     timeout-minutes: 15
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+@@ -75,7 +75,7 @@ jobs:
+     timeout-minutes: 35
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+@@ -96,7 +96,7 @@ jobs:
+     timeout-minutes: 30
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+@@ -123,7 +123,7 @@ jobs:
+     timeout-minutes: 10
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+@@ -138,7 +138,7 @@ jobs:
+     timeout-minutes: 20
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+@@ -175,7 +175,7 @@ jobs:
+     timeout-minutes: 25
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+@@ -192,7 +192,7 @@ jobs:
+     timeout-minutes: 30
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+@@ -226,7 +226,7 @@ jobs:
+     timeout-minutes: 30
+     defaults:
+       run:
+-        working-directory: .
++        working-directory: whitelabel-copytrade
+     steps:
+       - name: Checkout
+         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+diff --git a/whitelabel-copytrade/apps/admin-web/src/app/(console)/audit-logs/page.tsx b/whitelabel-copytrade/apps/admin-web/src/app/(console)/audit-logs/page.tsx
+index a3e63b6..5198873 100644
+--- a/whitelabel-copytrade/apps/admin-web/src/app/(console)/audit-logs/page.tsx
++++ b/whitelabel-copytrade/apps/admin-web/src/app/(console)/audit-logs/page.tsx
+@@ -6,6 +6,7 @@ import { ApiError } from '@wlct/utils/api-error';
+ import { formatDateTime, titleCase } from '@/lib/format';
+ import { serverFetch } from '@/lib/server-api';
+ import { theme, toneForStatus } from '@/lib/theme';
++import AuditExportPanel from '@/features/audit/audit-export-panel';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+@@ -119,6 +120,8 @@ export default async function AuditLogsPage({
+         description="Every privileged action, append-only and scoped to your organisation. IP addresses are stored as salted hashes, never in the clear, and no secret value is ever recorded."
+       />
+ 
++      <div style={{ marginBottom: theme.space(5) }}><AuditExportPanel /></div>
++
+       {error ? (
+         <ErrorNotice title="Unable to load the audit log" message={error} />
+       ) : (
+diff --git a/whitelabel-copytrade/apps/admin-web/src/app/(console)/branding/page.tsx b/whitelabel-copytrade/apps/admin-web/src/app/(console)/branding/page.tsx
+index 6bf4e2d..9f98526 100644
+--- a/whitelabel-copytrade/apps/admin-web/src/app/(console)/branding/page.tsx
++++ b/whitelabel-copytrade/apps/admin-web/src/app/(console)/branding/page.tsx
+@@ -6,6 +6,7 @@ import { ApiError } from '@wlct/utils/api-error';
+ import { formatDateTime } from '@/lib/format';
+ import { serverFetch } from '@/lib/server-api';
+ import { theme } from '@/lib/theme';
++import { TenantBrandingEditor } from '@/features/branding/tenant-branding-editor';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+@@ -135,13 +136,8 @@ export default async function BrandingPage(): Promise<JSX.Element> {
+             )}
+           </Card>
+ 
+-          <Card title="Editing branding">
+-            <p style={{ margin: 0, fontSize: 14, color: theme.color.textMuted }}>
+-              Send a <code>PATCH /v1/tenants/current/branding</code> with the fields you want to
+-              change. The endpoint requires the <code>tenant:manage</code> permission and every
+-              change is written to the audit log. An in-console editor lands with the branding work
+-              in a future release.
+-            </p>
++          <Card title="Edit tenant branding" description="The API enforces tenant scope, plan entitlement, validation and audit logging.">
++            <TenantBrandingEditor />
+           </Card>
+         </div>
+       )}
+diff --git a/whitelabel-copytrade/apps/admin-web/src/app/(console)/partners/page.tsx b/whitelabel-copytrade/apps/admin-web/src/app/(console)/partners/page.tsx
+index e86f11b..974a956 100644
+--- a/whitelabel-copytrade/apps/admin-web/src/app/(console)/partners/page.tsx
++++ b/whitelabel-copytrade/apps/admin-web/src/app/(console)/partners/page.tsx
+@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
+ import { Card, ErrorNotice, PageHeader, StatTile } from '@/components/ui';
+ import { serverFetch } from '@/lib/server-api';
+ import { theme } from '@/lib/theme';
++import ReferralAbuseQueue from '@/features/partners/referral-abuse-queue';
+ import {
+   PartnerAdminTable,
+   type PartnerAdminRow,
+@@ -63,6 +64,12 @@ export default async function AdminPartnersPage(): Promise<JSX.Element> {
+           <PartnerAdminTable partners={partners} />
+         </Card>
+       </div>
++
++      <div style={{ marginTop: theme.space(6) }}>
++        <Card title="Referral integrity" description="Review self-referral and velocity alerts; provide a reason for each decision.">
++          <ReferralAbuseQueue />
++        </Card>
++      </div>
+     </>
+   );
+ }
+diff --git a/whitelabel-copytrade/apps/admin-web/src/app/layout.tsx b/whitelabel-copytrade/apps/admin-web/src/app/layout.tsx
+index 88ee11b..decf781 100644
+--- a/whitelabel-copytrade/apps/admin-web/src/app/layout.tsx
++++ b/whitelabel-copytrade/apps/admin-web/src/app/layout.tsx
+@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
+ 
+ import '@/styles/globals.css';
+ import { publicEnv } from '@/lib/env';
++import AdminFocusAnnouncer from '@/components/focus-announcer';
+ 
+ export const metadata: Metadata = {
+   title: {
+@@ -24,7 +25,7 @@ export const viewport: Viewport = {
+ export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
+   return (
+     <html lang="en">
+-      <body>{children}</body>
++      <body><a className="skip-link" href="#main-content">Skip to main content</a><AdminFocusAnnouncer />{children}</body>
+     </html>
+   );
+ }
+diff --git a/whitelabel-copytrade/apps/admin-web/src/components/sidebar.tsx b/whitelabel-copytrade/apps/admin-web/src/components/sidebar.tsx
+index 3c4efb7..d0df01f 100644
+--- a/whitelabel-copytrade/apps/admin-web/src/components/sidebar.tsx
++++ b/whitelabel-copytrade/apps/admin-web/src/components/sidebar.tsx
+@@ -46,6 +46,10 @@ export const NAV_ITEMS: NavItem[] = [
+   { href: '/saas-admin', label: 'SaaS tenants', permission: 'platform:manage', platformOnly: true },
+   { href: '/audit-logs', label: 'Audit log', permission: 'audit_log:read' },
+   { href: '/settings', label: 'Settings', permission: 'tenant:read' },
++  { href: '/analytics', label: 'Business analytics', permission: 'platform:read_metrics', platformOnly: true },
++  { href: '/readiness', label: 'Commercial readiness', permission: 'operations:read', platformOnly: true },
++  { href: '/feature-flags', label: 'Feature flags', permission: 'platform:manage', platformOnly: true },
++  { href: '/privacy', label: 'Privacy console', permission: 'platform:manage', platformOnly: true },
+ ];
+ 
+ /**
+diff --git a/whitelabel-copytrade/apps/admin-web/src/middleware.ts b/whitelabel-copytrade/apps/admin-web/src/middleware.ts
+deleted file mode 100644
+index 6959894..0000000
+--- a/whitelabel-copytrade/apps/admin-web/src/middleware.ts
++++ /dev/null
+@@ -1,65 +0,0 @@
+-import { NextResponse, type NextRequest } from 'next/server';
+-
+-/**
+- * Edge middleware.
+- *
+- * Two jobs, both cheap:
+- *  1. Bounce unauthenticated navigation to /login before a server component
+- *     tries (and fails) to fetch data.
+- *  2. Attach a per-request Content-Security-Policy nonce and the security
+- *     headers that must vary per response.
+- *
+- * The presence of a cookie is NOT treated as proof of authentication - the API
+- * validates every token. This is a redirect optimisation, not access control.
+- */
+-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/two-factor', '/api/auth/refresh'];
+-
+-export function middleware(request: NextRequest): NextResponse {
+-  const { pathname } = request.nextUrl;
+-
+-  const isPublic = PUBLIC_PATHS.some(
+-    (path) => pathname === path || pathname.startsWith(`${path}/`),
+-  );
+-  const hasSession = Boolean(request.cookies.get('wlct_at')?.value);
+-
+-  if (!isPublic && !hasSession && !pathname.startsWith('/api/')) {
+-    const loginUrl = new URL('/login', request.url);
+-    // Preserve the destination so the user lands where they intended.
+-    if (pathname !== '/') {
+-      loginUrl.searchParams.set('next', pathname);
+-    }
+-    return NextResponse.redirect(loginUrl);
+-  }
+-
+-  const nonce = crypto.randomUUID().replace(/-/g, '');
+-
+-  const requestHeaders = new Headers(request.headers);
+-  requestHeaders.set('x-nonce', nonce);
+-
+-  const response = NextResponse.next({ request: { headers: requestHeaders } });
+-
+-  // 'unsafe-inline' for styles is required by the inline-style approach used in
+-  // the components; scripts stay nonce-locked, which is where XSS actually bites.
+-  const csp = [
+-    "default-src 'self'",
+-    `script-src 'self' 'nonce-${nonce}' ${process.env.NODE_ENV === 'development' ? "'unsafe-eval'" : ''}`.trim(),
+-    "style-src 'self' 'unsafe-inline'",
+-    "img-src 'self' data: https:",
+-    "font-src 'self' data:",
+-    "connect-src 'self'",
+-    "frame-ancestors 'none'",
+-    "base-uri 'self'",
+-    "form-action 'self'",
+-    "object-src 'none'",
+-  ].join('; ');
+-
+-  response.headers.set('Content-Security-Policy', csp);
+-  response.headers.set('X-Content-Type-Options', 'nosniff');
+-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+-
+-  return response;
+-}
+-
+-export const config = {
+-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+-};
+diff --git a/whitelabel-copytrade/apps/api/prisma/rls/disable.sql b/whitelabel-copytrade/apps/api/prisma/rls/disable.sql
+index f415484..5c2471f 100644
+--- a/whitelabel-copytrade/apps/api/prisma/rls/disable.sql
++++ b/whitelabel-copytrade/apps/api/prisma/rls/disable.sql
+@@ -1,5 +1,6 @@
++-- # Responsibility: scripts/gen_part11_rls.py generates additive tenant-isolation policies and synchronized enable/disable artifacts.
+ -- Part 11 (disable: the exact inverse of enable.sql). Generated by scripts/gen_part11_rls.py - do not hand-edit;
+--- rerun the generator. Schema stamp: 20261115110000.
++-- rerun the generator. Schema stamp: 20261215010000.
+ --
+ -- Row-level security is the layer BELOW the tenant-scoped Prisma factory: the
+ -- factory cannot forget its WHERE, and even if a path bypassed the factory,
+@@ -233,6 +234,8 @@ ALTER TABLE "payments" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "payments" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "payouts" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "payouts" DISABLE ROW LEVEL SECURITY;
++ALTER TABLE "policy_acceptances" NO FORCE ROW LEVEL SECURITY;
++ALTER TABLE "policy_acceptances" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "portfolio_accounting_adjustments" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "portfolio_accounting_adjustments" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "portfolio_accounting_closes" NO FORCE ROW LEVEL SECURITY;
+@@ -265,6 +268,8 @@ ALTER TABLE "privacy_exports" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "privacy_exports" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "privacy_requests" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "privacy_requests" DISABLE ROW LEVEL SECURITY;
++ALTER TABLE "profit_share_statements" NO FORCE ROW LEVEL SECURITY;
++ALTER TABLE "profit_share_statements" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "reconciliation_discrepancies" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "reconciliation_discrepancies" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "reconciliation_runs" NO FORCE ROW LEVEL SECURITY;
+@@ -379,6 +384,8 @@ ALTER TABLE "usage_meters" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "usage_meters" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "user_position_limits" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "user_position_limits" DISABLE ROW LEVEL SECURITY;
++ALTER TABLE "user_preferences" NO FORCE ROW LEVEL SECURITY;
++ALTER TABLE "user_preferences" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "user_roles" NO FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "user_roles" DISABLE ROW LEVEL SECURITY;
+ ALTER TABLE "user_sessions" NO FORCE ROW LEVEL SECURITY;
+diff --git a/whitelabel-copytrade/apps/api/prisma/rls/enable.sql b/whitelabel-copytrade/apps/api/prisma/rls/enable.sql
+index f55c907..1fd650e 100644
+--- a/whitelabel-copytrade/apps/api/prisma/rls/enable.sql
++++ b/whitelabel-copytrade/apps/api/prisma/rls/enable.sql
+@@ -1,5 +1,6 @@
++-- # Responsibility: scripts/gen_part11_rls.py generates additive tenant-isolation policies and synchronized enable/disable artifacts.
+ -- Part 11 (enable: the DBA step). Generated by scripts/gen_part11_rls.py - do not hand-edit;
+--- rerun the generator. Schema stamp: 20261115110000.
++-- rerun the generator. Schema stamp: 20261215010000.
+ --
+ -- Row-level security is the layer BELOW the tenant-scoped Prisma factory: the
+ -- factory cannot forget its WHERE, and even if a path bypassed the factory,
+@@ -30,7 +31,7 @@
+ --     transactions without the GUC start seeing zero rows immediately -
+ --     which is the point, and the reason it is a scheduled operation.
+ 
+--- --- covered tables (191) -------------------------------------------
++-- --- covered tables (194) -------------------------------------------
+ ALTER TABLE "account_balance_snapshots" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "account_balance_snapshots" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "account_ownerships" ENABLE ROW LEVEL SECURITY;
+@@ -253,6 +254,8 @@ ALTER TABLE "payments" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "payments" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "payouts" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "payouts" FORCE ROW LEVEL SECURITY;
++ALTER TABLE "policy_acceptances" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "policy_acceptances" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "portfolio_accounting_adjustments" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "portfolio_accounting_adjustments" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "portfolio_accounting_closes" ENABLE ROW LEVEL SECURITY;
+@@ -285,6 +288,8 @@ ALTER TABLE "privacy_exports" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "privacy_exports" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "privacy_requests" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "privacy_requests" FORCE ROW LEVEL SECURITY;
++ALTER TABLE "profit_share_statements" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "profit_share_statements" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "reconciliation_discrepancies" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "reconciliation_discrepancies" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "reconciliation_runs" ENABLE ROW LEVEL SECURITY;
+@@ -399,6 +404,8 @@ ALTER TABLE "usage_meters" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "usage_meters" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "user_position_limits" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "user_position_limits" FORCE ROW LEVEL SECURITY;
++ALTER TABLE "user_preferences" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "user_preferences" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "user_roles" ENABLE ROW LEVEL SECURITY;
+ ALTER TABLE "user_roles" FORCE ROW LEVEL SECURITY;
+ ALTER TABLE "user_sessions" ENABLE ROW LEVEL SECURITY;
+@@ -427,6 +434,7 @@ ALTER TABLE "withdrawal_requests" FORCE ROW LEVEL SECURITY;
+ --   audit_logs (AuditLog)
+ --   circuit_breaker_records (CircuitBreakerRecord)
+ --   compliance_policy_records (CompliancePolicyRecord)
++--   fee_schedule_versions (FeeScheduleVersion)
+ --   institutional_risk_policies (InstitutionalRiskPolicy)
+ --   kill_switches (KillSwitch)
+ --   legal_holds (LegalHold)
+diff --git a/whitelabel-copytrade/apps/api/prisma/rls/grant.sql b/whitelabel-copytrade/apps/api/prisma/rls/grant.sql
+index aa70154..b61518d 100644
+--- a/whitelabel-copytrade/apps/api/prisma/rls/grant.sql
++++ b/whitelabel-copytrade/apps/api/prisma/rls/grant.sql
+@@ -1,5 +1,6 @@
++-- # Responsibility: scripts/gen_part11_rls.py generates additive tenant-isolation policies and synchronized enable/disable artifacts.
+ -- Part 11 (grant: the catalog read the enablement audit needs). Generated by scripts/gen_part11_rls.py - do not hand-edit;
+--- rerun the generator. Schema stamp: 20261115110000.
++-- rerun the generator. Schema stamp: 20261215010000.
+ --
+ -- Row-level security is the layer BELOW the tenant-scoped Prisma factory: the
+ -- factory cannot forget its WHERE, and even if a path bypassed the factory,
+diff --git a/whitelabel-copytrade/apps/api/prisma/rls/rls_coverage.json b/whitelabel-copytrade/apps/api/prisma/rls/rls_coverage.json
+index 2bd8b04..206150f 100644
+--- a/whitelabel-copytrade/apps/api/prisma/rls/rls_coverage.json
++++ b/whitelabel-copytrade/apps/api/prisma/rls/rls_coverage.json
+@@ -1,6 +1,6 @@
+ {
+   "schema": "part11-rls-coverage-v1",
+-  "stamp": "20261115110000",
++  "stamp": "20261215010000",
+   "policyName": "tenant_isolation",
+   "functionName": "wlct_current_tenant_id",
+   "covered": [
+@@ -448,6 +448,10 @@
+       "table": "payouts",
+       "model": "Payout"
+     },
++    {
++      "table": "policy_acceptances",
++      "model": "PolicyAcceptance"
++    },
+     {
+       "table": "portfolio_accounting_adjustments",
+       "model": "PortfolioAccountingAdjustment"
+@@ -512,6 +516,10 @@
+       "table": "privacy_requests",
+       "model": "PrivacyRequest"
+     },
++    {
++      "table": "profit_share_statements",
++      "model": "ProfitShareStatement"
++    },
+     {
+       "table": "reconciliation_discrepancies",
+       "model": "ReconciliationDiscrepancy"
+@@ -740,6 +748,10 @@
+       "table": "user_position_limits",
+       "model": "UserPositionLimit"
+     },
++    {
++      "table": "user_preferences",
++      "model": "UserPreferences"
++    },
+     {
+       "table": "user_roles",
+       "model": "UserRole"
+@@ -782,6 +794,10 @@
+       "table": "compliance_policy_records",
+       "model": "CompliancePolicyRecord"
+     },
++    {
++      "table": "fee_schedule_versions",
++      "model": "FeeScheduleVersion"
++    },
+     {
+       "table": "institutional_risk_policies",
+       "model": "InstitutionalRiskPolicy"
+diff --git a/whitelabel-copytrade/apps/api/src/common/fail-soft-reads.spec.ts b/whitelabel-copytrade/apps/api/src/common/fail-soft-reads.spec.ts
+index ab8f133..cb98b2c 100644
+--- a/whitelabel-copytrade/apps/api/src/common/fail-soft-reads.spec.ts
++++ b/whitelabel-copytrade/apps/api/src/common/fail-soft-reads.spec.ts
+@@ -235,7 +235,7 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
+   'billing/analytics/revenue-cohort.service.ts': { count: 1, reason: 'cohort key derivation from a date (pure computation)' },
+   'billing/entitlements/entitlement.resolver.ts': { count: 3, reason: 'EntitlementResolver is exported but not registered in any Nest module (no route reaches it)' },
+   'billing/fees/payout-provider.factory.ts': { count: 1, reason: 'provider availability probe; unavailable is the fail-closed answer' },
+-  'billing/finance/invoice-number.service.ts': { count: 2, reason: 'Redis sequence readers with no callers (numbers are allocated elsewhere)' },
++  'auth/step-up/step-up.service.ts': { count: 1, reason: 'Redis or session-proof availability failure is explicitly interpreted as no fresh proof and blocks sensitive actions' },
+   'billing/limits/limit.resolver.ts': { count: 3, reason: 'LimitResolver is exported but not registered in any Nest module (no route reaches it)' },
+   'billing/notifications/notification-worker.service.ts': { count: 1, reason: 'worker loop: logs the (now propagated) repository error and retries on the next tick' },
+   'billing/notifications/push-notification.service.ts': { count: 1, reason: 'optional firebase-admin module import' },
+diff --git a/whitelabel-copytrade/apps/api/src/common/guards/controller-authorization.spec.ts b/whitelabel-copytrade/apps/api/src/common/guards/controller-authorization.spec.ts
+index bdb8bec..2254a25 100644
+--- a/whitelabel-copytrade/apps/api/src/common/guards/controller-authorization.spec.ts
++++ b/whitelabel-copytrade/apps/api/src/common/guards/controller-authorization.spec.ts
+@@ -164,7 +164,7 @@ const { TENANT_ADMIN: TA, TRADER: TR, FOLLOWER: FO, SUPPORT: SU, FINANCE: FI, CO
+ const SUPER_ADMIN = roleActor(SystemRole.SUPER_ADMIN);
+ 
+ const AUDITED: Array<{ controller: Ctor; routeCount: number; followerRoutes: Array<[Method, string]> }> = [
+-  { controller: GovernanceController, routeCount: 47, followerRoutes: [] },
++  { controller: GovernanceController, routeCount: 48, followerRoutes: [] },
+   { controller: PartnerController, routeCount: 47, followerRoutes: [] },
+   {
+     controller: OperationsController,
+diff --git a/whitelabel-copytrade/apps/api/src/common/idempotency-tenant-scope.spec.ts b/whitelabel-copytrade/apps/api/src/common/idempotency-tenant-scope.spec.ts
+index 86987e4..584df83 100644
+--- a/whitelabel-copytrade/apps/api/src/common/idempotency-tenant-scope.spec.ts
++++ b/whitelabel-copytrade/apps/api/src/common/idempotency-tenant-scope.spec.ts
+@@ -427,8 +427,8 @@ describe('idempotency tenant-scope guards', () => {
+       if (/@@unique\(\[tenantId, idempotencyKey\]\)/.test(body)) perTenant++;
+     }
+     expect(offenders).toEqual([]);
+-    // The original migration creates 68 keys; later tenant-owned models add three more.
+-    expect(perTenant).toBe(71);
++    // The original migration creates 68 keys; later tenant-owned models add four more.
++    expect(perTenant).toBe(72);
+   });
+ 
+   it('the migration that moves the indexes exists and only swaps indexes', () => {
+diff --git a/whitelabel-copytrade/apps/api/src/modules/billing/billing.module.ts b/whitelabel-copytrade/apps/api/src/modules/billing/billing.module.ts
+index d23b543..4f8e276 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/billing/billing.module.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/billing/billing.module.ts
+@@ -3,6 +3,10 @@ import { Global, Module } from '@nestjs/common';
+ import { PlansService } from './plans.service';
+ import { SubscriptionsService } from './subscriptions.service';
+ import { PlansController } from './plans.controller';
++import { PublicFeeScheduleController, AdminFeeScheduleController } from './fee-schedule.controller';
++import { FeeScheduleService } from './fee-schedule.service';
++import { AdminProfitShareStatementController, ProfitShareStatementController } from './profit-share-statement.controller';
++import { ProfitShareStatementService } from './profit-share-statement.service';
+ import { SubscriptionsController } from './subscriptions.controller';
+ import { EnforcementModule } from './enforcement/enforcement.module';
+ import { PaymentsModule } from './payments/payments.module';
+@@ -120,8 +124,8 @@ import { AnalyticsModule } from './analytics/analytics.module';
+ @Global()
+ @Module({
+   imports: [EnforcementModule, PaymentsModule, FinanceModule, PortalModule, SaasAdminModule, FeesModule, UsageModule, BillingNotificationsModule, AnalyticsModule],
+-  controllers: [PlansController, SubscriptionsController],
+-  providers: [PlansService, SubscriptionsService],
++  controllers: [PlansController, SubscriptionsController, PublicFeeScheduleController, AdminFeeScheduleController, ProfitShareStatementController, AdminProfitShareStatementController],
++  providers: [PlansService, SubscriptionsService, FeeScheduleService, ProfitShareStatementService],
+   exports: [PlansService, SubscriptionsService, EnforcementModule, PaymentsModule, FinanceModule, PortalModule, SaasAdminModule, FeesModule, UsageModule, BillingNotificationsModule, AnalyticsModule],
+ })
+ export class BillingModule {}
+diff --git a/whitelabel-copytrade/apps/api/src/modules/compliance/compliance.module.ts b/whitelabel-copytrade/apps/api/src/modules/compliance/compliance.module.ts
+index 9c62e44..5311e89 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/compliance/compliance.module.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/compliance/compliance.module.ts
+@@ -13,6 +13,8 @@ import { ComplianceCaseRepository } from './compliance-case.repository';
+ import { ComplianceAuditService } from './compliance-audit.service';
+ import { ComplianceReconciliationService } from './compliance-reconciliation.service';
+ import { ComplianceController } from './compliance.controller';
++import { PolicyAcceptanceController } from './policy-acceptance.controller';
++import { PolicyAcceptanceService } from './policy-acceptance.service';
+ 
+ /**
+  * Compliance Control Plane module integrating existing auth/RBAC/tenant/billing/payment/subscription/enforcement/finance/usage/notifications/SaaS admin/audit/trading architecture
+@@ -33,8 +35,9 @@ import { ComplianceController } from './compliance.controller';
+     TransactionMonitoringService,
+     ComplianceCaseService,
+     ComplianceReconciliationService,
++    PolicyAcceptanceService,
+   ],
+-  controllers: [ComplianceController],
++  controllers: [ComplianceController, PolicyAcceptanceController],
+   exports: [
+     CompliancePolicyService,
+     IdentityVerificationService,
+diff --git a/whitelabel-copytrade/apps/api/src/modules/datasets/datasets-safety.spec.ts b/whitelabel-copytrade/apps/api/src/modules/datasets/datasets-safety.spec.ts
+index 4dfee10..8762d72 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/datasets/datasets-safety.spec.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/datasets/datasets-safety.spec.ts
+@@ -120,6 +120,7 @@ describe('Part 7 - dataset environment safety', () => {
+         // Part 9 joined the production guard set; satisfy it here so the
+         // assertion below is about dataset roots only.
+         METRICS_TOKEN: 'm'.repeat(32),
++        DEVELOPER_SECRET_HMAC_KEY: 'h'.repeat(32),
+       }),
+     );
+     expect(ok.DATASET_LOCAL_ROOT).toBe('/srv/datasets');
+diff --git a/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/bybit.provider.ts b/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/bybit.provider.ts
+index 456957e..2448357 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/bybit.provider.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/bybit.provider.ts
+@@ -1,424 +1,2 @@
+-// # Implements signed V5 live REST/account/symbol/health probes when live trading enabled
+-import * as crypto from 'crypto';
+-import {
+-  ExchangeVenue,
+-  ExchangeEnvironment,
+-  ExchangeCapability,
+-  ExchangeOrderType,
+-  ExchangeBalance,
+-  ExchangePosition,
+-  ExchangeOrder,
+-  ExchangeFill,
+-  ExchangeSymbol,
+-  ExchangeCapabilityDiscovery,
+-  ExchangePositionSide,
+-  ExchangeOrderStatus,
+-  ExchangeOrderSide,
+-  ExchangeConnectivityResult,
+-} from '../exchange.types';
+-import {
+-  ExchangeProviderError,
+-  ExchangeProviderErrorCode,
+-  ExchangeProviderContext,
+-  ExchangeServerTime,
+-  ExchangeAccountMetadata,
+-} from '../exchange-provider.interface';
+-import {
+-  BaseExchangeProvider,
+-  subtractDecimalStrings,
+-  absDecimalString,
+-  isDecimalString,
+-  msToMicros,
+-  nowMicros,
+-  precisionOfStep,
+-  canonicalFromConcatenated,
+-} from '../base-exchange-provider';
+-
+-/** Categories this provider reads. Spot plus USDT/USDC-settled linear contracts. */
+-type BybitCategory = 'spot' | 'linear';
+-
+-const RECV_WINDOW = '5000';
+-const MAX_PAGES = 10;
+-
+-function dec(value: unknown): string {
+-  return isDecimalString(value) ? value : '0';
+-}
+-
+-function decOrNull(value: unknown): string | null {
+-  return isDecimalString(value) && value !== '' ? value : null;
+-}
+-
+-/**
+- * Bybit V5 unified API, read side: server time, key permissions, wallet,
+- * positions, open orders, order history, executions and instruments.
+- *
+- * Authentication (V5): `X-BAPI-SIGN = hex(HMAC_SHA256(secret, timestamp + apiKey + recvWindow + queryString))`.
+- * Every response is an envelope `{ retCode, retMsg, result }`; a non-zero
+- * retCode is a venue refusal and is classified, never read as an empty list.
+- * This provider places no orders - order transmission belongs to the execution
+- * engine behind the live-mode gate.
+- */
+-export class BybitProvider extends BaseExchangeProvider {
+-  readonly venue = ExchangeVenue.BYBIT;
+-  readonly displayName: string;
+-  readonly supportedEnvironments: ExchangeEnvironment[] = [ExchangeEnvironment.LIVE, ExchangeEnvironment.TESTNET, ExchangeEnvironment.SANDBOX];
+-  readonly supportedCapabilities: ExchangeCapability[] = [
+-    ExchangeCapability.SPOT,
+-    ExchangeCapability.PERPETUALS,
+-    ExchangeCapability.MARKET_DATA,
+-    ExchangeCapability.BALANCES,
+-    ExchangeCapability.POSITIONS,
+-    ExchangeCapability.ORDERS,
+-    ExchangeCapability.TRADES,
+-    ExchangeCapability.TESTNET,
+-  ];
+-
+-  constructor(
+-    private readonly urls: { liveRest: string; testnetRest: string; sandboxRest: string; liveWs: string; testnetWs: string; sandboxWs: string },
+-    displayName = 'Bybit',
+-  ) {
+-    super();
+-    this.displayName = displayName;
+-  }
+-
+-  protected getLiveRestUrl(): string {
+-    return this.urls.liveRest;
+-  }
+-  protected getTestnetRestUrl(): string {
+-    return this.urls.testnetRest;
+-  }
+-  protected getSandboxRestUrl(): string {
+-    return this.urls.sandboxRest;
+-  }
+-  protected getLiveWsUrl(): string {
+-    return this.urls.liveWs;
+-  }
+-  protected getTestnetWsUrl(): string {
+-    return this.urls.testnetWs;
+-  }
+-  protected getSandboxWsUrl(): string {
+-    return this.urls.sandboxWs;
+-  }
+-
+-  /** Exposed for tests: the exact V5 signature over the canonical payload. */
+-  static sign(secret: string, timestamp: string, apiKey: string, recvWindow: string, queryString: string): string {
+-    return crypto.createHmac('sha256', secret).update(timestamp + apiKey + recvWindow + queryString).digest('hex');
+-  }
+-
+-  private buildQuery(params: Record<string, string | number | undefined>): string {
+-    return Object.entries(params)
+-      .filter(([, v]) => v !== undefined && v !== '')
+-      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+-      .join('&');
+-  }
+-
+-  private unwrap(context: ExchangeProviderContext, data: any): any {
+-    if (!data || typeof data !== 'object') {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'Bybit returned a non-JSON body', context.venue, context.environment, true);
+-    }
+-    const code = Number(data.retCode);
+-    if (code === 0) return data.result ?? {};
+-    const message = `Bybit retCode ${data.retCode}: ${String(data.retMsg ?? '').slice(0, 200)}`;
+-    if ([10003, 10004, 33004, 10007].includes(code)) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.AUTH_FAILED, message, context.venue, context.environment, false);
+-    }
+-    if ([10005, 10010].includes(code)) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.PERMISSION_DENIED, message, context.venue, context.environment, false);
+-    }
+-    if (code === 10002) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.CLOCK_DRIFT, message, context.venue, context.environment, true, 1000);
+-    }
+-    if ([10006, 10018, 10429].includes(code)) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.RATE_LIMITED, message, context.venue, context.environment, true, 1000);
+-    }
+-    if (code === 10001) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.INVALID_ORDER, message, context.venue, context.environment, false);
+-    }
+-    if (code === 10016) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.SERVER_ERROR, message, context.venue, context.environment, true, 1000);
+-    }
+-    throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, message, context.venue, context.environment, false);
+-  }
+-
+-  private async publicGet(context: ExchangeProviderContext, path: string, params: Record<string, string | number | undefined> = {}): Promise<any> {
+-    const query = this.buildQuery(params);
+-    const url = `${this.getRestBaseUrlForEnv(context.environment)}${path}${query ? `?${query}` : ''}`;
+-    try {
+-      return this.unwrap(context, await this.httpGet(url));
+-    } catch (e: any) {
+-      throw this.normalizeError(e, context.venue, context.environment);
+-    }
+-  }
+-
+-  private async privateGet(context: ExchangeProviderContext, path: string, params: Record<string, string | number | undefined> = {}): Promise<any> {
+-    this.requireCredentials(context);
+-    const query = this.buildQuery(params);
+-    const timestamp = Date.now().toString();
+-    const signature = BybitProvider.sign(context.credentials.apiSecret, timestamp, context.credentials.apiKey, RECV_WINDOW, query);
+-    const url = `${this.getRestBaseUrlForEnv(context.environment)}${path}${query ? `?${query}` : ''}`;
+-    try {
+-      const data = await this.httpGet(url, {
+-        'X-BAPI-API-KEY': context.credentials.apiKey,
+-        'X-BAPI-TIMESTAMP': timestamp,
+-        'X-BAPI-RECV-WINDOW': RECV_WINDOW,
+-        'X-BAPI-SIGN': signature,
+-      });
+-      return this.unwrap(context, data);
+-    } catch (e: any) {
+-      throw this.normalizeError(e, context.venue, context.environment);
+-    }
+-  }
+-
+-  /** Follows `nextPageCursor` up to MAX_PAGES pages, concatenating `result.list`. */
+-  private async privateList(context: ExchangeProviderContext, path: string, params: Record<string, string | number | undefined>, maxItems: number): Promise<any[]> {
+-    const rows: any[] = [];
+-    let cursor: string | undefined;
+-    for (let page = 0; page < MAX_PAGES && rows.length < maxItems; page += 1) {
+-      const result = await this.privateGet(context, path, { ...params, cursor });
+-      const list = Array.isArray(result?.list) ? result.list : [];
+-      rows.push(...list);
+-      cursor = typeof result?.nextPageCursor === 'string' && result.nextPageCursor !== '' ? result.nextPageCursor : undefined;
+-      if (!cursor || list.length === 0) break;
+-    }
+-    return rows.slice(0, maxItems);
+-  }
+-
+-  async getServerTime(context: ExchangeProviderContext): Promise<ExchangeServerTime> {
+-    const result = await this.publicGet(context, '/v5/market/time');
+-    const nano = typeof result?.timeNano === 'string' && /^\d+$/.test(result.timeNano) ? BigInt(result.timeNano) : null;
+-    const seconds = Number(result?.timeSecond);
+-    const serverMs = nano !== null ? Number(nano / 1_000_000n) : seconds * 1000;
+-    if (!Number.isFinite(serverMs) || serverMs <= 0) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'Bybit server time missing from response', context.venue, context.environment, true);
+-    }
+-    return this.serverTimeFromMs(serverMs);
+-  }
+-
+-  async testConnectivity(context: ExchangeProviderContext): Promise<ExchangeConnectivityResult> {
+-    return this.connectivityFromMetadata(context);
+-  }
+-
+-  async getAccountMetadata(context: ExchangeProviderContext): Promise<ExchangeAccountMetadata> {
+-    const info = await this.privateGet(context, '/v5/user/query-api');
+-    const permissions: Record<string, string[]> = info?.permissions && typeof info.permissions === 'object' ? info.permissions : {};
+-    const flat = Object.entries(permissions).flatMap(([group, values]) => (Array.isArray(values) ? values.map((v) => `${group}:${v}`) : []));
+-    const readOnly = Number(info?.readOnly) === 1;
+-    const canWithdraw = (permissions['Wallet'] ?? []).some((p) => /withdraw/i.test(p));
+-    const canTrade =
+-      !readOnly &&
+-      ((permissions['Spot'] ?? []).includes('SpotTrade') ||
+-        (permissions['ContractTrade'] ?? []).length > 0 ||
+-        (permissions['Derivatives'] ?? []).length > 0 ||
+-        (permissions['Options'] ?? []).length > 0);
+-    const ips: string[] = Array.isArray(info?.ips) ? info.ips : [];
+-    return {
+-      accountId: context.accountId,
+-      venue: context.venue,
+-      environment: context.environment,
+-      isSandbox: context.isSandbox,
+-      canTrade,
+-      canRead: true,
+-      canWithdraw,
+-      ipRestricted: ips.length > 0 && !ips.includes('*'),
+-      permissions: flat,
+-      uid: info?.userID !== undefined && info?.userID !== null ? String(info.userID) : null,
+-      email: null,
+-    };
+-  }
+-
+-  async getCapabilities(context: ExchangeProviderContext): Promise<ExchangeCapabilityDiscovery> {
+-    return {
+-      venue: context.venue,
+-      environment: context.environment,
+-      capabilities: this.supportedCapabilities,
+-      supportedOrderTypes: [ExchangeOrderType.MARKET, ExchangeOrderType.LIMIT, ExchangeOrderType.STOP, ExchangeOrderType.STOP_LIMIT],
+-      supportedEnvironments: this.supportedEnvironments,
+-      apiVersion: 'v5',
+-      restAvailable: true,
+-      websocketAvailable: true,
+-      rateLimitModel: 'REQUEST_COUNT',
+-      authenticationModel: 'HMAC_SHA256',
+-      symbolFormat: 'BTCUSDT',
+-      timestamp: new Date().toISOString(),
+-    };
+-  }
+-
+-  async getBalances(context: ExchangeProviderContext): Promise<ExchangeBalance[]> {
+-    const result = await this.privateGet(context, '/v5/account/wallet-balance', { accountType: 'UNIFIED' });
+-    const account = Array.isArray(result?.list) ? result.list[0] : undefined;
+-    const coins: any[] = Array.isArray(account?.coin) ? account.coin : [];
+-    const timestampMicros = nowMicros();
+-    return coins
+-      .map((c) => {
+-        const total = dec(c.walletBalance);
+-        const locked = dec(c.locked);
+-        let free = subtractDecimalStrings(total, locked);
+-        if (free.startsWith('-')) free = '0';
+-        return {
+-          asset: String(c.coin),
+-          free,
+-          locked,
+-          total,
+-          providerReference: account?.accountType ? String(account.accountType) : null,
+-          timestampMicros,
+-          source: 'REST',
+-          isSimulated: context.isSandbox,
+-        };
+-      })
+-      .filter((b) => b.total !== '0' || b.locked !== '0');
+-  }
+-
+-  async getPositions(context: ExchangeProviderContext): Promise<ExchangePosition[]> {
+-    const rows: any[] = [];
+-    for (const settleCoin of ['USDT', 'USDC']) {
+-      rows.push(...(await this.privateList(context, '/v5/position/list', { category: 'linear', settleCoin, limit: 200 }, 1000)));
+-    }
+-    return rows
+-      .filter((p) => isDecimalString(p.size) && p.size !== '0' && !/^0(\.0+)?$/.test(p.size))
+-      .map((p) => ({
+-        providerPositionId: p.positionIdx !== undefined ? `${p.symbol}:${p.positionIdx}` : null,
+-        symbol: canonicalFromConcatenated(p.symbol),
+-        exchangeSymbol: String(p.symbol),
+-        side: p.side === 'Buy' ? ExchangePositionSide.LONG : p.side === 'Sell' ? ExchangePositionSide.SHORT : ExchangePositionSide.FLAT,
+-        quantity: absDecimalString(p.size),
+-        entryPrice: decOrNull(p.avgPrice),
+-        markPrice: decOrNull(p.markPrice),
+-        liquidationPrice: decOrNull(p.liqPrice),
+-        leverage: decOrNull(p.leverage),
+-        unrealizedPnl: decOrNull(p.unrealisedPnl),
+-        realizedPnl: decOrNull(p.cumRealisedPnl),
+-        timestampMicros: msToMicros(p.updatedTime) ?? nowMicros(),
+-        isSimulated: context.isSandbox,
+-      }));
+-  }
+-
+-  private categoriesFor(symbol?: string): Array<{ category: BybitCategory; settleCoin?: string }> {
+-    if (symbol) return [{ category: 'spot' }, { category: 'linear' }];
+-    return [{ category: 'spot' }, { category: 'linear', settleCoin: 'USDT' }, { category: 'linear', settleCoin: 'USDC' }];
+-  }
+-
+-  async getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]> {
+-    const exchangeSymbol = symbol ? symbol.replace(/[-/]/g, '').toUpperCase() : undefined;
+-    const rows: any[] = [];
+-    for (const scope of this.categoriesFor(exchangeSymbol)) {
+-      rows.push(...(await this.privateList(context, '/v5/order/realtime', { ...scope, symbol: exchangeSymbol, limit: 50 }, 500)));
+-    }
+-    return rows.map((o) => this.mapOrder(context, o));
+-  }
+-
+-  async getOrderHistory(context: ExchangeProviderContext, symbol?: string, limit = 50): Promise<ExchangeOrder[]> {
+-    const exchangeSymbol = symbol ? symbol.replace(/[-/]/g, '').toUpperCase() : undefined;
+-    const rows: any[] = [];
+-    for (const scope of this.categoriesFor(exchangeSymbol)) {
+-      rows.push(...(await this.privateList(context, '/v5/order/history', { ...scope, symbol: exchangeSymbol, limit: Math.min(limit, 50) }, limit)));
+-    }
+-    return rows
+-      .map((o) => this.mapOrder(context, o))
+-      .sort((a, b) => Number(BigInt(b.createdAtMicros ?? '0') - BigInt(a.createdAtMicros ?? '0')))
+-      .slice(0, limit);
+-  }
+-
+-  async getTradeHistory(context: ExchangeProviderContext, symbol?: string, limit = 50): Promise<ExchangeFill[]> {
+-    const exchangeSymbol = symbol ? symbol.replace(/[-/]/g, '').toUpperCase() : undefined;
+-    const rows: any[] = [];
+-    for (const scope of this.categoriesFor(exchangeSymbol)) {
+-      rows.push(...(await this.privateList(context, '/v5/execution/list', { ...scope, symbol: exchangeSymbol, limit: Math.min(limit, 100) }, limit)));
+-    }
+-    return rows
+-      .map((t) => ({
+-        providerTradeId: String(t.execId),
+-        providerOrderId: t.orderId ? String(t.orderId) : null,
+-        clientOrderId: t.orderLinkId ? String(t.orderLinkId) : null,
+-        symbol: canonicalFromConcatenated(t.symbol),
+-        side: t.side === 'Buy' ? ExchangeOrderSide.BUY : ExchangeOrderSide.SELL,
+-        price: dec(t.execPrice),
+-        quantity: dec(t.execQty),
+-        quoteQuantity: decOrNull(t.execValue),
+-        fee: decOrNull(t.execFee),
+-        feeCurrency: t.feeCurrency ? String(t.feeCurrency) : null,
+-        isMaker: typeof t.isMaker === 'boolean' ? t.isMaker : null,
+-        timestampMicros: msToMicros(t.execTime) ?? nowMicros(),
+-        isSimulated: context.isSandbox,
+-      }))
+-      .sort((a, b) => Number(BigInt(b.timestampMicros) - BigInt(a.timestampMicros)))
+-      .slice(0, limit);
+-  }
+-
+-  async getSymbols(context: ExchangeProviderContext): Promise<ExchangeSymbol[]> {
+-    const result = await this.publicGet(context, '/v5/market/instruments-info', { category: 'spot', limit: 1000 });
+-    const list: any[] = Array.isArray(result?.list) ? result.list : [];
+-    return list
+-      .filter((s) => s.status === 'Trading')
+-      .map((s) => {
+-        const tick = s.priceFilter?.tickSize ?? '0.00000001';
+-        const step = s.lotSizeFilter?.basePrecision ?? s.lotSizeFilter?.qtyStep ?? '0.00000001';
+-        return {
+-          canonicalSymbol: `${s.baseCoin}-${s.quoteCoin}`,
+-          exchangeSymbol: String(s.symbol),
+-          baseAsset: String(s.baseCoin),
+-          quoteAsset: String(s.quoteCoin),
+-          contractType: 'SPOT',
+-          tickSize: String(tick),
+-          quantityStep: String(step),
+-          minQuantity: decOrNull(s.lotSizeFilter?.minOrderQty),
+-          maxQuantity: decOrNull(s.lotSizeFilter?.maxOrderQty),
+-          minNotional: decOrNull(s.lotSizeFilter?.minOrderAmt),
+-          maxNotional: decOrNull(s.lotSizeFilter?.maxOrderAmt),
+-          pricePrecision: precisionOfStep(String(tick)),
+-          quantityPrecision: precisionOfStep(String(step)),
+-          minLeverage: null,
+-          maxLeverage: null,
+-          isTradeable: true,
+-        };
+-      });
+-  }
+-
+-  private mapOrder(context: ExchangeProviderContext, o: any): ExchangeOrder {
+-    const hasTrigger = isDecimalString(o.triggerPrice) && !/^0(\.0+)?$/.test(o.triggerPrice);
+-    const isLimit = String(o.orderType) === 'Limit';
+-    const type = hasTrigger ? (isLimit ? ExchangeOrderType.STOP_LIMIT : ExchangeOrderType.STOP) : isLimit ? ExchangeOrderType.LIMIT : ExchangeOrderType.MARKET;
+-    return {
+-      clientOrderId: o.orderLinkId ? String(o.orderLinkId) : String(o.orderId),
+-      providerOrderId: o.orderId ? String(o.orderId) : null,
+-      symbol: canonicalFromConcatenated(o.symbol),
+-      exchangeSymbol: String(o.symbol),
+-      side: o.side === 'Buy' ? ExchangeOrderSide.BUY : ExchangeOrderSide.SELL,
+-      type,
+-      status: BybitProvider.mapOrderStatus(String(o.orderStatus)),
+-      providerRawStatus: o.orderStatus ? String(o.orderStatus) : null,
+-      quantity: dec(o.qty),
+-      price: isLimit ? decOrNull(o.price) : null,
+-      stopPrice: hasTrigger ? String(o.triggerPrice) : null,
+-      filledQuantity: dec(o.cumExecQty),
+-      averagePrice: decOrNull(o.avgPrice) === '0' ? null : decOrNull(o.avgPrice),
+-      fee: decOrNull(o.cumExecFee),
+-      feeCurrency: null,
+-      createdAtMicros: msToMicros(o.createdTime),
+-      updatedAtMicros: msToMicros(o.updatedTime),
+-      isSimulated: context.isSandbox,
+-    };
+-  }
+-
+-  static mapOrderStatus(status: string): ExchangeOrderStatus {
+-    switch (status) {
+-      case 'New':
+-      case 'Created':
+-      case 'Untriggered':
+-      case 'Triggered':
+-      case 'Active':
+-        return ExchangeOrderStatus.NEW;
+-      case 'PartiallyFilled':
+-        return ExchangeOrderStatus.PARTIALLY_FILLED;
+-      case 'Filled':
+-        return ExchangeOrderStatus.FILLED;
+-      case 'Cancelled':
+-      case 'PartiallyFilledCanceled':
+-      case 'Deactivated':
+-        return ExchangeOrderStatus.CANCELED;
+-      case 'Rejected':
+-        return ExchangeOrderStatus.REJECTED;
+-      default:
+-        return ExchangeOrderStatus.NEW;
+-    }
+-  }
+-}
++// # Compatibility re-export: keeps the legacy venues import path bound to the single registered Bybit provider.
++export { BybitProvider } from '../providers/bybit.provider';
+diff --git a/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/coinbase.provider.ts b/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/coinbase.provider.ts
+index 3822a57..4f4d093 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/coinbase.provider.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/coinbase.provider.ts
+@@ -1,423 +1,2 @@
+-// # Implements signed Advanced Trade live REST/account/symbol/health probes when live trading enabled
+-import * as crypto from 'crypto';
+-import {
+-  ExchangeVenue,
+-  ExchangeEnvironment,
+-  ExchangeCapability,
+-  ExchangeOrderType,
+-  ExchangeBalance,
+-  ExchangePosition,
+-  ExchangeOrder,
+-  ExchangeFill,
+-  ExchangeSymbol,
+-  ExchangeCapabilityDiscovery,
+-  ExchangePositionSide,
+-  ExchangeOrderStatus,
+-  ExchangeOrderSide,
+-  ExchangeConnectivityResult,
+-} from '../exchange.types';
+-import {
+-  ExchangeProviderError,
+-  ExchangeProviderErrorCode,
+-  ExchangeProviderContext,
+-  ExchangeServerTime,
+-  ExchangeAccountMetadata,
+-} from '../exchange-provider.interface';
+-import {
+-  BaseExchangeProvider,
+-  addDecimalStrings,
+-  isDecimalString,
+-  isoToMicros,
+-  nowMicros,
+-  precisionOfStep,
+-} from '../base-exchange-provider';
+-
+-function dec(value: unknown): string {
+-  return isDecimalString(value) ? value : '0';
+-}
+-
+-function decOrNull(value: unknown): string | null {
+-  return isDecimalString(value) ? value : null;
+-}
+-
+-const MAX_PAGES = 10;
+-/** PKCS#8 DER prefix for a raw 32-byte Ed25519 seed. */
+-const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+-
+-function base64url(input: Buffer | string): string {
+-  return Buffer.from(input).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+-}
+-
+-/**
+- * Loads a Coinbase Developer Platform (CDP) API secret as a private key.
+- * Accepts both key families CDP issues: an EC P-256 PEM ("-----BEGIN EC PRIVATE
+- * KEY-----", often stored with literal "\n" escapes) and an Ed25519 secret
+- * delivered as base64 of 64 bytes (seed || public key).
+- */
+-export function loadCoinbaseKey(secret: string): { key: crypto.KeyObject; alg: 'ES256' | 'EdDSA' } {
+-  const normalized = secret.includes('\\n') ? secret.replace(/\\n/g, '\n') : secret;
+-  if (normalized.includes('-----BEGIN')) {
+-    const key = crypto.createPrivateKey(normalized);
+-    const type = key.asymmetricKeyType;
+-    if (type === 'ec') return { key, alg: 'ES256' };
+-    if (type === 'ed25519') return { key, alg: 'EdDSA' };
+-    throw new Error(`unsupported Coinbase key type ${type}`);
+-  }
+-  const raw = Buffer.from(normalized.trim(), 'base64');
+-  if (raw.length !== 64 && raw.length !== 32) throw new Error('Coinbase Ed25519 secret must be base64 of 32 or 64 bytes');
+-  const key = crypto.createPrivateKey({ key: Buffer.concat([ED25519_PKCS8_PREFIX, raw.subarray(0, 32)]), format: 'der', type: 'pkcs8' });
+-  return { key, alg: 'EdDSA' };
+-}
+-
+-/**
+- * Builds the short-lived bearer JWT Coinbase Advanced Trade requires on every
+- * private request: `sub`/`kid` = API key name, `iss` = "cdp", a two-minute
+- * validity window, and `uri` = "METHOD host/path" binding the token to exactly
+- * one endpoint (query string excluded, as the venue specifies).
+- */
+-export function buildCoinbaseJwt(keyName: string, secret: string, method: string, host: string, path: string, nowSeconds = Math.floor(Date.now() / 1000)): string {
+-  const { key, alg } = loadCoinbaseKey(secret);
+-  const header = { alg, kid: keyName, nonce: crypto.randomBytes(16).toString('hex'), typ: 'JWT' };
+-  const payload = { iss: 'cdp', sub: keyName, nbf: nowSeconds, exp: nowSeconds + 120, uri: `${method.toUpperCase()} ${host}${path}` };
+-  const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
+-  const signature =
+-    alg === 'ES256'
+-      ? crypto.sign('sha256', Buffer.from(signingInput), { key, dsaEncoding: 'ieee-p1363' })
+-      : crypto.sign(null, Buffer.from(signingInput), key);
+-  return `${signingInput}.${base64url(signature)}`;
+-}
+-
+-/**
+- * Coinbase Advanced Trade API (v3 brokerage), read side.
+- *
+- * Authentication is a per-request ES256/EdDSA JWT built from a CDP API key
+- * (key name + private key); there is no passphrase. The sandbox
+- * (api-sandbox.coinbase.com) serves static responses and accepts no
+- * authentication, so sandbox calls are sent without a token rather than with
+- * a token signed by a key the sandbox cannot verify.
+- */
+-export class CoinbaseProvider extends BaseExchangeProvider {
+-  readonly venue = ExchangeVenue.COINBASE;
+-  readonly displayName: string;
+-  readonly supportedEnvironments: ExchangeEnvironment[] = [ExchangeEnvironment.LIVE, ExchangeEnvironment.SANDBOX];
+-  readonly supportedCapabilities: ExchangeCapability[] = [
+-    ExchangeCapability.SPOT,
+-    ExchangeCapability.FUTURES,
+-    ExchangeCapability.MARKET_DATA,
+-    ExchangeCapability.BALANCES,
+-    ExchangeCapability.POSITIONS,
+-    ExchangeCapability.ORDERS,
+-    ExchangeCapability.TRADES,
+-  ];
+-
+-  constructor(
+-    private readonly urls: { liveRest: string; sandboxRest: string; liveWs: string; sandboxWs: string },
+-    displayName = 'Coinbase Advanced Trade',
+-  ) {
+-    super();
+-    this.displayName = displayName;
+-  }
+-
+-  protected getLiveRestUrl(): string {
+-    return this.urls.liveRest;
+-  }
+-  protected getTestnetRestUrl(): string {
+-    return this.urls.sandboxRest;
+-  }
+-  protected getSandboxRestUrl(): string {
+-    return this.urls.sandboxRest;
+-  }
+-  protected getLiveWsUrl(): string {
+-    return this.urls.liveWs;
+-  }
+-  protected getTestnetWsUrl(): string {
+-    return this.urls.sandboxWs;
+-  }
+-  protected getSandboxWsUrl(): string {
+-    return this.urls.sandboxWs;
+-  }
+-
+-  private buildQuery(params: Record<string, string | number | undefined>): string {
+-    return Object.entries(params)
+-      .filter(([, v]) => v !== undefined && v !== '')
+-      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+-      .join('&');
+-  }
+-
+-  private async privateGet(context: ExchangeProviderContext, path: string, params: Record<string, string | number | undefined> = {}): Promise<any> {
+-    const base = this.getRestBaseUrlForEnv(context.environment);
+-    const query = this.buildQuery(params);
+-    const headers: Record<string, string> = { Accept: 'application/json' };
+-    if (context.environment === ExchangeEnvironment.LIVE) {
+-      this.requireCredentials(context);
+-      let token: string;
+-      try {
+-        token = buildCoinbaseJwt(context.credentials.apiKey, context.credentials.apiSecret, 'GET', new URL(base).host, path);
+-      } catch (e: any) {
+-        throw new ExchangeProviderError(
+-          ExchangeProviderErrorCode.INVALID_CREDENTIALS,
+-          `Coinbase API secret is not a usable CDP private key (${String(e?.message ?? e).slice(0, 120)})`,
+-          context.venue,
+-          context.environment,
+-          false,
+-        );
+-      }
+-      headers.Authorization = `Bearer ${token}`;
+-    }
+-    try {
+-      return await this.httpGet(`${base}${path}${query ? `?${query}` : ''}`, headers);
+-    } catch (e: any) {
+-      throw this.normalizeError(e, context.venue, context.environment);
+-    }
+-  }
+-
+-  async getServerTime(context: ExchangeProviderContext): Promise<ExchangeServerTime> {
+-    let data: any;
+-    try {
+-      data = await this.httpGet(`${this.getRestBaseUrlForEnv(context.environment)}/api/v3/brokerage/time`, { Accept: 'application/json' });
+-    } catch (e: any) {
+-      throw this.normalizeError(e, context.venue, context.environment);
+-    }
+-    const ms = Number(data?.epochMillis ?? (data?.epochSeconds !== undefined ? Number(data.epochSeconds) * 1000 : NaN));
+-    if (!Number.isFinite(ms) || ms <= 0) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'Coinbase server time missing from response', context.venue, context.environment, true);
+-    }
+-    return this.serverTimeFromMs(ms);
+-  }
+-
+-  async testConnectivity(context: ExchangeProviderContext): Promise<ExchangeConnectivityResult> {
+-    return this.connectivityFromMetadata(context);
+-  }
+-
+-  async getAccountMetadata(context: ExchangeProviderContext): Promise<ExchangeAccountMetadata> {
+-    const data = await this.privateGet(context, '/api/v3/brokerage/key_permissions');
+-    const permissions: string[] = [];
+-    if (data?.can_view) permissions.push('view');
+-    if (data?.can_trade) permissions.push('trade');
+-    if (data?.can_transfer) permissions.push('transfer');
+-    return {
+-      accountId: context.accountId,
+-      venue: context.venue,
+-      environment: context.environment,
+-      isSandbox: context.isSandbox,
+-      canTrade: data?.can_trade === true,
+-      canRead: data?.can_view === true,
+-      // `can_transfer` is Coinbase's "move funds out" permission; anything but
+-      // an explicit false is treated as present (fail closed).
+-      canWithdraw: data?.can_transfer !== false,
+-      ipRestricted: false,
+-      permissions,
+-      uid: data?.portfolio_uuid ? String(data.portfolio_uuid) : null,
+-      email: null,
+-    };
+-  }
+-
+-  async getCapabilities(context: ExchangeProviderContext): Promise<ExchangeCapabilityDiscovery> {
+-    return {
+-      venue: context.venue,
+-      environment: context.environment,
+-      capabilities: this.supportedCapabilities,
+-      supportedOrderTypes: [ExchangeOrderType.MARKET, ExchangeOrderType.LIMIT, ExchangeOrderType.STOP_LIMIT],
+-      supportedEnvironments: this.supportedEnvironments,
+-      apiVersion: 'v3',
+-      restAvailable: true,
+-      websocketAvailable: true,
+-      rateLimitModel: 'REQUEST_COUNT',
+-      authenticationModel: 'JWT_ES256',
+-      symbolFormat: 'BTC-USD',
+-      timestamp: new Date().toISOString(),
+-    };
+-  }
+-
+-  async getBalances(context: ExchangeProviderContext): Promise<ExchangeBalance[]> {
+-    const rows: any[] = [];
+-    let cursor: string | undefined;
+-    for (let page = 0; page < MAX_PAGES; page += 1) {
+-      const data = await this.privateGet(context, '/api/v3/brokerage/accounts', { limit: 250, cursor });
+-      rows.push(...(Array.isArray(data?.accounts) ? data.accounts : []));
+-      if (!data?.has_next || !data?.cursor) break;
+-      cursor = String(data.cursor);
+-    }
+-    const timestampMicros = nowMicros();
+-    return rows
+-      .map((a) => {
+-        const free = dec(a?.available_balance?.value);
+-        const locked = dec(a?.hold?.value);
+-        return {
+-          asset: String(a?.currency ?? a?.available_balance?.currency ?? ''),
+-          free,
+-          locked,
+-          total: addDecimalStrings(free, locked),
+-          providerReference: a?.uuid ? String(a.uuid) : null,
+-          timestampMicros,
+-          source: 'REST',
+-          isSimulated: context.isSandbox,
+-        };
+-      })
+-      .filter((b) => b.asset !== '' && (!/^0(\.0+)?$/.test(b.total)));
+-  }
+-
+-  /**
+-   * Coinbase spot holds balances, not positions, so a spot-only portfolio
+-   * truthfully has none. Futures (CFM) positions are read when the portfolio
+-   * has a futures account; the venue answers 4xx for one that does not, which
+-   * is the "no futures account" fact, not an error to surface.
+-   */
+-  async getPositions(context: ExchangeProviderContext): Promise<ExchangePosition[]> {
+-    let data: any;
+-    try {
+-      data = await this.privateGet(context, '/api/v3/brokerage/cfm/positions');
+-    } catch (e: any) {
+-      const status = e?.originalError?.status;
+-      if (e instanceof ExchangeProviderError && [400, 404].includes(status)) return [];
+-      throw e;
+-    }
+-    const positions: any[] = Array.isArray(data?.positions) ? data.positions : [];
+-    return positions
+-      .filter((p) => isDecimalString(p?.number_of_contracts) && !/^0(\.0+)?$/.test(p.number_of_contracts))
+-      .map((p) => ({
+-        providerPositionId: p?.product_id ? String(p.product_id) : null,
+-        symbol: String(p?.product_id ?? ''),
+-        exchangeSymbol: String(p?.product_id ?? ''),
+-        side: String(p?.side).toUpperCase() === 'SHORT' ? ExchangePositionSide.SHORT : ExchangePositionSide.LONG,
+-        quantity: String(p.number_of_contracts).replace(/^-/, ''),
+-        entryPrice: decOrNull(p?.avg_entry_price),
+-        markPrice: decOrNull(p?.current_price),
+-        liquidationPrice: null,
+-        leverage: null,
+-        unrealizedPnl: decOrNull(p?.unrealized_pnl),
+-        realizedPnl: decOrNull(p?.daily_realized_pnl),
+-        timestampMicros: nowMicros(),
+-        isSimulated: context.isSandbox,
+-      }));
+-  }
+-
+-  private async listOrders(context: ExchangeProviderContext, params: Record<string, string | number | undefined>, maxItems: number): Promise<any[]> {
+-    const rows: any[] = [];
+-    let cursor: string | undefined;
+-    for (let page = 0; page < MAX_PAGES && rows.length < maxItems; page += 1) {
+-      const data = await this.privateGet(context, '/api/v3/brokerage/orders/historical/batch', { ...params, cursor });
+-      rows.push(...(Array.isArray(data?.orders) ? data.orders : []));
+-      if (!data?.has_next || !data?.cursor) break;
+-      cursor = String(data.cursor);
+-    }
+-    return rows.slice(0, maxItems);
+-  }
+-
+-  async getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]> {
+-    const rows = await this.listOrders(context, { order_status: 'OPEN', product_ids: symbol?.toUpperCase(), limit: 100 }, 1000);
+-    return rows.map((o) => this.mapOrder(context, o));
+-  }
+-
+-  async getOrderHistory(context: ExchangeProviderContext, symbol?: string, limit = 50): Promise<ExchangeOrder[]> {
+-    const rows = await this.listOrders(context, { product_ids: symbol?.toUpperCase(), limit: Math.min(limit, 100) }, limit);
+-    return rows.map((o) => this.mapOrder(context, o));
+-  }
+-
+-  async getTradeHistory(context: ExchangeProviderContext, symbol?: string, limit = 50): Promise<ExchangeFill[]> {
+-    const data = await this.privateGet(context, '/api/v3/brokerage/orders/historical/fills', { product_ids: symbol?.toUpperCase(), limit: Math.min(limit, 100) });
+-    const fills: any[] = Array.isArray(data?.fills) ? data.fills : [];
+-    return fills.slice(0, limit).map((f) => {
+-      const product = String(f?.product_id ?? '');
+-      return {
+-        providerTradeId: String(f?.trade_id ?? f?.entry_id),
+-        providerOrderId: f?.order_id ? String(f.order_id) : null,
+-        clientOrderId: null,
+-        symbol: product,
+-        side: String(f?.side).toUpperCase() === 'SELL' ? ExchangeOrderSide.SELL : ExchangeOrderSide.BUY,
+-        price: dec(f?.price),
+-        quantity: dec(f?.size),
+-        quoteQuantity: f?.size_in_quote === true ? dec(f?.size) : null,
+-        fee: decOrNull(f?.commission),
+-        feeCurrency: product.includes('-') ? product.split('-')[1] : null,
+-        isMaker: f?.liquidity_indicator === 'MAKER' ? true : f?.liquidity_indicator === 'TAKER' ? false : null,
+-        timestampMicros: isoToMicros(f?.trade_time) ?? nowMicros(),
+-        isSimulated: context.isSandbox,
+-      };
+-    });
+-  }
+-
+-  async getSymbols(context: ExchangeProviderContext): Promise<ExchangeSymbol[]> {
+-    const data = await this.privateGet(context, '/api/v3/brokerage/products', { product_type: 'SPOT' });
+-    const products: any[] = Array.isArray(data?.products) ? data.products : [];
+-    return products
+-      .filter((p) => p?.status === 'online' && !p?.trading_disabled && !p?.is_disabled && !p?.cancel_only)
+-      .map((p) => {
+-        const tick = String(p?.price_increment ?? p?.quote_increment ?? '0.01');
+-        const step = String(p?.base_increment ?? '0.00000001');
+-        return {
+-          canonicalSymbol: `${p.base_currency_id}-${p.quote_currency_id}`,
+-          exchangeSymbol: String(p.product_id),
+-          baseAsset: String(p.base_currency_id),
+-          quoteAsset: String(p.quote_currency_id),
+-          contractType: 'SPOT',
+-          tickSize: tick,
+-          quantityStep: step,
+-          minQuantity: decOrNull(p?.base_min_size),
+-          maxQuantity: decOrNull(p?.base_max_size),
+-          minNotional: decOrNull(p?.quote_min_size),
+-          maxNotional: decOrNull(p?.quote_max_size),
+-          pricePrecision: precisionOfStep(tick),
+-          quantityPrecision: precisionOfStep(step),
+-          minLeverage: null,
+-          maxLeverage: null,
+-          isTradeable: true,
+-        };
+-      });
+-  }
+-
+-  private mapOrder(context: ExchangeProviderContext, o: any): ExchangeOrder {
+-    const config = o?.order_configuration ?? {};
+-    const variant: any = Object.values(config)[0] ?? {};
+-    const orderType = String(o?.order_type ?? '');
+-    let type: ExchangeOrderType;
+-    if (orderType === 'MARKET') type = ExchangeOrderType.MARKET;
+-    else if (orderType === 'STOP_LIMIT') type = ExchangeOrderType.STOP_LIMIT;
+-    else if (orderType === 'STOP') type = ExchangeOrderType.STOP;
+-    else if (variant?.post_only === true) type = ExchangeOrderType.LIMIT_MAKER;
+-    else type = ExchangeOrderType.LIMIT;
+-    const product = String(o?.product_id ?? '');
+-    return {
+-      clientOrderId: o?.client_order_id ? String(o.client_order_id) : String(o?.order_id),
+-      providerOrderId: o?.order_id ? String(o.order_id) : null,
+-      symbol: product,
+-      exchangeSymbol: product,
+-      side: String(o?.side).toUpperCase() === 'SELL' ? ExchangeOrderSide.SELL : ExchangeOrderSide.BUY,
+-      type,
+-      status: CoinbaseProvider.mapOrderStatus(String(o?.status ?? ''), dec(o?.filled_size)),
+-      providerRawStatus: o?.status ? String(o.status) : null,
+-      quantity: decOrNull(variant?.base_size) ?? decOrNull(variant?.quote_size) ?? dec(o?.filled_size),
+-      price: decOrNull(variant?.limit_price),
+-      stopPrice: decOrNull(variant?.stop_price),
+-      filledQuantity: dec(o?.filled_size),
+-      averagePrice: isDecimalString(o?.average_filled_price) && !/^0(\.0+)?$/.test(o.average_filled_price) ? o.average_filled_price : null,
+-      fee: decOrNull(o?.total_fees),
+-      feeCurrency: product.includes('-') ? product.split('-')[1] : null,
+-      createdAtMicros: isoToMicros(o?.created_time),
+-      updatedAtMicros: isoToMicros(o?.last_fill_time) ?? isoToMicros(o?.created_time),
+-      isSimulated: context.isSandbox,
+-    };
+-  }
+-
+-  static mapOrderStatus(status: string, filled = '0'): ExchangeOrderStatus {
+-    const executed = !/^0(\.0+)?$/.test(filled);
+-    switch (status) {
+-      case 'PENDING':
+-      case 'QUEUED':
+-      case 'OPEN':
+-        return executed ? ExchangeOrderStatus.PARTIALLY_FILLED : ExchangeOrderStatus.NEW;
+-      case 'FILLED':
+-        return ExchangeOrderStatus.FILLED;
+-      case 'CANCELLED':
+-        return ExchangeOrderStatus.CANCELED;
+-      case 'CANCEL_QUEUED':
+-        return ExchangeOrderStatus.PENDING_CANCEL;
+-      case 'EXPIRED':
+-        return ExchangeOrderStatus.EXPIRED;
+-      case 'FAILED':
+-        return ExchangeOrderStatus.REJECTED;
+-      default:
+-        return ExchangeOrderStatus.NEW;
+-    }
+-  }
+-}
++// # Compatibility re-export: keeps the legacy venues import path bound to the single registered Coinbase provider.
++export { CoinbaseProvider, buildCoinbaseJwt, loadCoinbaseKey } from '../providers/coinbase.provider';
+diff --git a/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/kraken.provider.ts b/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/kraken.provider.ts
+index 194b402..82e24b4 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/kraken.provider.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/kraken.provider.ts
+@@ -1,512 +1,2 @@
+-// # Implements signed live REST/account/symbol/health probes when live trading enabled
+-import * as crypto from 'crypto';
+-import {
+-  ExchangeVenue,
+-  ExchangeEnvironment,
+-  ExchangeCapability,
+-  ExchangeOrderType,
+-  ExchangeBalance,
+-  ExchangePosition,
+-  ExchangeOrder,
+-  ExchangeFill,
+-  ExchangeSymbol,
+-  ExchangeCapabilityDiscovery,
+-  ExchangePositionSide,
+-  ExchangeOrderStatus,
+-  ExchangeOrderSide,
+-  ExchangeConnectivityResult,
+-} from '../exchange.types';
+-import {
+-  ExchangeProviderError,
+-  ExchangeProviderErrorCode,
+-  ExchangeProviderContext,
+-  ExchangeServerTime,
+-  ExchangeAccountMetadata,
+-} from '../exchange-provider.interface';
+-import {
+-  BaseExchangeProvider,
+-  subtractDecimalStrings,
+-  isDecimalString,
+-  secondsToMicros,
+-  nowMicros,
+-} from '../base-exchange-provider';
+-
+-function dec(value: unknown): string {
+-  return isDecimalString(value) ? value : '0';
+-}
+-
+-function decOrNull(value: unknown): string | null {
+-  return isDecimalString(value) ? value : null;
+-}
+-
+-/**
+- * Kraken's legacy asset codes ("XXBT", "ZUSD", "XETH") to the platform's
+- * conventional tickers. Codes outside this table are returned unchanged -
+- * newer Kraken assets already use plain tickers, and a staked/earn suffix
+- * (".S", ".F", ".B") is kept because it is a different balance, not a typo.
+- */
+-const KRAKEN_ASSETS: Record<string, string> = {
+-  XXBT: 'BTC',
+-  XBT: 'BTC',
+-  XXDG: 'DOGE',
+-  XDG: 'DOGE',
+-  XETH: 'ETH',
+-  XETC: 'ETC',
+-  XLTC: 'LTC',
+-  XXLM: 'XLM',
+-  XXMR: 'XMR',
+-  XXRP: 'XRP',
+-  XZEC: 'ZEC',
+-  XMLN: 'MLN',
+-  XREP: 'REP',
+-  ZUSD: 'USD',
+-  ZEUR: 'EUR',
+-  ZGBP: 'GBP',
+-  ZCAD: 'CAD',
+-  ZJPY: 'JPY',
+-  ZAUD: 'AUD',
+-  ZCHF: 'CHF',
+-};
+-
+-export function krakenAsset(code: string): string {
+-  const upper = String(code || '').toUpperCase();
+-  const [base, ...suffix] = upper.split('.');
+-  const mapped = KRAKEN_ASSETS[base] ?? base;
+-  return suffix.length > 0 ? `${mapped}.${suffix.join('.')}` : mapped;
+-}
+-
+-/**
+- * Splits a Kraken pair in any of its three spellings - websocket "XBT/USD",
+- * legacy "XXBTZUSD" and altname "XBTUSD" - into normalized base/quote
+- * tickers. Returns null when no known quote suffix matches.
+- */
+-export function krakenPairParts(pair: string): { base: string; quote: string } | null {
+-  const upper = String(pair || '').toUpperCase();
+-  if (upper.includes('/')) {
+-    const [b, q] = upper.split('/');
+-    return b && q ? { base: krakenAsset(b), quote: krakenAsset(q) } : null;
+-  }
+-  if (upper.length === 8 && /^[XZ]/.test(upper) && /^[XZ]/.test(upper.slice(4)) && KRAKEN_ASSETS[upper.slice(4)] !== undefined) {
+-    return { base: krakenAsset(upper.slice(0, 4)), quote: krakenAsset(upper.slice(4)) };
+-  }
+-  for (const quote of ['USDT', 'USDC', 'ZUSD', 'ZEUR', 'ZGBP', 'ZCAD', 'ZJPY', 'USD', 'EUR', 'GBP', 'CAD', 'JPY', 'XBT', 'ETH']) {
+-    if (upper.length > quote.length && upper.endsWith(quote)) {
+-      return { base: krakenAsset(upper.slice(0, upper.length - quote.length)), quote: krakenAsset(quote) };
+-    }
+-  }
+-  return null;
+-}
+-
+-/** The probe key name used to learn whether a key may withdraw. No such key exists by construction. */
+-export const KRAKEN_WITHDRAW_PROBE_KEY = '__wlct_permission_probe_no_such_key__';
+-
+-/**
+- * Kraken Spot REST API, read side.
+- *
+- * Authentication: `API-Sign = base64(HMAC_SHA512(base64decode(secret), uriPath || SHA256(nonce + postData)))`,
+- * where `||` is byte concatenation of the path and the raw SHA-256 digest. The
+- * nonce must strictly increase per key; this provider derives it from
+- * microsecond wall time and never reuses one inside the process.
+- *
+- * Kraken has no spot sandbox, so only LIVE is supported. Kraken exposes no
+- * endpoint that lists a key's permissions, so {@link getAccountMetadata}
+- * PROBES them with two calls that cannot move funds or place an order:
+- * `WithdrawInfo` for a withdrawal key that does not exist (answers
+- * "Permission denied" only when the key lacks withdraw rights) and `AddOrder`
+- * with `validate=true` (validated, never submitted). A probe that returns
+- * anything other than a clean permission refusal is treated as "has the
+- * permission" - fail closed, so a key we cannot prove safe is refused.
+- */
+-export class KrakenProvider extends BaseExchangeProvider {
+-  readonly venue = ExchangeVenue.KRAKEN;
+-  readonly displayName: string;
+-  readonly supportedEnvironments: ExchangeEnvironment[] = [ExchangeEnvironment.LIVE];
+-  readonly supportedCapabilities: ExchangeCapability[] = [
+-    ExchangeCapability.SPOT,
+-    ExchangeCapability.MARGIN,
+-    ExchangeCapability.MARKET_DATA,
+-    ExchangeCapability.BALANCES,
+-    ExchangeCapability.POSITIONS,
+-    ExchangeCapability.ORDERS,
+-    ExchangeCapability.TRADES,
+-  ];
+-
+-  private lastNonce = 0n;
+-
+-  constructor(
+-    private readonly urls: { liveRest: string; liveWs: string },
+-    displayName = 'Kraken',
+-  ) {
+-    super();
+-    this.displayName = displayName;
+-  }
+-
+-  protected getLiveRestUrl(): string {
+-    return this.urls.liveRest;
+-  }
+-  protected getTestnetRestUrl(): string {
+-    return this.urls.liveRest;
+-  }
+-  protected getSandboxRestUrl(): string {
+-    return this.urls.liveRest;
+-  }
+-  protected getLiveWsUrl(): string {
+-    return this.urls.liveWs;
+-  }
+-  protected getTestnetWsUrl(): string {
+-    return this.urls.liveWs;
+-  }
+-  protected getSandboxWsUrl(): string {
+-    return this.urls.liveWs;
+-  }
+-
+-  /** Exposed for tests: the exact Kraken signature. */
+-  static sign(secretBase64: string, uriPath: string, nonce: string, postData: string): string {
+-    const digest = crypto.createHash('sha256').update(nonce + postData).digest();
+-    return crypto
+-      .createHmac('sha512', Buffer.from(secretBase64, 'base64'))
+-      .update(Buffer.concat([Buffer.from(uriPath, 'utf8'), digest]))
+-      .digest('base64');
+-  }
+-
+-  private nextNonce(): string {
+-    const candidate = BigInt(Date.now()) * 1000n;
+-    this.lastNonce = candidate > this.lastNonce ? candidate : this.lastNonce + 1n;
+-    return this.lastNonce.toString();
+-  }
+-
+-  private assertLive(context: ExchangeProviderContext): void {
+-    if (context.environment !== ExchangeEnvironment.LIVE) {
+-      throw new ExchangeProviderError(
+-        ExchangeProviderErrorCode.NOT_SUPPORTED,
+-        'Kraken has no spot sandbox or testnet; only LIVE accounts can be connected',
+-        context.venue,
+-        context.environment,
+-        false,
+-      );
+-    }
+-  }
+-
+-  private classify(context: ExchangeProviderContext, errors: string[]): ExchangeProviderError {
+-    const joined = errors.join('; ').slice(0, 300);
+-    const has = (needle: string) => errors.some((e) => e.includes(needle));
+-    if (has('EAPI:Invalid key') || has('EAPI:Invalid signature')) {
+-      return new ExchangeProviderError(ExchangeProviderErrorCode.AUTH_FAILED, `Kraken: ${joined}`, context.venue, context.environment, false);
+-    }
+-    if (has('EAPI:Invalid nonce')) {
+-      return new ExchangeProviderError(ExchangeProviderErrorCode.CLOCK_DRIFT, `Kraken: ${joined}`, context.venue, context.environment, true, 1000);
+-    }
+-    if (has('EGeneral:Permission denied')) {
+-      return new ExchangeProviderError(ExchangeProviderErrorCode.PERMISSION_DENIED, `Kraken: ${joined}`, context.venue, context.environment, false);
+-    }
+-    if (has('Rate limit exceeded') || has('EGeneral:Too many requests')) {
+-      return new ExchangeProviderError(ExchangeProviderErrorCode.RATE_LIMITED, `Kraken: ${joined}`, context.venue, context.environment, true, 2000);
+-    }
+-    if (has('EService:Unavailable') || has('EService:Busy') || has('EService:Market in cancel_only mode')) {
+-      return new ExchangeProviderError(ExchangeProviderErrorCode.SERVER_ERROR, `Kraken: ${joined}`, context.venue, context.environment, true, 2000);
+-    }
+-    if (has('EQuery:Unknown asset pair')) {
+-      return new ExchangeProviderError(ExchangeProviderErrorCode.SYMBOL_NOT_FOUND, `Kraken: ${joined}`, context.venue, context.environment, false);
+-    }
+-    return new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, `Kraken: ${joined}`, context.venue, context.environment, false);
+-  }
+-
+-  private unwrap(context: ExchangeProviderContext, data: any): any {
+-    if (!data || typeof data !== 'object') {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'Kraken returned a non-JSON body', context.venue, context.environment, true);
+-    }
+-    const errors: string[] = Array.isArray(data.error) ? data.error.map(String) : [];
+-    if (errors.length > 0) throw this.classify(context, errors);
+-    return data.result ?? {};
+-  }
+-
+-  private async publicGet(context: ExchangeProviderContext, path: string, query = ''): Promise<any> {
+-    this.assertLive(context);
+-    try {
+-      return this.unwrap(context, await this.httpGet(`${this.getLiveRestUrl()}${path}${query ? `?${query}` : ''}`));
+-    } catch (e: any) {
+-      throw this.normalizeError(e, context.venue, context.environment);
+-    }
+-  }
+-
+-  private async privatePost(context: ExchangeProviderContext, path: string, params: Record<string, string> = {}): Promise<any> {
+-    this.assertLive(context);
+-    this.requireCredentials(context);
+-    const nonce = this.nextNonce();
+-    const postData = new URLSearchParams({ nonce, ...params }).toString();
+-    const signature = KrakenProvider.sign(context.credentials.apiSecret, path, nonce, postData);
+-    try {
+-      const data = await this.httpRequest({
+-        method: 'POST',
+-        url: `${this.getLiveRestUrl()}${path}`,
+-        headers: {
+-          'API-Key': context.credentials.apiKey,
+-          'API-Sign': signature,
+-          'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+-        },
+-        body: postData,
+-      });
+-      return this.unwrap(context, data);
+-    } catch (e: any) {
+-      throw this.normalizeError(e, context.venue, context.environment);
+-    }
+-  }
+-
+-  async getServerTime(context: ExchangeProviderContext): Promise<ExchangeServerTime> {
+-    const result = await this.publicGet(context, '/0/public/Time');
+-    const seconds = Number(result?.unixtime);
+-    if (!Number.isFinite(seconds) || seconds <= 0) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'Kraken server time missing from response', context.venue, context.environment, true);
+-    }
+-    // Kraken's clock has one-second resolution; drift below a second is noise.
+-    return this.serverTimeFromMs(seconds * 1000);
+-  }
+-
+-  async testConnectivity(context: ExchangeProviderContext): Promise<ExchangeConnectivityResult> {
+-    return this.connectivityFromMetadata(context);
+-  }
+-
+-  /** true = the probe proved the permission is ABSENT; false = present or unprovable. */
+-  private async probeRefused(context: ExchangeProviderContext, path: string, params: Record<string, string>): Promise<boolean> {
+-    try {
+-      await this.privatePost(context, path, params);
+-      return false;
+-    } catch (e: any) {
+-      if (e instanceof ExchangeProviderError && e.code === ExchangeProviderErrorCode.PERMISSION_DENIED) return true;
+-      if (e instanceof ExchangeProviderError && (e.code === ExchangeProviderErrorCode.AUTH_FAILED || e.code === ExchangeProviderErrorCode.RATE_LIMITED)) throw e;
+-      return false;
+-    }
+-  }
+-
+-  async getAccountMetadata(context: ExchangeProviderContext): Promise<ExchangeAccountMetadata> {
+-    // The read permission is proven by an ordinary balance read (throws on a bad key).
+-    await this.privatePost(context, '/0/private/Balance');
+-    const withdrawRefused = await this.probeRefused(context, '/0/private/WithdrawInfo', {
+-      asset: 'XBT',
+-      key: KRAKEN_WITHDRAW_PROBE_KEY,
+-      amount: '0.0001',
+-    });
+-    const tradeRefused = await this.probeRefused(context, '/0/private/AddOrder', {
+-      pair: 'XBTUSD',
+-      type: 'buy',
+-      ordertype: 'limit',
+-      price: '1',
+-      volume: '0.0001',
+-      validate: 'true',
+-    });
+-    const permissions = ['query_funds'];
+-    if (!tradeRefused) permissions.push('create_modify_orders');
+-    if (!withdrawRefused) permissions.push('withdraw_funds_or_unproven');
+-    return {
+-      accountId: context.accountId,
+-      venue: context.venue,
+-      environment: context.environment,
+-      isSandbox: context.isSandbox,
+-      canTrade: !tradeRefused,
+-      canRead: true,
+-      canWithdraw: !withdrawRefused,
+-      ipRestricted: false,
+-      permissions,
+-      uid: null,
+-      email: null,
+-    };
+-  }
+-
+-  async getCapabilities(context: ExchangeProviderContext): Promise<ExchangeCapabilityDiscovery> {
+-    return {
+-      venue: context.venue,
+-      environment: context.environment,
+-      capabilities: this.supportedCapabilities,
+-      supportedOrderTypes: [ExchangeOrderType.MARKET, ExchangeOrderType.LIMIT, ExchangeOrderType.STOP, ExchangeOrderType.STOP_LIMIT, ExchangeOrderType.TAKE_PROFIT, ExchangeOrderType.TAKE_PROFIT_LIMIT],
+-      supportedEnvironments: this.supportedEnvironments,
+-      apiVersion: '0',
+-      restAvailable: true,
+-      websocketAvailable: true,
+-      rateLimitModel: 'TOKEN_BUCKET',
+-      authenticationModel: 'HMAC_SHA512',
+-      symbolFormat: 'XBTUSD',
+-      timestamp: new Date().toISOString(),
+-    };
+-  }
+-
+-  async getBalances(context: ExchangeProviderContext): Promise<ExchangeBalance[]> {
+-    const result = await this.privatePost(context, '/0/private/BalanceEx');
+-    const timestampMicros = nowMicros();
+-    return Object.entries(result as Record<string, any>)
+-      .map(([code, row]) => {
+-        const total = dec(row?.balance);
+-        const locked = dec(row?.hold_trade);
+-        let free = subtractDecimalStrings(total, locked);
+-        if (free.startsWith('-')) free = '0';
+-        return {
+-          asset: krakenAsset(code),
+-          free,
+-          locked,
+-          total,
+-          providerReference: code,
+-          timestampMicros,
+-          source: 'REST',
+-          isSimulated: false,
+-        };
+-      })
+-      .filter((b) => !/^0(\.0+)?$/.test(b.total) || !/^0(\.0+)?$/.test(b.locked));
+-  }
+-
+-  async getPositions(context: ExchangeProviderContext): Promise<ExchangePosition[]> {
+-    const result = await this.privatePost(context, '/0/private/OpenPositions', { docalcs: 'true' });
+-    return Object.entries(result as Record<string, any>).map(([posId, p]) => {
+-      const vol = dec(p?.vol);
+-      const closed = dec(p?.vol_closed);
+-      const open = subtractDecimalStrings(vol, closed);
+-      return {
+-        providerPositionId: posId,
+-        symbol: this.canonicalPair(String(p?.pair ?? '')),
+-        exchangeSymbol: String(p?.pair ?? ''),
+-        side: p?.type === 'sell' ? ExchangePositionSide.SHORT : ExchangePositionSide.LONG,
+-        quantity: open.startsWith('-') ? '0' : open,
+-        entryPrice: null,
+-        markPrice: null,
+-        liquidationPrice: null,
+-        leverage: decOrNull(p?.leverage),
+-        unrealizedPnl: decOrNull(p?.net),
+-        realizedPnl: null,
+-        timestampMicros: secondsToMicros(p?.time) ?? nowMicros(),
+-        isSimulated: false,
+-      };
+-    });
+-  }
+-
+-  async getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]> {
+-    const result = await this.privatePost(context, '/0/private/OpenOrders');
+-    const orders = Object.entries((result?.open ?? {}) as Record<string, any>).map(([txid, o]) => this.mapOrder(txid, o));
+-    return symbol ? orders.filter((o) => o.symbol === symbol.toUpperCase() || o.exchangeSymbol === symbol.toUpperCase()) : orders;
+-  }
+-
+-  async getOrderHistory(context: ExchangeProviderContext, symbol?: string, limit = 50): Promise<ExchangeOrder[]> {
+-    const result = await this.privatePost(context, '/0/private/ClosedOrders');
+-    const orders = Object.entries((result?.closed ?? {}) as Record<string, any>)
+-      .map(([txid, o]) => this.mapOrder(txid, o))
+-      .filter((o) => !symbol || o.symbol === symbol.toUpperCase() || o.exchangeSymbol === symbol.toUpperCase())
+-      .sort((a, b) => Number(BigInt(b.createdAtMicros ?? '0') - BigInt(a.createdAtMicros ?? '0')));
+-    return orders.slice(0, limit);
+-  }
+-
+-  async getTradeHistory(context: ExchangeProviderContext, symbol?: string, limit = 50): Promise<ExchangeFill[]> {
+-    const result = await this.privatePost(context, '/0/private/TradesHistory');
+-    return Object.entries((result?.trades ?? {}) as Record<string, any>)
+-      .map(([tradeId, t]) => ({
+-        providerTradeId: tradeId,
+-        providerOrderId: t?.ordertxid ? String(t.ordertxid) : null,
+-        clientOrderId: null,
+-        symbol: this.canonicalPair(String(t?.pair ?? '')),
+-        side: t?.type === 'sell' ? ExchangeOrderSide.SELL : ExchangeOrderSide.BUY,
+-        price: dec(t?.price),
+-        quantity: dec(t?.vol),
+-        quoteQuantity: decOrNull(t?.cost),
+-        fee: decOrNull(t?.fee),
+-        feeCurrency: null,
+-        isMaker: typeof t?.maker === 'boolean' ? t.maker : null,
+-        timestampMicros: secondsToMicros(t?.time) ?? nowMicros(),
+-        isSimulated: false,
+-      }))
+-      .filter((f) => !symbol || f.symbol === symbol.toUpperCase())
+-      .sort((a, b) => Number(BigInt(b.timestampMicros) - BigInt(a.timestampMicros)))
+-      .slice(0, limit);
+-  }
+-
+-  async getSymbols(context: ExchangeProviderContext): Promise<ExchangeSymbol[]> {
+-    const result = await this.publicGet(context, '/0/public/AssetPairs');
+-    return Object.entries(result as Record<string, any>)
+-      .filter(([, p]) => (p?.status ?? 'online') === 'online' && typeof p?.wsname === 'string')
+-      .map(([pairKey, p]) => {
+-        const [wsBase, wsQuote] = String(p.wsname).split('/');
+-        const base = krakenAsset(wsBase);
+-        const quote = krakenAsset(wsQuote);
+-        const pairDecimals = Number(p.pair_decimals ?? 8);
+-        const lotDecimals = Number(p.lot_decimals ?? 8);
+-        return {
+-          canonicalSymbol: `${base}-${quote}`,
+-          exchangeSymbol: String(p.altname ?? pairKey),
+-          baseAsset: base,
+-          quoteAsset: quote,
+-          contractType: 'SPOT',
+-          tickSize: isDecimalString(p.tick_size) ? p.tick_size : lotStep(pairDecimals),
+-          quantityStep: lotStep(lotDecimals),
+-          minQuantity: decOrNull(p.ordermin),
+-          maxQuantity: null,
+-          minNotional: decOrNull(p.costmin),
+-          maxNotional: null,
+-          pricePrecision: pairDecimals,
+-          quantityPrecision: lotDecimals,
+-          minLeverage: null,
+-          maxLeverage: Array.isArray(p.leverage_buy) && p.leverage_buy.length > 0 ? Math.max(...p.leverage_buy.map(Number)) : null,
+-          isTradeable: true,
+-        };
+-      });
+-  }
+-
+-  /** "XXBTZUSD" / "XBTUSD" / "XBT/USD" -> "BTC-USD" using the legacy asset table. */
+-  canonicalPair(pair: string): string {
+-    const parts = krakenPairParts(pair);
+-    return parts ? `${parts.base}-${parts.quote}` : pair.toUpperCase();
+-  }
+-
+-  private mapOrder(txid: string, o: any): ExchangeOrder {
+-    const descr = o?.descr ?? {};
+-    const ordertype = String(descr.ordertype ?? '');
+-    const typeMap: Record<string, ExchangeOrderType> = {
+-      market: ExchangeOrderType.MARKET,
+-      limit: ExchangeOrderType.LIMIT,
+-      'stop-loss': ExchangeOrderType.STOP,
+-      'stop-loss-limit': ExchangeOrderType.STOP_LIMIT,
+-      'take-profit': ExchangeOrderType.TAKE_PROFIT,
+-      'take-profit-limit': ExchangeOrderType.TAKE_PROFIT_LIMIT,
+-    };
+-    const type = typeMap[ordertype] ?? ExchangeOrderType.LIMIT;
+-    const isStopFamily = type === ExchangeOrderType.STOP || type === ExchangeOrderType.STOP_LIMIT || type === ExchangeOrderType.TAKE_PROFIT || type === ExchangeOrderType.TAKE_PROFIT_LIMIT;
+-    const pair = String(descr.pair ?? '');
+-    const volExec = dec(o?.vol_exec);
+-    return {
+-      clientOrderId: o?.cl_ord_id ? String(o.cl_ord_id) : o?.userref ? String(o.userref) : txid,
+-      providerOrderId: txid,
+-      symbol: this.canonicalPair(pair),
+-      exchangeSymbol: pair,
+-      side: descr.type === 'sell' ? ExchangeOrderSide.SELL : ExchangeOrderSide.BUY,
+-      type,
+-      status: KrakenProvider.mapOrderStatus(String(o?.status ?? ''), volExec),
+-      providerRawStatus: o?.status ? String(o.status) : null,
+-      quantity: dec(o?.vol),
+-      price: type === ExchangeOrderType.MARKET ? null : isStopFamily ? decOrNull(descr.price2) : decOrNull(descr.price),
+-      stopPrice: isStopFamily ? decOrNull(descr.price) : null,
+-      filledQuantity: volExec,
+-      averagePrice: isDecimalString(o?.price) && !/^0(\.0+)?$/.test(o.price) ? o.price : null,
+-      fee: decOrNull(o?.fee),
+-      feeCurrency: null,
+-      createdAtMicros: secondsToMicros(o?.opentm),
+-      updatedAtMicros: secondsToMicros(o?.closetm) ?? secondsToMicros(o?.opentm),
+-      isSimulated: false,
+-    };
+-  }
+-
+-  static mapOrderStatus(status: string, volExec = '0'): ExchangeOrderStatus {
+-    const executed = !/^0(\.0+)?$/.test(volExec);
+-    switch (status) {
+-      case 'pending':
+-      case 'open':
+-        return executed ? ExchangeOrderStatus.PARTIALLY_FILLED : ExchangeOrderStatus.NEW;
+-      case 'closed':
+-        return ExchangeOrderStatus.FILLED;
+-      case 'canceled':
+-        return ExchangeOrderStatus.CANCELED;
+-      case 'expired':
+-        return ExchangeOrderStatus.EXPIRED;
+-      default:
+-        return ExchangeOrderStatus.NEW;
+-    }
+-  }
+-}
+-
+-function lotStep(decimals: number): string {
+-  if (!Number.isInteger(decimals) || decimals <= 0) return '1';
+-  return `0.${'0'.repeat(decimals - 1)}1`;
+-}
++// # Compatibility re-export: keeps the legacy venues import path bound to the single registered Kraken provider.
++export { KrakenProvider, krakenAsset, krakenPairParts, KRAKEN_WITHDRAW_PROBE_KEY } from '../providers/kraken.provider';
+diff --git a/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/okx.provider.ts b/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/okx.provider.ts
+index dbb688f..af7a4b6 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/okx.provider.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/exchanges/venues/okx.provider.ts
+@@ -1,404 +1,2 @@
+-// # Implements signed V5 live REST/account/symbol/health probes when live trading enabled
+-import * as crypto from 'crypto';
+-import {
+-  ExchangeVenue,
+-  ExchangeEnvironment,
+-  ExchangeCapability,
+-  ExchangeOrderType,
+-  ExchangeBalance,
+-  ExchangePosition,
+-  ExchangeOrder,
+-  ExchangeFill,
+-  ExchangeSymbol,
+-  ExchangeCapabilityDiscovery,
+-  ExchangePositionSide,
+-  ExchangeOrderStatus,
+-  ExchangeOrderSide,
+-  ExchangeConnectivityResult,
+-} from '../exchange.types';
+-import {
+-  ExchangeProviderError,
+-  ExchangeProviderErrorCode,
+-  ExchangeProviderContext,
+-  ExchangeServerTime,
+-  ExchangeAccountMetadata,
+-} from '../exchange-provider.interface';
+-import {
+-  BaseExchangeProvider,
+-  addDecimalStrings,
+-  absDecimalString,
+-  signOfDecimalString,
+-  isDecimalString,
+-  msToMicros,
+-  nowMicros,
+-  precisionOfStep,
+-} from '../base-exchange-provider';
+-
+-function dec(value: unknown): string {
+-  return isDecimalString(value) ? value : '0';
+-}
+-
+-function decOrNull(value: unknown): string | null {
+-  return isDecimalString(value) ? value : null;
+-}
+-
+-/** "BTC-USDT-SWAP" -> "BTC-USDT"; spot ids are already canonical. */
+-export function okxCanonical(instId: string): string {
+-  const parts = String(instId || '').toUpperCase().split('-');
+-  return parts.length >= 2 ? `${parts[0]}-${parts[1]}` : String(instId || '').toUpperCase();
+-}
+-
+-function instTypeOf(instId: string): 'SPOT' | 'SWAP' | 'FUTURES' | 'OPTION' {
+-  const parts = String(instId).toUpperCase().split('-');
+-  if (parts.length === 2) return 'SPOT';
+-  if (parts[2] === 'SWAP') return 'SWAP';
+-  if (parts.length >= 5) return 'OPTION';
+-  return 'FUTURES';
+-}
+-
+-/**
+- * OKX V5 API, read side.
+- *
+- * Authentication: `OK-ACCESS-SIGN = base64(HMAC_SHA256(secret, timestamp + METHOD + requestPath + body))`
+- * where `requestPath` includes the query string and `timestamp` is ISO-8601 with
+- * milliseconds; the passphrase chosen at key creation rides in
+- * `OK-ACCESS-PASSPHRASE`. OKX's demo trading uses the same host with
+- * `x-simulated-trading: 1`, so TESTNET/SANDBOX differ from LIVE by that header,
+- * which is added for every non-LIVE environment - a demo key sent without it
+- * is rejected by the venue, and a live key sent with it is too.
+- */
+-export class OkxProvider extends BaseExchangeProvider {
+-  readonly venue = ExchangeVenue.OKX;
+-  readonly displayName: string;
+-  readonly supportedEnvironments: ExchangeEnvironment[] = [ExchangeEnvironment.LIVE, ExchangeEnvironment.TESTNET, ExchangeEnvironment.SANDBOX];
+-  readonly supportedCapabilities: ExchangeCapability[] = [
+-    ExchangeCapability.SPOT,
+-    ExchangeCapability.MARGIN,
+-    ExchangeCapability.FUTURES,
+-    ExchangeCapability.PERPETUALS,
+-    ExchangeCapability.MARKET_DATA,
+-    ExchangeCapability.BALANCES,
+-    ExchangeCapability.POSITIONS,
+-    ExchangeCapability.ORDERS,
+-    ExchangeCapability.TRADES,
+-    ExchangeCapability.TESTNET,
+-  ];
+-
+-  constructor(
+-    private readonly urls: { liveRest: string; testnetRest: string; sandboxRest: string; liveWs: string; testnetWs: string; sandboxWs: string },
+-    displayName = 'OKX',
+-  ) {
+-    super();
+-    this.displayName = displayName;
+-  }
+-
+-  protected getLiveRestUrl(): string {
+-    return this.urls.liveRest;
+-  }
+-  protected getTestnetRestUrl(): string {
+-    return this.urls.testnetRest;
+-  }
+-  protected getSandboxRestUrl(): string {
+-    return this.urls.sandboxRest;
+-  }
+-  protected getLiveWsUrl(): string {
+-    return this.urls.liveWs;
+-  }
+-  protected getTestnetWsUrl(): string {
+-    return this.urls.testnetWs;
+-  }
+-  protected getSandboxWsUrl(): string {
+-    return this.urls.sandboxWs;
+-  }
+-
+-  /** Exposed for tests: the exact V5 prehash signature. */
+-  static sign(secret: string, timestamp: string, method: string, requestPath: string, body = ''): string {
+-    return crypto.createHmac('sha256', secret).update(timestamp + method.toUpperCase() + requestPath + body).digest('base64');
+-  }
+-
+-  private buildQuery(params: Record<string, string | number | undefined>): string {
+-    return Object.entries(params)
+-      .filter(([, v]) => v !== undefined && v !== '')
+-      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+-      .join('&');
+-  }
+-
+-  private demoHeaders(context: ExchangeProviderContext): Record<string, string> {
+-    return context.environment === ExchangeEnvironment.LIVE ? {} : { 'x-simulated-trading': '1' };
+-  }
+-
+-  private unwrap(context: ExchangeProviderContext, data: any): any[] {
+-    if (!data || typeof data !== 'object') {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'OKX returned a non-JSON body', context.venue, context.environment, true);
+-    }
+-    const code = String(data.code);
+-    if (code === '0') return Array.isArray(data.data) ? data.data : [];
+-    const message = `OKX code ${code}: ${String(data.msg ?? '').slice(0, 200)}`;
+-    if (['50111', '50113', '50105', '50100', '50101', '50114'].includes(code)) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.AUTH_FAILED, message, context.venue, context.environment, false);
+-    }
+-    if (['50110', '50120', '50121'].includes(code)) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.PERMISSION_DENIED, message, context.venue, context.environment, false);
+-    }
+-    if (['50102', '50112'].includes(code)) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.CLOCK_DRIFT, message, context.venue, context.environment, true, 1000);
+-    }
+-    if (['50011', '50061'].includes(code)) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.RATE_LIMITED, message, context.venue, context.environment, true, 1000);
+-    }
+-    if (['50001', '50004', '50013', '50026'].includes(code)) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.SERVER_ERROR, message, context.venue, context.environment, true, 1000);
+-    }
+-    throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, message, context.venue, context.environment, false);
+-  }
+-
+-  private async publicGet(context: ExchangeProviderContext, path: string, params: Record<string, string | number | undefined> = {}): Promise<any[]> {
+-    const query = this.buildQuery(params);
+-    const url = `${this.getRestBaseUrlForEnv(context.environment)}${path}${query ? `?${query}` : ''}`;
+-    try {
+-      return this.unwrap(context, await this.httpGet(url, this.demoHeaders(context)));
+-    } catch (e: any) {
+-      throw this.normalizeError(e, context.venue, context.environment);
+-    }
+-  }
+-
+-  private async privateGet(context: ExchangeProviderContext, path: string, params: Record<string, string | number | undefined> = {}): Promise<any[]> {
+-    this.requireCredentials(context, true);
+-    const query = this.buildQuery(params);
+-    const requestPath = `${path}${query ? `?${query}` : ''}`;
+-    const timestamp = new Date().toISOString();
+-    const signature = OkxProvider.sign(context.credentials.apiSecret, timestamp, 'GET', requestPath);
+-    try {
+-      const data = await this.httpGet(`${this.getRestBaseUrlForEnv(context.environment)}${requestPath}`, {
+-        'OK-ACCESS-KEY': context.credentials.apiKey,
+-        'OK-ACCESS-SIGN': signature,
+-        'OK-ACCESS-TIMESTAMP': timestamp,
+-        'OK-ACCESS-PASSPHRASE': context.credentials.passphrase as string,
+-        ...this.demoHeaders(context),
+-      });
+-      return this.unwrap(context, data);
+-    } catch (e: any) {
+-      throw this.normalizeError(e, context.venue, context.environment);
+-    }
+-  }
+-
+-  async getServerTime(context: ExchangeProviderContext): Promise<ExchangeServerTime> {
+-    const data = await this.publicGet(context, '/api/v5/public/time');
+-    const ts = Number(data[0]?.ts);
+-    if (!Number.isFinite(ts) || ts <= 0) {
+-      throw new ExchangeProviderError(ExchangeProviderErrorCode.UNKNOWN, 'OKX server time missing from response', context.venue, context.environment, true);
+-    }
+-    return this.serverTimeFromMs(ts);
+-  }
+-
+-  async testConnectivity(context: ExchangeProviderContext): Promise<ExchangeConnectivityResult> {
+-    return this.connectivityFromMetadata(context);
+-  }
+-
+-  async getAccountMetadata(context: ExchangeProviderContext): Promise<ExchangeAccountMetadata> {
+-    const data = await this.privateGet(context, '/api/v5/account/config');
+-    const config = data[0] ?? {};
+-    const perms = String(config.perm ?? '')
+-      .split(',')
+-      .map((p: string) => p.trim())
+-      .filter(Boolean);
+-    const ip = String(config.ip ?? '').trim();
+-    return {
+-      accountId: context.accountId,
+-      venue: context.venue,
+-      environment: context.environment,
+-      isSandbox: context.isSandbox,
+-      canTrade: perms.includes('trade'),
+-      canRead: perms.includes('read_only') || perms.includes('trade'),
+-      canWithdraw: perms.includes('withdraw'),
+-      ipRestricted: ip.length > 0,
+-      permissions: perms,
+-      uid: config.uid ? String(config.uid) : null,
+-      email: null,
+-    };
+-  }
+-
+-  async getCapabilities(context: ExchangeProviderContext): Promise<ExchangeCapabilityDiscovery> {
+-    return {
+-      venue: context.venue,
+-      environment: context.environment,
+-      capabilities: this.supportedCapabilities,
+-      supportedOrderTypes: [ExchangeOrderType.MARKET, ExchangeOrderType.LIMIT, ExchangeOrderType.LIMIT_MAKER, ExchangeOrderType.STOP, ExchangeOrderType.STOP_LIMIT],
+-      supportedEnvironments: this.supportedEnvironments,
+-      apiVersion: 'v5',
+-      restAvailable: true,
+-      websocketAvailable: true,
+-      rateLimitModel: 'REQUEST_COUNT',
+-      authenticationModel: 'HMAC_SHA256_PASSPHRASE',
+-      symbolFormat: 'BTC-USDT',
+-      timestamp: new Date().toISOString(),
+-    };
+-  }
+-
+-  async getBalances(context: ExchangeProviderContext): Promise<ExchangeBalance[]> {
+-    const data = await this.privateGet(context, '/api/v5/account/balance');
+-    const details: any[] = Array.isArray(data[0]?.details) ? data[0].details : [];
+-    const timestampMicros = msToMicros(data[0]?.uTime) ?? nowMicros();
+-    return details
+-      .map((d) => {
+-        const free = dec(d.availBal);
+-        const locked = dec(d.frozenBal);
+-        const total = isDecimalString(d.cashBal) ? d.cashBal : addDecimalStrings(free, locked);
+-        return {
+-          asset: String(d.ccy),
+-          free,
+-          locked,
+-          total,
+-          providerReference: null,
+-          timestampMicros,
+-          source: 'REST',
+-          isSimulated: context.isSandbox,
+-        };
+-      })
+-      .filter((b) => b.total !== '0' || b.locked !== '0');
+-  }
+-
+-  async getPositions(context: ExchangeProviderContext): Promise<ExchangePosition[]> {
+-    const data = await this.privateGet(context, '/api/v5/account/positions');
+-    return data
+-      .filter((p) => isDecimalString(p.pos) && signOfDecimalString(p.pos) !== 0)
+-      .map((p) => {
+-        let side: ExchangePositionSide;
+-        if (p.posSide === 'long') side = ExchangePositionSide.LONG;
+-        else if (p.posSide === 'short') side = ExchangePositionSide.SHORT;
+-        else side = signOfDecimalString(p.pos) > 0 ? ExchangePositionSide.LONG : ExchangePositionSide.SHORT;
+-        return {
+-          providerPositionId: p.posId ? String(p.posId) : null,
+-          symbol: okxCanonical(p.instId),
+-          exchangeSymbol: String(p.instId),
+-          side,
+-          quantity: absDecimalString(p.pos),
+-          entryPrice: decOrNull(p.avgPx),
+-          markPrice: decOrNull(p.markPx),
+-          liquidationPrice: decOrNull(p.liqPx),
+-          leverage: decOrNull(p.lever),
+-          unrealizedPnl: decOrNull(p.upl),
+-          realizedPnl: decOrNull(p.realizedPnl),
+-          timestampMicros: msToMicros(p.uTime) ?? nowMicros(),
+-          isSimulated: context.isSandbox,
+-        };
+-      });
+-  }
+-
+-  async getOpenOrders(context: ExchangeProviderContext, symbol?: string): Promise<ExchangeOrder[]> {
+-    const params: Record<string, string | number | undefined> = { limit: 100 };
+-    if (symbol) {
+-      params.instId = symbol.toUpperCase();
+-      params.instType = instTypeOf(symbol);
+-    }
+-    const data = await this.privateGet(context, '/api/v5/trade/orders-pending', params);
+-    return data.map((o) => this.mapOrder(context, o));
+-  }
+-
+-  async getOrderHistory(context: ExchangeProviderContext, symbol?: string, limit = 50): Promise<ExchangeOrder[]> {
+-    const instTypes: Array<'SPOT' | 'SWAP' | 'FUTURES' | 'OPTION'> = symbol ? [instTypeOf(symbol)] : ['SPOT', 'SWAP'];
+-    const rows: any[] = [];
+-    for (const instType of instTypes) {
+-      rows.push(...(await this.privateGet(context, '/api/v5/trade/orders-history', { instType, instId: symbol?.toUpperCase(), limit: Math.min(limit, 100) })));
+-    }
+-    return rows
+-      .map((o) => this.mapOrder(context, o))
+-      .sort((a, b) => Number(BigInt(b.createdAtMicros ?? '0') - BigInt(a.createdAtMicros ?? '0')))
+-      .slice(0, limit);
+-  }
+-
+-  async getTradeHistory(context: ExchangeProviderContext, symbol?: string, limit = 50): Promise<ExchangeFill[]> {
+-    const params: Record<string, string | number | undefined> = { limit: Math.min(limit, 100) };
+-    if (symbol) {
+-      params.instId = symbol.toUpperCase();
+-      params.instType = instTypeOf(symbol);
+-    }
+-    const data = await this.privateGet(context, '/api/v5/trade/fills', params);
+-    return data.slice(0, limit).map((t) => ({
+-      providerTradeId: String(t.tradeId),
+-      providerOrderId: t.ordId ? String(t.ordId) : null,
+-      clientOrderId: t.clOrdId ? String(t.clOrdId) : null,
+-      symbol: okxCanonical(t.instId),
+-      side: t.side === 'buy' ? ExchangeOrderSide.BUY : ExchangeOrderSide.SELL,
+-      price: dec(t.fillPx),
+-      quantity: dec(t.fillSz),
+-      quoteQuantity: null,
+-      // OKX reports fees as negative numbers (a charge) and rebates as positive;
+-      // the platform's convention is a positive fee paid, so the sign flips.
+-      fee: isDecimalString(t.fee) ? (t.fee.startsWith('-') ? t.fee.slice(1) : t.fee === '0' ? '0' : `-${t.fee}`) : null,
+-      feeCurrency: t.feeCcy ? String(t.feeCcy) : null,
+-      isMaker: t.execType === 'M' ? true : t.execType === 'T' ? false : null,
+-      timestampMicros: msToMicros(t.ts) ?? nowMicros(),
+-      isSimulated: context.isSandbox,
+-    }));
+-  }
+-
+-  async getSymbols(context: ExchangeProviderContext): Promise<ExchangeSymbol[]> {
+-    const data = await this.publicGet(context, '/api/v5/public/instruments', { instType: 'SPOT' });
+-    return data
+-      .filter((s) => s.state === 'live')
+-      .map((s) => ({
+-        canonicalSymbol: `${s.baseCcy}-${s.quoteCcy}`,
+-        exchangeSymbol: String(s.instId),
+-        baseAsset: String(s.baseCcy),
+-        quoteAsset: String(s.quoteCcy),
+-        contractType: 'SPOT',
+-        tickSize: String(s.tickSz),
+-        quantityStep: String(s.lotSz),
+-        minQuantity: decOrNull(s.minSz),
+-        maxQuantity: decOrNull(s.maxLmtSz),
+-        minNotional: null,
+-        maxNotional: null,
+-        pricePrecision: precisionOfStep(String(s.tickSz)),
+-        quantityPrecision: precisionOfStep(String(s.lotSz)),
+-        minLeverage: null,
+-        maxLeverage: null,
+-        isTradeable: true,
+-      }));
+-  }
+-
+-  private mapOrder(context: ExchangeProviderContext, o: any): ExchangeOrder {
+-    const ordType = String(o.ordType);
+-    let type: ExchangeOrderType;
+-    if (ordType === 'market') type = ExchangeOrderType.MARKET;
+-    else if (ordType === 'post_only') type = ExchangeOrderType.LIMIT_MAKER;
+-    else type = ExchangeOrderType.LIMIT;
+-    const fee = isDecimalString(o.fee) ? (o.fee.startsWith('-') ? o.fee.slice(1) : o.fee === '0' ? '0' : `-${o.fee}`) : null;
+-    return {
+-      clientOrderId: o.clOrdId ? String(o.clOrdId) : String(o.ordId),
+-      providerOrderId: o.ordId ? String(o.ordId) : null,
+-      symbol: okxCanonical(o.instId),
+-      exchangeSymbol: String(o.instId),
+-      side: o.side === 'buy' ? ExchangeOrderSide.BUY : ExchangeOrderSide.SELL,
+-      type,
+-      status: OkxProvider.mapOrderStatus(String(o.state)),
+-      providerRawStatus: o.state ? String(o.state) : null,
+-      quantity: dec(o.sz),
+-      price: type === ExchangeOrderType.MARKET ? null : decOrNull(o.px),
+-      stopPrice: null,
+-      filledQuantity: dec(o.accFillSz),
+-      averagePrice: decOrNull(o.avgPx),
+-      fee,
+-      feeCurrency: o.feeCcy ? String(o.feeCcy) : null,
+-      createdAtMicros: msToMicros(o.cTime),
+-      updatedAtMicros: msToMicros(o.uTime),
+-      isSimulated: context.isSandbox,
+-    };
+-  }
+-
+-  static mapOrderStatus(state: string): ExchangeOrderStatus {
+-    switch (state) {
+-      case 'live':
+-        return ExchangeOrderStatus.NEW;
+-      case 'partially_filled':
+-        return ExchangeOrderStatus.PARTIALLY_FILLED;
+-      case 'filled':
+-        return ExchangeOrderStatus.FILLED;
+-      case 'canceled':
+-      case 'mmp_canceled':
+-        return ExchangeOrderStatus.CANCELED;
+-      default:
+-        return ExchangeOrderStatus.NEW;
+-    }
+-  }
+-}
++// # Compatibility re-export: keeps the legacy venues import path bound to the single registered OKX provider.
++export { OkxProvider, okxCanonical } from '../providers/okx.provider';
+diff --git a/whitelabel-copytrade/apps/api/src/modules/feature-flags/feature-flags.controller.ts b/whitelabel-copytrade/apps/api/src/modules/feature-flags/feature-flags.controller.ts
+index f2d8495..a94e788 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/feature-flags/feature-flags.controller.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/feature-flags/feature-flags.controller.ts
+@@ -16,6 +16,7 @@ import { PlatformOnly, RequirePermissions } from '../../common/decorators/permis
+ import { RequestMeta, type RequestMetadata } from '../../common/decorators/request-context.decorator';
+ import { Audited } from '../../common/decorators/audit.decorator';
+ import { ApiStandardResponses } from '../../common/decorators/api-standard-responses.decorator';
++import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
+ 
+ @ApiTags('Feature flags')
+ @Controller({ path: 'feature-flags', version: '1' })
+@@ -62,6 +63,16 @@ export class FeatureFlagsController {
+     });
+   }
+ 
++  @Put('live')
++  @HttpCode(HttpStatus.OK)
++  @RequirePermissions(Permission.FEATURE_FLAG_MANAGE)
++  @RequireStepUp('FEATURE_FLAG_LIVE_TOGGLE')
++  @Audited(AuditAction.FEATURE_FLAG_UPDATED, 'TenantFeatureFlag')
++  @ApiOperation({ summary: 'Change a live-trading related tenant flag with fresh step-up proof' })
++  async setLiveFlag(@Body() dto: SetTenantFlagDto, @TenantId() tenantId: string, @CurrentUser() actor: AuthenticatedActor, @RequestMeta() meta: RequestMetadata): Promise<TenantFeatureFlagDto> {
++    return this.featureFlags.setForTenant(tenantId, dto, { actorId: actor.userId, ipHash: meta.ipHash, requestId: meta.requestId }, true);
++  }
++
+   @Get('definitions')
+   @HttpCode(HttpStatus.OK)
+   @PlatformOnly()
+diff --git a/whitelabel-copytrade/apps/api/src/modules/feature-flags/feature-flags.service.ts b/whitelabel-copytrade/apps/api/src/modules/feature-flags/feature-flags.service.ts
+index fe728f1..15a9176 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/feature-flags/feature-flags.service.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/feature-flags/feature-flags.service.ts
+@@ -1,4 +1,4 @@
+-import { Injectable } from '@nestjs/common';
++import { ForbiddenException, Injectable } from '@nestjs/common';
+ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+ import { createHash } from 'node:crypto';
+ import {
+@@ -221,7 +221,18 @@ export class FeatureFlagsService {
+     tenantId: string,
+     dto: SetTenantFlagDto,
+     context: { actorId: string; ipHash: string; requestId: string },
++    stepUpAuthorized = false,
+   ): Promise<TenantFeatureFlagDto> {
++    const liveToggle = ['live_trading', 'live_execution', 'mainnet_trading'].includes(dto.key);
++    if (liveToggle && !stepUpAuthorized) throw new ForbiddenException('Live trading feature changes require fresh step-up authentication');
++    if (dto.enabled) {
++      const subscription = await this.prisma.tenantSubscription.findFirst({
++        where: { tenantId, status: { in: ['ACTIVE', 'TRIALING'] } },
++        orderBy: { createdAt: 'desc' },
++        include: { plan: { select: { features: true } } },
++      });
++      if (!subscription?.plan.features.includes(dto.key)) throw new ForbiddenException('The tenant plan does not entitle this feature flag');
++    }
+     const definition = await this.prisma.featureFlag.findUnique({ where: { key: dto.key } });
+     if (!definition) {
+       throw new NotFoundException('Feature flag', dto.key);
+diff --git a/whitelabel-copytrade/apps/api/src/modules/governance/compliance-report.fail-closed.spec.ts b/whitelabel-copytrade/apps/api/src/modules/governance/compliance-report.fail-closed.spec.ts
+index 1cfe744..272d8fa 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/governance/compliance-report.fail-closed.spec.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/governance/compliance-report.fail-closed.spec.ts
+@@ -326,7 +326,7 @@ describe('Required native governance audit durability and recursive safe evidenc
+   });
+   it('binds the audit list to the tenant and preserves all records when no take is configured', async () => {
+     await service().listEvents(TENANT, { actionType: GovernanceActionType.REPORT_GENERATE });
+-    expect(db.governanceAudit.findMany).toHaveBeenCalledWith({ where: { tenantId: TENANT, actionType: GovernanceActionType.REPORT_GENERATE }, orderBy: { createdAt: 'desc' } });
++    expect(db.governanceAudit.findMany).toHaveBeenCalledWith({ where: { tenantId: TENANT, actionType: GovernanceActionType.REPORT_GENERATE }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+   });
+ });
+ 
+diff --git a/whitelabel-copytrade/apps/api/src/modules/governance/dto/privacy-request.dto.ts b/whitelabel-copytrade/apps/api/src/modules/governance/dto/privacy-request.dto.ts
+index d0465a3..8443992 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/governance/dto/privacy-request.dto.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/governance/dto/privacy-request.dto.ts
+@@ -365,7 +365,14 @@ export class AuditExportDto {
+   operatorId!: string;
+ 
+   @IsOptional()
+-  filters?: { actionType?: string; subjectUserId?: string };
++  filters?: {
++    actorId?: string;
++    actionType?: string;
++    subjectUserId?: string;
++    entityType?: 'REQUEST' | 'REPORT' | 'EVIDENCE_PACKAGE' | 'LEGAL_HOLD' | 'RETENTION_CANDIDATE' | 'CONSENT';
++    entityId?: string;
++    outcome?: string;
++  };
+ }
+ 
+ export class EvaluateRetentionDto {
+diff --git a/whitelabel-copytrade/apps/api/src/modules/governance/governance-audit-export.service.ts b/whitelabel-copytrade/apps/api/src/modules/governance/governance-audit-export.service.ts
+index 843e789..7dd9895 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/governance/governance-audit-export.service.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/governance/governance-audit-export.service.ts
+@@ -1,8 +1,52 @@
+-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
++// # Exports tenant-bound governance audit rows with canonical filtering, safe actor redaction, SHA-256 manifests, and verifiable chained integrity.
++import { createHash, randomUUID } from 'node:crypto';
++import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
++import { QUEUE_NAMES } from '@wlct/config';
++import { QueueService } from '../queue/queue.service';
+ import { GovernanceAuditService } from './governance-audit.service';
+ import { GovernancePolicyService } from './governance-policy.service';
+-import { GovernanceActionType } from './governance.types';
+-import * as crypto from 'crypto';
++import { GovernanceActionType, type GovernanceAuditEvent } from './governance.types';
++
++export interface AuditExportFilters {
++  actorId?: string;
++  actionType?: GovernanceActionType;
++  subjectUserId?: string;
++  entityType?: 'REQUEST' | 'REPORT' | 'EVIDENCE_PACKAGE' | 'LEGAL_HOLD' | 'RETENTION_CANDIDATE' | 'CONSENT';
++  entityId?: string;
++  outcome?: string;
++}
++
++export interface AuditExportRow {
++  id: string;
++  tenantId: string;
++  actionType: GovernanceActionType;
++  actorReference: string;
++  subjectReference: string | null;
++  entityType: string | null;
++  entityReference: string | null;
++  state: string;
++  outcome: string;
++  reason: string | null;
++  correlationId: string;
++  createdAt: string;
++  safeEvidence: Record<string, unknown>;
++  previousHash: string;
++  rowHash: string;
++}
++
++export interface AuditExportManifest {
++  format: 'governance-audit-json-v1';
++  tenantId: string;
++  generatedAt: string;
++  periodStart: string;
++  periodEndExclusive: string;
++  rowCount: number;
++  filters: AuditExportFilters;
++  sha256: string;
++  chainTip: string;
++  chainAlgorithm: 'SHA-256';
++  actorRedaction: 'SHA-256';
++}
+ 
+ export interface AuditExport {
+   id: string;
+@@ -20,7 +64,69 @@ export interface AuditExport {
+   policyVersion: string;
+   correlationId: string;
+   isDeterministic: boolean;
+-  filtersApplied: Record<string, unknown>;
++  filtersApplied: AuditExportFilters;
++  manifest: AuditExportManifest;
++  rows: AuditExportRow[];
++  fileContents: string;
++  execution: { mode: 'SYNCHRONOUS'; truncatedAtLimit: boolean };
++}
++
++const INITIAL_HASH = '0'.repeat(64);
++const MAX_EXPORT_ROWS = 10_000;
++const SYNCHRONOUS_EXPORT_LIMIT = 2_000;
++
++export interface AuditExportJobPayload {
++  tenantId: string;
++  periodStart: string;
++  periodEnd: string;
++  correlationId: string;
++  operatorId: string;
++  filters?: AuditExportFilters;
++}
++
++export interface AuditExportQueued {
++  id: string;
++  tenantId: string;
++  status: 'QUEUED';
++  statusPath: string;
++  submittedAt: string;
++}
++
++export interface AuditExportJobStatus {
++  id: string;
++  tenantId: string;
++  state: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'unknown';
++  result?: AuditExport;
++  failureReason?: string;
++}
++
++function digest(value: string): string {
++  return createHash('sha256').update(value, 'utf8').digest('hex');
++}
++
++function isPlainRecord(value: unknown): value is Record<string, unknown> {
++  return value !== null && typeof value === 'object' && !Array.isArray(value);
++}
++
++
++function entityFor(event: GovernanceAuditEvent): { type: string | null; id: string | null } {
++  if (event.requestId) return { type: 'REQUEST', id: event.requestId };
++  if (event.reportId) return { type: 'REPORT', id: event.reportId };
++  if (event.evidencePackageId) return { type: 'EVIDENCE_PACKAGE', id: event.evidencePackageId };
++  if (event.legalHoldId) return { type: 'LEGAL_HOLD', id: event.legalHoldId };
++  if (event.retentionCandidateId) return { type: 'RETENTION_CANDIDATE', id: event.retentionCandidateId };
++  if (event.consentId) return { type: 'CONSENT', id: event.consentId };
++  return { type: null, id: null };
++}
++
++function matchesEntity(event: GovernanceAuditEvent, filter: AuditExportFilters): boolean {
++  const entity = entityFor(event);
++  return (filter.entityType === undefined || entity.type === filter.entityType)
++    && (filter.entityId === undefined || entity.id === filter.entityId);
++}
++
++function canonical(row: Omit<AuditExportRow, 'previousHash' | 'rowHash'>): string {
++  return JSON.stringify(row);
+ }
+ 
+ @Injectable()
+@@ -30,81 +136,136 @@ export class GovernanceAuditExportService {
+   constructor(
+     private readonly audit: GovernanceAuditService,
+     private readonly policyService: GovernancePolicyService,
++    private readonly queue: QueueService,
+   ) {}
+ 
+-  async exportAuditTrail(params: {
+-    tenantId: string;
+-    periodStart: string;
+-    periodEnd: string;
+-    correlationId: string;
+-    operatorId: string;
+-    filters?: { actionType?: GovernanceActionType; subjectUserId?: string };
+-  }): Promise<AuditExport> {
+-    if (!params.tenantId || !params.periodStart || !params.periodEnd) throw new BadRequestException('tenantId, periodStart, periodEnd required');
+-    const start = new Date(params.periodStart);
+-    const end = new Date(params.periodEnd);
+-    if (isNaN(start.getTime()) || isNaN(end.getTime())) throw new BadRequestException('invalid period dates');
+-    if (start >= end) throw new BadRequestException('periodStart must be before periodEnd');
++  async exportAuditTrail(params: AuditExportJobPayload): Promise<AuditExport | AuditExportQueued> {
++    this.validateParams(params);
++    const probe = await this.audit.listEvents(params.tenantId, { actionType: params.filters?.actionType, subjectUserId: params.filters?.subjectUserId, take: SYNCHRONOUS_EXPORT_LIMIT + 1 });
++    if (probe.length > SYNCHRONOUS_EXPORT_LIMIT) {
++      const id = await this.queue.enqueueOrThrow(QUEUE_NAMES.AUDIT, 'governance-audit-export', params, { attempts: 3, backoff: { type: 'exponential', delay: 2_000 }, removeOnComplete: 100, removeOnFail: 500 });
++      return { id, tenantId: params.tenantId, status: 'QUEUED', statusPath: `/v1/governance/audit/export/${encodeURIComponent(id)}`, submittedAt: new Date().toISOString() };
++    }
++    return this.buildExport(params, probe);
++  }
+ 
+-    // Non-mutating: only reads, never modifies audit
+-    const allEvents = await this.audit.listEvents(params.tenantId, {
+-      actionType: params.filters?.actionType,
+-      subjectUserId: params.filters?.subjectUserId,
+-      take: 10000,
+-    });
++  async processQueuedExport(params: AuditExportJobPayload): Promise<AuditExport> {
++    this.validateParams(params);
++    const events: GovernanceAuditEvent[] = [];
++    const pageSize = 1_000;
++    for (let skip = 0; skip < MAX_EXPORT_ROWS; skip += pageSize) {
++      const page = await this.audit.listEvents(params.tenantId, { actionType: params.filters?.actionType, subjectUserId: params.filters?.subjectUserId, take: pageSize, skip });
++      events.push(...page);
++      if (page.length < pageSize) break;
++    }
++    if (events.length >= MAX_EXPORT_ROWS) throw new BadRequestException('Audit export exceeds the supported 10,000 row cap');
++    return this.buildExport(params, events);
++  }
+ 
+-    const filtered = allEvents.filter((e) => {
+-      const created = new Date(e.createdAt);
+-      return created >= start && created <= end;
+-    });
++  async getExportJob(tenantId: string, jobId: string): Promise<AuditExportJobStatus> {
++    if (!tenantId || !jobId) throw new BadRequestException('tenantId and jobId are required');
++    const job = await this.queue.getQueue(QUEUE_NAMES.AUDIT).getJob(jobId);
++    if (!job || !this.isJobPayload(job.data) || job.data.tenantId !== tenantId || job.name !== 'governance-audit-export') throw new NotFoundException('Audit export job not found');
++    const rawState = await job.getState();
++    const state = rawState === 'waiting-children' || rawState === 'prioritized' ? 'waiting' : rawState;
++    if (state === 'completed') {
++      const result: unknown = job.returnvalue;
++      if (!this.isAuditExport(result) || result.tenantId !== tenantId) throw new BadRequestException('Completed audit export result is malformed');
++      return { id: jobId, tenantId, state, result };
++    }
++    if (state === 'failed') return { id: jobId, tenantId, state, failureReason: job.failedReason ?? 'Audit export job failed' };
++    if (state === 'waiting' || state === 'active' || state === 'delayed') return { id: jobId, tenantId, state };
++    return { id: jobId, tenantId, state: 'unknown' };
++  }
+ 
+-    // Deterministic sort
+-    filtered.sort((a, b) => {
+-      if (a.createdAt !== b.createdAt) return a.createdAt.localeCompare(b.createdAt);
+-      return a.id.localeCompare(b.id);
+-    });
++  private isJobPayload(value: unknown): value is AuditExportJobPayload {
++    return isPlainRecord(value) && typeof value.tenantId === 'string' && typeof value.periodStart === 'string'
++      && typeof value.periodEnd === 'string' && typeof value.operatorId === 'string'
++      && typeof value.correlationId === 'string';
++  }
+ 
+-    const sourceReferences = [...new Set(filtered.map((e) => `${e.actionType}:${e.correlationId}`))].sort();
++  private isAuditExport(value: unknown): value is AuditExport {
++    return isPlainRecord(value) && typeof value.id === 'string' && typeof value.tenantId === 'string'
++      && typeof value.fileHash === 'string' && typeof value.fileContents === 'string'
++      && typeof value.recordCount === 'number' && isPlainRecord(value.manifest)
++      && Array.isArray(value.rows);
++  }
+ 
+-    const contentForHash = JSON.stringify({
+-      tenantId: params.tenantId,
+-      periodStart: params.periodStart,
+-      periodEnd: params.periodEnd,
+-      recordIds: filtered.map((e) => e.id).sort(),
+-      policyVersion: this.policyService.getPolicyVersion(),
++  private validateParams(params: AuditExportJobPayload): void {
++    if (!params.tenantId || !params.periodStart || !params.periodEnd || !params.correlationId || !params.operatorId) {
++      throw new BadRequestException('tenantId, periodStart, periodEnd, correlationId, and operatorId are required');
++    }
++    const start = new Date(params.periodStart);
++    const end = new Date(params.periodEnd);
++    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) throw new BadRequestException('invalid period dates');
++    if (start >= end) throw new BadRequestException('periodStart must be before periodEnd');
++  }
++
++  private async buildExport(params: AuditExportJobPayload, events: GovernanceAuditEvent[]): Promise<AuditExport> {
++    const start = new Date(params.periodStart);
++    const end = new Date(params.periodEnd);
++    const filters = params.filters ?? {};
++    if (events.some((event) => event.tenantId !== params.tenantId)) throw new BadRequestException('Audit source returned a row outside the authenticated tenant');
++    const truncatedAtLimit = events.length >= MAX_EXPORT_ROWS;
++    const filtered = events.filter((event) => {
++      const createdAt = new Date(event.createdAt);
++      return createdAt >= start && createdAt < end
++        && (filters.actorId === undefined || event.createdBy === filters.actorId)
++        && (filters.outcome === undefined || event.result === filters.outcome)
++        && matchesEntity(event, filters);
++    }).sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
++
++    let previousHash = INITIAL_HASH;
++    const rows: AuditExportRow[] = filtered.map((event) => {
++      const entity = entityFor(event);
++      const base = {
++        id: event.id,
++        tenantId: params.tenantId,
++        actionType: event.actionType,
++        actorReference: digest(event.createdBy),
++        subjectReference: event.subjectUserId ? digest(event.subjectUserId) : null,
++        entityType: entity.type,
++        entityReference: entity.id,
++        state: event.state,
++        outcome: event.result,
++        reason: event.reason ?? null,
++        correlationId: event.correlationId,
++        createdAt: event.createdAt,
++        safeEvidence: event.safeEvidence,
++      };
++      const rowHash = digest(`${previousHash}\n${canonical(base)}`);
++      const row: AuditExportRow = { ...base, previousHash, rowHash };
++      previousHash = rowHash;
++      return row;
+     });
+-    const fileHash = crypto.createHash('sha256').update(contentForHash).digest('hex');
+ 
++    const generatedAt = new Date().toISOString();
++    const policyVersion = this.policyService.getPolicyVersion();
++    const contentWithoutManifest = JSON.stringify({ tenantId: params.tenantId, periodStart: start.toISOString(), periodEndExclusive: end.toISOString(), filters, rows });
++    const fileHash = digest(contentWithoutManifest);
++    const manifest: AuditExportManifest = {
++      format: 'governance-audit-json-v1', tenantId: params.tenantId, generatedAt,
++      periodStart: start.toISOString(), periodEndExclusive: end.toISOString(), rowCount: rows.length,
++      filters, sha256: fileHash, chainTip: previousHash, chainAlgorithm: 'SHA-256', actorRedaction: 'SHA-256',
++    };
++    const fileContents = JSON.stringify({ manifest, rows }, null, 2);
+     const exportRecord: AuditExport = {
+-      id: `aexp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+-      tenantId: params.tenantId,
+-      exportVersion: `v${this.policyService.getPolicyVersion()}_${new Date().toISOString().slice(0, 10)}`,
+-      periodStart: start.toISOString(),
+-      periodEnd: end.toISOString(),
+-      generatedAt: new Date().toISOString(),
+-      dataAsOf: new Date().toISOString(),
+-      recordCount: filtered.length,
+-      sourceReferences,
+-      fileLocation: `governance/audit-exports/${params.tenantId}/${Date.now()}.json`,
+-      fileHash,
+-      methodology: `NON_MUTATING_AUDIT_EXPORT_DETERMINISTIC_SORTED_POLICY_${this.policyService.getPolicyVersion()}`,
+-      policyVersion: this.policyService.getPolicyVersion(),
+-      correlationId: params.correlationId,
+-      isDeterministic: true,
+-      filtersApplied: params.filters ?? {},
++      id: `aexp_${randomUUID()}`, tenantId: params.tenantId,
++      exportVersion: `v${policyVersion}_${generatedAt.slice(0, 10)}`,
++      periodStart: start.toISOString(), periodEnd: end.toISOString(), generatedAt, dataAsOf: generatedAt,
++      recordCount: rows.length, sourceReferences: [...new Set(rows.map((row) => `${row.actionType}:${row.correlationId}`))].sort(),
++      fileLocation: `governance/audit-exports/${params.tenantId}/${randomUUID()}.json`, fileHash,
++      methodology: `TENANT_SCOPED_FILTERED_HASH_CHAIN_SHA256_POLICY_${policyVersion}`,
++      policyVersion, correlationId: params.correlationId, isDeterministic: true,
++      filtersApplied: filters, manifest, rows, fileContents,
++      execution: { mode: 'SYNCHRONOUS', truncatedAtLimit },
+     };
+-
+     await this.audit.recordEvent({
+-      tenantId: params.tenantId,
+-      actionType: GovernanceActionType.AUDIT_EXPORT,
+-      state: 'EXPORTED',
+-      result: 'SUCCESS',
+-      correlationId: params.correlationId,
+-      createdBy: params.operatorId,
+-      safeEvidence: { exportId: exportRecord.id, recordCount: exportRecord.recordCount, fileHash },
++      tenantId: params.tenantId, actionType: GovernanceActionType.AUDIT_EXPORT,
++      state: 'EXPORTED', result: 'SUCCESS', correlationId: params.correlationId,
++      createdBy: params.operatorId, safeEvidence: { exportId: exportRecord.id, recordCount: rows.length, fileHash, chainTip: manifest.chainTip },
+     });
+-
+-    this.logger.log(`audit export generated id=${exportRecord.id} tenant=${params.tenantId} records=${exportRecord.recordCount} corr=${params.correlationId}`);
++    this.logger.log(`audit export generated id=${exportRecord.id} tenant=${params.tenantId} records=${rows.length} corr=${params.correlationId}`);
+     return exportRecord;
+   }
+ }
+diff --git a/whitelabel-copytrade/apps/api/src/modules/governance/governance-audit.service.ts b/whitelabel-copytrade/apps/api/src/modules/governance/governance-audit.service.ts
+index 629d8e3..2617976 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/governance/governance-audit.service.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/governance/governance-audit.service.ts
+@@ -34,14 +34,15 @@ export class GovernanceAuditService {
+     return event;
+   }
+ 
+-  async listEvents(tenantId: string, filters?: { actionType?: GovernanceActionType; correlationId?: string; subjectUserId?: string; take?: number }): Promise<GovernanceAuditEvent[]> {
++  async listEvents(tenantId: string, filters?: { actionType?: GovernanceActionType; correlationId?: string; subjectUserId?: string; take?: number; skip?: number }): Promise<GovernanceAuditEvent[]> {
+     if (!tenantId) throw new BadRequestException('tenantId required');
+     if (filters?.take !== undefined && (!Number.isSafeInteger(filters.take) || filters.take < 1)) throw new BadRequestException('Positive integer audit take required');
++    if (filters?.skip !== undefined && (!Number.isSafeInteger(filters.skip) || filters.skip < 0)) throw new BadRequestException('Non-negative integer audit skip required');
+     const where: Prisma.GovernanceAuditWhereInput = { tenantId };
+     if (filters?.actionType) where.actionType = filters.actionType;
+     if (filters?.correlationId) where.correlationId = filters.correlationId;
+     if (filters?.subjectUserId) where.subjectUserId = filters.subjectUserId;
+-    const rows = await this.prisma.governanceAudit.findMany({ where, ...(filters?.take !== undefined ? { take: filters.take } : {}), orderBy: { createdAt: 'desc' } });
++    const rows = await this.prisma.governanceAudit.findMany({ where, ...(filters?.take !== undefined ? { take: filters.take } : {}), ...(filters?.skip !== undefined ? { skip: filters.skip } : {}), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+     return rows.map((row) => { this.policyService.assertTenantIsolation(tenantId, row.tenantId); return this.mapRow(row); });
+   }
+ 
+diff --git a/whitelabel-copytrade/apps/api/src/modules/governance/governance.controller.ts b/whitelabel-copytrade/apps/api/src/modules/governance/governance.controller.ts
+index 69267a2..64d9034 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/governance/governance.controller.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/governance/governance.controller.ts
+@@ -26,6 +26,7 @@ import { GovernanceReportQueryService } from './governance-report-query.service'
+ import { DataClassificationService } from './data-classification.service';
+ import { DataInventoryService } from './data-inventory.service';
+ import { GovernancePolicyService } from './governance-policy.service';
++import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
+ import {
+   CreatePrivacyRequestDto,
+   TransitionPrivacyRequestDto,
+@@ -541,6 +542,7 @@ export class GovernanceController {
+ 
+   @Post('audit/export')
+   @RequirePermissions(Permission.COMPLIANCE_READ, Permission.AUDIT_LOG_READ)
++  @RequireStepUp('AUDIT_EXPORT')
+   async exportAudit(@Body() dto: AuditExportDto, @CurrentUser() actor: AuthenticatedActor) {
+     const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
+     return this.auditExport.exportAuditTrail({
+@@ -553,6 +555,12 @@ export class GovernanceController {
+     });
+   }
+ 
++  @Get('audit/export/:jobId')
++  @RequirePermissions(Permission.COMPLIANCE_READ, Permission.AUDIT_LOG_READ)
++  async getAuditExportJob(@Param('jobId') jobId: string, @CurrentUser() actor: AuthenticatedActor) {
++    return this.auditExport.getExportJob(actor.tenantId, jobId);
++  }
++
+   // --- Reconciliation ---
+   @Post('reconciliation/detect')
+   async detectReconciliation(@Body() dto: ReconciliationDetectDto, @CurrentUser() actor: AuthenticatedActor) {
+@@ -636,12 +644,26 @@ export class GovernanceController {
+     return option;
+   }
+ 
+-  private auditFilters(filters: AuditExportDto['filters']): { actionType?: GovernanceActionType; subjectUserId?: string } | undefined {
++  private auditFilters(filters: AuditExportDto['filters']): { actorId?: string; actionType?: GovernanceActionType; subjectUserId?: string; entityType?: 'REQUEST' | 'REPORT' | 'EVIDENCE_PACKAGE' | 'LEGAL_HOLD' | 'RETENTION_CANDIDATE' | 'CONSENT'; entityId?: string; outcome?: string } | undefined {
+     if (filters === undefined) return undefined;
++    const allowedKeys = ['actorId', 'actionType', 'subjectUserId', 'entityType', 'entityId', 'outcome'];
+     if (filters === null || typeof filters !== 'object' || Array.isArray(filters)
+-      || Object.keys(filters).some((key) => !['actionType', 'subjectUserId'].includes(key))
+-      || (filters.subjectUserId !== undefined && typeof filters.subjectUserId !== 'string')) throw new BadRequestException('Invalid audit export filters');
+-    return { actionType: this.enumOption(filters.actionType, Object.values(GovernanceActionType), 'audit action type'), subjectUserId: filters.subjectUserId };
++      || Object.keys(filters).some((key) => !allowedKeys.includes(key))) throw new BadRequestException('Invalid audit export filters');
++    for (const [key, value] of Object.entries(filters)) {
++      if (value !== undefined && (typeof value !== 'string' || value.trim().length === 0 || value.length > 255)) {
++        throw new BadRequestException(`Invalid audit export filter: ${key}`);
++      }
++    }
++    const entityTypes = ['REQUEST', 'REPORT', 'EVIDENCE_PACKAGE', 'LEGAL_HOLD', 'RETENTION_CANDIDATE', 'CONSENT'] as const;
++    if (filters.entityType !== undefined && !entityTypes.includes(filters.entityType)) throw new BadRequestException('Invalid audit entity type');
++    return {
++      actorId: filters.actorId,
++      actionType: this.enumOption(filters.actionType, Object.values(GovernanceActionType), 'audit action type'),
++      subjectUserId: filters.subjectUserId,
++      entityType: filters.entityType,
++      entityId: filters.entityId,
++      outcome: filters.outcome,
++    };
+   }
+ 
+ }
+diff --git a/whitelabel-copytrade/apps/api/src/modules/governance/governance.module.ts b/whitelabel-copytrade/apps/api/src/modules/governance/governance.module.ts
+index 8786532..fffcab8 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/governance/governance.module.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/governance/governance.module.ts
+@@ -19,6 +19,7 @@ import { ComplianceReportDeliveryService } from './compliance-report-delivery.se
+ import { EvidencePackageService } from './evidence-package.service';
+ import { GovernanceAuditService } from './governance-audit.service';
+ import { GovernanceAuditExportService } from './governance-audit-export.service';
++import { GovernanceAuditExportProcessor } from '../audit/governance-audit-export.processor';
+ import { GovernanceReconciliationService } from './governance-reconciliation.service';
+ import { GovernanceMetricsService } from './governance-metrics.service';
+ import { GovernanceActionService } from './governance-action.service';
+@@ -54,6 +55,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+     GovernanceAuditExportService,
+     GovernanceMetricsService,
+     GovernanceReportQueryService,
++    GovernanceAuditExportProcessor,
+   ],
+   exports: [
+     GovernancePolicyService,
+diff --git a/whitelabel-copytrade/apps/api/src/modules/partner/referral-abuse.service.spec.ts b/whitelabel-copytrade/apps/api/src/modules/partner/referral-abuse.service.spec.ts
+index 77b6c85..b0b1995 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/partner/referral-abuse.service.spec.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/partner/referral-abuse.service.spec.ts
+@@ -211,10 +211,12 @@ describe('ReferralAbuseService', () => {
+   });
+ 
+   it('fails closed when the durable ledger is unavailable', async () => {
+-    const { service } = createService([[], Promise.reject(new Error('database unavailable'))]);
++    const { service, queryRaw } = createService([[]]);
++    queryRaw.mockRejectedValueOnce(new Error('database unavailable'));
+     await expect(service.evaluateAttribution(baseline)).rejects.toBeInstanceOf(
+       ServiceUnavailableException,
+     );
++    expect(queryRaw).toHaveBeenCalledTimes(1);
+   });
+ 
+   it('rejects non-canonical tenant identifiers before any database operation', async () => {
+diff --git a/whitelabel-copytrade/apps/api/src/modules/tenants/dto/update-branding.dto.ts b/whitelabel-copytrade/apps/api/src/modules/tenants/dto/update-branding.dto.ts
+index 0371fbf..97b1674 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/tenants/dto/update-branding.dto.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/tenants/dto/update-branding.dto.ts
+@@ -1,7 +1,7 @@
+ import { ApiPropertyOptional } from '@nestjs/swagger';
+ import { IsIn, IsObject, IsOptional, IsString, IsUrl, Matches, MaxLength } from 'class-validator';
+ 
+-const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
++const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+ 
+ export class UpdateBrandingDto {
+   @ApiPropertyOptional({ example: 'Acme Trader' })
+diff --git a/whitelabel-copytrade/apps/api/src/modules/tenants/tenant-branding.service.ts b/whitelabel-copytrade/apps/api/src/modules/tenants/tenant-branding.service.ts
+index d43aa9f..119a474 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/tenants/tenant-branding.service.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/tenants/tenant-branding.service.ts
+@@ -1,4 +1,4 @@
+-import { Injectable } from '@nestjs/common';
++import { BadRequestException, Injectable } from '@nestjs/common';
+ import { AuditAction, AuditActorType, AuditOutcome } from '@wlct/shared-types';
+ import type { TenantBrandingDto } from '@wlct/shared-types';
+ import { CACHE_KEY } from '@wlct/config';
+@@ -9,6 +9,19 @@ import { AuditService } from '../audit/audit.service';
+ import { NotFoundException } from '../../common/errors/app.exception';
+ import type { UpdateBrandingDto } from './dto/update-branding.dto';
+ 
++function relativeLuminance(color: string): number {
++  const raw = color.slice(1);
++  const hex = raw.length === 3 ? [...raw].map((digit) => `${digit}${digit}`).join('') : raw;
++  const channels = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
++  const linear = channels.map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
++  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
++}
++
++function contrastRatio(first: string, second: string): number {
++  const a = relativeLuminance(first); const b = relativeLuminance(second);
++  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
++}
++
+ /**
+  * White-label branding.
+  *
+@@ -45,8 +58,11 @@ export class TenantBrandingService {
+       throw new NotFoundException('Branding configuration', tenantId);
+     }
+ 
+-    const sanitisedCss =
+-      dto.customCss !== undefined ? this.sanitiseCss(dto.customCss ?? '') : undefined;
++    this.validateTheme(dto, existing.textColor, existing.backgroundColor);
++    if (dto.customCss !== undefined && dto.customCss.trim() !== '') {
++      throw new BadRequestException('Raw custom CSS is not accepted; use the validated theme tokens');
++    }
++    const sanitisedCss = dto.customCss !== undefined ? '' : undefined;
+ 
+     const updated = await this.prisma.tenantBranding.update({
+       where: { tenantId },
+@@ -91,6 +107,15 @@ export class TenantBrandingService {
+     return this.toDto(updated);
+   }
+ 
++  private validateTheme(dto: UpdateBrandingDto, currentText: string, currentBackground: string): void {
++    const colors = [dto.primaryColor, dto.secondaryColor, dto.accentColor, dto.backgroundColor, dto.textColor].filter((value): value is string => value !== undefined);
++    for (const color of colors) if (!/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) throw new BadRequestException('Branding colors must be three- or six-digit hexadecimal values');
++    const urls = [dto.logoUrl, dto.logoDarkUrl, dto.faviconUrl].filter((value): value is string => value !== undefined);
++    for (const value of urls) { let parsed: URL; try { parsed = new URL(value); } catch { throw new BadRequestException('Logo and favicon must be valid HTTPS URLs'); } if (parsed.protocol !== 'https:') throw new BadRequestException('Logo and favicon must use HTTPS'); }
++    const text = dto.textColor ?? currentText; const background = dto.backgroundColor ?? currentBackground;
++    if (contrastRatio(text, background) < 4.5) throw new BadRequestException('Text/background contrast must meet WCAG AA 4.5:1');
++  }
++
+   /**
+    * Removes CSS constructs that can execute code or make network requests.
+    * Whitelisting properties would be stricter but breaks legitimate theming;
+diff --git a/whitelabel-copytrade/apps/api/src/modules/users/users.module.spec.ts b/whitelabel-copytrade/apps/api/src/modules/users/users.module.spec.ts
+index 6ba711b..941e8b1 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/users/users.module.spec.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/users/users.module.spec.ts
+@@ -1,15 +1,17 @@
+-// # Responsibility: verifies the users service, repository, controller, and quota enforcement module are wired.
++// # Responsibility: verifies user profiles, preferences, repositories, controllers, and quota enforcement are wired.
+ import { UsersController } from './users.controller';
+ import { UsersModule } from './users.module';
+ import { UsersRepository } from './users.repository';
+ import { UsersService } from './users.service';
++import { UserPreferencesController } from './user-preferences.controller';
++import { UserPreferencesService } from './user-preferences.service';
+ import { EnforcementModule } from '../billing/enforcement/enforcement.module';
+ 
+-describe('UsersModule', () => {
+-  it('registers tenant user providers and imports quota enforcement', () => {
+-    expect(Reflect.getMetadata('imports', UsersModule)).toEqual([EnforcementModule]);
+-    expect(Reflect.getMetadata('controllers', UsersModule)).toEqual([UsersController]);
+-    expect(Reflect.getMetadata('providers', UsersModule)).toEqual([UsersService, UsersRepository]);
+-    expect(Reflect.getMetadata('exports', UsersModule)).toEqual([UsersService, UsersRepository]);
++describe('UsersModule',()=>{
++  it('registers preferences and tenant user providers and imports quota enforcement',()=>{
++    expect(Reflect.getMetadata('imports',UsersModule)).toEqual([EnforcementModule]);
++    expect(Reflect.getMetadata('controllers',UsersModule)).toEqual([UsersController,UserPreferencesController]);
++    expect(Reflect.getMetadata('providers',UsersModule)).toEqual([UsersService,UsersRepository,UserPreferencesService]);
++    expect(Reflect.getMetadata('exports',UsersModule)).toEqual([UsersService,UsersRepository,UserPreferencesService]);
+   });
+ });
+diff --git a/whitelabel-copytrade/apps/api/src/modules/users/users.module.ts b/whitelabel-copytrade/apps/api/src/modules/users/users.module.ts
+index 7b729cd..00e0bcb 100644
+--- a/whitelabel-copytrade/apps/api/src/modules/users/users.module.ts
++++ b/whitelabel-copytrade/apps/api/src/modules/users/users.module.ts
+@@ -4,6 +4,8 @@ import { UsersService } from './users.service';
+ import { UsersController } from './users.controller';
+ import { UsersRepository } from './users.repository';
+ import { EnforcementModule } from '../billing/enforcement/enforcement.module';
++import { UserPreferencesController } from './user-preferences.controller';
++import { UserPreferencesService } from './user-preferences.service';
+ 
+ /**
+  * User profile and administration.
+@@ -15,8 +17,8 @@ import { EnforcementModule } from '../billing/enforcement/enforcement.module';
+  */
+ @Module({
+   imports: [EnforcementModule],
+-  controllers: [UsersController],
+-  providers: [UsersService, UsersRepository],
+-  exports: [UsersService, UsersRepository],
++  controllers: [UsersController, UserPreferencesController],
++  providers: [UsersService, UsersRepository, UserPreferencesService],
++  exports: [UsersService, UsersRepository, UserPreferencesService],
+ })
+ export class UsersModule {}
+diff --git a/whitelabel-copytrade/apps/web/src/app/layout.tsx b/whitelabel-copytrade/apps/web/src/app/layout.tsx
+index c37465b..655f639 100644
+--- a/whitelabel-copytrade/apps/web/src/app/layout.tsx
++++ b/whitelabel-copytrade/apps/web/src/app/layout.tsx
+@@ -5,6 +5,8 @@ import '@/styles/globals.css';
+ import '@/styles/branding.css';
+ import { Providers } from './providers';
+ import { ErrorBoundary } from './error-boundary';
++import FocusAnnouncer from '@/components/ui/focus-announcer';
++import { RuntimeBrandingProvider } from '@/features/branding/runtime-branding-provider';
+ 
+ export const metadata: Metadata = {
+   title: {
+@@ -25,7 +27,13 @@ export default function RootLayout({ children }: { children: ReactNode }): JSX.E
+     <html lang="en">
+       <body>
+         <ErrorBoundary>
+-          <Providers>{children}</Providers>
++          <Providers>
++            <RuntimeBrandingProvider>
++              <a className="skip-link" href="#main-content">Skip to main content</a>
++              <FocusAnnouncer />
++              {children}
++            </RuntimeBrandingProvider>
++          </Providers>
+         </ErrorBoundary>
+       </body>
+     </html>
+diff --git a/whitelabel-copytrade/apps/web/src/app/partner/page.tsx b/whitelabel-copytrade/apps/web/src/app/partner/page.tsx
+index 924318e..9304091 100644
+--- a/whitelabel-copytrade/apps/web/src/app/partner/page.tsx
++++ b/whitelabel-copytrade/apps/web/src/app/partner/page.tsx
+@@ -7,6 +7,7 @@ import React from 'react';
+ import Link from 'next/link';
+ import { AuthGuard } from '@/auth/auth.guard';
+ import { PartnerDashboard } from '@/features/partner/partner-dashboard';
++import { AffiliateAttributionPanel } from '@/features/partner/affiliate-attribution-panel';
+ import { AppShell } from '@/layout/app-shell';
+ 
+ export default function PartnerPortalPage(): JSX.Element {
+@@ -33,6 +34,7 @@ export default function PartnerPortalPage(): JSX.Element {
+           </nav>
+ 
+           <PartnerDashboard />
++          <AffiliateAttributionPanel />
+         </div>
+       </AppShell>
+     </AuthGuard>
+diff --git a/whitelabel-copytrade/apps/web/src/app/privacy/page.tsx b/whitelabel-copytrade/apps/web/src/app/privacy/page.tsx
+index 7c88eab..45fd962 100644
+--- a/whitelabel-copytrade/apps/web/src/app/privacy/page.tsx
++++ b/whitelabel-copytrade/apps/web/src/app/privacy/page.tsx
+@@ -116,6 +116,7 @@ export default function PrivacyPage(): JSX.Element {
+             Subject to identity verification, regulatory retention obligations, and active legal holds, you may
+             request:
+           </p>
++          <p><Link href="/privacy/data-export" className="text-primary underline">Request a personal data export or deletion</Link> from your authenticated account.</p>
+           <ul className="list-disc pl-5 space-y-1 text-muted">
+             <li>
+               <strong className="text-foreground">Data Discovery &amp; Export:</strong> A deterministic,
+diff --git a/whitelabel-copytrade/apps/web/src/features/billing/billing-page.tsx b/whitelabel-copytrade/apps/web/src/features/billing/billing-page.tsx
+index b353a39..fbb7550 100644
+--- a/whitelabel-copytrade/apps/web/src/features/billing/billing-page.tsx
++++ b/whitelabel-copytrade/apps/web/src/features/billing/billing-page.tsx
+@@ -47,6 +47,7 @@ export function BillingPage(): JSX.Element {
+           >
+             Usage
+           </Link>
++          <Link href="/billing/statements" className="rounded border px-4 py-2 text-sm">Profit-share statement</Link>
+         </div>
+       }
+     >
+diff --git a/whitelabel-copytrade/apps/web/src/features/trading/trader-detail-page.tsx b/whitelabel-copytrade/apps/web/src/features/trading/trader-detail-page.tsx
+index 613fc74..5e97f3f 100644
+--- a/whitelabel-copytrade/apps/web/src/features/trading/trader-detail-page.tsx
++++ b/whitelabel-copytrade/apps/web/src/features/trading/trader-detail-page.tsx
+@@ -95,7 +95,7 @@ export function TraderDetailPage({ id }: { id: string }): JSX.Element {
+         <div className="rounded border bg-card p-4">
+           <h3 className="font-semibold">Strategies</h3>
+           {strategies.isLoading ? <LoadingState /> : strategies.error ? <ErrorState error={strategies.error} onRetry={() => void strategies.refetch()} /> : (strategies.data?.data ?? []).length === 0 ? <p className="mt-2 text-xs text-muted">No published strategies.</p> : (
+-            <ul className="mt-2 space-y-2">{(strategies.data?.data ?? []).map((strategy) => <li key={strategy.strategyId} className="flex items-center justify-between text-sm"><Link href={`/strategies/${strategy.strategyId}`} className="underline">{strategy.name}</Link><StatusBadge status={strategy.status} /></li>)}</ul>
++            <ul className="mt-2 space-y-2">{(strategies.data?.data ?? []).map((strategy) => <li key={strategy.strategyId} className="flex items-center justify-between gap-2 text-sm"><Link href={`/strategies/${strategy.strategyId}`} className="underline">{strategy.name}</Link><div className="flex items-center gap-2"><StatusBadge status={strategy.status} /></div></li>)}</ul>
+           )}
+         </div>
+       </div>
+diff --git a/whitelabel-copytrade/apps/web/src/layout/mobile-navigation.tsx b/whitelabel-copytrade/apps/web/src/layout/mobile-navigation.tsx
+index dd1432f..757bfa0 100644
+--- a/whitelabel-copytrade/apps/web/src/layout/mobile-navigation.tsx
++++ b/whitelabel-copytrade/apps/web/src/layout/mobile-navigation.tsx
+@@ -12,6 +12,11 @@ const mobileNav = [
+   { label: 'Traders', href: '/traders', icon: '👥' },
+   { label: 'Funding', href: '/funding', icon: '💰' },
+   { label: 'Account', href: '/account', icon: '👤' },
++  { label: 'Fees', href: '/fees', icon: '🏷️' },
++  { label: 'Profit-share statements', href: '/billing/statements', icon: '🧾' },
++  { label: 'Localization', href: '/settings/localization', icon: '🌐' },
++  { label: 'Privacy & data export', href: '/privacy/data-export', icon: '🔐' },
++  { label: 'Legal policies', href: '/legal/accept', icon: '⚖️' },
+ ];
+ 
+ export function MobileNavigation(): JSX.Element {
+diff --git a/whitelabel-copytrade/apps/web/src/layout/sidebar.tsx b/whitelabel-copytrade/apps/web/src/layout/sidebar.tsx
+index d3964a4..f25b8f1 100644
+--- a/whitelabel-copytrade/apps/web/src/layout/sidebar.tsx
++++ b/whitelabel-copytrade/apps/web/src/layout/sidebar.tsx
+@@ -29,6 +29,11 @@ const navGroups: SidebarNavGroup[] = [
+       { key: 'funding', label: 'Funding', href: '/funding', icon: '💰' },
+       { key: 'billing', label: 'Billing', href: '/billing', icon: '💳' },
+       { key: 'statements', label: 'Statements', href: '/statements', icon: '📄' },
++      { key: 'profit_share_statements', label: 'Profit-share statements', href: '/billing/statements', icon: '🧾' },
++      { key: 'fees', label: 'Fees', href: '/fees', icon: '🏷️' },
++      { key: 'localization', label: 'Localization', href: '/settings/localization', icon: '🌐' },
++      { key: 'data_export', label: 'Privacy & data export', href: '/privacy/data-export', icon: '🔐' },
++      { key: 'legal_acceptance', label: 'Legal policies', href: '/legal/accept', icon: '⚖️' },
+     ],
+   },
+   {
+diff --git a/whitelabel-copytrade/apps/web/src/lib/proxy-path.ts b/whitelabel-copytrade/apps/web/src/lib/proxy-path.ts
+index d04b221..7b1aadf 100644
+--- a/whitelabel-copytrade/apps/web/src/lib/proxy-path.ts
++++ b/whitelabel-copytrade/apps/web/src/lib/proxy-path.ts
+@@ -10,7 +10,11 @@
+  * GET is allowed, and only exact paths (after the version segment) - nothing
+  * else is reachable anonymously through the proxy.
+  */
+-export const ANONYMOUS_GET_PATHS: ReadonlySet<string> = new Set(['tenants/public-config']);
++export const ANONYMOUS_GET_PATHS: ReadonlySet<string> = new Set([
++  'tenants/public-config',
++  // Intentional public pricing disclosure: prospective customers must see the active fee schedule before signup.
++  'public/fee-schedule',
++]);
+ 
+ function withoutVersion(segments: readonly string[], apiVersion: string): readonly string[] {
+   return segments[0] === apiVersion ? segments.slice(1) : segments;
+@@ -27,7 +31,9 @@ export function buildUpstreamPath(segments: readonly string[], apiVersion: strin
+ 
+ export function isAnonymousRoute(method: string, segments: readonly string[], apiVersion: string): boolean {
+   if (method !== 'GET') return false;
+-  return ANONYMOUS_GET_PATHS.has(withoutVersion(segments, apiVersion).join('/'));
++  const path = withoutVersion(segments, apiVersion);
++  if (ANONYMOUS_GET_PATHS.has(path.join('/'))) return true;
++  return false;
+ }
+ 
+ export function isUnsafeSegment(segment: string): boolean {
+diff --git a/whitelabel-copytrade/apps/web/src/lib/public-origin.ts b/whitelabel-copytrade/apps/web/src/lib/public-origin.ts
+index 0f011b3..1b7866a 100644
+--- a/whitelabel-copytrade/apps/web/src/lib/public-origin.ts
++++ b/whitelabel-copytrade/apps/web/src/lib/public-origin.ts
+@@ -28,6 +28,7 @@ import { runtimeConfig } from '@/config/runtime-config';
+ export const PUBLIC_ROUTES: readonly string[] = [
+   '/',
+   '/pricing',
++  '/fees',
+   '/traders',
+   '/strategies',
+   '/terms',
+@@ -50,8 +51,10 @@ export const PRIVATE_ROUTE_PREFIXES: readonly string[] = [
+   '/partner',
+   '/portfolio',
+   '/register',
++  '/recovery',
+   '/risk',
+   '/security',
++  '/s',
+   '/statements',
+   '/status',
+   '/support',
+diff --git a/whitelabel-copytrade/packages/shared-types/src/step-up.ts b/whitelabel-copytrade/packages/shared-types/src/step-up.ts
+index 2765b39..a646d7c 100644
+--- a/whitelabel-copytrade/packages/shared-types/src/step-up.ts
++++ b/whitelabel-copytrade/packages/shared-types/src/step-up.ts
+@@ -11,6 +11,11 @@ export const STEP_UP_ACTIONS = [
+   "PAYOUT_APPROVE",
+   "CUSTODY_ADDRESS_ISSUE",
+   "CUSTODY_SWEEP",
++  "AUDIT_EXPORT",
++  "DATA_DELETION_REQUEST",
++  "FEE_SCHEDULE_PUBLISH",
++  "FEATURE_FLAG_LIVE_TOGGLE",
++  "STATEMENT_REGENERATE",
+ ] as const;
+ 
+ export type StepUpAction = (typeof STEP_UP_ACTIONS)[number];

@@ -1,4 +1,3 @@
-import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Applies resolved copy policy and follower risk decisions before dispatching orders to OMS
 // # Enforces slippage boundaries and execution delay during follower order dispatch
 // # Applies TP/SL and trailing stop parameters to follower order intents and stop-copy conditions
@@ -19,6 +18,7 @@ import { randomUUID } from 'crypto';
 import { OrderIntentService } from '../oms/order-intent.service';
 import { OrderRoutingService } from '../oms/order-routing.service';
 import { MaintenanceModeService } from '../operations/maintenance-mode.service';
+import { CopyBudgetService, CopyBudgetReasonCode, type CopyBudgetDecision } from './copy-budget.service';
 import { OperationalMaintenanceScope } from '../operations/operations.types';
 
 /** One copy execution per (tenant, leader event, subscription). Deterministic
@@ -115,6 +115,23 @@ export function accountKillSwitchBlocker(switches: EngagedKillSwitch[], accountI
   return null;
 }
 
+/**
+ * The quote asset of a symbol the platform trades (`BTC-USDT` -> `USDT`).
+ *
+ * The copy budget is denominated in one quote asset, so the intent has to say
+ * which one it is talking about. A symbol without a separator has no derivable
+ * quote asset, and returning one anyway would silently assume USDT for an
+ * instrument that might settle in BTC - so the caller gets the symbol itself,
+ * which then fails the currency comparison and BLOCKS. Refusing to guess is the
+ * whole design of the budget; guessing here would defeat it in one line.
+ */
+export function quoteAssetOf(symbol: string | null | undefined): string {
+  const normalised = typeof symbol === 'string' ? symbol.trim().toUpperCase() : '';
+  const separator = Math.max(normalised.lastIndexOf('-'), normalised.lastIndexOf('/'), normalised.lastIndexOf('_'));
+  if (separator <= 0 || separator === normalised.length - 1) return normalised || 'UNKNOWN';
+  return normalised.slice(separator + 1);
+}
+
 export interface CopyTradingOutcomeNotifier {
   notifyExecutionOutcome(payload: {
     tenantId: string;
@@ -150,6 +167,7 @@ export class CopyExecutionService {
     private readonly exchangeHealth: ExchangeHealthService,
     private readonly maintenance: MaintenanceModeService,
     private readonly outbox: OutboxService,
+    @Inject(CopyBudgetService) private readonly copyBudgetService: Pick<CopyBudgetService, 'evaluate'>,
     @Optional() @Inject(forwardRef(() => OrderIntentService)) private readonly orderIntents?: OrderIntentService,
     @Optional() @Inject(forwardRef(() => OrderRoutingService)) private readonly orderRouting?: OrderRoutingService,
     @Optional() @Inject('COPY_TRADING_OUTCOME_NOTIFIER') private readonly outcomeNotifier?: CopyTradingOutcomeNotifier,
@@ -828,6 +846,100 @@ export class CopyExecutionService {
       }
     }
 
+    // GAP-61: the follower's GLOBAL active-copy budget, evaluated before the intent
+    // exists. Per-subscription `maxAllocation` caps each subscription; this is the
+    // only place that caps their SUM, and it runs immediately before the row that
+    // becomes an order is created, so nothing downstream can spend budget the
+    // follower does not have.
+    //
+    // BLOCK  -> record the refusal with the reason code and stop.
+    // REDUCE -> shrink the intent to exactly the remaining budget (the service
+    //           floors the quantity; rounding up is how a cap is exceeded).
+    // ALLOW  -> continue, and record the budget decision on the intent for audit.
+    let budgetDecision: CopyBudgetDecision;
+    try {
+      budgetDecision = await this.copyBudgetService.evaluate({
+        tenantId,
+        userId: subscription.followerId,
+        subscriptionId: subscription.id,
+        traderId: input.traderId,
+        notional: followerIntent.notional,
+        quantity: followerIntent.quantity,
+        price: followerIntent.price ?? null,
+        currency: quoteAssetOf(followerIntent.symbol),
+      });
+    } catch (error) {
+      // A budget engine that throws is not permission to copy: it is a refusal.
+      this.logger.error(`Copy budget evaluation failed, refusing to copy tenant=${tenantId} sub=${subscription.id}: ${(error as Error)?.message ?? 'unknown error'}`);
+      const unreadable: CopyBudgetDecision = {
+        decision: 'BLOCK',
+        reasonCode: CopyBudgetReasonCode.BLOCKED_BUDGET_UNREADABLE,
+        message: 'Copy budget evaluation failed; the copy was refused rather than guessed at',
+        currency: quoteAssetOf(followerIntent.symbol),
+        effectiveCap: null,
+        committed: '0',
+        remaining: '0',
+        requestedNotional: followerIntent.notional ?? '0',
+        allowedNotional: '0',
+        reducedQuantity: null,
+        equityAgeMs: null,
+        evaluatedAt: new Date().toISOString(),
+      };
+      budgetDecision = unreadable;
+    }
+
+    if (budgetDecision.decision === 'BLOCK') {
+      const blockedByBudget = await this.executionRepo.create({
+        tenantId,
+        leaderEventId: leaderEvent.eventId,
+        leaderOrderId: leaderEvent.orderId || null,
+        leaderFillId: leaderEvent.fillId || null,
+        subscriptionId: subscription.id,
+        followerId: subscription.followerId,
+        traderId: input.traderId,
+        followerAccountId: subscription.followerAccountId,
+        sizingMode: subscription.allocationMode,
+        leaderQuantity: leaderEvent.quantity,
+        leaderPrice: leaderEvent.price || null,
+        followerQuantity: null,
+        followerPrice: null,
+        slippageTolerance: effectivePolicy.slippageToleranceBps?.toString() || null,
+        maxNotional: effectivePolicy.maxOrderNotional || null,
+        executionIntent: { ...followerIntent, copyBudget: budgetDecision },
+        idempotencyKey: copyIdempotencyKey(tenantId, leaderEvent.eventId, subscription.id),
+      });
+      await this.executionRepo.updateStatus(blockedByBudget.id, tenantId, CopyExecutionStatus.BLOCKED, {
+        riskDecision: CopyRiskDecision.BLOCK,
+        riskRuleId: budgetDecision.reasonCode,
+        failureReason: budgetDecision.message,
+      });
+      await this.emitNotificationIfWired({
+        tenantId,
+        followerId: subscription.followerId,
+        traderId: input.traderId,
+        strategyId: input.strategyId,
+        subscriptionId: subscription.id,
+        executionId: blockedByBudget.id,
+        status: CopyExecutionStatus.BLOCKED,
+        symbol: followerIntent.symbol,
+        side: followerIntent.side,
+        quantity: followerIntent.quantity,
+        reason: budgetDecision.message,
+      });
+      return { ...blockedByBudget, status: CopyExecutionStatus.BLOCKED, copyBudget: budgetDecision };
+    }
+
+    if (budgetDecision.decision === 'REDUCE' && budgetDecision.reducedQuantity) {
+      this.logger.log(
+        `Copy reduced to remaining budget tenant=${tenantId} sub=${subscription.id} ${followerIntent.quantity} -> ${budgetDecision.reducedQuantity}`,
+      );
+      followerIntent.quantity = budgetDecision.reducedQuantity;
+      followerIntent.notional = budgetDecision.allowedNotional;
+    }
+
+    // The decision travels with the execution row, so "why did this copy go
+    // through" has an answer that does not depend on re-running the arithmetic.
+
     const execution = await this.executionRepo.create({
       tenantId,
       leaderEventId: leaderEvent.eventId,
@@ -841,10 +953,10 @@ export class CopyExecutionService {
       leaderQuantity: leaderEvent.quantity,
       leaderPrice: leaderEvent.price || null,
       followerQuantity: followerIntent.quantity,
-      followerPrice: followerIntent.price || null,
+      followerPrice: followerIntent.price ?? null,
       slippageTolerance: effectivePolicy.slippageToleranceBps?.toString() || null,
       maxNotional: effectivePolicy.maxOrderNotional || null,
-      executionIntent: followerIntent as any,
+      executionIntent: { ...followerIntent, copyBudget: budgetDecision },
       idempotencyKey: copyIdempotencyKey(tenantId, leaderEvent.eventId, subscription.id),
     });
 

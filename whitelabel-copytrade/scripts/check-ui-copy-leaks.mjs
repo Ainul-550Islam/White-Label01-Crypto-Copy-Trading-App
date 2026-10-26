@@ -12,6 +12,18 @@ const placeholderOnly = /^(?:\s*(?:placeholder|coming soon|to be determined|tbd|
 // A public-metrics contract test requires this exact failure state. It describes
 // the missing source evidence to customers; every other use of "canonical" remains blocked.
 const requiredCustomerCopy = new Set(['Canonical fill provenance could not be verified.']);
+/**
+ * Machine-readable attribute values that are not customer copy.
+ *
+ * `rel="canonical"` is read by crawlers and chat clients, never rendered to a
+ * person, and Next.js requires the literal. Each entry names the file AND the exact
+ * value, so this cannot grow into a general bypass: a new file needs its own entry,
+ * and an entry that stops matching anything is reported by the file/value pair
+ * becoming unused rather than by silently passing.
+ */
+const allowedMachineValues = {
+  'apps/web/src/app/s/[token]/page.tsx': new Set(['canonical']),
+};
 
 function collectFiles(directory) {
   if (!fs.existsSync(directory)) return [];
@@ -108,10 +120,12 @@ for (const relativeRoot of roots) {
       values = stringValues(maskComments(source));
     }
 
+    const relativePath = path.relative(root, file);
     for (const { value, index } of values) {
       const normalized = value.replace(/\\[nrt]/g, ' ').replace(/\s+/g, ' ').trim();
       if (!normalized) continue;
       if (requiredCustomerCopy.has(normalized)) continue;
+      if (allowedMachineValues[relativePath]?.has(normalized)) continue;
       if (!prohibited.test(normalized) && !placeholderOnly.test(normalized)) continue;
       const line = source.slice(0, index).split('\n').length;
       violations.push(`${path.relative(root, file)}:${line}: ${JSON.stringify(normalized)}`);

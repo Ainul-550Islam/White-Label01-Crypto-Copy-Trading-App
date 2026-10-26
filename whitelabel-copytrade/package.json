@@ -42,6 +42,7 @@
     "check:web-api-contract": "node scripts/check-web-api-contract.js",
     "check:next-entrypoints": "node scripts/check-next-entrypoints.mjs",
     "check:ui-copy-leaks": "node scripts/check-ui-copy-leaks.mjs",
+    "check:step-up-paths": "node scripts/check-step-up-paths.mjs",
     "check:tailwind-output": "node apps/web/scripts/check-tailwind-output.mjs",
     "openapi:export": "npm run openapi:export --workspace=@wlct/api",
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",

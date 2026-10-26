@@ -24,6 +24,7 @@ import { ExchangeProviderFactory } from './exchange-provider.factory';
 import { ExchangeRegistryService } from './exchange-registry.service';
 import { ExchangeAuditService } from './exchange-audit.service';
 import { ExchangeHealthService } from './exchange-health.service';
+import { AccountCapabilityHealthService } from './account-capability-health.service';
 import { type ExchangeProvider, type ExchangeProviderContext, ExchangeProviderError, ExchangeProviderErrorCode } from './exchange-provider.interface';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeAccountState, ExchangeConnectionState, ExchangeHealthState,
   type ExchangeHealth, type ExchangeConnectivityResult, type ExchangeCapabilityDiscovery, type ExchangeSafeReference, sanitizeExchangeMetadata } from './exchange.types';
@@ -349,6 +350,11 @@ describe('Exchange controller principal, request identity and honest unavailable
       { provide: ExchangePositionSyncService, useValue: {} },
       { provide: ExchangeOrderSyncService, useValue: {} },
       { provide: ExchangeHealthService, useValue: health },
+      // GAP-73: the controller gained the capability matrix as a dependency. It is
+      // not exercised here - its own spec covers the matrix - but the controller
+      // cannot be constructed without it, and a controller test that only passes
+      // because a dependency is optional is not testing the controller.
+      { provide: AccountCapabilityHealthService, useValue: new AccountCapabilityHealthService() },
       { provide: ExchangeRateLimitService, useValue: rates },
       { provide: ExchangeSymbolService, useValue: {} },
       { provide: ExchangeRoutingService, useValue: {} },

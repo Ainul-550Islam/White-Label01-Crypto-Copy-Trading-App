@@ -37,6 +37,8 @@ import { BybitProvider as RegisteredBybitProvider } from './providers/bybit.prov
 import { OkxProvider as RegisteredOkxProvider } from './providers/okx.provider';
 import { KrakenProvider as RegisteredKrakenProvider } from './providers/kraken.provider';
 import { CoinbaseProvider as RegisteredCoinbaseProvider } from './providers/coinbase.provider';
+import { existsSync, readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 import { ExchangeProviderFactory } from './exchange-provider.factory';
 import { ExchangeRegistryService } from './exchange-registry.service';
 
@@ -578,4 +580,34 @@ describe('ExchangeProviderFactory registration', () => {
       await expectCode(other.getPositions(ctx(ExchangeVenue.OTHER_CONFIGURED, ExchangeEnvironment.LIVE)), ExchangeProviderErrorCode.NOT_SUPPORTED);
     }
   });
+});
+
+/**
+ * The venue adapter layout guard.
+ *
+ * `venues/*.provider.ts` held byte-identical copies of the four adapters in
+ * `providers/`, and both trees were imported (this spec asserted against one,
+ * the factory against the other), so a fix applied to "the Bybit provider"
+ * could land on a copy nothing executed. The duplicates are deleted and this
+ * test is what keeps them deleted: it fails on the file appearing again, on a
+ * `venues/` directory reappearing, and on any module under `providers/`
+ * re-exporting a second class of the same name.
+ */
+describe('venue adapter layout (single implementation per venue)', () => {
+  const moduleRoot = __dirname;
+
+  test('the duplicate venues/ tree is gone', () => {
+    expect(existsSync(join(moduleRoot, 'venues'))).toBe(false);
+  });
+
+  test.each(['bybit', 'okx', 'kraken', 'coinbase'])(
+    'the %s adapter is defined once, under providers/',
+    (venue) => {
+      const declared = readdirSync(join(moduleRoot, 'providers'))
+        .filter((name) => name.endsWith('.ts') && !name.endsWith('.spec.ts'))
+        .filter((name) => new RegExp(`export\\s+class\\s+\\w*${venue}\\w*Provider\\b`, 'i').test(readFileSync(join(moduleRoot, 'providers', name), 'utf8')))
+        .sort();
+      expect(declared).toHaveLength(1);
+    },
+  );
 });

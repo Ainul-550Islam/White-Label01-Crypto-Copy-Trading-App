@@ -26,6 +26,7 @@ import { ExchangeBalanceSyncService } from './exchange-balance-sync.service';
 import { ExchangePositionSyncService } from './exchange-position-sync.service';
 import { ExchangeOrderSyncService } from './exchange-order-sync.service';
 import { ExchangeHealthService } from './exchange-health.service';
+import { AccountCapabilityHealthService, type AccountCapabilityHealth } from './account-capability-health.service';
 import { ExchangeRateLimitService } from './exchange-rate-limit.service';
 import { ExchangeSymbolService } from './exchange-symbol.service';
 import { ExchangeRoutingService } from './exchange-routing.service';
@@ -66,6 +67,7 @@ export class ExchangesController {
     private readonly positionSyncService: ExchangePositionSyncService,
     private readonly orderSyncService: ExchangeOrderSyncService,
     private readonly healthService: ExchangeHealthService,
+    private readonly capabilityHealthService: AccountCapabilityHealthService,
     private readonly rateLimitService: ExchangeRateLimitService,
     private readonly symbolService: ExchangeSymbolService,
     private readonly routingService: ExchangeRoutingService,
@@ -408,6 +410,53 @@ export class ExchangesController {
     const health = await this.healthService.getHealth(tenantId, accountId);
     if (!health) throw new BadRequestException('Health not found');
     return health;
+  }
+
+
+  /**
+   * GAP-73: the per-capability health matrix for one account.
+   *
+   * A GET, not a refresh: this is what the account screen shows, and a read must
+   * never trigger a venue call as a side effect. `refresh-capabilities` exists for
+   * that and is a POST, so the customer's screen cannot spend the customer's rate
+   * limit just by being opened.
+   *
+   * The booleans here are derived from the stored capability row rather than
+   * asserted: a key is only "can trade" if verification actually recorded the
+   * order permissions, and `null` is preserved when nothing was ever verified, so
+   * the UI can distinguish "not allowed" from "not checked".
+   */
+  @Get('accounts/:id/capability-health')
+  @RequirePermissions(Permission.EXCHANGE_ACCOUNT_READ)
+  async capabilityHealth(
+    @Param('id') id: string,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedActor,
+  ): Promise<AccountCapabilityHealth> {
+    const account = await this.requireAccessibleAccount(tenantId, id, user);
+    const capabilities = new Set<string>(account.capabilities.map((capability) => String(capability)));
+    const verified = account.capabilities.length > 0;
+    return this.capabilityHealthService.evaluate({
+      tenantId: account.tenantId,
+      accountId: account.accountId,
+      venue: String(account.venue),
+      environment: String(account.environment),
+      accountState: String(account.status),
+      healthState: account.healthState === undefined || account.healthState === null ? null : String(account.healthState),
+      // `verified` gates every boolean: an empty capability row means "never read",
+      // which is not the same as "read and absent".
+      canReadData: verified
+        ? capabilities.has('BALANCES') || capabilities.has('POSITIONS') || capabilities.has('MARKET_DATA')
+        : null,
+      canTrade: verified
+        ? capabilities.has('ORDERS') || capabilities.has('FUTURES') || capabilities.has('TRADES')
+        : null,
+      canWithdraw: verified ? capabilities.has('WITHDRAWALS') : null,
+      verifiedPermissions: verified ? [...capabilities].sort() : null,
+      lastVerifiedAt: account.lastVerifiedAt,
+      lastFailureCode: account.lastErrorCode,
+      consecutiveFailures: account.healthState === 'UNAVAILABLE' || account.healthState === 'AUTH_FAILED' ? 1 : 0,
+    });
   }
 
   @Post('health/:accountId/check')

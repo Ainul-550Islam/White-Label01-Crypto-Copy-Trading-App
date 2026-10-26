@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { OmsController } from './oms.controller';
 import { OrderIntentService } from './order-intent.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
+import { OmsRecoveryAdminController } from './oms-recovery-admin.controller';
 import { OrderRoutingService } from './order-routing.service';
 import { ExecutionAckService } from './execution-ack.service';
 import { FillManagementService } from './fill-management.service';
@@ -57,7 +58,12 @@ import { BillingModule } from '../billing/billing.module';
     forwardRef(() => ResearchModule),
     forwardRef(() => BillingModule),
   ],
-  controllers: [OmsController],
+  controllers: [
+    OmsController,
+    // GAP-68: the operator timeline and the audited recovery action. Kept on its own
+    // controller so `check-route-authorization` sees the privileged routes as a unit.
+    OmsRecoveryAdminController,
+  ],
   providers: [
     OrderIntentService,
     OrderLifecycleService,

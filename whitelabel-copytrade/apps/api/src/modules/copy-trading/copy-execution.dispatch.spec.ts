@@ -22,6 +22,7 @@ import {
   copyOrderTypeFor,
 } from './copy-execution.service';
 import { CopyExecutionStatus, CopyRiskDecision } from './copy-trading.types';
+import { CopyBudgetReasonCode, type CopyBudgetIntent, type CopyBudgetService } from './copy-budget.service';
 
 const LEADER_EVENT = {
   eventId: 'evt-1',
@@ -55,6 +56,7 @@ interface Harness {
   created: any[];
   createIntent: jest.Mock;
   routeIntent: jest.Mock;
+  evaluateBudget: jest.MockedFunction<CopyBudgetService['evaluate']>;
 }
 
 function harness(options: {
@@ -71,6 +73,8 @@ function harness(options: {
   inMaintenance?: boolean;
   /** Engaged kill-switch rows returned by the lookup. */
   killSwitches?: Array<{ id?: string; scope: string; target: string | null; tenantId: string | null }>;
+  /** GAP-61: override the copy-budget decision for this scenario. */
+  evaluateBudget?: jest.MockedFunction<CopyBudgetService['evaluate']>;
 } = {}): Harness {
   const boom = (what: string) => async () => {
     if (options.failing === what) throw new Error(`${what} lookup failed`);
@@ -172,6 +176,24 @@ function harness(options: {
   const createIntent = options.createIntent ?? jest.fn(async () => ({ id: 'intent-1', clientOrderId: 'oms1' }));
   const routeIntent = options.routeIntent ?? jest.fn(async () => ({ intentId: 'intent-1', jobId: 'oms-submit-oms1', canonicalOrderId: 'order-1' }));
   const wired = options.wired ?? true;
+  // GAP-61: the copy budget gate runs immediately before the intent is created.
+  // The harness default is "the full notional fits", so every pre-existing
+  // scenario still exercises what it was written for; `budgetDecision` is how a
+  // test asks for a REDUCE or a BLOCK.
+  const evaluateBudget: jest.MockedFunction<CopyBudgetService['evaluate']> = options.evaluateBudget ?? jest.fn(async (intent: CopyBudgetIntent) => ({
+    decision: 'ALLOW' as const,
+    reasonCode: CopyBudgetReasonCode.ALLOW_WITHIN_BUDGET,
+    message: 'Copy fits inside the remaining active-copy budget',
+    currency: 'USDT',
+    effectiveCap: '100000',
+    committed: '0',
+    remaining: '100000',
+    requestedNotional: intent.notional ?? '0',
+    allowedNotional: intent.notional ?? '0',
+    reducedQuantity: null,
+    equityAgeMs: 1_000,
+    evaluatedAt: '2026-10-26T09:00:00.000Z',
+  }));
   const service = new CopyExecutionService(
     prisma as any,
     subscriptionRepo as any,
@@ -184,10 +206,11 @@ function harness(options: {
     exchangeHealth as any,
     maintenance as any,
     { append: jest.fn(async () => ({ id: 'outbox-1' })) } as any,
+    { evaluate: evaluateBudget },
     wired ? ({ createIntent } as any) : undefined,
     wired ? ({ routeIntent } as any) : undefined,
   );
-  return { service, statuses, created, createIntent, routeIntent };
+  return { service, statuses, created, createIntent, routeIntent, evaluateBudget };
 }
 
 async function run(h: Harness) {
@@ -418,3 +441,92 @@ describe('copy execution kill-switch scope', () => {
   });
 });
 
+describe('copy execution honours the global active-copy budget (GAP-61)', () => {
+  it('records BLOCKED with the budget reason code and never creates an OMS intent', async () => {
+    const evaluateBudget: jest.MockedFunction<CopyBudgetService['evaluate']> = jest.fn(async (intent: CopyBudgetIntent) => ({
+      decision: 'BLOCK' as const,
+      reasonCode: CopyBudgetReasonCode.BLOCKED_BUDGET_EXHAUSTED,
+      message: 'Active copy exposure already meets or exceeds the configured budget',
+      currency: 'USDT',
+      effectiveCap: '10000',
+      committed: '10000',
+      remaining: '0',
+      requestedNotional: intent.notional ?? '0',
+      allowedNotional: '0',
+      reducedQuantity: null,
+      equityAgeMs: 1_000,
+      evaluatedAt: '2026-10-26T09:00:00.000Z',
+    }));
+    const h = harness({ evaluateBudget });
+
+    const result = await run(h);
+
+    expect(result).toMatchObject({ processed: 0, blocked: 1 });
+    expect(h.createIntent).not.toHaveBeenCalled();
+    expect(h.evaluateBudget).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-1',
+      userId: 'user-f',
+      subscriptionId: 'sub-1',
+      currency: 'USDT',
+    }));
+    expect(h.statuses).toEqual([
+      {
+        status: CopyExecutionStatus.BLOCKED,
+        extra: {
+          riskDecision: CopyRiskDecision.BLOCK,
+          riskRuleId: 'BLOCKED_BUDGET_EXHAUSTED',
+          failureReason: 'Active copy exposure already meets or exceeds the configured budget',
+        },
+      },
+    ]);
+    expect(h.created[0].executionIntent).toMatchObject({
+      copyBudget: { decision: 'BLOCK', reasonCode: 'BLOCKED_BUDGET_EXHAUSTED' },
+    });
+  });
+
+  it('REDUCEs the quantity to the remaining budget before the intent is created', async () => {
+    const evaluateBudget: jest.MockedFunction<CopyBudgetService['evaluate']> = jest.fn(async (intent: CopyBudgetIntent) => ({
+      decision: 'REDUCE' as const,
+      reasonCode: CopyBudgetReasonCode.REDUCED_TO_REMAINING_BUDGET,
+      message: 'Copy reduced to the remaining active-copy budget',
+      currency: 'USDT',
+      effectiveCap: '10000',
+      committed: '9500',
+      remaining: '0',
+      requestedNotional: intent.notional ?? '0',
+      allowedNotional: '500',
+      reducedQuantity: '0.01',
+      equityAgeMs: 1_000,
+      evaluatedAt: '2026-10-26T09:00:00.000Z',
+    }));
+    const h = harness({ evaluateBudget });
+
+    await run(h);
+
+    expect(h.createIntent).toHaveBeenCalledTimes(1);
+    expect(h.createIntent.mock.calls[0][0]).toMatchObject({ quantity: '0.01' });
+    expect(h.created[0].followerQuantity).toBe('0.01');
+    expect(h.created[0].executionIntent).toMatchObject({
+      copyBudget: { decision: 'REDUCE', allowedNotional: '500' },
+    });
+  });
+
+  it('refuses the copy when the budget engine throws instead of copying as if unbounded', async () => {
+    const h = harness({ evaluateBudget: jest.fn(async (_intent: CopyBudgetIntent) => { throw new Error('budget store offline'); }) });
+
+    const result = await run(h);
+
+    expect(result).toMatchObject({ processed: 0, blocked: 1 });
+    expect(h.createIntent).not.toHaveBeenCalled();
+    expect(h.statuses).toEqual([
+      {
+        status: CopyExecutionStatus.BLOCKED,
+        extra: {
+          riskDecision: CopyRiskDecision.BLOCK,
+          riskRuleId: 'BLOCKED_BUDGET_UNREADABLE',
+          failureReason: 'Copy budget evaluation failed; the copy was refused rather than guessed at',
+        },
+      },
+    ]);
+  });
+});

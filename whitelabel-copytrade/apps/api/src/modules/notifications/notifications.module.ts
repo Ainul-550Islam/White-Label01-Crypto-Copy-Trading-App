@@ -1,4 +1,4 @@
-// # Registers copy-trading notification processor
+// # Registers copy-trading and liquidation-risk notification processors
 // # MODIFY — processor wiring
 import { Global, Module } from '@nestjs/common';
 
@@ -10,6 +10,16 @@ import {
   type CopyTradingNotificationEventType,
   type CopyTradingNotificationPayload,
 } from './processors/copy-trading-notification.processor';
+import {
+  LiquidationRiskNotificationProcessor,
+  type LiquidationRiskAlertPayload,
+  type LiquidationRiskDispatchResult,
+} from './processors/liquidation-risk-notification.processor';
+import {
+  LoginAnomalyNotificationProcessor,
+  type LoginAnomalyAlertPayload,
+  type LoginAnomalyDispatchResult,
+} from './processors/login-anomaly-notification.processor';
 
 export {
   NotificationsService,
@@ -18,6 +28,12 @@ export {
   CopyTradingNotificationProcessor,
   type CopyTradingNotificationEventType,
   type CopyTradingNotificationPayload,
+  LiquidationRiskNotificationProcessor,
+  type LiquidationRiskAlertPayload,
+  type LiquidationRiskDispatchResult,
+  LoginAnomalyNotificationProcessor,
+  type LoginAnomalyAlertPayload,
+  type LoginAnomalyDispatchResult,
 };
 
 /**
@@ -32,7 +48,19 @@ export {
     NotificationsService,
     NotificationProcessor,
     CopyTradingNotificationProcessor,
+    // GAP-65: liquidation/margin-health alerts. Exported because the risk monitor and the
+    // execution engine's post-trade hook both dispatch through this one processor, so the
+    // dedupe window and the preference rules cannot diverge between callers.
+    LiquidationRiskNotificationProcessor,
+    // GAP-79: sign-in anomaly alerts. Exported so the auth path can dispatch
+    // straight after a scored sign-in, without a second dedupe window.
+    LoginAnomalyNotificationProcessor,
   ],
-  exports: [NotificationsService, CopyTradingNotificationProcessor],
+  exports: [
+    NotificationsService,
+    CopyTradingNotificationProcessor,
+    LiquidationRiskNotificationProcessor,
+    LoginAnomalyNotificationProcessor,
+  ],
 })
 export class NotificationsModule {}

@@ -9,6 +9,16 @@ import { CopyPolicyService } from './copy-policy.service';
 import { CopyOrderMapperService } from './copy-order-mapper.service';
 import { FollowerRiskService } from './follower-risk.service';
 import { CopyExecutionService } from './copy-execution.service';
+import { CopyBudgetService } from './copy-budget.service';
+import { CopyBudgetController } from './copy-budget.controller';
+// GAP-94: signed, expiring, revocable public share links. The signing key is read
+// from the crypto service on first use, never at module construction, so a missing
+// secret fails the first share request instead of preventing the app from booting.
+import { PublicShareController } from './public-share.controller';
+import { CopyExecutionTimelineController } from './copy-execution-timeline.controller';
+import { PublicShareRateLimiter, PublicShareService } from './public-share.service';
+import { PrismaPublicShareRepository, PrismaShareSubjectAdapter } from './public-share.repository';
+import { CryptoService } from '../../infrastructure/crypto/crypto.service';
 import { TraderPerformanceService } from './trader-performance.service';
 // The canonical linked-period TWR arithmetic. TraderPerformanceService depends on it, so it must
 // be a provider of this module; it was previously referenced only by a service that no module
@@ -59,7 +69,20 @@ import { OperationsModule } from '../operations/operations.module';
   // AllocationRebalanceController and AllocationRebalanceService existed but were declared by no
   // module, so the preview route was unreachable in a running application while its controller spec
   // passed against a hand-constructed instance. A route that only tests can reach is not a route.
-  controllers: [CopyTradingController, PerformanceBenchmarkController, AllocationRebalanceController, AllocationValuationController],
+  controllers: [
+    CopyTradingController,
+    PerformanceBenchmarkController,
+    AllocationRebalanceController,
+    AllocationValuationController,
+    // GAP-61: the follower's global active-copy budget. Registered here so the route exists in a
+    // running application and not only in a spec that constructs the controller by hand.
+    CopyBudgetController,
+    // GAP-94: one controller for both the owner's routes and the single public
+    // resolve route; the paths differ, the module does not.
+    PublicShareController,
+    // GAP-67: the follower's own timeline for one copy execution.
+    CopyExecutionTimelineController,
+  ],
   providers: [
     TraderProfileService,
     TraderStrategyService,
@@ -70,6 +93,7 @@ import { OperationsModule } from '../operations/operations.module';
     CopyOrderMapperService,
     FollowerRiskService,
     CopyExecutionService,
+    CopyBudgetService,
     PerformanceCalculationService,
     PerformanceBenchmarkService,
     TraderPerformanceService,
@@ -81,6 +105,25 @@ import { OperationsModule } from '../operations/operations.module';
     LeaderEventIngestionService,
     AllocationRebalanceService,
     AllocationValuationRepository,
+    PrismaPublicShareRepository,
+    PrismaShareSubjectAdapter,
+    // Constructed by a factory for the same reason as the capability matrix: the
+    // limiter's arguments (limit, window, clock) have defaults and are not
+    // injectable tokens.
+    {
+      provide: PublicShareRateLimiter,
+      useFactory: () => new PublicShareRateLimiter(),
+    },
+    {
+      provide: PublicShareService,
+      useFactory: (repository: PrismaPublicShareRepository, subjects: PrismaShareSubjectAdapter, crypto: CryptoService) =>
+        new PublicShareService(repository, subjects, {
+          // Lazy: `blindIndex` derives from the master secret, which is not readable
+          // during dependency bootstrap.
+          keyProvider: () => crypto.blindIndex('public-share-token-hmac'),
+        }),
+      inject: [PrismaPublicShareRepository, PrismaShareSubjectAdapter, CryptoService],
+    },
   ],
   exports: [
     TraderProfileService,
@@ -92,6 +135,9 @@ import { OperationsModule } from '../operations/operations.module';
     CopyOrderMapperService,
     FollowerRiskService,
     CopyExecutionService,
+    // Exported so OmsModule and ExecutionModule can evaluate the same budget the copy engine uses
+    // rather than re-deriving it; a second implementation would be a second answer.
+    CopyBudgetService,
     PerformanceCalculationService,
     TraderPerformanceService,
     TraderRankingService,

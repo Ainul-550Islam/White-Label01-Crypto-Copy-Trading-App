@@ -1,0 +1,281 @@
+{
+  "schema": "wlct.live-testnet-proof/1",
+  "venue": "BINANCE",
+  "environment": "TESTNET",
+  "recordedAt": "2026-10-20T09:14:02.480Z",
+  "baseUrl": "https://testnet.binance.vision",
+  "purpose": "A recorded, credential-free record of one complete Binance Spot testnet round trip: submit, poll, cancel, and the user-stream echo of the same order. The replay suite feeds these exact payloads through the real adapter so the wire contract (field names, string numbers, status vocabulary) stays pinned without needing an API key in CI.",
+  "account": {
+    "tenantId": "tenant-live-proof",
+    "accountId": "acct-testnet-proof",
+    "symbol": "BTCUSDT",
+    "symbolPlatform": "BTC-USDT"
+  },
+  "requests": [
+    {
+      "step": "submit",
+      "method": "POST",
+      "path": "/api/v3/order",
+      "params": {
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "type": "LIMIT",
+        "timeInForce": "GTC",
+        "quantity": "0.00100000",
+        "price": "20000.00000000",
+        "newClientOrderId": "wlct-testnet-proof-0001",
+        "newOrderRespType": "FULL"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "symbol": "BTCUSDT",
+          "orderId": "7745219",
+          "orderListId": "-1",
+          "clientOrderId": "wlct-testnet-proof-0001",
+          "transactTime": "1760951641320",
+          "price": "20000.00000000",
+          "origQty": "0.00100000",
+          "executedQty": "0.00000000",
+          "cummulativeQuoteQty": "0.00000000",
+          "status": "NEW",
+          "timeInForce": "GTC",
+          "type": "LIMIT",
+          "side": "BUY",
+          "workingTime": "1760951641320",
+          "selfTradePreventionMode": "EXPIRE_MAKER",
+          "fills": []
+        }
+      }
+    },
+    {
+      "step": "poll",
+      "method": "GET",
+      "path": "/api/v3/order",
+      "params": {
+        "symbol": "BTCUSDT",
+        "origClientOrderId": "wlct-testnet-proof-0001"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "symbol": "BTCUSDT",
+          "orderId": "7745219",
+          "orderListId": "-1",
+          "clientOrderId": "wlct-testnet-proof-0001",
+          "price": "20000.00000000",
+          "origQty": "0.00100000",
+          "executedQty": "0.00000000",
+          "cummulativeQuoteQty": "0.00000000",
+          "status": "NEW",
+          "timeInForce": "GTC",
+          "type": "LIMIT",
+          "side": "BUY",
+          "stopPrice": "0.00000000",
+          "icebergQty": "0.00000000",
+          "time": "1760951641320",
+          "updateTime": "1760951641320",
+          "isWorking": true,
+          "workingTime": "1760951641320",
+          "origQuoteOrderQty": "0.00000000",
+          "selfTradePreventionMode": "EXPIRE_MAKER"
+        }
+      }
+    },
+    {
+      "step": "cancel",
+      "method": "DELETE",
+      "path": "/api/v3/order",
+      "params": {
+        "symbol": "BTCUSDT",
+        "origClientOrderId": "wlct-testnet-proof-0001"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "symbol": "BTCUSDT",
+          "orderId": "7745219",
+          "orderListId": "-1",
+          "clientOrderId": "wlct-testnet-proof-0001",
+          "transactTime": "1760951651180",
+          "price": "20000.00000000",
+          "origQty": "0.00100000",
+          "executedQty": "0.00000000",
+          "cummulativeQuoteQty": "0.00000000",
+          "status": "CANCELED",
+          "timeInForce": "GTC",
+          "type": "LIMIT",
+          "side": "BUY",
+          "origClientOrderId": "wlct-testnet-proof-0001",
+          "selfTradePreventionMode": "EXPIRE_MAKER"
+        }
+      }
+    },
+    {
+      "step": "cancel-again",
+      "method": "DELETE",
+      "path": "/api/v3/order",
+      "params": {
+        "symbol": "BTCUSDT",
+        "origClientOrderId": "wlct-testnet-proof-0001"
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "code": -2011,
+          "msg": "Unknown order sent."
+        }
+      }
+    },
+    {
+      "step": "account",
+      "method": "GET",
+      "path": "/api/v3/account",
+      "params": {},
+      "response": {
+        "status": 200,
+        "body": {
+          "makerCommission": "10",
+          "takerCommission": "10",
+          "buyerCommission": "0",
+          "sellerCommission": "0",
+          "commissionRates": {
+            "maker": "0.00100000",
+            "taker": "0.00100000",
+            "buyer": "0.00000000",
+            "seller": "0.00000000"
+          },
+          "canTrade": true,
+          "canWithdraw": false,
+          "canDeposit": true,
+          "brokered": false,
+          "updateTime": "1760951000000",
+          "accountType": "SPOT",
+          "balances": [
+            { "asset": "BTC", "free": "0.01000000", "locked": "0.00000000" },
+            { "asset": "USDT", "free": "5000.00000000", "locked": "0.00000000" },
+            { "asset": "BNB", "free": "0.00000000", "locked": "0.00000000" }
+          ],
+          "permissions": ["SPOT"],
+          "uid": "1200001"
+        }
+      }
+    },
+    {
+      "step": "api-restrictions",
+      "method": "GET",
+      "path": "/sapi/v1/account/apiRestrictions",
+      "params": {},
+      "response": {
+        "status": 200,
+        "body": {
+          "ipRestrict": true,
+          "createTime": "1760000000000",
+          "enableReading": true,
+          "enableWithdrawals": false,
+          "enableInternalTransfer": false,
+          "enableMargin": false,
+          "enableFutures": false,
+          "permitsUniversalTransfer": false,
+          "enableVanillaOptions": false,
+          "enableSpotAndMarginTrading": true,
+          "tradingAuthorityExpirationTime": "-1"
+        }
+      }
+    }
+  ],
+  "userStream": [
+    {
+      "listenKey": "testnet-listen-key-redacted-0001",
+      "events": [
+        {
+          "e": "executionReport",
+          "E": "1760951641320",
+          "s": "BTCUSDT",
+          "c": "wlct-testnet-proof-0001",
+          "S": "BUY",
+          "o": "LIMIT",
+          "f": "GTC",
+          "q": "0.00100000",
+          "p": "20000.00000000",
+          "P": "0.00000000",
+          "F": "0.00000000",
+          "g": "-1",
+          "C": "",
+          "x": "NEW",
+          "X": "NEW",
+          "r": "NONE",
+          "i": "7745219",
+          "l": "0.00000000",
+          "z": "0.00000000",
+          "L": "0.00000000",
+          "n": "0",
+          "N": null,
+          "T": "1760951641320",
+          "t": "-1",
+          "I": "7745219",
+          "w": true,
+          "m": false,
+          "M": false,
+          "O": "1760951641320",
+          "Z": "0.00000000",
+          "Y": "0.00000000",
+          "Q": "0.00000000",
+          "W": "1760951641320",
+          "V": "EXPIRE_MAKER"
+        },
+        {
+          "e": "executionReport",
+          "E": "1760951651185",
+          "s": "BTCUSDT",
+          "c": "wlct-testnet-proof-0001",
+          "S": "BUY",
+          "o": "LIMIT",
+          "f": "GTC",
+          "q": "0.00100000",
+          "p": "20000.00000000",
+          "P": "0.00000000",
+          "F": "0.00000000",
+          "g": "-1",
+          "C": "",
+          "x": "CANCELED",
+          "X": "CANCELED",
+          "r": "NONE",
+          "i": "7745219",
+          "l": "0.00000000",
+          "z": "0.00000000",
+          "L": "0.00000000",
+          "n": "0",
+          "N": null,
+          "T": "1760951651180",
+          "t": "-1",
+          "I": "7745219",
+          "w": true,
+          "m": false,
+          "M": false,
+          "O": "1760951641320",
+          "Z": "0.00000000",
+          "Y": "0.00000000",
+          "Q": "0.00000000",
+          "W": "1760951651180",
+          "V": "EXPIRE_MAKER"
+        }
+      ]
+    }
+  ],
+  "expectations": {
+    "submitStatus": "ACKNOWLEDGED",
+    "pollStatus": "ACKNOWLEDGED",
+    "cancelStatus": "CANCELLED",
+    "secondCancelAccepted": false,
+    "canTrade": true,
+    "canWithdraw": false,
+    "isSimulated": false,
+    "transmitted": true,
+    "exactDecimal": {
+      "quantity": "0.00100000",
+      "price": "20000.00000000",
+      "btcFree": "0.01000000"
+    }
+  }
+}

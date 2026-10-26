@@ -4,14 +4,25 @@ import type { JSX } from 'react';
 
 import React from "react";
 import type { CopyExecutionDisplayItem } from "@/api/trading-api";
+import type { CopyExecutionTimeline } from "@/api/copy-ops-api";
 import { StatusBadge } from "@/components/status-badge";
+import { CopyExecutionStatusTimeline } from "./copy-execution-status-timeline";
 
 export interface CopyExecutionDetailProps {
   execution: CopyExecutionDisplayItem;
   onClose?: () => void;
+  /**
+   * The recorded attempts for this execution, when the caller has them.
+   *
+   * Optional on purpose: this component is also rendered by the attribution test
+   * and by print/export paths that have no network. `undefined` means "not loaded
+   * here" and renders nothing; `null` means "loaded and the platform has no
+   * attempts recorded", which the timeline states explicitly.
+   */
+  timeline?: CopyExecutionTimeline | null;
 }
 
-export function CopyExecutionDetail({ execution, onClose }: CopyExecutionDetailProps): JSX.Element {
+export function CopyExecutionDetail({ execution, onClose, timeline }: CopyExecutionDetailProps): JSX.Element {
   const isBlockedOrFailed =
     execution.status === "BLOCKED" ||
     execution.status === "RISK_BLOCKED" ||
@@ -140,6 +151,14 @@ export function CopyExecutionDetail({ execution, onClose }: CopyExecutionDetailP
           </li>
         </ol>
       </div>
+
+      {/* The attempt-by-attempt history. Rendered below the attribution summary so
+          the customer reads "what happened" after "what was decided". */}
+      {timeline !== undefined && (
+        <div className="border-t pt-3" data-testid="copy-execution-timeline">
+          <CopyExecutionStatusTimeline timeline={timeline} />
+        </div>
+      )}
     </div>
   );
 }

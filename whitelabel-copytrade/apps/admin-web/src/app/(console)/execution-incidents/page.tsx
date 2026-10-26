@@ -9,6 +9,13 @@ import {
   type ExecutionIncidentRow,
   type ExecutionKillSwitchItem,
 } from '@/features/execution/execution-incident-table';
+import { ExecutionOpsPanel } from '@/features/execution/execution-ops-panel';
+import {
+  toStreamHealthRow,
+  toVenueStatusRow,
+  type StreamHealthRow,
+  type VenueStatusRow,
+} from '@/api/execution-admin-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +60,19 @@ export default async function ExecutionIncidentsPage(): Promise<JSX.Element> {
       serverFetch<{ items: ExecutionIncidentRow[] }>('/execution/incidents', {
         searchParams: { limit: 50, includeResolved: true },
       }),
+    ),
+  ]);
+
+  // Stream health and venue status are fetched alongside the incident queue: the
+  // three answer the same operator question ("is the platform actually trading?"),
+  // and a console that shows incidents but not the dead streams behind them hides
+  // the cause.
+  const [streams, venueStatuses] = await Promise.all([
+    track('exchange streams', serverFetch<{ data?: unknown[] } | unknown[]>('/admin/exchange-user-streams')).then((page) =>
+      (Array.isArray(page) ? page : page?.data ?? []).map(toStreamHealthRow),
+    ),
+    track('venue status', serverFetch<{ data?: unknown[] } | unknown[]>('/venues/status')).then((page) =>
+      (Array.isArray(page) ? page : page?.data ?? []).map(toVenueStatusRow),
     ),
   ]);
 
@@ -103,6 +123,13 @@ export default async function ExecutionIncidentsPage(): Promise<JSX.Element> {
           label="Safety Gate Blockers"
           value={safety?.blockingReasons.length ?? 0}
           hint={safety?.blockingReasons[0] ?? 'No blockers'}
+        />
+      </div>
+
+      <div style={{ marginTop: theme.space(6) }}>
+        <ExecutionOpsPanel
+          initialStreams={(streams ?? []) as StreamHealthRow[]}
+          initialVenues={(venueStatuses ?? []) as VenueStatusRow[]}
         />
       </div>
 

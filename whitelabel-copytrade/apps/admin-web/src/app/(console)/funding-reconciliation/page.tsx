@@ -8,6 +8,8 @@ import {
   FundingReconciliationTable,
   type CustodyReconciliationFindingRow,
 } from '@/features/funding/funding-reconciliation-table';
+import { WithdrawalDestinationAudit } from '@/features/funding/withdrawal-destination-audit';
+import { toDestinationAuditRow, type DestinationAuditRow } from '@/api/execution-admin-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +17,9 @@ export const metadata: Metadata = { title: 'Funding & Custody Reconciliation' };
 
 export default async function FundingReconciliationPage(): Promise<JSX.Element> {
   let findings: CustodyReconciliationFindingRow[] = [];
+  let destinations: DestinationAuditRow[] = [];
   let errorMsg: string | null = null;
+  let destinationError: string | null = null;
 
   try {
     const res = await serverFetch<{
@@ -27,6 +31,15 @@ export default async function FundingReconciliationPage(): Promise<JSX.Element> 
     findings = res.items ?? res.findings ?? [];
   } catch (err) {
     errorMsg = (err as Error).message || 'Failed to load custody reconciliation findings';
+  }
+
+  try {
+    const res = await serverFetch<{ data?: unknown[] } | unknown[]>('/admin/custody/destinations', {
+      searchParams: { limit: 100 },
+    });
+    destinations = (Array.isArray(res) ? res : res?.data ?? []).map(toDestinationAuditRow);
+  } catch (err) {
+    destinationError = (err as Error).message || 'Failed to load withdrawal destinations';
   }
 
   const openFindings = findings.filter((f) => !f.resolved);
@@ -78,6 +91,18 @@ export default async function FundingReconciliationPage(): Promise<JSX.Element> 
           description="Never rewrites external provider truth; requires explicit operator resolution and audit note."
         >
           <FundingReconciliationTable findings={findings} />
+        </Card>
+      </div>
+      <div style={{ marginTop: theme.space(6) }}>
+        <Card
+          title="Withdrawal destinations &amp; policy decisions"
+          description="Every allowlisted address per customer, its cooldown state, and each ALLOW/DENY decision the policy returned."
+        >
+          {destinationError ? (
+            <ErrorNotice title="Withdrawal destinations unavailable" message={destinationError} />
+          ) : (
+            <WithdrawalDestinationAudit rows={destinations} />
+          )}
         </Card>
       </div>
     </>

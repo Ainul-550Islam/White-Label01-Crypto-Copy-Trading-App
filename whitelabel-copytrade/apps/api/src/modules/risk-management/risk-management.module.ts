@@ -6,6 +6,7 @@ import { PositionRiskService } from './position-risk.service';
 import { OrderRiskService } from './order-risk.service';
 import { MarginRiskService } from './margin-risk.service';
 import { LiquidationRiskService } from './liquidation-risk.service';
+import { LiquidationAlertController } from './liquidation-alert.controller';
 import { ConcentrationRiskService } from './concentration-risk.service';
 import { DrawdownRiskService } from './drawdown-risk.service';
 import { DailyLossLimitService } from './daily-loss-limit.service';
@@ -48,6 +49,10 @@ import { CustomerExposureService } from './customer-exposure.service';
     // decorated for permissions, but was never listed here, so no route was mounted and a
     // customer's configured limit was unreachable.
     UserPositionLimitController,
+    // GAP-65: the customer's own liquidation buckets. Registered here because this
+    // module owns the liquidation evaluator; the route prefix (`risk/liquidation-alerts`)
+    // is what the customer app calls.
+    LiquidationAlertController,
   ],
   providers: [
     InstitutionalRiskPolicyService,

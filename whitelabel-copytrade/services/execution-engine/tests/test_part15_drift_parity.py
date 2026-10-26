@@ -146,12 +146,16 @@ class TestProbeTableSetMatchesTheArtifacts:
         # Part 11 production SSO (20260923089000) added four tenant-owned tables
         # and brought coverage to 186; the two developer-platform tables in
         # migration 20261006120000 brought it to 188, UserPositionLimit
-        # (20261007130000) to 189, and OutboxEvent (20261008130000) to 190.
-        # The exclusion list
-        # remains 30. The current count is pinned rather than derived because
-        # the pairing tests must detect disagreement among enable.sql,
-        # disable.sql, rls_coverage.json and the stated count.
-        assert len(covered_tables(ENABLE)) == 190
+        # (20261007130000) to 189, OutboxEvent (20261008130000) to 190, and
+        # partner_referral_abuse_reviews (20261115100000) to 191 - the referral
+        # abuse review queue is tenant-owned, so the generator picked it up on the
+        # next rerun and enable.sql, disable.sql and rls_coverage.json all moved
+        # together. The exclusion list remains 30. The current count is pinned
+        # rather than derived because the pairing tests must detect disagreement
+        # among enable.sql, disable.sql, rls_coverage.json and the stated count;
+        # a pin that is stale by exactly one table is the signal that a migration
+        # added a tenant table without anyone re-reading this file.
+        assert len(covered_tables(ENABLE)) == 191
         assert len(coverage_manifest()["excluded"]) == 30
 
     def test_every_covered_table_has_a_policy_in_the_migration_history(self) -> None:

@@ -55,6 +55,12 @@ const REVIEWED = {
     routes: 1,
     reason: 'flags resolved for the caller (read-only)',
   },
+  'modules/auth/account-recovery.controller.ts': {
+    routes: 3,
+    reason:
+      'account recovery must work without a session: request/verify/complete are anonymous, rate-limited per IP hash ' +
+      'and per account, answer identically for every address, and are single-use (account-recovery.spec.ts)',
+  },
 };
 
 function walk(dir, out) {

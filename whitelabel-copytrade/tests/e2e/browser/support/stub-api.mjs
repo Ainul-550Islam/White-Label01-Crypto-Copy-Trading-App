@@ -66,6 +66,41 @@ export function createStubApi({ port = DEFAULT_PORT, host = '127.0.0.1' } = {}) 
   };
 
   const routes = [
+    // ---- tenant dashboard dependencies ----------------------------------------------------
+    // Signing in lands on the dashboard before a spec navigates to its target page. These
+    // endpoints are real reads made by that route and are declared explicitly so a browser
+    // test cannot pass while the shared landing route is silently broken.
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/tenants/current`,
+      handler: () =>
+        ok({
+          id: 'tenant-e2e',
+          tenantId: 'tenant-e2e',
+          slug: 'e2e',
+          name: 'E2E Tenant',
+          status: 'ACTIVE',
+          maxUsers: 100,
+          maxTraders: 20,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        }),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/billing/subscription`,
+      handler: () => ok(null),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/users`,
+      handler: () => ok({ items: [], pagination: { totalItems: 0 } }),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/feature-flags/resolved`,
+      handler: () => ok({}),
+    },
+
     // ---- session ---------------------------------------------------------------------------
     {
       method: 'POST',
@@ -146,6 +181,19 @@ export function createStubApi({ port = DEFAULT_PORT, host = '127.0.0.1' } = {}) 
     },
     {
       method: 'GET',
+      path: `/${API_VERSION}/copy-trading/traders/:traderId/profile`,
+      handler: (_req, _url, params) => {
+        const trader = traders.find((row) => row.traderId === params.traderId);
+        return trader ? ok(trader) : notFound(`no trader ${params.traderId}`);
+      },
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/traders/:traderId/strategies`,
+      handler: () => ok({ data: [], total: 0, page: 1, limit: 20 }),
+    },
+    {
+      method: 'GET',
       path: `/${API_VERSION}/copy-trading/traders/:traderId`,
       handler: (_req, _url, params) => {
         const trader = traders.find((row) => row.traderId === params.traderId);
@@ -185,6 +233,19 @@ export function createStubApi({ port = DEFAULT_PORT, host = '127.0.0.1' } = {}) 
         return ok(subscriptionResource);
       },
     },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/copy-trading/subscriptions/:subscriptionId/reconciliation-status`,
+      handler: (_req, _url, params) =>
+        ok({
+          subscriptionId: params.subscriptionId,
+          status: 'SYNCED',
+          unresolvedCount: 0,
+          resolvedCount: 0,
+          lastCheckedAt: '2026-10-07T00:00:00.000Z',
+          items: [],
+        }),
+    },
     // The subscription detail view composes three calls, not one: the subscription, the effective
     // policy and the execution page. All three are declared here, because a 404 on any of them is a
     // page the customer sees broken and a spec that must fail.
@@ -205,11 +266,48 @@ export function createStubApi({ port = DEFAULT_PORT, host = '127.0.0.1' } = {}) 
       },
     },
 
+    // ---- signed-in customer dashboard reads ------------------------------------------------
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/exchanges/accounts`,
+      handler: () => ok({ data: [], total: 0 }),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/client-lifecycle/accounts`,
+      handler: () => ok({ data: [], total: 0 }),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/client-lifecycle/funding`,
+      handler: () => ok({ data: [], total: 0 }),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/client-lifecycle/withdrawals`,
+      handler: () => ok({ data: [], total: 0 }),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/billing/portal/overview`,
+      handler: () => ok({ subscription: null, availablePlans: [], usage: { items: [], features: [] } }),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/notifications/unread-count`,
+      handler: () => ok({ unread: 0 }),
+    },
+
     // ---- trading state the pages compose their banners from ---------------------------------
     {
       method: 'GET',
       path: `/${API_VERSION}/operations/maintenance/current`,
       handler: () => ok(maintenanceCurrent),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/venues/status`,
+      handler: () => ok({ venues: [] }),
     },
     {
       method: 'GET',
@@ -237,6 +335,11 @@ export function createStubApi({ port = DEFAULT_PORT, host = '127.0.0.1' } = {}) 
       method: 'GET',
       path: `/${API_VERSION}/custody/reconciliation/findings`,
       handler: () => ok(custodyReconciliationFindings),
+    },
+    {
+      method: 'GET',
+      path: `/${API_VERSION}/admin/custody/destinations`,
+      handler: () => ok({ data: [], total: 0 }),
     },
     {
       method: 'GET',
@@ -279,15 +382,19 @@ export function createStubApi({ port = DEFAULT_PORT, host = '127.0.0.1' } = {}) 
     const url = new URL(req.url ?? '/', `http://${host}:${port}`);
     const authorization = req.headers.authorization ?? null;
     const body = await readJsonBody(req);
+    const route = matchRoute(routes, req.method ?? 'GET', url.pathname);
     const entry = {
       method: req.method,
       path: url.pathname,
       query: Object.fromEntries(url.searchParams.entries()),
-      authorized: authorization === `Bearer ${E2E_ACCESS_TOKEN}`,
+      // `authorized` means accepted under the endpoint's auth policy. Public routes
+      // (login and tenant public-config) are authorized without a bearer token; every
+      // protected route still requires the exact session token from the login fixture.
+      authorized:
+        route?.authenticated === false || authorization === `Bearer ${E2E_ACCESS_TOKEN}`,
     };
     state.requests.push(entry);
 
-    const route = matchRoute(routes, req.method ?? 'GET', url.pathname);
     if (!route) {
       state.unmatched.push(entry);
       return send(res, 404, {

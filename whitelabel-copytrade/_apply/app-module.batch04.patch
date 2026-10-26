@@ -1,0 +1,24 @@
+diff --git a/whitelabel-copytrade/apps/api/src/app.module.ts b/whitelabel-copytrade/apps/api/src/app.module.ts
+index 070ac4a..70ca3f5 100644
+--- a/whitelabel-copytrade/apps/api/src/app.module.ts
++++ b/whitelabel-copytrade/apps/api/src/app.module.ts
+@@ -41,6 +41,9 @@ import { MobileReleaseModule } from './modules/mobile-release/mobile-release.mod
+ import { PartnerModule } from './modules/partners/partner.module';
+ import { ReferralAbuseModule } from './modules/partner/referral-abuse.module';
+ import { ProviderModule } from './modules/providers/provider.module';
++import { PrivacyModule } from './modules/privacy/privacy.module';
++import { AnalyticsModule } from './modules/analytics/analytics.module';
++import { OpsModule } from './modules/ops/ops.module';
+ import { OutboxModule } from './infrastructure/outbox/outbox.module';
+ 
+ import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+@@ -115,6 +118,9 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
+     PartnerModule,
+     ReferralAbuseModule,
+     ProviderModule,
++    PrivacyModule,
++    AnalyticsModule,
++    OpsModule,
+     OutboxModule,
+   ],
+   providers: [
