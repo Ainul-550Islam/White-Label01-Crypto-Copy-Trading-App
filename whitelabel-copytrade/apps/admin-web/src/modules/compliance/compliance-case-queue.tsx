@@ -1,7 +1,7 @@
 // # NEW — Renders filterable compliance case queue by severity, status, and SLA
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { type ReactElement, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Badge, DataTable } from '@/components/ui';
 import { formatDateTime, formatRelative } from '@/lib/format';
@@ -50,7 +50,7 @@ export function ComplianceCaseQueue({
   cases,
   initialStateFilter = 'ALL',
   initialSeverityFilter = 'ALL',
-}: ComplianceCaseQueueProps): JSX.Element {
+}: ComplianceCaseQueueProps): ReactElement {
   const [stateFilter, setStateFilter] = useState<string>(initialStateFilter);
   const [severityFilter, setSeverityFilter] = useState<string>(initialSeverityFilter);
 

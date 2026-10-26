@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 // # Responsibility: Read typed canonical plan, subscription, payment, refund, and usage records for plan performance.
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma, SubscriptionPlan, TenantSubscription, Payment, Refund } from '@prisma/client';
@@ -121,7 +122,7 @@ export class PlanPerformanceService {
           const totalMax = usageMeters.reduce((sum, m) => sum + (m.maxValue || 0), 0);
           if (totalMax > 0) utilizationRate = calculateRate(totalUsage, totalMax);
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_PLAN_PERFORMANCE_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
       results.push({
         planId: plan.id,

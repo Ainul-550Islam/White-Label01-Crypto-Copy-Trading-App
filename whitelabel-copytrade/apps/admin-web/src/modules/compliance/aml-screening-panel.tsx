@@ -1,7 +1,7 @@
 // # NEW — Displays screening match details and disposition controls
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { type ReactElement, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui';
 import { apiClient } from '@/lib/api-client';
@@ -30,7 +30,7 @@ export function AmlScreeningPanel({
   providerReference,
   screeningStatus,
   matches,
-}: AmlScreeningPanelProps): JSX.Element {
+}: AmlScreeningPanelProps): ReactElement {
   const router = useRouter();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);

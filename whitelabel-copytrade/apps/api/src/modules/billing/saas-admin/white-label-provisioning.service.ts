@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { TenantFeatureAccessService } from './tenant-feature-access.service';
@@ -50,9 +51,7 @@ export class WhiteLabelProvisioningService {
       if (entitlement.enabled && provisioningState === 'NOT_REQUESTED') {
         // Still NOT_REQUESTED until explicitly requested
       }
-    } catch {
-      // Fallback
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_WHITE_LABEL_PROVISIONING_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     // If not entitled, force disabled/rejected logic
     if (!entitlement.enabled && provisioningState === 'ACTIVE') {

@@ -23,7 +23,7 @@ describe("useCopyExecutionEvents & realtimeApi (GAP-13)", () => {
           leaderEventId: "fill:leader-1",
           leaderOrderId: "ord-leader-1",
           followerOrderId: "ord-follower-1",
-          status: "COMPLETED",
+          status: "FILLED",
           failureReason: null,
           leaderQuantity: "1.0",
           followerQuantity: "0.25",
@@ -60,7 +60,7 @@ describe("useCopyExecutionEvents & realtimeApi (GAP-13)", () => {
     expect(
       classifyExecutionEventType({
         ...events[0]!.execution,
-        status: "RISK_BLOCKED",
+        status: "BLOCKED",
         riskDecision: "BLOCK",
       }),
     ).toBe("COPY_RISK_BLOCKED");

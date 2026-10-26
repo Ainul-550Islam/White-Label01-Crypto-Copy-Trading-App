@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
@@ -106,9 +107,7 @@ export class PortfolioSnapshotService {
         take: 100,
       });
       fees = feeEntries;
-    } catch {
-      fees = [];
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_PORTFOLIO_SNAPSHOT_OPERATION_1_FAILED', tenantId: tenantId, entityId: profileId }); }
 
     const fingerprint = createHash('sha256')
       .update(JSON.stringify({ tenantId, profileId, snapshotId, timestamp: timestamp.toISOString(), nav: navResult.nav, holdings }))

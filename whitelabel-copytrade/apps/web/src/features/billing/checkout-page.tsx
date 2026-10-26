@@ -56,7 +56,7 @@ export function CheckoutPage(): JSX.Element {
   return (
     <PageContainer
       title="Checkout"
-      description="Real backend checkout flow, no hardcoded prices"
+      description="Continue to secure checkout to review your selected plan and price."
     >
       {plans.isLoading ? (
         <LoadingState message="Loading plan..." />

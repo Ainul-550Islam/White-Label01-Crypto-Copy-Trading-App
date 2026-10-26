@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { PlansService } from '../plans.service';
@@ -77,7 +78,7 @@ export class QuotaSnapshotService {
               maximum = tenant.maxTraders;
             }
           }
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_QUOTA_SNAPSHOT_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
       }
     }
 
@@ -119,7 +120,7 @@ export class QuotaSnapshotService {
           } else if (params.meterKey === MeterKey.TRADERS) {
             current = await (this.prisma as any).tradingAccount?.count({ where: { tenantId: params.tenantId, deletedAt: null } }) || current;
           }
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_QUOTA_SNAPSHOT_OPERATION_2_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
       }
     } catch (e) {
       this.logger.warn(`Failed to get current usage for ${params.tenantId} meter=${params.meterKey}: ${(e as Error).message}`);
@@ -215,7 +216,7 @@ export class QuotaSnapshotService {
           periodId,
         });
         snapshots.push(snapshot);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_QUOTA_SNAPSHOT_OPERATION_3_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
     }
 
     return snapshots;

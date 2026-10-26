@@ -3,12 +3,12 @@
 import type { JSX } from 'react';
 
 import React from "react";
-import type { CopyExecutionItem, CopySubscriptionItem } from "@/api/trading-api";
+import type { CopyExecutionDisplayItem, CopySubscriptionItem } from "@/api/trading-api";
 import { Money } from "@/components/money";
 
 export interface CopyRiskGuardrailsProps {
   subscription: CopySubscriptionItem;
-  recentExecutions?: CopyExecutionItem[];
+  recentExecutions?: CopyExecutionDisplayItem[];
   onEmergencyStop?: (closeOpenPositions: boolean) => void;
   isStopping?: boolean;
 }
@@ -21,7 +21,7 @@ export function CopyRiskGuardrails({
 }: CopyRiskGuardrailsProps): JSX.Element {
   const risk = subscription.riskPolicy;
   const blockedExecutions = recentExecutions.filter(
-    (e) => e.status === "RISK_BLOCKED" || e.riskDecision === "BLOCK",
+    (e) => e.status === "BLOCKED" || e.status === "RISK_BLOCKED" || e.riskDecision === "BLOCK",
   );
   const emergencyActive = Boolean(
     risk?.emergencyStopCopy || subscription.copyPolicy?.emergencyStop,
@@ -92,7 +92,7 @@ export function CopyRiskGuardrails({
             {blockedExecutions.slice(0, 5).map((exec) => (
               <li key={exec.executionId}>
                 <span className="font-mono">{exec.executionId}</span>:{" "}
-                {exec.riskReasons.join("; ") || exec.failureReason || "Blocked by risk policy"}
+                {(exec.riskReasons ?? []).join("; ") || exec.failureReason || "Blocked by risk policy"}
               </li>
             ))}
           </ul>

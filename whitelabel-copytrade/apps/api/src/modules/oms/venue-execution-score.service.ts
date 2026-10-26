@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { isValidDecimal, parseScaled } from './oms.types';
@@ -59,7 +60,7 @@ export class VenueExecutionScoreService {
           }
         }
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_VENUE_EXECUTION_SCORE_OPERATION_1_FAILED', tenantId: tenantId, entityId: accountId }); }
 
     latencies.sort((a, b) => a - b);
     const avgLatency = latencyCount > 0 ? latencySum / latencyCount : null;
@@ -86,7 +87,7 @@ export class VenueExecutionScoreService {
         slippageSum += slip;
         slippageCount++;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_VENUE_EXECUTION_SCORE_OPERATION_2_FAILED', tenantId: tenantId, entityId: accountId }); }
 
     const avgSlippage = slippageCount > 0 ? slippageSum / slippageCount : null;
 
@@ -148,7 +149,7 @@ export class VenueExecutionScoreService {
 
     try {
       await (this.prisma as any).omsVenueScore.create({ data: score });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_VENUE_EXECUTION_SCORE_OPERATION_3_FAILED', tenantId: tenantId, entityId: accountId }); }
 
     this.logger.log(`Venue score calculated venue ${venue} tenant ${tenantId} orders ${totalOrders} fillRatio ${fillRatio} avgLatency ${avgLatency}`);
     return score;

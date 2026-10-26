@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { PlansService } from '../plans.service';
@@ -161,9 +162,7 @@ export class TenantProvisioningService {
               socialLinks: {},
             },
           });
-        } catch {
-          // Branding may fail if model constraints - ignore
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_TENANT_PROVISIONING_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
         // Create default settings
         try {
@@ -174,7 +173,7 @@ export class TenantProvisioningService {
               { tenantId: tenant.id, key: 'billing.currency', value: input.defaultCurrency || 'USD', category: 'billing' },
             ],
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_TENANT_PROVISIONING_OPERATION_2_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
         // Create RBAC defaults - clone system roles for tenant
         try {
@@ -200,9 +199,7 @@ export class TenantProvisioningService {
               },
             });
           }
-        } catch {
-          // RBAC clone may fail - not critical for provisioning
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_TENANT_PROVISIONING_OPERATION_3_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
         // Create subscription if plan provided
         let subscription = null;
@@ -232,7 +229,7 @@ export class TenantProvisioningService {
                 maxTraders: limits?.maxTraders ?? null,
               },
             });
-          } catch {}
+          } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_TENANT_PROVISIONING_OPERATION_4_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
         }
 
         // Create billing customer profile
@@ -253,7 +250,7 @@ export class TenantProvisioningService {
               },
             });
           }
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_TENANT_PROVISIONING_OPERATION_5_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
         return { tenant, branding, subscription };
       });

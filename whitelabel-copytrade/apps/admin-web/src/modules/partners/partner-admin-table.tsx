@@ -1,7 +1,7 @@
 // # NEW — Renders partner list, tier override controls, and payout approval actions
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { type ReactElement, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Badge, DataTable } from '@/components/ui';
@@ -26,7 +26,7 @@ export interface PartnerAdminTableProps {
   partners: PartnerAdminRow[];
 }
 
-export function PartnerAdminTable({ partners }: PartnerAdminTableProps): JSX.Element {
+export function PartnerAdminTable({ partners }: PartnerAdminTableProps): ReactElement {
   const router = useRouter();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);

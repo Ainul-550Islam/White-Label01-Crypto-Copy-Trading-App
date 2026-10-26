@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
@@ -89,7 +90,7 @@ export class AccountingReconciliationService {
             }
           }
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_RECONCILIATION_OPERATION_1_FAILE', tenantId: params.tenantId, entityId: params.profileId }); }
 
       // Cash drift vs exchange balance — compare accounting cash vs exchange balance if available
       try {
@@ -111,7 +112,7 @@ export class AccountingReconciliationService {
         if (missingFxEntries.length > 0) {
           discrepancies.push({ type: 'MISSING_FX', severity: 'WARNING', details: { count: missingFxEntries.length, entries: missingFxEntries.map((e: any) => e.id) } });
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_RECONCILIATION_OPERATION_2_FAILE', tenantId: params.tenantId, entityId: params.profileId }); }
 
       // Position mismatch — compare accounting lots vs OMS positions
       try {
@@ -146,7 +147,7 @@ export class AccountingReconciliationService {
             }
           }
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_RECONCILIATION_OPERATION_3_FAILE', tenantId: params.tenantId, entityId: params.profileId }); }
 
       // Fee mismatch — compare fee accruals vs cash ledger fees
       try {
@@ -169,7 +170,7 @@ export class AccountingReconciliationService {
             details: { feeAccrualsCount: feeAccruals.length, cashFeeEntriesCount: feeCashEntries.length },
           });
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_RECONCILIATION_OPERATION_4_FAILE', tenantId: params.tenantId, entityId: params.profileId }); }
 
       // Valuation staleness
       try {
@@ -190,7 +191,7 @@ export class AccountingReconciliationService {
         if (missing.length > 0) {
           discrepancies.push({ type: 'MISSING_PRICE', severity: 'WARNING', details: { count: missing.length } });
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_RECONCILIATION_OPERATION_5_FAILE', tenantId: params.tenantId, entityId: params.profileId }); }
 
       // Closed-period mutation check — if period is CLOSED, ensure no new events after close
       try {
@@ -211,7 +212,7 @@ export class AccountingReconciliationService {
             discrepancies.push({ type: 'CLOSED_PERIOD_MUTATION', severity: 'CRITICAL', details: { eventsAfterClose, closedAt: closedPeriod.closedAt } });
           }
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_RECONCILIATION_OPERATION_6_FAILE', tenantId: params.tenantId, entityId: params.profileId }); }
     } catch (e) {
       this.logger.warn(`Reconciliation failed: ${(e as Error).message}`);
       discrepancies.push({ type: 'RECONCILIATION_FAILED', severity: 'WARNING', details: { error: (e as Error).message } });
@@ -244,7 +245,7 @@ export class AccountingReconciliationService {
           periodStart = period.periodStart;
           periodEnd = period.periodEnd;
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_RECONCILIATION_OPERATION_7_FAILE', tenantId: tenantId, entityId: profileId }); }
     }
 
     const result = await this.reconcilePeriod({ tenantId, profileId, periodStart, periodEnd });
@@ -259,7 +260,7 @@ export class AccountingReconciliationService {
     try {
       const existing = await (this.prisma as any).portfolioAccountingReconciliation.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return toReconciliationView(existing);
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_RECONCILIATION_OPERATION_8_FAILE', tenantId: tenantId, entityId: profileId }); }
 
     const recon = await (this.prisma as any).portfolioAccountingReconciliation.create({
       data: {

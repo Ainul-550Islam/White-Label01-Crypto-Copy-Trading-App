@@ -13,13 +13,15 @@ import { Money } from "@/components/money";
 import { TradingStateBoundary } from "@/components/trading-state";
 import {
   TRADER_METRIC_DEFINITIONS,
+  type MetricKey,
   describeDataProvenance,
   formatWinRatePercent,
 } from "./trader-metric-definitions";
 import { TraderPerformanceChart } from "./trader-performance-chart";
 
-export function TraderPerformancePage({ id }: { id: string }): JSX.Element {
-  const [selectedMetricKey, setSelectedMetricKey] = useState<string>("realizedPnl");
+export function TraderPerformancePage({ id, initialWindow }: { id: string; initialWindow?: string }): JSX.Element {
+  const [selectedMetricKey, setSelectedMetricKey] = useState<MetricKey>("realizedPnl");
+  void initialWindow;
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["trader-performance-detail", id],
@@ -35,7 +37,7 @@ export function TraderPerformancePage({ id }: { id: string }): JSX.Element {
   return (
     <PageContainer
       title={profile ? `${profile.displayName} — Performance Analytics` : "Trader Performance Analytics"}
-      description="Canonical ledger performance derived from verified fills, open positions, and strategy attribution"
+      description="Verified ledger performance derived from verified fills, open positions, and strategy attribution"
     >
       <TradingStateBoundary
         isLoading={isLoading}
@@ -181,7 +183,7 @@ export function TraderPerformancePage({ id }: { id: string }): JSX.Element {
                 <div className="mt-1 font-mono text-base font-semibold">
                   <Money value={performance.totalVolume} />
                 </div>
-                <div className="mt-1 text-[11px] text-muted">Canonical quote notional</div>
+                <div className="mt-1 text-[11px] text-muted">Quote notional</div>
               </button>
 
               <button

@@ -34,7 +34,7 @@ export function CopiedPositionsPage({
   return (
     <PageContainer
       title={`Copied Positions — Subscription ${subscriptionId}`}
-      description="Open and closed copied positions attributed to this subscription with canonical average entry, mark price, and PnL"
+      description="Open and closed copied positions attributed to this subscription with average entry, mark price, and PnL calculated from executed trades"
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border bg-card p-3 text-xs">
         <div className="flex flex-wrap items-center gap-3">
@@ -75,7 +75,7 @@ export function CopiedPositionsPage({
         error={positionsQuery.error}
         isEmpty={positions.length === 0}
         emptyTitle="No copied positions found"
-        emptyDescription="No canonical positions match the current subscription and filter criteria."
+        emptyDescription="No positions match the current subscription and filter criteria."
         onRetry={() => void positionsQuery.refetch()}
       >
         <div className="overflow-x-auto rounded border bg-card" data-testid="copied-positions-page">
@@ -113,15 +113,7 @@ export function CopiedPositionsPage({
                   <td className="p-3 font-mono">
                     <Money value={pos.realizedPnl} />
                   </td>
-                  <td className="p-3">
-                    <Link href={`/traders/${pos.traderId}`} className="underline">
-                      {pos.traderId}
-                    </Link>{" "}
-                    /{" "}
-                    <Link href={`/strategies/${pos.strategyId}`} className="underline">
-                      {pos.strategyId}
-                    </Link>
-                  </td>
+                  <td className="p-3">Subscription {subscriptionId}</td>
                   <td className="p-3">
                     <StatusBadge status={pos.isOpen ? "OPEN" : "CLOSED"} />
                   </td>

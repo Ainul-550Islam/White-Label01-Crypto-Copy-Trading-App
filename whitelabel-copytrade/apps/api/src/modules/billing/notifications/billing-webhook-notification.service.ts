@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingNotificationEventKey, WebhookSubscription, SafeNotificationPayload } from './billing-notification.types';
@@ -204,11 +205,11 @@ export class BillingWebhookNotificationService {
 
         if (result.accepted) {
           delivered++;
-          await this.updateDeliveryStatus(subscription.id, 'DELIVERED');
+          await this.updateDeliveryStatus(subscription.tenantId, subscription.id, 'DELIVERED');
           await this.auditService.logWebhookSent(params.tenantId, subscription.id, params.eventType, result.providerReference);
         } else {
           failed++;
-          await this.updateDeliveryStatus(subscription.id, 'FAILED', result.failureReason);
+          await this.updateDeliveryStatus(subscription.tenantId, subscription.id, 'FAILED', result.failureReason);
           await this.auditService.logWebhookFailed(params.tenantId, subscription.id, params.eventType, result.failureReason || 'Delivery failed', result.httpStatus);
         }
       } catch (e: any) {
@@ -248,7 +249,7 @@ export class BillingWebhookNotificationService {
         this.logger.log(`Idempotent webhook delivery return: event=${params.eventId} subscription=${params.subscription.id}`);
         return { accepted: true, providerReference: existing.id, httpStatus: 200 };
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_WEBHOOK_NOTIFICATION_OPERATION_1_FAILED', tenantId: params.subscription.tenantId, entityId: params.subscription.id }); }
 
     try {
       // Use fetch to deliver webhook
@@ -294,7 +295,7 @@ export class BillingWebhookNotificationService {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_WEBHOOK_NOTIFICATION_OPERATION_2_FAILED', tenantId: params.subscription.tenantId, entityId: params.subscription.id }); }
 
         return { accepted: true, providerReference: `http_${response.status}`, httpStatus: response.status };
       } else {
@@ -317,7 +318,7 @@ export class BillingWebhookNotificationService {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_WEBHOOK_NOTIFICATION_OPERATION_3_FAILED', tenantId: params.subscription.tenantId, entityId: params.subscription.id }); }
 
         const retryable = response.status >= 500 || response.status === 429;
         return {
@@ -349,7 +350,7 @@ export class BillingWebhookNotificationService {
             createdAt: new Date(),
           },
         });
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_WEBHOOK_NOTIFICATION_OPERATION_4_FAILED', tenantId: params.subscription.tenantId, entityId: params.subscription.id }); }
 
       return {
         accepted: false,
@@ -359,7 +360,7 @@ export class BillingWebhookNotificationService {
     }
   }
 
-  private async updateDeliveryStatus(subscriptionId: string, status: string, failureReason?: string): Promise<void> {
+  private async updateDeliveryStatus(tenantId: string, subscriptionId: string, status: string, failureReason?: string): Promise<void> {
     try {
       const data: any = {
         lastDeliveryAt: new Date(),
@@ -376,7 +377,7 @@ export class BillingWebhookNotificationService {
         where: { id: subscriptionId },
         data,
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_WEBHOOK_NOTIFICATION_OPERATION_5_FAILED', tenantId, entityId: subscriptionId }); }
   }
 
   private validateEndpointUrl(url: string): void {

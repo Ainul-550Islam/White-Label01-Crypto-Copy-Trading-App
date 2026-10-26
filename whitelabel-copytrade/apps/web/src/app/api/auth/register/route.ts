@@ -16,7 +16,7 @@ const bodySchema = z.object({
   locale: z.enum(['en', 'es', 'ar', 'bn', 'tr']).optional(),
   referralCode: z.string().trim().max(32).optional(),
   acceptedTerms: z.literal(true, {
-    errorMap: () => ({ message: 'You must accept the terms of service.' }),
+    message: 'You must accept the terms of service.',
   }),
 });
 

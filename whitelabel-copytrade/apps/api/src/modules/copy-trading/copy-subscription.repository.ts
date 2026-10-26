@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -231,7 +232,7 @@ export class CopySubscriptionRepository {
         where: { id },
         data: { totalCopies: newTotal, failedCopies: newFailed, totalCopiedVolume: newVolume, updatedAt: new Date() },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_COPY_SUBSCRIPTION_OPERATION_1_FAILED', tenantId: tenantId, entityId: id }); }
   }
 
   async countActiveByFollower(tenantId: string, followerId: string): Promise<number> {

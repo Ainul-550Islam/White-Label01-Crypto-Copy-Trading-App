@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AssetIdentity } from './custody.types';
@@ -62,7 +63,7 @@ export class AssetRegistryService {
           },
         });
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_ASSET_REGISTRY_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     const asset = await (this.prisma as any).custodyAsset.create({
       data: {

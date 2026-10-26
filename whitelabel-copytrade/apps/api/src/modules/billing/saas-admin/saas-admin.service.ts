@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { PlansService } from '../plans.service';
@@ -121,7 +122,7 @@ export class SaasAdminService {
           preferredCurrency: customer.preferredCurrency,
         };
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_SAAS_ADMIN_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     const domains = (tenant.domains || []).map((d: any) => ({
       id: d.id,
@@ -193,25 +194,19 @@ export class SaasAdminService {
     let brandingState: SaasBrandingState | null = null;
     try {
       brandingState = await this.brandingService.getBrandingState(tenant.id);
-    } catch {
-      brandingState = null;
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_SAAS_ADMIN_OPERATION_2_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     // Domain state
     let customDomainState: SaasCustomDomainState | null = null;
     try {
       customDomainState = await this.domainService.getDomainState(tenant.id);
-    } catch {
-      customDomainState = null;
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_SAAS_ADMIN_OPERATION_3_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     // White-label state
     let whiteLabelState: SaasWhiteLabelState | null = null;
     try {
       whiteLabelState = await this.whiteLabelService.getWhiteLabelState(tenant.id);
-    } catch {
-      whiteLabelState = null;
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_SAAS_ADMIN_OPERATION_4_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     // Usage summary
     let usageSummary: any = null;
@@ -227,9 +222,7 @@ export class SaasAdminService {
         apiRequestsPerMinute: (subscription?.plan?.limits as any)?.maxApiRequestsPerMinute || null,
         websocketConnections: (subscription?.plan?.limits as any)?.websocketConnections || null,
       };
-    } catch {
-      usageSummary = null;
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_SAAS_ADMIN_OPERATION_5_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     // Determine lifecycle and provisioning
     const lifecycleState = this.mapTenantStatusToLifecycle(tenant.status, subscription?.status);

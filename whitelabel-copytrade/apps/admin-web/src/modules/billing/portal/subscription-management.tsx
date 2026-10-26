@@ -224,7 +224,7 @@ export default function SubscriptionManagementPage() {
       {/* Change Plan */}
       <div className="bg-white border rounded-lg p-6">
         <h3 className="font-semibold mb-4">Change Plan</h3>
-        <p className="text-sm text-gray-600 mb-4">All plan data from canonical catalog, no hardcoded pricing. Payment required for upgrades handled via secure checkout.</p>
+        <p className="text-sm text-gray-600 mb-4">Review your plan details and complete upgrades through secure checkout.</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {plans.map((plan: any) => (
             <div key={plan.id} className={`border rounded p-4 ${sub?.planId === plan.id ? 'border-blue-500 bg-blue-50' : ''}`}>

@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { BlockchainProviderFactory } from './blockchain-provider.factory';
@@ -103,7 +104,7 @@ export class BlockchainFeeService {
             };
           }
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_BLOCKCHAIN_FEE_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
     }
 
     // If actual fee is unavailable: actualFee = UNKNOWN not zero

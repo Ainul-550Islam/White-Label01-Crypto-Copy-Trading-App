@@ -64,6 +64,8 @@ export interface TraderProfile {
   totalVolume: string;
   totalTrades: number;
   createdAt: string;
+  publicMetrics?: TraderProfilePublicMetrics | null;
+  viewerIsOwner?: boolean;
 }
 
 export interface TraderPerformance {
@@ -124,7 +126,7 @@ export const TRADER_RANKING_TIMEFRAMES: readonly TraderRankingTimeframe[] = ["7D
  * the ranking is not available rather than an empty table that reads as "no traders".
  */
 export interface TraderRankingMethodology {
-  status: "AVAILABLE" | "UNAVAILABLE";
+  status: "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
   key: "RECONCILED_CLOSED_PERIOD_TWR";
   description: string;
   timeframe: TraderRankingTimeframe;
@@ -149,8 +151,22 @@ export interface TraderRanking {
   isFeatured: boolean;
   followerCount: number;
   performance: TraderPerformance | null;
-  score: number;
-  rank: number;
+  score: number | null;
+  rank: number | null;
+  timeframe?: "7D" | "30D" | "90D";
+  periodStatus?: "AVAILABLE" | "UNAVAILABLE";
+  periodReturnPercent?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  baseCurrency?: string | null;
+  flowBoundary?: string | null;
+  calculationVersion?: string | null;
+  sourceCalculationVersion?: string | null;
+  observationCount?: number | null;
+  sourceReferences?: string[];
+  unavailableReason?: string | null;
+  rankingMethodology?: string;
+  totalVolume?: string | null;
   metrics: {
     riskAdjustedReturn: number | null;
     drawdownScore: number | null;
@@ -207,6 +223,11 @@ export interface CopyPolicy {
   fixedQuantity: string | null;
   fixedNotional: string | null;
   maxOrderNotional: string | null;
+  maxPositionSize?: string | null;
+  maxNotional?: string | null;
+  allowedVenues?: string[] | null;
+  orderTypePolicy?: string | null;
+  emergencyStop?: boolean;
   maxDailyNotional: string | null;
   maxConcurrentCopies: number | null;
   slippageToleranceBps: number | null;
@@ -229,6 +250,10 @@ export interface FollowerRiskPolicy {
   maxTotalLoss: string | null;
   maxDrawdown: string | null;
   maxExposure: string | null;
+  maxOpenExposure?: string | null;
+  maxExposurePerTrader?: string | null;
+  maxExposurePerSymbol?: string | null;
+  maxDailyCopiedTrades?: number | null;
   maxPositionSize: string | null;
   maxSymbolExposure: string | null;
   maxCopyCount: number | null;
@@ -243,6 +268,7 @@ export interface StrategyAnalyticsView {
   strategy: Strategy;
   trader: TraderProfile | null;
   performance: TraderPerformance | null;
+  traderPerformance?: TraderPerformance | null;
   effectivePolicy: CopyPolicy | null;
 }
 
@@ -255,69 +281,67 @@ export interface CopySubscription {
   allocationAmount: string;
   maxAllocation: string | null;
   minAllocation?: string | null;
-  copyPolicy?: Partial<CopyPolicy>;
+  copyPolicy?: Partial<CopyPolicy> | null;
   riskPolicy?: Partial<FollowerRiskPolicy>;
-  followerAccountId: string | null;
+  followerAccountId?: string | null;
   totalCopies: number;
   failedCopies: number;
-  totalCopiedVolume: string;
+  totalCopiedVolume?: string;
   startedAt: string | null;
   pausedAt?: string | null;
   stoppedAt?: string | null;
   stopReason?: string | null;
   closeOpenPositionsOnStop?: boolean;
-  createdAt: string;
+  createdAt?: string;
 }
 
 export interface CopyExecution {
   executionId: string;
   subscriptionId: string;
+  strategyId?: string;
   leaderEventId: string;
   leaderOrderId: string | null;
-  leaderFillId: string | null;
+  leaderFillId?: string | null;
   traderId: string;
   followerId: string;
-  followerAccountId: string | null;
+  followerAccountId?: string | null;
   status: CopyExecutionStatus;
   sizingMode: string;
   leaderQuantity: string;
-  leaderPrice: string | null;
+  leaderPrice?: string | null;
   followerQuantity: string | null;
-  followerPrice: string | null;
-  slippageTolerance: string | null;
-  maxNotional: string | null;
+  followerPrice?: string | null;
+  slippageTolerance?: string | null;
+  maxNotional?: string | null;
   followerOrderId: string | null;
   riskDecision: CopyRiskDecision | null;
-  riskRuleId: string | null;
+  riskRuleId?: string | null;
   failureReason: string | null;
-  executionIntent: Record<string, unknown>;
+  executionIntent?: Record<string, unknown>;
+  riskReasons?: string[];
+  isSimulated?: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
+export type CopyExecutionDisplayItem = Omit<CopyExecution, 'status'> & {
+  /** Legacy history rows use RISK_BLOCKED; current server writes BLOCKED. */
+  status: CopyExecutionStatus | 'RISK_BLOCKED';
+};
 
 export interface SubscriptionDetailSummary {
   subscription: CopySubscription;
   effectivePolicy: CopyPolicy;
   recentExecutions: CopyExecution[];
+  reconciliation?: CustomerReconciliationStatus;
   totalExecutions: number;
 }
 
 export interface CopiedPositionItem {
-  id: string;
-  subscriptionId: string;
-  traderId: string;
-  strategyId: string;
-  symbol: string;
-  side: string;
-  quantity: string;
-  averageEntryPrice: string;
-  markPrice: string | null;
-  marketValue: string | null;
-  unrealizedPnl: string;
-  realizedPnl: string;
-  isOpen: boolean;
-  venue: string | null;
-  updatedAt: string;
+  id: string; positionId: string; accountId: string; symbol: string; side: string; quantity: string;
+  averageEntryPrice: string | null; markPrice: string | null; unrealizedPnl: string | null; realizedPnl: string | null;
+  cumulativeFee: string | null; feeCurrency: string | null; containsSimulatedFills: boolean; fillCount: number;
+  isOpen: boolean; venue: string | null; updatedAt: string;
 }
 
 export interface ExecutionOrderSummary {
@@ -343,8 +367,10 @@ export interface ExecutionOrderSummary {
 }
 
 export interface CopiedOrderHistoryItem {
-  execution: CopyExecution;
-  order: ExecutionOrderSummary | null;
+  executionId: string; followerOrderId: string | null; symbol: string; side: string; orderType: string;
+  status: CopyExecutionStatus; orderStatus: string; filledQuantity: string | null; followerQuantity: string | null;
+  averageFillPrice: string | null; fee: string | null; feeAsset: string | null; failureReason: string | null; riskReasons: string[];
+  execution: CopyExecution; order: ExecutionOrderSummary | null;
 }
 
 export interface CustomerReconciliationItem {
@@ -423,6 +449,8 @@ export function parseTrader(input: unknown): TraderProfile {
     totalVolume: str(r.totalVolume, "0"),
     totalTrades: num(r.totalTrades),
     createdAt: str(r.createdAt),
+    publicMetrics: r.publicMetrics && typeof r.publicMetrics === "object" ? r.publicMetrics as TraderProfilePublicMetrics : null,
+    viewerIsOwner: r.viewerIsOwner === true,
   };
 }
 
@@ -487,6 +515,10 @@ export function parseCopyPolicy(input: unknown): CopyPolicy {
     fixedQuantity: strOrNull(r.fixedQuantity),
     fixedNotional: strOrNull(r.fixedNotional),
     maxOrderNotional: strOrNull(r.maxOrderNotional),
+    maxPositionSize: strOrNull(r.maxPositionSize),
+    maxNotional: strOrNull(r.maxNotional ?? r.maxOrderNotional),
+    allowedVenues: Array.isArray(r.allowedVenues) ? strList(r.allowedVenues) : null,
+    orderTypePolicy: strOrNull(r.orderTypePolicy),
     maxDailyNotional: strOrNull(r.maxDailyNotional),
     maxConcurrentCopies: numOrNull(r.maxConcurrentCopies),
     slippageToleranceBps: numOrNull(r.slippageToleranceBps),
@@ -512,6 +544,8 @@ export function parseFollowerRiskPolicy(input: unknown): FollowerRiskPolicy {
     maxTotalLoss: strOrNull(r.maxTotalLoss),
     maxDrawdown: strOrNull(r.maxDrawdown),
     maxExposure: strOrNull(r.maxExposure),
+    maxOpenExposure: strOrNull(r.maxOpenExposure ?? r.maxExposure),
+    maxDailyCopiedTrades: numOrNull(r.maxDailyCopiedTrades),
     maxPositionSize: strOrNull(r.maxPositionSize),
     maxSymbolExposure: strOrNull(r.maxSymbolExposure),
     maxCopyCount: numOrNull(r.maxCopyCount),
@@ -573,6 +607,8 @@ export function parseCopyExecution(input: unknown): CopyExecution {
     riskRuleId: strOrNull(r.riskRuleId),
     failureReason: strOrNull(r.failureReason),
     executionIntent: obj(r.executionIntent),
+    riskReasons: strList(r.riskReasons),
+    isSimulated: typeof r.isSimulated === "boolean" ? r.isSimulated : undefined,
     createdAt: str(r.createdAt),
     updatedAt: str(r.updatedAt),
   };
@@ -759,7 +795,111 @@ export interface UpdateSubscriptionSettingsInput {
   followerAccountId?: string | null;
 }
 
+
+export type AllocationMode = CopySizingMode;
+export type CopyExecutionItem = CopyExecution;
+export type CopySubscriptionItem = CopySubscription;
+export type LeadTraderApplicationStatus = "SUBMITTED" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+
+export interface LeadTraderApplication {
+  id: string;
+  traderId: string;
+  status: LeadTraderApplicationStatus;
+  version: number;
+  declaration: { yearsExperience: number; markets: string[]; strategySummary: string; evidenceReferences: string[]; riskAcknowledged: true };
+  submittedAt: string;
+  reviewedAt: string | null;
+  decisionReason: string | null;
+}
+
+export interface SubmitLeadTraderApplicationInput {
+  idempotencyKey: string;
+  yearsExperience: number;
+  markets: string[];
+  strategySummary: string;
+  evidenceReferences?: string[];
+  riskAcknowledged: boolean;
+}
+
+export interface RebalancePreviewRequest {
+  totalValue: string;
+  allocations: Array<{ traderId: string; currentValue: string; targetWeightBps: number; priceAvailable: boolean }>;
+}
+export interface RebalancePreviewLine {
+  traderId: string; currentValue: string; targetValue: string | null; deltaValue: string | null; targetWeightBps: number; status: "PREVIEW" | "UNAVAILABLE";
+}
+
+export interface PerformanceBenchmarkSeries {
+  status: "AVAILABLE" | "UNAVAILABLE"; traderId: string; benchmarkKey: string | null; baseCurrency: string | null;
+  methodology: string | null; flowBoundary: string | null; calculationVersion: string | null;
+  dataCompleteness: "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
+  observations: Array<{ periodStart: string; periodEnd: string; traderPeriodReturnPercent: string; benchmarkPeriodReturnPercent: string; traderCumulativeReturnPercent: string; benchmarkCumulativeReturnPercent: string }>;
+  sourceReferences: string[]; asOf: string | null; currentnessRule: "AS_OF_DISPLAYED_CURRENTNESS_NOT_ASSERTED"; reason?: string;
+}
+
+export interface PublicLeaderFeePolicy {
+  traderId: string; currency: string; status: "AVAILABLE" | "UNCONFIGURED";
+  policy: null | { id?: string; traderId?: string; currency?: string; createdAt?: string; profitShareBps: number; highWaterMarkScope: "PER_FOLLOWER_CURRENCY" | "PER_TRADER_CURRENCY"; version: number; effectiveFrom: string; effectiveTo: string | null };
+  feeCalculation: { status: "UNAVAILABLE"; reason: string };
+}
+
+export interface TraderLeaderboard {
+  page: number; limit: number; total: number; methodology: TraderRankingMethodology; data: TraderRanking[];
+}
+
+export interface TraderProfilePublicMetrics {
+  traderId?: string;
+  activeFollowers: { status: string; value: number | null; source: string | null; asOf: string | null; reason: string | null };
+  aum: { status: string; value: null; currency: null; source: null; asOf: null; reason: string };
+  activity: { status: string; source: string | null; asOf: string | null; latestRecordedFillAt: string | null; sampledFillCount: number | null; sampleLimit: number; hasMore: boolean | null; volumeByQuoteAsset: Array<{ asset: string; amount: string }>; calculationMethod: string | null; reason: string | null };
+  riskScore: TraderRiskScore;
+}
+export interface TraderRiskScore {
+  status: "AVAILABLE" | "PARTIAL" | "UNAVAILABLE"; score: number | null; band: "LOW" | "MODERATE" | "HIGH" | "CRITICAL" | "UNAVAILABLE";
+  confidence: "COMPLETE" | "PARTIAL" | "UNAVAILABLE"; methodology?: string; asOf: string | null;
+  factors: Array<{ key: string; value: string | number | null; status: string; source: string | null; score?: number | null; weightBps?: number | null; reason?: string | null }> ;
+}
+
+export interface CopyReconciliationSummary {
+  subscriptionId: string; status: "IN_SYNC" | "DEGRADED" | "DISCREPANCY_DETECTED"; lastCheckedAt: string; totalExecutions: number; completedExecutions: number;
+  riskBlockedExecutions: number; failedExecutions: number; discrepancyCount: number; discrepancies: Array<{ executionId: string; category: string; severity: string; message: string }> ;
+}
+
 export const tradingApi = {
+
+  listMyLeadTraderApplications: async (): Promise<LeadTraderApplication[]> => {
+    const raw = obj(await apiClient.get<unknown>("/v1/copy-trading/lead-trader-applications/mine"));
+    const rows = Array.isArray(raw.data) ? raw.data : [];
+    return rows.map((value) => { const row = obj(value); return {
+      id: str(row.id), traderId: str(row.traderId), status: str(row.status, "SUBMITTED") as LeadTraderApplicationStatus,
+      version: num(row.version), declaration: obj(row.declaration) as LeadTraderApplication["declaration"],
+      submittedAt: str(row.submittedAt), reviewedAt: strOrNull(row.reviewedAt), decisionReason: strOrNull(row.decisionReason),
+    }; });
+  },
+
+  submitLeadTraderApplication: async (input: SubmitLeadTraderApplicationInput): Promise<LeadTraderApplication> => {
+    const row = obj(await apiClient.post<unknown>("/v1/copy-trading/lead-trader-applications", input));
+    return { id: str(row.id), traderId: str(row.traderId), status: str(row.status, "SUBMITTED") as LeadTraderApplicationStatus,
+      version: num(row.version), declaration: obj(row.declaration) as LeadTraderApplication["declaration"],
+      submittedAt: str(row.submittedAt), reviewedAt: strOrNull(row.reviewedAt), decisionReason: strOrNull(row.decisionReason) };
+  },
+
+  previewAllocationRebalance: async (input: RebalancePreviewRequest): Promise<RebalancePreviewLine[]> => {
+    const response = obj(await apiClient.post<unknown>("/v1/copy-trading/allocation-rebalance/preview", input));
+    if (response.executable !== false || response.inputProvenance !== "CLIENT_SUPPLIED_UNVERIFIED" || !Array.isArray(response.lines)) {
+      throw new Error("Allocation preview response violates the non-executable, unverified-input contract.");
+    }
+    return response.lines.map((value) => { const line = obj(value); return {
+      traderId: str(line.traderId), currentValue: str(line.currentValue), targetValue: strOrNull(line.targetValue),
+      deltaValue: strOrNull(line.deltaValue), targetWeightBps: num(line.targetWeightBps), status: str(line.status, "UNAVAILABLE") as RebalancePreviewLine["status"],
+    }; });
+  },
+
+  getTraderBenchmark: async (traderId: string, benchmarkKey?: string): Promise<PerformanceBenchmarkSeries> =>
+    await apiClient.get<PerformanceBenchmarkSeries>(`/v1/copy-trading/traders/${encodeURIComponent(traderId)}/benchmark`, { searchParams: { benchmarkKey } }),
+
+  getLeaderFeePolicy: async (traderId: string, currency = "USD"): Promise<PublicLeaderFeePolicy> =>
+    await apiClient.get<PublicLeaderFeePolicy>(`/v1/copy-trading/leader-fees/traders/${encodeURIComponent(traderId)}`, { searchParams: { currency } }),
   listTraders: async (params?: {
     search?: string;
     verificationState?: string;
@@ -788,7 +928,7 @@ export const tradingApi = {
     limit?: number;
     sortBy?: string;
     timeframe?: TraderRankingTimeframe;
-  }): Promise<Paged<TraderRanking>> => {
+  }): Promise<TraderLeaderboard> => {
     const raw = await apiClient.get<unknown>("/v1/copy-trading/rankings", {
       searchParams: {
         verificationState: params?.verificationState,
@@ -800,7 +940,7 @@ export const tradingApi = {
         timeframe: params?.timeframe,
       },
     });
-    return parsePaged(raw, (entry) => {
+    const parsed = parsePaged(raw, (entry) => {
       const r = obj(entry);
       const m = obj(r.metrics);
       return {
@@ -824,8 +964,25 @@ export const tradingApi = {
           verifiedScore: numOrNull(m.verifiedScore),
         },
         weighting: (obj(r.weighting) as Record<string, number>) ?? {},
+        timeframe: str(r.timeframe, params?.timeframe ?? "30D") as TraderRanking["timeframe"],
+        periodStatus: str(r.periodStatus, r.status === "AVAILABLE" ? "AVAILABLE" : "UNAVAILABLE") as TraderRanking["periodStatus"],
+        periodReturnPercent: strOrNull(r.periodReturnPercent), periodStart: strOrNull(r.periodStart), periodEnd: strOrNull(r.periodEnd),
+        baseCurrency: strOrNull(r.baseCurrency), flowBoundary: strOrNull(r.flowBoundary), calculationVersion: strOrNull(r.calculationVersion),
+        sourceCalculationVersion: strOrNull(r.sourceCalculationVersion), observationCount: numOrNull(r.observationCount),
+        sourceReferences: strList(r.sourceReferences), unavailableReason: strOrNull(r.unavailableReason),
+        rankingMethodology: str(r.rankingMethodology, "RECONCILED_CLOSED_PERIOD_TWR"), totalVolume: strOrNull(r.totalVolume),
       };
     });
+    const root = obj(raw);
+    const m = obj(root.methodology);
+    return {
+      page: num(root.page ?? 1), limit: num(root.limit ?? params?.limit ?? 25), total: num(root.total ?? parsed.total), data: parsed.data,
+      methodology: { status: str(m.status, "UNAVAILABLE") as TraderRankingMethodology["status"], key: "RECONCILED_CLOSED_PERIOD_TWR",
+        description: str(m.description), timeframe: str(m.timeframe, params?.timeframe ?? "30D") as TraderRankingMethodology["timeframe"],
+        windowStart: strOrNull(m.windowStart), asOf: strOrNull(m.asOf), boundaryRule: str(m.boundaryRule, "EXACT_CONTIGUOUS_PERIODS_ONLY") as TraderRankingMethodology["boundaryRule"], orderingRule: str(m.orderingRule, "RETURN_DESCENDING_UNAVAILABLE_LAST") as TraderRankingMethodology["orderingRule"],
+        currentnessRule: str(m.currentnessRule), minimumPeriodCount: num(m.minimumPeriodCount), rankedCount: num(m.rankedCount),
+        unrankedCount: num(m.unrankedCount), reason: strOrNull(m.reason) },
+    };
   },
 
   getTrader: async (traderId: string) =>
@@ -880,13 +1037,20 @@ export const tradingApi = {
     ),
 
   /** The API filter accepts status, traderId, page and limit only (extra fields are rejected with 422). */
-  listStrategies: async (params?: { traderId?: string; status?: StrategyStatus; page?: number; limit?: number }) =>
-    parsePaged(
+  listStrategies: async (params?: { traderId?: string; status?: StrategyStatus; search?: string; type?: string; page?: number; limit?: number }) => {
+    const page = parsePaged(
       await apiClient.get<unknown>("/v1/copy-trading/strategies", {
         searchParams: { traderId: params?.traderId, status: params?.status, page: params?.page, limit: params?.limit },
       }),
       parseStrategy,
-    ),
+    );
+    const search = params?.search?.trim().toLowerCase();
+    const data = page.data.filter((strategy) =>
+      (!search || strategy.name.toLowerCase().includes(search) || (strategy.description ?? "").toLowerCase().includes(search))
+      && (!params?.type || strategy.type === params.type),
+    );
+    return { ...page, data, total: data.length };
+  },
 
   getStrategy: async (strategyId: string) =>
     parseStrategy(await apiClient.get<unknown>(`/v1/copy-trading/strategies/${encodeURIComponent(strategyId)}`)),
@@ -910,6 +1074,7 @@ export const tradingApi = {
       strategy,
       trader: traderRaw ? parseTrader(traderRaw) : null,
       performance: perfRaw ? parseTraderPerformance(perfRaw) : null,
+      traderPerformance: perfRaw ? parseTraderPerformance(perfRaw) : null,
       effectivePolicy: policyRaw ? parseCopyPolicy(policyRaw) : null,
     };
   },
@@ -943,12 +1108,13 @@ export const tradingApi = {
     ),
 
   getSubscriptionDetail: async (subscriptionId: string): Promise<SubscriptionDetailSummary> => {
-    const [subRaw, policyRaw, execsRaw] = await Promise.all([
+    const [subRaw, policyRaw, execsRaw, reconciliation] = await Promise.all([
       apiClient.get<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`),
       apiClient.get<unknown>("/v1/copy-trading/policies/effective", { searchParams: { subscriptionId } }),
       apiClient.get<unknown>("/v1/copy-trading/executions", {
         searchParams: { subscriptionId, page: 1, limit: 20 },
       }),
+      tradingApi.getSubscriptionReconciliationStatus(subscriptionId),
     ]);
     const pagedExecs = parsePaged(execsRaw, parseCopyExecution);
     return {
@@ -956,6 +1122,7 @@ export const tradingApi = {
       effectivePolicy: parseCopyPolicy(policyRaw),
       recentExecutions: pagedExecs.data,
       totalExecutions: pagedExecs.total,
+      reconciliation,
     };
   },
 
@@ -963,78 +1130,43 @@ export const tradingApi = {
     subscriptionId: string,
     params?: { symbol?: string; onlyOpen?: boolean },
   ): Promise<CopiedPositionItem[]> => {
-    const [subRaw, positionsRaw] = await Promise.all([
-      apiClient.get<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`),
-      apiClient.get<unknown>("/v1/portfolio-accounting/positions", {
-        searchParams: {
-          symbol: params?.symbol,
-          limit: 100,
-        },
-      }),
-    ]);
-    const sub = parseSubscription(subRaw);
-    const rows = Array.isArray(positionsRaw)
-      ? positionsRaw
-      : Array.isArray(obj(positionsRaw).data)
-        ? (obj(positionsRaw).data as unknown[])
-        : [];
-    const allowedSymbols = sub.copyPolicy?.allowedSymbols ?? null;
-    const onlyOpen = params?.onlyOpen ?? true;
-
-    return rows
-      .map(obj)
-      .filter((pos) => {
-        if (onlyOpen && pos.isOpen === false) return false;
-        const sym = str(pos.symbol);
-        if (params?.symbol && sym.toUpperCase() !== params.symbol.toUpperCase()) return false;
-        if (allowedSymbols && allowedSymbols.length > 0) {
-          return allowedSymbols.includes(sym);
-        }
-        return true;
-      })
-      .map((pos) => ({
-        id: str(pos.id),
-        subscriptionId: sub.subscriptionId,
-        traderId: sub.traderId,
-        strategyId: sub.strategyId,
-        symbol: str(pos.symbol),
-        side: str(pos.side, "LONG"),
-        quantity: str(pos.quantity, "0"),
-        averageEntryPrice: str(pos.averageEntryPrice, "0"),
-        markPrice: strOrNull(pos.markPrice),
-        marketValue: strOrNull(pos.marketValue),
-        unrealizedPnl: str(pos.unrealizedPnl, "0"),
-        realizedPnl: str(pos.realizedPnl, "0"),
-        isOpen: pos.isOpen !== false,
-        venue: strOrNull(pos.venue),
-        updatedAt: str(pos.updatedAt),
-      }));
+    const subscription = obj(await apiClient.get<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}`));
+    const accountId = strOrNull(subscription.followerAccountId);
+    if (!accountId) return [];
+    const raw = await apiClient.get<unknown>("/v1/execution/positions", {
+      searchParams: { accountId, symbol: params?.symbol, includeFlat: params?.onlyOpen === false },
+    });
+    const root = obj(raw);
+    const rows: unknown[] = Array.isArray(raw) ? raw : Array.isArray(root.items) ? root.items as unknown[] : Array.isArray(root.data) ? root.data as unknown[] : [];
+    return rows.map((input) => {
+      const row = obj(input);
+      const quantity = str(row.quantity);
+      const isFlat = /^0(?:\.0+)?$/.test(quantity);
+      const side = str(row.side, "UNKNOWN");
+      return {
+        id: str(row.id), positionId: str(row.id), accountId: str(row.accountId), symbol: str(row.symbol), side, quantity,
+        averageEntryPrice: strOrNull(row.averageEntryPrice), markPrice: strOrNull(row.markPrice),
+        unrealizedPnl: strOrNull(row.unrealizedPnl ?? row.unrealisedPnl), realizedPnl: strOrNull(row.realizedPnl ?? row.realisedPnl),
+        cumulativeFee: strOrNull(row.cumulativeFee), feeCurrency: strOrNull(row.feeCurrency),
+        containsSimulatedFills: row.containsSimulatedFills === true, fillCount: num(row.fillCount),
+        isOpen: !isFlat && side !== "FLAT", venue: strOrNull(row.venue), updatedAt: str(row.updatedAt),
+      };
+    }).filter((position) => params?.onlyOpen !== true || position.isOpen);
   },
 
   listSubscriptionOrders: async (
     subscriptionId: string,
     params?: { status?: CopyExecutionStatus; symbol?: string; page?: number; limit?: number },
   ): Promise<{ items: CopiedOrderHistoryItem[]; total: number }> => {
-    const [execsRaw, ordersRaw] = await Promise.all([
-      apiClient.get<unknown>("/v1/copy-trading/executions", {
-        searchParams: {
-          subscriptionId,
-          status: params?.status,
-          page: params?.page ?? 1,
-          limit: params?.limit ?? 20,
-        },
-      }),
-      apiClient
-        .get<unknown>("/v1/execution/orders", {
-          searchParams: {
-            symbol: params?.symbol,
-            limit: 50,
-          },
-        })
-        .catch(() => ({ items: [] })),
-    ]);
-
+    const execsRaw = await apiClient.get<unknown>(`/v1/copy-trading/subscriptions/${encodeURIComponent(subscriptionId)}/executions`, {
+      searchParams: { status: params?.status, page: params?.page ?? 1, limit: params?.limit ?? 20 },
+    });
     const pagedExecs = parsePaged(execsRaw, parseCopyExecution);
+    const accountIds = Array.from(new Set(pagedExecs.data.map((execution) => execution.followerAccountId).filter((value): value is string => Boolean(value))));
+    const accountId = accountIds.length === 1 ? accountIds[0] : undefined;
+    const ordersRaw = accountId ? await apiClient.get<unknown>("/v1/execution/orders", {
+      searchParams: { accountId, symbol: params?.symbol, limit: 50 },
+    }) : { items: [] };
     const rawOrderItems = Array.isArray(obj(ordersRaw).items)
       ? (obj(ordersRaw).items as unknown[])
       : Array.isArray(obj(ordersRaw).data)
@@ -1071,15 +1203,24 @@ export const tradingApi = {
     const items = pagedExecs.data
       .filter((exec) => {
         if (!params?.symbol) return true;
-        const intentSym = str(exec.executionIntent.symbol);
+        const intentSym = str(exec.executionIntent?.symbol);
         const orderSym = exec.followerOrderId ? ordersById.get(exec.followerOrderId)?.symbol ?? "" : "";
         const target = params.symbol.toUpperCase();
         return intentSym.toUpperCase().includes(target) || orderSym.toUpperCase().includes(target);
       })
-      .map((exec) => ({
-        execution: exec,
-        order: exec.followerOrderId ? ordersById.get(exec.followerOrderId) ?? null : null,
-      }));
+      .map((exec) => {
+        const order = exec.followerOrderId ? ordersById.get(exec.followerOrderId) ?? null : null;
+        return {
+          executionId: exec.executionId, followerOrderId: exec.followerOrderId,
+          symbol: str(exec.executionIntent?.symbol, order?.symbol ?? "Unavailable"),
+          side: str(exec.executionIntent?.side, "Unavailable"), orderType: str(exec.executionIntent?.type, "Unavailable"),
+          status: exec.status, orderStatus: order?.status ?? "UNAVAILABLE",
+          filledQuantity: order?.filledQuantity ?? null, followerQuantity: exec.followerQuantity,
+          averageFillPrice: order?.averageFillPrice ?? null, fee: order?.cumulativeFee ?? null,
+          feeAsset: order?.feeCurrency ?? null, failureReason: exec.failureReason, riskReasons: exec.riskReasons ?? [],
+          execution: exec, order,
+        };
+      });
 
     return { items, total: pagedExecs.total };
   },

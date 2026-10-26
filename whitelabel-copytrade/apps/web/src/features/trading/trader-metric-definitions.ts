@@ -10,15 +10,17 @@ export interface TraderMetricDefinition {
   provenanceNote: string;
 }
 
-export const TRADER_METRIC_DEFINITIONS: Record<string, TraderMetricDefinition> = {
+export type MetricKey = "realizedPnl" | "unrealizedPnl" | "maxDrawdown" | "winRate" | "profitFactor" | "averageTrade" | "totalVolume" | "historyLengthDays" | "winLossRatio";
+
+export const TRADER_METRIC_DEFINITIONS: Record<MetricKey, TraderMetricDefinition> = {
   realizedPnl: {
     key: "realizedPnl",
     label: "Realized PnL",
     unit: "CURRENCY",
     formula: "Σ (Closed Sell Proceeds − FIFO Matched Buy Cost)",
     description:
-      "Cumulative realized profit or loss across closed fills matched using canonical FIFO lot accounting.",
-    provenanceNote: "Derived strictly from executed canonical fills; never client-supplied.",
+      "Cumulative realized profit or loss across closed fills matched using FIFO lot accounting.",
+    provenanceNote: "Derived strictly from executed fills; never client-supplied.",
   },
   unrealizedPnl: {
     key: "unrealizedPnl",
@@ -27,7 +29,7 @@ export const TRADER_METRIC_DEFINITIONS: Record<string, TraderMetricDefinition> =
     formula: "Σ ((Current Mark Price − Average Entry Price) × Open Position Quantity)",
     description:
       "Open mark-to-market profit or loss across active positions held on connected trading accounts.",
-    provenanceNote: "Calculated from canonical open positions and latest mark prices.",
+    provenanceNote: "Calculated from open positions and latest mark prices.",
   },
   maxDrawdown: {
     key: "maxDrawdown",
@@ -44,7 +46,7 @@ export const TRADER_METRIC_DEFINITIONS: Record<string, TraderMetricDefinition> =
     unit: "PERCENT",
     formula: "(Winning Closed Trades ÷ Total Closed Trades) × 100",
     description: "Percentage of closed round-trip trades that resulted in positive realized PnL.",
-    provenanceNote: "Computed from canonical closed trade outcomes.",
+    provenanceNote: "Computed from closed trade outcomes.",
   },
   profitFactor: {
     key: "profitFactor",
@@ -53,7 +55,7 @@ export const TRADER_METRIC_DEFINITIONS: Record<string, TraderMetricDefinition> =
     formula: "Gross Winning PnL ÷ |Gross Losing PnL|",
     description:
       "Ratio of gross profit from winning trades to gross loss from losing trades. Values above 1.0 indicate positive expectancy.",
-    provenanceNote: "Derived from canonical fill-matched trade wins and losses.",
+    provenanceNote: "Derived from fill-matched trade wins and losses.",
   },
   averageTrade: {
     key: "averageTrade",
@@ -61,23 +63,31 @@ export const TRADER_METRIC_DEFINITIONS: Record<string, TraderMetricDefinition> =
     unit: "CURRENCY",
     formula: "Realized PnL ÷ Closed Trade Count",
     description: "Mean realized profit or loss per closed round-trip trade.",
-    provenanceNote: "Computed from canonical realized PnL and closed trade count.",
+    provenanceNote: "Computed from realized PnL and closed trade count.",
   },
   totalVolume: {
     key: "totalVolume",
     label: "Total Executed Volume",
     unit: "CURRENCY",
     formula: "Σ (Fill Quantity × Fill Price)",
-    description: "Aggregate quote notional volume executed across all canonical fills.",
+    description: "Aggregate quote notional volume executed across all executed fills.",
     provenanceNote: "Summed directly from verified exchange fill records.",
+  },
+  winLossRatio: {
+    key: "winLossRatio",
+    label: "Win / Loss Ratio",
+    unit: "RATIO",
+    formula: "Winning Closed Trades ÷ Losing Closed Trades",
+    description: "Ratio of winning to losing closed trades.",
+    provenanceNote: "Computed from closed trade outcomes; unavailable when the denominator is zero.",
   },
   historyLengthDays: {
     key: "historyLengthDays",
     label: "Track Record Length",
     unit: "DAYS",
-    formula: "floor((Now − First Canonical Fill Timestamp) ÷ 86,400s)",
-    description: "Number of calendar days since the trader's first recorded canonical fill.",
-    provenanceNote: "Anchored to the earliest canonical fill timestamp in the ledger.",
+    formula: "floor((Now − First Recorded Fill Timestamp) ÷ 86,400s)",
+    description: "Number of calendar days since the trader's first recorded fill.",
+    provenanceNote: "Anchored to the earliest fill timestamp in the ledger.",
   },
 };
 
@@ -89,7 +99,7 @@ export function describeDataProvenance(performance: Pick<TraderPerformance, "isA
   const badgeLabel = performance.isActual ? "ACTUAL" : "ESTIMATED";
   const sourceLabel = performance.source || "FILLS";
   const explanation = performance.isActual
-    ? `Verified ACTUAL ledger metrics computed from canonical ${sourceLabel} records. No synthetic or self-reported ROI is permitted.`
+    ? `Verified ACTUAL ledger metrics computed from ${sourceLabel} records. No synthetic or self-reported ROI is permitted.`
     : `ESTIMATED metrics derived from ${sourceLabel} snapshots pending full settlement reconciliation.`;
   return { badgeLabel, sourceLabel, explanation };
 }

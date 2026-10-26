@@ -70,7 +70,7 @@ export function TradingStateBoundary({
   error,
   isEmpty = false,
   emptyTitle = "No trading records available",
-  emptyDescription = "Canonical trading records will appear here once activity is recorded.",
+  emptyDescription = "Your trading records will appear here once activity is recorded.",
   emptyAction,
   degradedReason,
   degradedVenue,

@@ -2,13 +2,16 @@
 'use client';
 import type { JSX } from 'react';
 
-import React from 'react';
+import React, { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { CopiedPositionsPage } from '@/features/trading/copied-positions-page';
 import { AppShell } from '@/layout/app-shell';
 
-export default function CopyTradingPositionsRoute(): JSX.Element {
+function CopyTradingPositionsRouteContent(): JSX.Element {
+  const subscriptionId = useSearchParams().get('subscriptionId');
+
   return (
     <AuthGuard>
       <AppShell>
@@ -32,9 +35,19 @@ export default function CopyTradingPositionsRoute(): JSX.Element {
             </Link>
           </nav>
 
-          <CopiedPositionsPage />
+          {subscriptionId ? (
+            <CopiedPositionsPage subscriptionId={subscriptionId} />
+          ) : (
+            <section role="status" className="rounded border bg-card p-4 text-sm">
+              Choose a copy subscription to view its positions. Open a subscription and select this view.
+            </section>
+          )}
         </div>
       </AppShell>
     </AuthGuard>
   );
+}
+
+export default function CopyTradingPositionsRoute(): JSX.Element {
+  return <Suspense fallback={<p role="status" className="p-4 text-sm">Loading subscription view…</p>}><CopyTradingPositionsRouteContent /></Suspense>;
 }

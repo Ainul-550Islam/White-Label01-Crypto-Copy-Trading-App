@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { TradeLifecycleService } from './trade-lifecycle.service';
@@ -154,7 +155,7 @@ export class PostTradeService {
       const allTrades = [...trades, ...history];
       const related = allTrades.find((t: any) => t.orderIds?.includes(intentId) || t.fillIds?.some((fid: string) => fills.map((f: any) => f.id).includes(fid)));
       if (related) tradeLifecycleRef = related.id;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_POST_TRADE_OPERATION_1_FAILED', tenantId: tenantId, entityId: intentId }); }
 
     // Settlement reference — simplified: use fill aggregation as settlement evidence
     const settlementRef = `settlement-${intentId}-${randomUUID().slice(0, 8)}`;
@@ -222,7 +223,7 @@ export class PostTradeService {
     // Persist post-trade result if model exists
     try {
       await (this.prisma as any).omsPostTrade.create({ data: result });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_POST_TRADE_OPERATION_2_FAILED', tenantId: tenantId, entityId: intentId }); }
 
     // Audit
     try {
@@ -237,7 +238,7 @@ export class PostTradeService {
           metadata: { settlementRef, feeAccrualRef, usageEventRef, tradeLifecycleRef, reconciliationTriggered } as any,
         },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_POST_TRADE_OPERATION_3_FAILED', tenantId: tenantId, entityId: intentId }); }
 
     this.logger.log(`Post-trade completed intent ${intentId} tenant ${tenantId} qty ${formatScaled(totalQty)} avg ${avgPrice} fee ${formatScaled(totalFee)}`);
     return result;

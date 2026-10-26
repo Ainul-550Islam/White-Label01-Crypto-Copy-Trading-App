@@ -140,7 +140,7 @@ export default async function BrandingPage(): Promise<JSX.Element> {
               Send a <code>PATCH /v1/tenants/current/branding</code> with the fields you want to
               change. The endpoint requires the <code>tenant:manage</code> permission and every
               change is written to the audit log. An in-console editor lands with the branding work
-              in Part 3.
+              in a future release.
             </p>
           </Card>
         </div>

@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingEventService } from './billing-event.service';
@@ -98,14 +99,24 @@ export class DunningNotificationService {
   }
 
   async processDunningCasesNeedingNotification(): Promise<{ checked: number; notified: number }> {
-    let cases: any[] = [];
+    let cases: any[];
     try {
-      cases = await (this.prisma as any).dunningCase?.findMany?.({
+      const dunningCases = (this.prisma as any).dunningCase;
+      if (!dunningCases || typeof dunningCases.findMany !== 'function') {
+        throw new Error('DUNNING_CASE_SOURCE_UNAVAILABLE');
+      }
+      const result = await dunningCases.findMany({
         where: { status: 'ACTIVE', nextRetryAt: { lte: new Date() } },
         take: 50,
-      }) || [];
-    } catch {
-      return { checked: 0, notified: 0 };
+      });
+      if (!Array.isArray(result)) throw new Error('DUNNING_CASE_SOURCE_INVALID');
+      cases = result;
+    } catch (error) {
+      failClosedMoneyOperation(error, {
+        code: 'BILLING_DUNNING_NOTIFICATION_CASE_LOOKUP_FAILED',
+        tenantId: 'UNAVAILABLE',
+        entityId: 'dunning-notification-batch',
+      });
     }
 
     let notified = 0;
@@ -114,20 +125,48 @@ export class DunningNotificationService {
         // Fetch payment for amount
         let payment: any;
         try {
-          payment = await (this.prisma as any).payment?.findFirst?.({ where: { id: dunningCase.paymentId } });
-        } catch {}
+          const paymentDelegate = (this.prisma as any).payment;
+          if (!paymentDelegate || typeof paymentDelegate.findFirst !== 'function') {
+            throw new Error('DUNNING_PAYMENT_SOURCE_UNAVAILABLE');
+          }
+          payment = await paymentDelegate.findFirst({ where: { id: dunningCase.paymentId, tenantId: dunningCase.tenantId } });
+          if (!payment) throw new Error('DUNNING_PAYMENT_NOT_FOUND');
+        } catch (caughtErrorB1) {
+          failClosedMoneyOperation(caughtErrorB1, {
+            code: 'BILLING_DUNNING_NOTIFICATION_PAYMENT_LOOKUP_FAILED',
+            tenantId: dunningCase.tenantId,
+            entityId: dunningCase.paymentId,
+          });
+        }
 
+        const amount = typeof payment.amount === 'string'
+          ? payment.amount
+          : typeof payment.amount?.toString === 'function'
+            ? payment.amount.toString()
+            : null;
+        if (!amount || !/^\d+(?:\.\d+)?$/.test(amount)) {
+          throw new Error('DUNNING_PAYMENT_AMOUNT_UNAVAILABLE');
+        }
+        if (typeof payment.currency !== 'string' || !payment.currency.trim()) {
+          throw new Error('DUNNING_PAYMENT_CURRENCY_UNAVAILABLE');
+        }
         await this.notifyDunningRetry({
           tenantId: dunningCase.tenantId,
           paymentId: dunningCase.paymentId,
           attempt: dunningCase.attempt || 1,
           maxAttempts: dunningCase.maxAttempts || 4,
           nextRetryAt: dunningCase.nextRetryAt?.toISOString(),
-          amount: payment?.amount || '0',
-          currency: payment?.currency || 'USD',
+          amount,
+          currency: payment.currency,
         });
         notified++;
-      } catch {}
+      } catch (caughtErrorB1) {
+        failClosedMoneyOperation(caughtErrorB1, {
+          code: 'BILLING_DUNNING_NOTIFICATION_FAILED',
+          tenantId: dunningCase.tenantId,
+          entityId: dunningCase.id ?? dunningCase.paymentId,
+        });
+      }
     }
 
     return { checked: cases.length, notified };

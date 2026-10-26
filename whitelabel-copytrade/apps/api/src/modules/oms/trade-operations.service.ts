@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderIntentState } from './oms.types';
@@ -216,7 +217,7 @@ export class TradeOperationsService {
 
     try {
       await (this.prisma as any).omsOperational.create({ data: { ...operational, requestedBy: userId, reason } });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_TRADE_OPERATIONS_OPERATION_1_FAILED', tenantId: tenantId, entityId: intentId }); }
 
     this.logger.log(`Retry requested intent ${intentId} tenant ${tenantId} by ${userId} reason ${reason}`);
     return operational;
@@ -260,7 +261,7 @@ export class TradeOperationsService {
 
     try {
       await (this.prisma as any).omsOperational.create({ data: { ...operational, requestedBy: userId, reason, recoveryType } });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_TRADE_OPERATIONS_OPERATION_2_FAILED', tenantId: tenantId, entityId: intentId }); }
 
     // Audit recovery request
     try {
@@ -276,7 +277,7 @@ export class TradeOperationsService {
           metadata: { recoveryType, reason } as any,
         },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_TRADE_OPERATIONS_OPERATION_3_FAILED', tenantId: tenantId, entityId: intentId }); }
 
     this.logger.log(`Recovery requested intent ${intentId} type ${recoveryType} tenant ${tenantId} by ${userId}`);
     return operational;

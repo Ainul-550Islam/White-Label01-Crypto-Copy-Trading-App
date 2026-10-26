@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { DurableUsageEvent, ProcessingState, MeterKey, UsageScope, MeterUnit, PeriodType } from './usage-metering.types';
@@ -140,7 +141,7 @@ export class UsageEventRepository {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_USAGE_EVENT_OPERATION_1_FAILED', tenantId: event.tenantId, entityId: id }); }
         return durableEvent;
       }
       this.logger.error(`Failed to create usage event: ${error.message}`, error.stack);

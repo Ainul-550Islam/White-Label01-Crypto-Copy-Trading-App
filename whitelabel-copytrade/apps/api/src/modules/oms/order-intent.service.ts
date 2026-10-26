@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Validates order intent against symbol trading rules and account balance
 import { Injectable, Logger, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -391,7 +392,7 @@ export class OrderIntentService {
     try {
       const intent = await (this.prisma as any).omsOrderIntent.findFirst({ where: { id: intentId, tenantId } });
       if (intent) return intent;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_ORDER_INTENT_OPERATION_1_FAILED', tenantId: tenantId, entityId: intentId }); }
     return this.prisma.order.findFirst({ where: { id: intentId, tenantId } });
   }
 

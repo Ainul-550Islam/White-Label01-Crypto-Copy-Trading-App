@@ -290,6 +290,9 @@ export class UsersService {
     }
 
     if (status) {
+      if (status !== UserStatus.ACTIVE) {
+        await this.assertNotLastTenantAdmin(tenantId, userId);
+      }
       await this.prisma.user.updateMany({ where: { id: userId, tenantId }, data: { status } });
 
       await this.audit.record({
@@ -318,6 +321,8 @@ export class UsersService {
     if (userId === context.actorId) {
       throw new ConflictException('You cannot suspend your own account.');
     }
+
+    await this.assertNotLastTenantAdmin(tenantId, userId);
 
     const updated = await this.prisma.user.updateMany({
       where: { id: userId, tenantId, deletedAt: null },
@@ -393,6 +398,8 @@ export class UsersService {
       throw new ConflictException('You cannot delete your own account.');
     }
 
+    await this.assertNotLastTenantAdmin(tenantId, userId);
+
     const updated = await this.prisma.user.updateMany({
       where: { id: userId, tenantId, deletedAt: null },
       data: { deletedAt: new Date(), status: UserStatus.DEACTIVATED },
@@ -467,8 +474,15 @@ export class UsersService {
       });
     }
 
+    if (
+      user.roles.some((assignment) => assignment.role.key === SystemRole.TENANT_ADMIN) &&
+      !roles.some((role) => role.key === SystemRole.TENANT_ADMIN)
+    ) {
+      await this.assertNotLastTenantAdmin(tenantId, userId);
+    }
+
     await this.prisma.$transaction([
-      this.prisma.userRole.deleteMany({ where: { userId } }),
+      this.prisma.userRole.deleteMany({ where: { userId, tenantId } }),
       this.prisma.userRole.createMany({
         data: roles.map((role) => ({
           userId,
@@ -500,6 +514,34 @@ export class UsersService {
     });
 
     return this.findById(tenantId, userId);
+  }
+
+  /** Protects the tenant from losing its only active administrator. */
+  private async assertNotLastTenantAdmin(tenantId: string, userId: string): Promise<void> {
+    const adminAssignment = await this.prisma.userRole.findFirst({
+      where: {
+        tenantId,
+        userId,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        role: { key: SystemRole.TENANT_ADMIN, deletedAt: null },
+      },
+      select: { userId: true },
+    });
+    if (!adminAssignment) return;
+
+    const anotherActiveAdmin = await this.prisma.userRole.findFirst({
+      where: {
+        tenantId,
+        userId: { not: userId },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        role: { key: SystemRole.TENANT_ADMIN, deletedAt: null },
+        user: { is: { tenantId, deletedAt: null, status: UserStatus.ACTIVE } },
+      },
+      select: { userId: true },
+    });
+    if (!anotherActiveAdmin) {
+      throw new ConflictException('The last active TENANT_ADMIN cannot be removed or deactivated.');
+    }
   }
 
   private toDto(user: UserRecord, permissions: string[]): UserDto {

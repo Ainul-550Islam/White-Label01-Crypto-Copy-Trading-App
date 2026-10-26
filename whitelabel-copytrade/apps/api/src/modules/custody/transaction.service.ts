@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CustodyAuditService } from './custody-audit.service';
@@ -72,7 +73,7 @@ export class TransactionService {
         this.logger.log({ event: 'custody.transaction.idempotent_hit', idempotencyKey, transactionHash });
         return existing;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_TRANSACTION_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     // Duplicate transaction hash detection — network-aware uniqueness
     if (transactionHash) {
@@ -83,7 +84,7 @@ export class TransactionService {
           this.logger.log({ event: 'custody.transaction.duplicate_hash', transactionHash, networkId });
           return dup;
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_TRANSACTION_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
     }
 
     const transaction = await (this.prisma as any).custodyTransaction.create({

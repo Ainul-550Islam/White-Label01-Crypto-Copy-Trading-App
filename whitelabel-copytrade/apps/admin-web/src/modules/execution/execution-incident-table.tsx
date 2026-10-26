@@ -1,7 +1,7 @@
 // # NEW — Displays execution incidents, venue outages, and manual resolution actions
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { type ReactElement, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge, DataTable } from '@/components/ui';
 import { apiClient } from '@/lib/api-client';
@@ -52,7 +52,7 @@ const severityTone: Record<string, 'danger' | 'warning' | 'info' | 'neutral'> = 
 export function ExecutionIncidentTable({
   incidents,
   killSwitches = [],
-}: ExecutionIncidentTableProps): JSX.Element {
+}: ExecutionIncidentTableProps): ReactElement {
   const router = useRouter();
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [resolutionNote, setResolutionNote] = useState<string>('');

@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingNotificationJob, DeliveryStatus, NotificationChannel, BillingNotificationEventKey, NotificationPriority, NotificationCategory } from './billing-notification.types';
@@ -120,7 +121,7 @@ export class NotificationJobRepository {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_NOTIFICATION_JOB_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
         return notificationJob;
       }
       this.logger.error(`Failed to create notification job: ${error.message}`, error.stack);

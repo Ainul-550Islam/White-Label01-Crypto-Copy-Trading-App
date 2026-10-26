@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { MeterKey, UsageScope, AggregationWindow, UsageBucket, MeterDefinition, METER_DEFINITIONS } from './usage-metering.types';
@@ -98,7 +99,7 @@ export class UsageMeterRepository {
           },
         });
         if (existing) return this.mapBucketToDomain(existing);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_USAGE_METER_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
 
       // Return synthetic bucket
       return {
@@ -241,7 +242,7 @@ export class UsageMeterRepository {
             });
             if (updated) return this.mapBucketToDomain(updated);
           }
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_USAGE_METER_OPERATION_2_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
       } else {
         this.logger.error(`Atomic increment failed: ${error.message}`, error.stack);
         throw error;

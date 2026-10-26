@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Enforces withdrawal state machine (REQUESTED -> RISK_CHECK -> COMPLIANCE_CHECK -> APPROVED -> BROADCAST -> CONFIRMED/REJECTED)
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -189,7 +190,7 @@ export class WithdrawalOrchestrationService {
     try {
       const asset = await (this.prisma as any).custodyAsset.findFirst({ where: { assetId } });
       if (asset) return asset.decimals;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_WITHDRAWAL_ORCHESTRATION_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
     return 18; // default, but should be from authoritative metadata
   }
 

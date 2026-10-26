@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
@@ -133,7 +134,7 @@ export class PayoutRepository {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_PAYOUT_OPERATION_1_FAILED', tenantId: data.tenantId, entityId: id }); }
         return payout;
       }
       this.logger.error(`Failed to create payout: ${error.message}`, error.stack);

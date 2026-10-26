@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { PlansService } from '../plans.service';
@@ -82,7 +83,7 @@ export class TenantPlanManagementService {
           maxTraders: limits?.maxTraders ?? null,
         },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_TENANT_PLAN_MANAGEMENT_OPERATION_1_FAILED', tenantId: tenantId, entityId: planId }); }
 
     await this.auditService.logPlanChanged(tenantId, context.actorId, null, plan.id, 'ASSIGN_INITIAL');
 

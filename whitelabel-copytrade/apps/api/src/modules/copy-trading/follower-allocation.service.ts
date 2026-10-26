@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CopySizingMode, isDecimalString, compareDecimalStrings } from './copy-trading.types';
@@ -80,7 +81,7 @@ export class FollowerAllocationService {
                 totalFree = decPart ? `${intPart}.${decPart}` : intPart;
               }
             }
-          } catch {}
+          } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_FOLLOWER_ALLOCATION_OPERATION_1_FAILED', tenantId: input.tenantId, entityId: 'UNAVAILABLE' }); }
         }
 
         availableBalance = totalFree;
@@ -135,7 +136,7 @@ export class FollowerAllocationService {
           const decPart = sumStr.slice(-maxDec).replace(/0+$/, '');
           totalFree = decPart ? `${intPart}.${decPart}` : intPart;
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_FOLLOWER_ALLOCATION_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
     }
     return totalFree;
   }

@@ -55,13 +55,14 @@ export function LeadTraderApplicationPage(): JSX.Element {
         .split(',')
         .map((reference) => reference.trim())
         .filter(Boolean);
+      if (!riskAcknowledged) throw new Error('Risk acknowledgement is required.');
       const payload: SubmitLeadTraderApplicationInput = {
         idempotencyKey: idempotencyKey.current ?? (idempotencyKey.current = newIdempotencyKey('lead-app')),
         yearsExperience: parsedYears,
         markets,
         strategySummary: strategySummary.trim(),
         evidenceReferences: references,
-        riskAcknowledged,
+        riskAcknowledged: true,
       };
       return tradingApi.submitLeadTraderApplication(payload);
     },

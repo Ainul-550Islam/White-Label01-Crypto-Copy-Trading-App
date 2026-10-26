@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Applies resolved copy policy and follower risk decisions before dispatching orders to OMS
 // # Enforces slippage boundaries and execution delay during follower order dispatch
 // # Applies TP/SL and trailing stop parameters to follower order intents and stop-copy conditions
@@ -398,7 +399,7 @@ export class CopyExecutionService {
 
     // Get follower balance from canonical data.
     //
-    // This used to be wrapped in a bare `catch {}`. An empty catch here is not
+    // This used to be wrapped in a bare `catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_COPY_EXECUTION_OPERATION_1_FAILED', tenantId: tenantId, entityId: id }); }`. An empty catch here is not
     // harmless: a failed lookup leaves `followerBalance` null, which silently
     // changed the sizing result downstream. The lookup now fails the copy
     // closed and says so, because sizing money against an unknown balance is

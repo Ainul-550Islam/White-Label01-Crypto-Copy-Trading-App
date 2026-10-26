@@ -3,16 +3,17 @@
 import type { JSX } from 'react';
 
 import React from "react";
-import type { CopyExecutionItem } from "@/api/trading-api";
+import type { CopyExecutionDisplayItem } from "@/api/trading-api";
 import { StatusBadge } from "@/components/status-badge";
 
 export interface CopyExecutionDetailProps {
-  execution: CopyExecutionItem;
+  execution: CopyExecutionDisplayItem;
   onClose?: () => void;
 }
 
 export function CopyExecutionDetail({ execution, onClose }: CopyExecutionDetailProps): JSX.Element {
   const isBlockedOrFailed =
+    execution.status === "BLOCKED" ||
     execution.status === "RISK_BLOCKED" ||
     execution.status === "FAILED" ||
     execution.status === "SKIPPED" ||
@@ -100,9 +101,9 @@ export function CopyExecutionDetail({ execution, onClose }: CopyExecutionDetailP
           {execution.failureReason && (
             <p className="mt-1">Reason: {execution.failureReason}</p>
           )}
-          {execution.riskReasons.length > 0 && (
+          {(execution.riskReasons?.length ?? 0) > 0 && (
             <ul className="mt-1 list-disc pl-4">
-              {execution.riskReasons.map((reason) => (
+              {(execution.riskReasons ?? []).map((reason) => (
                 <li key={reason}>{reason}</li>
               ))}
             </ul>
@@ -128,7 +129,7 @@ export function CopyExecutionDetail({ execution, onClose }: CopyExecutionDetailP
           <span>→</span>
           <li
             className={`rounded px-2 py-1 font-semibold ${
-              execution.status === "COMPLETED" || execution.status === "ROUTED"
+              execution.status === "FILLED" || execution.status === "ROUTED"
                 ? "bg-emerald-100 text-emerald-900"
                 : isBlockedOrFailed
                   ? "bg-rose-100 text-rose-900"

@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 // # Responsibility: resolve canonical tenant features and numeric limits with typed enforcement context and fail-closed malformed inputs.
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
@@ -97,7 +98,7 @@ export class TenantFeatureAccessService {
             // The flag key lives on the related FeatureFlag, not on the tenant override row.
             const flag = await this.prisma.tenantFeatureFlag.findFirst({ where: { tenantId, featureFlag: { key: featureKey } } });
             if (flag?.enabled) source = 'feature_flag';
-          } catch {}
+          } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_TENANT_FEATURE_ACCESS_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
         }
 
         return {

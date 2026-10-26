@@ -1,7 +1,7 @@
 // # NEW — Displays case evidence, screening hits, notes, and approve/reject/escalate actions
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { type ReactElement, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge, Card } from '@/components/ui';
 import { apiClient } from '@/lib/api-client';
@@ -55,7 +55,7 @@ export interface ComplianceCaseDetailProps {
   caseRecord: ComplianceCaseRecord;
 }
 
-export function ComplianceCaseDetail({ caseRecord }: ComplianceCaseDetailProps): JSX.Element {
+export function ComplianceCaseDetail({ caseRecord }: ComplianceCaseDetailProps): ReactElement {
   const router = useRouter();
   const [noteText, setNoteText] = useState<string>('');
   const [decision, setDecision] = useState<'APPROVE' | 'REJECT' | 'HOLD' | 'ESCALATE'>('APPROVE');

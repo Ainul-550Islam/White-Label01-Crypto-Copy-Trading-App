@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { BlockchainProviderFactory } from './blockchain-provider.factory';
@@ -86,7 +87,7 @@ export class TransactionMonitoringService {
             where: { id: transactionId },
             data: { confirmationCount: observation.confirmationCount, blockHash: observation.blockHash ?? tx.blockHash, blockNumber: observation.blockNumber ?? tx.blockNumber },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_TRANSACTION_MONITORING_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
       }
     }
 
@@ -96,7 +97,7 @@ export class TransactionMonitoringService {
         where: { id: transactionId },
         data: { evidence: redactSecrets({ ...(tx.evidence as any), providerObservation: observation, lastPolledAt: new Date().toISOString() }) as any },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_TRANSACTION_MONITORING_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     // If transaction is confirmed, observe confirmation
     if (observation.confirmationCount > 0) {
@@ -110,7 +111,7 @@ export class TransactionMonitoringService {
           requiredConfirmationCount: tx.requiredConfirmationCount ?? 6,
           providerReference: observation.providerReference ?? null,
         });
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_TRANSACTION_MONITORING_OPERATION_3_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
     }
 
     const updated = await (this.prisma as any).custodyTransaction.findFirst({ where: { id: transactionId, tenantId } });

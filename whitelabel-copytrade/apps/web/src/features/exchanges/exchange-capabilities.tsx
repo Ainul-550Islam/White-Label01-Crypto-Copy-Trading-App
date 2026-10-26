@@ -110,6 +110,7 @@ export interface ExchangeCapabilitiesProps {
   discoveredCapabilities?: string[];
   tradingEnabled?: boolean;
   environment?: string;
+  showAllVenues?: boolean;
 }
 
 export function ExchangeCapabilities({
@@ -117,10 +118,11 @@ export function ExchangeCapabilities({
   discoveredCapabilities = [],
   tradingEnabled = false,
   environment = "SANDBOX",
+  showAllVenues = false,
 }: ExchangeCapabilitiesProps): JSX.Element {
   const venueKey = (venue || "").toUpperCase();
   const selectedVenueCap = WEB_VENUE_CAPABILITIES[venueKey];
-  const rows = selectedVenueCap
+  const rows = selectedVenueCap && !showAllVenues
     ? [selectedVenueCap]
     : Object.values(WEB_VENUE_CAPABILITIES);
 

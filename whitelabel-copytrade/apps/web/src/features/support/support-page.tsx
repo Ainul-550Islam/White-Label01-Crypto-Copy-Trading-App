@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { operationsApi } from "@/api/operations-api";
 import { clientLifecycleApi } from "@/api/client-lifecycle-api";
-import { useTenant } from "@/tenant/tenant.context";
+import { useTenant } from "@/tenant/tenant-context";
 import { PageContainer } from "@/layout/page-container";
 import { StatusBadge } from "@/components/status-badge";
 

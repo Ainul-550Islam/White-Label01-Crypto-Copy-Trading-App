@@ -22,24 +22,9 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.bg-background {
-  background-color: hsl(0 0% 100%);
-}
-
-.bg-card {
-  background-color: hsl(0 0% 100%);
-}
-
-.bg-primary {
-  background-color: var(--brand-primary);
-}
-
+/* Neutral surface accent is distinct from Tailwind's tenant-brand accent utility. */
 .bg-accent {
   background-color: hsl(210 40% 96.1%);
-}
-
-.text-muted {
-  color: hsl(215.4 16.3% 46.9%);
 }
 
 .border {

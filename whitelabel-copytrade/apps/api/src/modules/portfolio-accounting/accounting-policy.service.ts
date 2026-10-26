@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AppConfigService } from '../../config/app-config.service';
@@ -66,7 +67,7 @@ export class AccountingPolicyService {
         // supportedCurrencies are fiat, but we also support crypto — merge
         supportedAssets = [...new Set([...supportedAssets, ...tenant.supportedCurrencies])];
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_POLICY_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     // Check for existing accounting profile — if exists, use its policy
     try {
@@ -98,7 +99,7 @@ export class AccountingPolicyService {
           calculationVersion: profile.calculationVersion,
         };
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_POLICY_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     // Default policy — explicit, auditable, not invented thresholds from nowhere
     const policy: AccountingPolicy = {

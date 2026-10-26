@@ -77,7 +77,7 @@ export class UsersRepository {
 
   async findByEmailIndex(tenantId: string, emailIndex: string): Promise<UserRecord | null> {
     return this.prisma.user.findFirst({
-      where: { tenantId, emailIndex, deletedAt: null },
+      where: { tenantId, emailIndex },
       select: USER_SELECT,
     });
   }
@@ -90,7 +90,7 @@ export class UsersRepository {
 
     const where: Prisma.UserWhereInput = {
       tenantId,
-      ...(query.includeDeleted ? {} : { deletedAt: null }),
+      deletedAt: null,
       ...(query.status ? { status: query.status } : {}),
       ...(query.kycStatus ? { kycStatus: query.kycStatus } : {}),
       ...(query.roleKey ? { roles: { some: { role: { key: query.roleKey } } } } : {}),

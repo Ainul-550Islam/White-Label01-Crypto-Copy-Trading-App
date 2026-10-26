@@ -14,7 +14,7 @@ export default function Page(): JSX.Element {
       <AppShell>
         <PageContainer
           title="Position and Order Limits"
-          description="Set optional user-wide count ceilings for new platform OMS submissions and inspect their canonical usage."
+          description="Set optional user-wide count ceilings for new platform OMS submissions and review their recorded usage."
         >
           <PositionLimitSettings />
         </PageContainer>

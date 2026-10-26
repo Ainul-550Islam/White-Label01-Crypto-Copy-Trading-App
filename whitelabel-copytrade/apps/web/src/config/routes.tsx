@@ -14,6 +14,7 @@ export const APP_ROUTES: Record<string, AppRouteDefinition> = {
   strategies: { path: "/strategies", label: "Strategies", section: "trading", requiresAuth: true },
   copyTrading: { path: "/copy-trading", label: "Copy Trading", section: "trading", requiresAuth: true },
   portfolio: { path: "/portfolio", label: "Portfolio", section: "portfolio", requiresAuth: true },
+  riskExposure: { path: "/risk/exposure", label: "Risk Exposure", section: "portfolio", requiresAuth: true },
   exchanges: { path: "/exchanges", label: "Exchanges", section: "trading", requiresAuth: true },
   funding: { path: "/funding", label: "Funding", section: "portfolio", requiresAuth: true },
   partner: { path: "/partner", label: "Partner Portal", section: "partner", requiresAuth: true },

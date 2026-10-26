@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Prisma } from '@prisma/client';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -68,7 +69,7 @@ export class PeriodCloseService {
     let existing: any = null;
     try {
       existing = await (this.prisma as any).portfolioAccountingClose.findFirst({ where: { tenantId, idempotencyKey } });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_PERIOD_CLOSE_OPERATION_1_FAILED', tenantId: tenantId, entityId: periodId }); }
     if (existing) {
       return await this.validateAndClose({ tenantId, periodId, closeId: existing.id, operatorId, correlationId });
     }
@@ -122,9 +123,7 @@ export class PeriodCloseService {
       eventsCount = await (this.prisma as any).portfolioAccountingEvent.count({
         where: { tenantId, profileId: period.profileId, sourceTimestamp: { gte: period.periodStart, lte: period.periodEnd } },
       });
-    } catch {
-      eventsCount = 0;
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_PERIOD_CLOSE_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
     validationSteps.push({
       step: 'REQUIRED_EVENTS_PRESENT',
       passed: true, // Even 0 events could be valid for empty portfolio — but we log

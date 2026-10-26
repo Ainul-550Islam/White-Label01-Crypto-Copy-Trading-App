@@ -2,14 +2,14 @@
 'use client';
 import type { JSX } from 'react';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AuthGuard } from '@/auth/auth.guard';
 import { TraderComparisonPage } from '@/features/trading/trader-comparison-page';
 import { AppShell } from '@/layout/app-shell';
 
-export default function Page(): JSX.Element {
+function TraderComparisonRouteContent(): JSX.Element {
   const searchParams = useSearchParams();
   const idsParam = searchParams?.get('ids') ?? '';
   const initialTraderIds = idsParam
@@ -43,9 +43,13 @@ export default function Page(): JSX.Element {
             </Link>
           </nav>
 
-          <TraderComparisonPage initialTraderIds={initialTraderIds} />
+          <TraderComparisonPage initialIds={initialTraderIds} />
         </div>
       </AppShell>
     </AuthGuard>
   );
+}
+
+export default function Page(): JSX.Element {
+  return <Suspense fallback={<p role="status" className="p-4 text-sm">Loading trader comparison…</p>}><TraderComparisonRouteContent /></Suspense>;
 }

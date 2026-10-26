@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
@@ -93,7 +94,7 @@ export class CashflowAnalyticsService {
         if (payment && payment.currency?.toUpperCase() === currency) {
           dunningExposureMinor += parseToMinorUnits(payment.amount || '0', currency);
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_CASHFLOW_ANALYTICS_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
     }
 
     for (const fs of feeSettlements) {

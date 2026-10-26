@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
@@ -116,7 +117,7 @@ export class SubscriptionAnalyticsService {
         if (meta?.changeType === 'UPGRADE') upgraded++;
         if (meta?.changeType === 'DOWNGRADE') downgraded++;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_SUBSCRIPTION_ANALYTICS_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     const total = subscriptions.length || 1;
 

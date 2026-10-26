@@ -133,7 +133,7 @@ class _PlanComparisonPageState extends State<PlanComparisonPage> {
           children: [
             const Text('Choose the plan that fits your needs', style: TextStyle(fontSize: 16, color: Colors.grey)),
             const SizedBox(height: 8),
-            const Text('All pricing from canonical billing catalog - never hardcoded', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            const Text('Pricing and features reflect the plans available to your organisation.', style: TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 16),
 
             if (_message != null)

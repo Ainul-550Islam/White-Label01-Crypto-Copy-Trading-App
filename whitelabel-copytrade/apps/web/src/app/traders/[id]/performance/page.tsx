@@ -52,7 +52,7 @@ export default function Page({
             </div>
           </nav>
 
-          <TraderPerformancePage id={traderId} traderId={traderId} initialWindow={initialWindow} />
+          <TraderPerformancePage id={traderId} initialWindow={initialWindow} />
         </div>
       </AppShell>
     </AuthGuard>

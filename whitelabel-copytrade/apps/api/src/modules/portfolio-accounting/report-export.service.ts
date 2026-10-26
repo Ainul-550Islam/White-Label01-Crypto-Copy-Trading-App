@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { StatementService } from './statement.service';
@@ -120,9 +121,7 @@ export class ReportExportService {
         where: { tenantId: params.tenantId, profileId: params.profileId, isClosed: false, openedAt: { lte: params.at } },
         orderBy: { symbol: 'asc' },
       });
-    } catch {
-      holdings = [];
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_REPORT_EXPORT_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: params.profileId }); }
 
     const headers = ['symbol', 'asset', 'quantity', 'remainingQuantity', 'costBasisPerUnit', 'totalCostBasis', 'currency', 'openedAt'];
     const rows = holdings.map((h: any) => [
@@ -160,9 +159,7 @@ export class ReportExportService {
         where,
         orderBy: { occurredAt: 'asc' },
       });
-    } catch {
-      entries = [];
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_REPORT_EXPORT_OPERATION_2_FAILED', tenantId: params.tenantId, entityId: params.profileId }); }
 
     const headers = ['occurredAt', 'cashFlowType', 'asset', 'amount', 'currency', 'baseCurrency', 'baseCurrencyAmount', 'sourceType', 'sourceId'];
     const rows = entries.map((e: any) => [

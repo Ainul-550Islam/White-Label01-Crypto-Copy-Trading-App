@@ -33,6 +33,10 @@ import {
   addDecimalStrings,
   subtractDecimalStrings,
 } from './base-exchange-provider';
+import { BybitProvider as RegisteredBybitProvider } from './providers/bybit.provider';
+import { OkxProvider as RegisteredOkxProvider } from './providers/okx.provider';
+import { KrakenProvider as RegisteredKrakenProvider } from './providers/kraken.provider';
+import { CoinbaseProvider as RegisteredCoinbaseProvider } from './providers/coinbase.provider';
 import { ExchangeProviderFactory } from './exchange-provider.factory';
 import { ExchangeRegistryService } from './exchange-registry.service';
 
@@ -66,13 +70,13 @@ describe('Venue Capability Matrix & Multi-Venue Provider Parity (GAP-21 & GAP-22
       BybitProvider,
     );
     expect(factory.getProvider(ExchangeVenue.OKX, ExchangeEnvironment.LIVE)).toBeInstanceOf(
-      OkxProvider,
+      RegisteredOkxProvider,
     );
     expect(factory.getProvider(ExchangeVenue.KRAKEN, ExchangeEnvironment.LIVE)).toBeInstanceOf(
-      KrakenProvider,
+      RegisteredKrakenProvider,
     );
     expect(factory.getProvider(ExchangeVenue.COINBASE, ExchangeEnvironment.LIVE)).toBeInstanceOf(
-      CoinbaseProvider,
+      RegisteredCoinbaseProvider,
     );
 
     expect(() =>
@@ -557,7 +561,7 @@ describe('ExchangeProviderFactory registration', () => {
     const registry = new ExchangeRegistryService();
     const factory = new ExchangeProviderFactory(registry);
     factory.onModuleInit();
-    expect(factory.getProvider(ExchangeVenue.BYBIT, ExchangeEnvironment.TESTNET)).toBeInstanceOf(BybitProvider);
+    expect(factory.getProvider(ExchangeVenue.BYBIT, ExchangeEnvironment.TESTNET)).toBeInstanceOf(RegisteredBybitProvider);
     expect(factory.getProvider(ExchangeVenue.OKX, ExchangeEnvironment.LIVE)).toBeInstanceOf(OkxProvider);
     expect(factory.getProvider(ExchangeVenue.KRAKEN, ExchangeEnvironment.LIVE)).toBeInstanceOf(KrakenProvider);
     expect(factory.getProvider(ExchangeVenue.COINBASE, ExchangeEnvironment.SANDBOX)).toBeInstanceOf(CoinbaseProvider);

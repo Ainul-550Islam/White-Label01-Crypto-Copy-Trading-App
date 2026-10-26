@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Responsibility: calculate realized and unrealized PnL from fills, cost basis, valuation, and fees.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -72,9 +73,7 @@ export class PnLService {
         where: { tenantId, profileId, isClosed: false, isReversed: false, openedAt: { lte: at } },
         orderBy: { openedAt: 'asc' },
       });
-    } catch {
-      openLots = [];
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_PNL_OPERATION_1_FAILED', tenantId: tenantId, entityId: profileId }); }
 
     let unrealizedPnl = '0';
     let hasMissingPrice = false;
@@ -107,7 +106,7 @@ export class PnLService {
         unrealizedPnl = add(unrealizedPnl, lotUnrealized);
         valuationRefs.push(`${lot.symbol}:${valuation.evidence.marketPriceSource ?? 'UNKNOWN'}`);
         costBasisRefs.push(lot.id);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_PNL_OPERATION_2_FAILED', tenantId: tenantId, entityId: profileId }); }
     }
 
     if (hasMissingPrice) {
@@ -221,7 +220,7 @@ export class PnLService {
         const amt = entry.baseCurrencyAmount ?? entry.amount;
         if (amt && isValidDecimal(amt)) fees = add(fees, amt);
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_PNL_OPERATION_3_FAILED', tenantId: params.tenantId, entityId: params.profileId }); }
 
     let netPnl: string | null = null;
     if (gross.grossPnl !== null) {

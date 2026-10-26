@@ -128,7 +128,7 @@ export default async function DashboardPage(): Promise<JSX.Element> {
       <div style={{ display: 'grid', gap: theme.space(5), marginTop: theme.space(6) }}>
         <Card
           title="Platform readiness"
-          description="What Part 1 ships and what is intentionally switched off."
+          description="Current platform capabilities and features that are not enabled."
         >
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, lineHeight: 1.9 }}>
             <li>Multi-tenant isolation, RBAC, audit logging and session management are live.</li>

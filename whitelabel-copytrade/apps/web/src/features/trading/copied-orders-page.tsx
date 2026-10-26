@@ -6,7 +6,7 @@ import type { JSX } from 'react';
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { tradingApi } from "@/api/trading-api";
+import { tradingApi, type CopyExecutionStatus, type CopiedOrderHistoryItem } from "@/api/trading-api";
 import { PageContainer } from "@/layout/page-container";
 import { StatusBadge } from "@/components/status-badge";
 import { Money } from "@/components/money";
@@ -17,7 +17,7 @@ export function CopiedOrdersPage({
 }: {
   subscriptionId: string;
 }): JSX.Element {
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<CopyExecutionStatus | "">("");
 
   const ordersQuery = useQuery({
     queryKey: ["copied-orders", subscriptionId, statusFilter],
@@ -27,7 +27,12 @@ export function CopiedOrdersPage({
       }),
   });
 
-  const rows = ordersQuery.data ?? [];
+  const historyData: unknown = ordersQuery.data;
+  const rows = Array.isArray(historyData)
+    ? historyData as CopiedOrderHistoryItem[]
+    : historyData && typeof historyData === "object" && "items" in historyData && Array.isArray((historyData as { items?: unknown }).items)
+      ? (historyData as { items: CopiedOrderHistoryItem[] }).items
+      : [];
 
   return (
     <PageContainer
@@ -43,14 +48,14 @@ export function CopiedOrdersPage({
             id="copied-order-status"
             aria-label="Execution Status"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => setStatusFilter(e.target.value as CopyExecutionStatus | "")}
             className="rounded border px-2.5 py-1"
           >
             <option value="">All States</option>
-            <option value="COMPLETED">COMPLETED</option>
+            <option value="FILLED">FILLED</option>
             <option value="ROUTED">ROUTED</option>
             <option value="PENDING">PENDING</option>
-            <option value="RISK_BLOCKED">RISK_BLOCKED</option>
+            <option value="BLOCKED">BLOCKED</option>
             <option value="FAILED">FAILED</option>
             <option value="SKIPPED">SKIPPED</option>
           </select>

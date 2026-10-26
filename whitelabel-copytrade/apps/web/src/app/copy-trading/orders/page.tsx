@@ -2,13 +2,16 @@
 'use client';
 import type { JSX } from 'react';
 
-import React from 'react';
+import React, { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AuthGuard } from '@/auth/auth.guard';
 import { CopiedOrdersPage } from '@/features/trading/copied-orders-page';
 import { AppShell } from '@/layout/app-shell';
 
-export default function CopyTradingOrdersRoute(): JSX.Element {
+function CopyTradingOrdersRouteContent(): JSX.Element {
+  const subscriptionId = useSearchParams().get('subscriptionId');
+
   return (
     <AuthGuard>
       <AppShell>
@@ -32,9 +35,19 @@ export default function CopyTradingOrdersRoute(): JSX.Element {
             </Link>
           </nav>
 
-          <CopiedOrdersPage />
+          {subscriptionId ? (
+            <CopiedOrdersPage subscriptionId={subscriptionId} />
+          ) : (
+            <section role="status" className="rounded border bg-card p-4 text-sm">
+              Choose a copy subscription to view its order history. Open a subscription and select this view.
+            </section>
+          )}
         </div>
       </AppShell>
     </AuthGuard>
   );
+}
+
+export default function CopyTradingOrdersRoute(): JSX.Element {
+  return <Suspense fallback={<p role="status" className="p-4 text-sm">Loading subscription view…</p>}><CopyTradingOrdersRouteContent /></Suspense>;
 }

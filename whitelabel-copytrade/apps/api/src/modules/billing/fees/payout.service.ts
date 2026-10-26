@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 // # Responsibility: orchestrate typed tenant payouts and refuse unconfirmed cancellation of externally submitted payouts.
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PayoutRepository } from './payout.repository';
@@ -185,7 +186,7 @@ export class PayoutService {
           await this.settlementRepository.updateStatus(params.settlementId, SettlementState.PAID, {
             paidAt: new Date().toISOString(),
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_PAYOUT_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
         if (this.billingEventService) {
           this.billingEventService.onPayoutSucceeded({
             tenantId: params.tenantId,
@@ -266,7 +267,7 @@ export class PayoutService {
                 await this.settlementRepository.updateStatus(payout.settlementId, SettlementState.PAID, {
                   paidAt: new Date().toISOString(),
                 });
-              } catch {}
+              } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_PAYOUT_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
             } else if (statusResult.status === PayoutStatus.FAILED) {
               await this.auditService.logPayoutFailed(tenantId, payout.id, payout.settlementId, statusResult.failureReason || 'Provider failed');
             }

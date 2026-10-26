@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { PaymentService } from '../payments/payment.service';
@@ -497,9 +498,7 @@ export class RefundService {
         failureReason: reason,
         failedAt: new Date(),
       });
-    } catch {
-      // Ignore if model doesn't exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_REFUND_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
   }
 
   private async updatePaymentRefundedAmount(paymentId: string, refundAmount: Money): Promise<void> {

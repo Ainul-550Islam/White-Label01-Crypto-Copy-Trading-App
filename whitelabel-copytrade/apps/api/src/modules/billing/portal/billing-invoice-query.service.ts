@@ -1,3 +1,4 @@
+import { recordMoneyPathFailure } from '../../../common/money-path-failure';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InvoiceRepository } from '../finance/invoice.repository';
 import { InvoicePdfService } from '../finance/invoice-pdf.service';
@@ -36,7 +37,7 @@ export class BillingInvoiceQueryService {
     return mapped;
   }
 
-  async getInvoiceDetail(tenantId: string, invoiceId: string): Promise<PortalInvoiceSummary & { lines?: any[]; taxSummary?: any[]; paymentReference?: any }> {
+  async getInvoiceDetail(tenantId: string, invoiceId: string): Promise<PortalInvoiceSummary & { lines?: any[]; taxSummary?: any[]; paymentReference?: any; detailsAvailability: 'AVAILABLE' | 'UNAVAILABLE'; detailsFailureCode?: string }> {
     const invoice = await this.invoiceRepository.findById(invoiceId, tenantId);
     if (!invoice) {
       throw new NotFoundException('Invoice not found');
@@ -53,14 +54,22 @@ export class BillingInvoiceQueryService {
     let lines: any[] | undefined;
     let taxSummary: any[] | undefined;
     let paymentReference: any | undefined;
+    let detailsAvailability: 'AVAILABLE' | 'UNAVAILABLE' = 'UNAVAILABLE';
+    let detailsFailureCode: string | undefined;
 
     try {
       const pdfData = await this.invoicePdfService.generateInvoicePdfData(invoiceId, tenantId);
       lines = pdfData.lineItems as any;
       taxSummary = pdfData.taxSummary as any;
       paymentReference = pdfData.paymentReference;
-    } catch {
-      // Fallback: no detailed lines
+      detailsAvailability = 'AVAILABLE';
+    } catch (error) {
+      const failure = recordMoneyPathFailure(error, {
+        code: 'BILLING_BILLING_INVOICE_QUERY_OPERATION_1_FAILED',
+        tenantId,
+        entityId: invoiceId,
+      });
+      detailsFailureCode = failure.code;
     }
 
     return {
@@ -68,6 +77,8 @@ export class BillingInvoiceQueryService {
       lines,
       taxSummary,
       paymentReference,
+      detailsAvailability,
+      ...(detailsFailureCode ? { detailsFailureCode } : {}),
     };
   }
 

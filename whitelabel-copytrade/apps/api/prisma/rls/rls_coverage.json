@@ -1,6 +1,6 @@
 {
   "schema": "part11-rls-coverage-v1",
-  "stamp": "20261008130000",
+  "stamp": "20261101000000",
   "policyName": "tenant_isolation",
   "functionName": "wlct_current_tenant_id",
   "covered": [

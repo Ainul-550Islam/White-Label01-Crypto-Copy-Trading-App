@@ -38,15 +38,26 @@ const migrationPath = join(
   'api',
   'prisma',
   'migrations',
-  `${coverage.stamp}_part11_row_level_security`,
+  `${coverage.stamp}_rls_policy_gap_close`,
   'migration.sql',
 );
 const migrationText = readFileSync(migrationPath, 'utf8');
 const migrationsDirectory = join(repoRoot, 'apps', 'api', 'prisma', 'migrations');
-const part11MigrationTexts = readdirSync(migrationsDirectory, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && /^\d{14}_part11_row_level_security$/.test(entry.name))
+const part11MigrationEntries = readdirSync(migrationsDirectory, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && /^\d{14}_(?:part11_row_level_security|rls_policy_gap_close)$/.test(entry.name))
+  .sort((left, right) => left.name.localeCompare(right.name));
+const part11MigrationTexts = part11MigrationEntries
   .map((entry) => readFileSync(join(migrationsDirectory, entry.name, 'migration.sql'), 'utf8'));
 const allMigrationText = part11MigrationTexts.join('\n');
+
+function collectMigrationSql(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const fullPath = join(directory, entry.name);
+    if (entry.isDirectory()) return collectMigrationSql(fullPath);
+    return entry.isFile() && entry.name === 'migration.sql' ? [readFileSync(fullPath, 'utf8')] : [];
+  });
+}
+const allMigrationSqlFiles = collectMigrationSql(migrationsDirectory);
 const enableText = readFileSync(join(repoRoot, 'apps', 'api', 'prisma', 'rls', 'enable.sql'), 'utf8');
 const disableText = readFileSync(join(repoRoot, 'apps', 'api', 'prisma', 'rls', 'disable.sql'), 'utf8');
 
@@ -108,7 +119,52 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
       expect(allMigrationSql).not.toContain(`ON "${table}"`);
     }
     expect([...allMigrationText.matchAll(/CREATE POLICY /g)]).toHaveLength(truth.covered.length);
-    expect([...migrationText.matchAll(/CREATE POLICY /g)]).toHaveLength(1);
+
+    const earlierMigrationTexts = part11MigrationEntries
+      .filter((entry) => entry.name.slice(0, 14) < coverage.stamp)
+      .map((entry) => readFileSync(join(migrationsDirectory, entry.name, 'migration.sql'), 'utf8'));
+    const policyTablePattern = /CREATE POLICY \w+ ON "([^"]+)"/g;
+    const earlierPolicyTables = new Set(
+      earlierMigrationTexts.flatMap((text) => [...sqlOnly(text).matchAll(policyTablePattern)].map((match) => match[1] as string)),
+    );
+    const expectedPolicyDelta = truth.covered
+      .map(([table]) => table)
+      .filter((table) => !earlierPolicyTables.has(table))
+      .sort();
+    const currentPolicyTables = [...sqlOnly(migrationText).matchAll(policyTablePattern)]
+      .map((match) => match[1] as string)
+      .sort();
+    expect(currentPolicyTables).toEqual(expectedPolicyDelta);
+  });
+
+  it('requires a policy for every table enabled by a migration or the DBA enable script', () => {
+    const migrationSql = allMigrationSqlFiles.map(sqlOnly).join('\n');
+    const policySql = allMigrationSqlFiles.map(sqlOnly).join('\n');
+    const policyTables = new Set(
+      [...policySql.matchAll(/CREATE POLICY \w+ ON "([^"]+)"/g)].map((match) => match[1] as string),
+    );
+    const enabledTables = new Set(
+      [...migrationSql.matchAll(/ALTER TABLE "([^"]+)" ENABLE ROW LEVEL SECURITY/g)].map((match) => match[1] as string),
+    );
+    const dbaEnabledTables = new Set(
+      [...enableSql.matchAll(/ALTER TABLE "([^"]+)" ENABLE ROW LEVEL SECURITY/g)].map((match) => match[1] as string),
+    );
+
+    for (const table of new Set([...enabledTables, ...dbaEnabledTables])) {
+      expect(policyTables.has(table)).toBe(true);
+    }
+  });
+
+  it('keeps lead-trader applications in the generated tenant-RLS surface', () => {
+    const application = truth.covered.find(([table]) => table === 'lead_trader_applications');
+    expect(application).toEqual(['lead_trader_applications', 'LeadTraderApplication']);
+    expect(coverage.covered).toContainEqual({ table: 'lead_trader_applications', model: 'LeadTraderApplication' });
+    const policy = new RegExp(`CREATE POLICY ${coverage.policyName} ON "lead_trader_applications"`, 'g');
+    expect([...allMigrationText.matchAll(policy)]).toHaveLength(1);
+    expect(enableText).toContain('ALTER TABLE "lead_trader_applications" ENABLE ROW LEVEL SECURITY;');
+    expect(enableText).toContain('ALTER TABLE "lead_trader_applications" FORCE ROW LEVEL SECURITY;');
+    expect(disableText).toContain('ALTER TABLE "lead_trader_applications" NO FORCE ROW LEVEL SECURITY;');
+    expect(disableText).toContain('ALTER TABLE "lead_trader_applications" DISABLE ROW LEVEL SECURITY;');
   });
 
   it('the GUC name the function reads is the name the service helper writes', () => {

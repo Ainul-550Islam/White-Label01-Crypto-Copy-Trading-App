@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CashLedgerService } from './cash-ledger.service';
@@ -92,7 +93,7 @@ export class NavService {
           adjustments = add(adjustments, adj.amount);
         }
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_NAV_OPERATION_1_FAILED', tenantId: tenantId, entityId: profileId }); }
 
     let nav: string | null = null;
     let canPublish = true;
@@ -110,9 +111,7 @@ export class NavService {
       try {
         const grossNet = valuation.netValued;
         nav = add(add(cashBase, grossNet), adjustments);
-      } catch {
-        nav = null;
-      }
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_NAV_OPERATION_2_FAILED', tenantId: tenantId, entityId: profileId }); }
       dataCompleteness = 'MISSING_PRICE_INCOMPLETE';
     } else {
       try {

@@ -223,7 +223,7 @@ non-re writable by construction rather than by policy (docs/PART17_DURABLE_INCID
 | --- | --- |
 | Helmet security headers | `apps/api/src/main.ts` |
 | HSTS, `X-Frame-Options: DENY`, `nosniff` | API + `apps/admin-web/next.config.mjs` |
-| Content-Security-Policy with per-request nonce | `apps/admin-web/src/middleware.ts` |
+| Content-Security-Policy with per-request nonce | `apps/admin-web/src/proxy.ts` |
 | CORS allowlist | `CORS_ALLOWED_ORIGINS` |
 | HTTPS enforced in mobile production builds | `apps/mobile/lib/core/config/app_config.dart` |
 

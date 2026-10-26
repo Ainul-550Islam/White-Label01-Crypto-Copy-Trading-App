@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { forEachTenant, listBillableTenantIds } from '../finance/tenant-iteration';
 import { Injectable, Logger } from '@nestjs/common';
 import { UsageEventRepository } from './usage-event.repository';
@@ -52,7 +53,7 @@ export class UsageReconciliationService {
             } else if (meterKey === MeterKey.TRADERS) {
               runtimeTotal = await (this.prisma as any).tradingAccount?.count({ where: { tenantId, deletedAt: null } }) || null;
             }
-          } catch {}
+          } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_USAGE_RECONCILIATION_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
         }
 
         // For other meters, try to get from events

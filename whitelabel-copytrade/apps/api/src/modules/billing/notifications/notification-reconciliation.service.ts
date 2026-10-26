@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingNotificationAuditService } from './billing-notification.audit';
@@ -361,7 +362,7 @@ export class NotificationReconciliationService {
               detectedAt: new Date().toISOString(),
             });
           }
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_NOTIFICATION_RECONCILIATION_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
       }
     } catch (e: any) {
       this.logger.warn(`detectWebhookMismatch failed: ${e.message}`);

@@ -16,8 +16,10 @@
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
     "plugins": [{ "name": "next" }],
+    "types": ["jest", "node"],
     "paths": {
       "@/*": ["./src/*"],
+      "@wlct/utils/api-error": ["../../packages/utils/src/api-error.ts"],
       "@wlct/shared-types": ["../../packages/shared-types/src/index.ts"],
       "@wlct/validation": ["../../packages/validation/src/index.ts"]
     }

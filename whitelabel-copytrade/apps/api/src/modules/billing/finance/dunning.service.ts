@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import type { DunningCase, CreateDunningInput, DunningRetryInput, DunningFilter, DunningPolicy } from './dunning.types';
@@ -424,9 +425,7 @@ export class DunningService {
       });
 
       await this.auditService.logDunningSuspended(dunningCase.tenantId, dunningCase.id, dunningCase.paymentId, `Suspended after ${dunningCase.attempt} attempts`);
-    } catch {
-      // Model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_DUNNING_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     // Note: Actual subscription suspension should be coordinated via
     // existing TenantSubscription semantics, not auto-invented here

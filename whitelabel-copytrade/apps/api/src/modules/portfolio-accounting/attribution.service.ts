@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Responsibility: derive deterministic portfolio attribution from ledger-backed PnL components.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -70,9 +71,7 @@ export class AttributionService {
         },
         orderBy: { sourceTimestamp: 'asc' },
       });
-    } catch {
-      events = [];
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ATTRIBUTION_OPERATION_1_FAILED', tenantId: tenantId, entityId: profileId }); }
 
     const attributionMap = new Map<string, string>();
 
@@ -135,7 +134,7 @@ export class AttributionService {
           const existing = attributionMap.get(fee.cashFlowType) ?? '0';
           attributionMap.set(fee.cashFlowType, add(existing, `-${feeValue}`)); // fees negative attribution
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ATTRIBUTION_OPERATION_2_FAILED', tenantId: tenantId, entityId: profileId }); }
     }
 
     let totalAttributed = '0';
@@ -224,7 +223,7 @@ export class AttributionService {
     try {
       const existing = await (this.prisma as any).portfolioAttributionRecord.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) return toAttributionRecordView(existing);
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ATTRIBUTION_OPERATION_3_FAILED', tenantId: params.tenantId, entityId: idempotencyKey }); }
 
     try {
       // Columns: dimensionId (the dimension value) and pnlContribution; the percentage is kept in evidence.

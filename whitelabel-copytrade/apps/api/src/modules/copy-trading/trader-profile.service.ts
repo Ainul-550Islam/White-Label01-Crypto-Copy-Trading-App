@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
@@ -189,13 +190,13 @@ export class TraderProfileService {
   async incrementFollowerCount(tenantId: string, traderId: string): Promise<void> {
     try {
       await (this.prisma as any).traderProfile.update({ where: { id: traderId }, data: { followerCount: { increment: 1 }, updatedAt: new Date() } });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_TRADER_PROFILE_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
   }
 
   async decrementFollowerCount(tenantId: string, traderId: string): Promise<void> {
     try {
       await (this.prisma as any).traderProfile.update({ where: { id: traderId }, data: { followerCount: { decrement: 1 }, updatedAt: new Date() } });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_TRADER_PROFILE_OPERATION_2_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
   }
 
   /**

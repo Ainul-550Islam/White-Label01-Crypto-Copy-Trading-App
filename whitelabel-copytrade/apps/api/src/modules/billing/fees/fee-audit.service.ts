@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { randomUUID } from 'crypto';
@@ -96,7 +97,7 @@ export class FeeAuditService {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_AUDIT_OPERATION_1_FAILED', tenantId: input.tenantId, entityId: 'UNAVAILABLE' }); }
         return;
       }
       this.logger.warn(`Failed to create fee audit log: ${error.message}`);

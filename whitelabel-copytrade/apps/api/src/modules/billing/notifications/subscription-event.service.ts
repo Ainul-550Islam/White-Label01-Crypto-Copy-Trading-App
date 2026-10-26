@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingEventService } from './billing-event.service';
@@ -85,7 +86,7 @@ export class SubscriptionEventService {
           appName: process.env.APP_NAME || 'WLCT',
         });
         notified++;
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_SUBSCRIPTION_EVENT_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
     }
 
     return { checked: trials.length, notified };

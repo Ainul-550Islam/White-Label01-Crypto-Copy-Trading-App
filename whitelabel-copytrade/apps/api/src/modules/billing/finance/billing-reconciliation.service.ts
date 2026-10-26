@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingLedgerRepository } from './billing-ledger.repository';
@@ -234,13 +235,9 @@ export class BillingReconciliationService {
               resolution: null,
             });
           }
-        } catch {
-          // Ignore individual check failures
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
       }
-    } catch {
-      // Payment model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_2_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     return issues;
   }
@@ -290,9 +287,7 @@ export class BillingReconciliationService {
           });
         }
       }
-    } catch {
-      // Invoice model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_3_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     return issues;
   }
@@ -341,13 +336,9 @@ export class BillingReconciliationService {
               resolution: null,
             });
           }
-        } catch {
-          // Ignore
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_4_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
       }
-    } catch {
-      // Model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_5_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     return issues;
   }
@@ -399,13 +390,9 @@ export class BillingReconciliationService {
               resolution: null,
             });
           }
-        } catch {
-          // Ignore
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_6_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
       }
-    } catch {
-      // Model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_7_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     return issues;
   }
@@ -450,13 +437,9 @@ export class BillingReconciliationService {
               resolution: null,
             });
           }
-        } catch {
-          // Ignore
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_8_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
       }
-    } catch {
-      // Model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_9_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     return issues;
   }
@@ -512,13 +495,9 @@ export class BillingReconciliationService {
               resolution: null,
             });
           }
-        } catch {
-          // Ignore individual failures
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_10_FAILED', tenantId: entry.tenantId, entityId: entry.id }); }
       }
-    } catch {
-      // Ledger model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_11_FAILED', tenantId: filter?.tenantId ?? 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     return issues;
   }
@@ -566,13 +545,9 @@ export class BillingReconciliationService {
               resolution: null,
             });
           }
-        } catch {
-          // Ignore
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_12_FAILED', tenantId: payment.tenantId, entityId: payment.id }); }
       }
-    } catch {
-      // Model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_13_FAILED', tenantId: filter?.tenantId ?? 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     return issues;
   }
@@ -617,13 +592,9 @@ export class BillingReconciliationService {
               resolution: null,
             });
           }
-        } catch {
-          // Ignore
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_14_FAILED', tenantId: payment.tenantId, entityId: payment.id }); }
       }
-    } catch {
-      // Model may not exist
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_BILLING_RECONCILIATION_OPERATION_15_FAILED', tenantId: filter?.tenantId ?? 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
 
     return issues;
   }

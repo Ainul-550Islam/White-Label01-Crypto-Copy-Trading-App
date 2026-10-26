@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Generates/retrieves unique deposit addresses per tenant/user/asset/network
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -46,7 +47,7 @@ export class DepositAddressService {
         this.logger.log({ event: 'custody.deposit_address.existing', tenantId, walletId, address: existing.address });
         return existing;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_DEPOSIT_ADDRESS_OPERATION_1_FAILED', tenantId: tenantId, entityId: accountId }); }
 
     // Verify wallet belongs to tenant and is active
     const wallet = await (this.prisma as any).custodyWallet.findFirst({ where: { id: walletId, tenantId } });

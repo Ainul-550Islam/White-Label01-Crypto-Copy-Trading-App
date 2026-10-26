@@ -55,7 +55,7 @@ export function TraderComparisonPage({ initialIds = [] }: TraderComparisonPagePr
   return (
     <PageContainer
       title="Compare Traders"
-      description="Evaluate up to 4 traders side by side across canonical performance, risk, venues, and published strategies"
+      description="Evaluate up to 4 traders side by side across verified performance, risk, venues, and published strategies"
     >
       <div className="space-y-6" data-testid="trader-comparison-page">
         {/* Trader Selector */}
@@ -64,7 +64,7 @@ export function TraderComparisonPage({ initialIds = [] }: TraderComparisonPagePr
             <div>
               <h2 className="text-sm font-semibold">Select Traders to Compare (Max 4)</h2>
               <p className="text-xs text-muted">
-                All comparison metrics are sourced from canonical fills and open position ledgers.
+                All comparison metrics are sourced from executed fills and open position ledgers.
               </p>
             </div>
             <Link href="/traders" className="text-xs font-medium underline">
@@ -100,7 +100,7 @@ export function TraderComparisonPage({ initialIds = [] }: TraderComparisonPagePr
           error={tradersCatalog.error ?? comparisonQuery.error}
           isEmpty={entries.length === 0}
           emptyTitle="No traders selected for comparison"
-          emptyDescription="Select up to 4 public traders above to compare their canonical performance and risk metrics."
+          emptyDescription="Select up to 4 public traders above to compare their performance and risk metrics."
           onRetry={() => {
             void tradersCatalog.refetch();
             void comparisonQuery.refetch();

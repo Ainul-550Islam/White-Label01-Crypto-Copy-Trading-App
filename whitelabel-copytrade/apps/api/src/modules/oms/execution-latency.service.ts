@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { randomUUID } from 'crypto';
@@ -181,7 +182,7 @@ export class ExecutionLatencyService {
     // Persist if model exists
     try {
       await (this.prisma as any).omsExecutionLatency.create({ data: { ...metrics, signalTimestampMicros: signalMicros?.toString() ?? null, intentTimestampMicros: intentMicros?.toString() ?? null, submitTimestampMicros: submitMicros?.toString() ?? null, ackTimestampMicros: ackMicros?.toString() ?? null, firstFillTimestampMicros: firstFillMicros?.toString() ?? null, completeFillTimestampMicros: completeFillMicros?.toString() ?? null } });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_EXECUTION_LATENCY_OPERATION_1_FAILED', tenantId: tenantId, entityId: intentId }); }
 
     return metrics;
   }

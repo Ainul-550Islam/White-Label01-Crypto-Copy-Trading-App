@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingNotificationEventKey, NotificationChannel, MANDATORY_BILLING_EVENTS } from './billing-notification.types';
@@ -66,7 +67,7 @@ export class NotificationPreferenceService {
           enabled: p.enabled,
         }));
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_NOTIFICATION_PREFERENCE_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: userId }); }
 
     // Fallback to billing preferences
     const billingPrefs = await this.getPreferences(tenantId, userId);
@@ -231,7 +232,7 @@ export class NotificationPreferenceService {
             });
             if (updated) return this.mapToDomain(updated);
           }
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_NOTIFICATION_PREFERENCE_OPERATION_2_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
       }
       throw error;
     }

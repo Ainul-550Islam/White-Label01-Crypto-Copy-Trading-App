@@ -1,114 +1,65 @@
-// # Uses shared TradingState
-"use client";
+// # Uses persisted closed-period TWR rankings and keeps incomplete windows explicitly unranked.
+'use client';
 import type { JSX } from 'react';
 
-import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
-import { tradingApi } from "@/api/trading-api";
-import { PageContainer } from "@/layout/page-container";
-import { StatusBadge } from "@/components/status-badge";
-import { Money } from "@/components/money";
-import { TradingStateBoundary } from "@/components/trading-state";
-import { formatWinRatePercent } from "./trader-metric-definitions";
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
+import { tradingApi, type TraderRankingTimeframe } from '@/api/trading-api';
+import { PageContainer } from '@/layout/page-container';
+import { TradingStateBoundary } from '@/components/trading-state';
 
 export function LeaderboardPage(): JSX.Element {
-  const [sortBy, setSortBy] = useState<string>("followers");
-
+  const [timeframe, setTimeframe] = useState<TraderRankingTimeframe>('30D');
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["leaderboard", sortBy],
-    queryFn: () => tradingApi.getLeaderboard({ sortBy, limit: 25 }),
+    queryKey: ['leaderboard', timeframe],
+    queryFn: () => tradingApi.getLeaderboard({ timeframe, limit: 25 }),
   });
-
   const rows = data?.data ?? [];
+  const methodology = data?.methodology;
 
   return (
     <PageContainer
       title="Trader Leaderboard"
-      description="Ranked traders evaluated by canonical realized PnL, executed volume, win rate, and follower trust"
+      description="Ranks traders only from complete, reconciled, contiguous closed-period time-weighted returns."
     >
       <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs">
-          <label htmlFor="leaderboard-sort" className="font-medium text-muted">
-            Rank By:
-          </label>
-          <select
-            id="leaderboard-sort"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="rounded border px-3 py-1.5 text-xs"
-          >
-            <option value="followers">Followers</option>
-            <option value="pnl">Realized PnL</option>
-            <option value="volume">Executed Volume</option>
-            <option value="winRate">Win Rate</option>
+        <label className="flex items-center gap-2 text-xs font-medium text-muted" htmlFor="leaderboard-timeframe">
+          Ranking window
+          <select id="leaderboard-timeframe" value={timeframe} onChange={(event) => setTimeframe(event.target.value as TraderRankingTimeframe)} className="rounded border px-3 py-1.5 text-xs">
+            <option value="7D">7D</option><option value="30D">30D</option><option value="90D">90D</option>
           </select>
-        </div>
-        <Link href="/traders/compare" className="text-xs font-medium underline">
-          Compare Top Traders →
-        </Link>
+        </label>
+        <Link href="/traders/compare" className="text-xs font-medium underline">Compare Top Traders →</Link>
       </div>
-
-      <TradingStateBoundary
-        isLoading={isLoading}
-        error={error}
-        isEmpty={rows.length === 0}
-        emptyTitle="Leaderboard is empty"
-        emptyDescription="No ranked traders are currently available for this tenant."
-        onRetry={() => void refetch()}
-      >
+      {methodology && (
+        <section className="mb-4 rounded border bg-card p-3 text-xs" data-testid="leaderboard-methodology">
+          <h2 className="font-semibold">{timeframe} time-weighted return</h2>
+          <p className="mt-1">{methodology.description}</p>
+          <p className="mt-1">{methodology.rankedCount} ranked; {methodology.unrankedCount} unranked; {methodology.minimumPeriodCount} closed periods required.</p>
+          <p className="mt-1">Start flows are included in opening NAV; end flows are excluded from closing NAV.</p>
+          {methodology.asOf && <p className="mt-1">As of <time dateTime={methodology.asOf}>{methodology.asOf}</time>; this is not a claim of current market data.</p>}
+          {methodology.reason && <p className="mt-1">{methodology.reason}</p>}
+        </section>
+      )}
+      <TradingStateBoundary isLoading={isLoading} error={error} isEmpty={rows.length === 0} emptyTitle="Leaderboard is unavailable" emptyDescription="No verified ranking records are available for this window." onRetry={() => void refetch()}>
         <div className="overflow-x-auto rounded border bg-card">
           <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b bg-slate-50 text-muted">
-                <th className="p-3">Rank</th>
-                <th className="p-3">Trader</th>
-                <th className="p-3">Verification</th>
-                <th className="p-3">Realized PnL</th>
-                <th className="p-3">Win Rate</th>
-                <th className="p-3">Volume</th>
-                <th className="p-3">Followers</th>
-                <th className="p-3">Provenance</th>
-                <th className="p-3">Action</th>
-              </tr>
-            </thead>
+            <thead><tr className="border-b bg-slate-50 text-muted"><th className="p-3">Rank</th><th className="p-3">Trader</th><th className="p-3">Verification</th><th className="p-3">{timeframe} time-weighted return</th><th className="p-3">Evidence</th><th className="p-3">Action</th></tr></thead>
             <tbody className="divide-y">
-              {rows.map((row) => (
-                <tr key={row.traderId}>
-                  <td className="p-3 font-mono font-semibold">#{row.rank}</td>
-                  <td className="p-3 font-medium">
-                    <Link href={`/traders/${row.traderId}`} className="underline">
-                      {row.displayName}
-                    </Link>
-                  </td>
-                  <td className="p-3">
-                    <StatusBadge status={row.verificationState} />
-                  </td>
-                  <td className="p-3 font-mono font-semibold">
-                    <Money value={row.performance.realizedPnl} />
-                  </td>
-                  <td className="p-3 font-mono">
-                    {formatWinRatePercent(row.performance.winRate)}
-                  </td>
-                  <td className="p-3 font-mono">
-                    <Money value={row.totalVolume} />
-                  </td>
-                  <td className="p-3">{row.followerCount}</td>
-                  <td className="p-3">
-                    <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-                      {row.performance.isActual ? "ACTUAL" : "ESTIMATED"}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    <Link
-                      href={`/traders/${row.traderId}/performance`}
-                      className="underline"
-                    >
-                      Analytics
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((row) => {
+                const available = row.periodStatus === 'AVAILABLE' && typeof row.periodReturnPercent === 'string' && row.calculationVersion !== null;
+                return (
+                  <tr key={row.traderId}>
+                    <td className="p-3 font-mono font-semibold">{available && row.rank !== null ? `#${row.rank}` : '—'}</td>
+                    <td className="p-3 font-medium"><Link href={`/traders/${encodeURIComponent(row.traderId)}`} className="underline">{row.displayName}</Link></td>
+                    <td className="p-3">{row.verificationState}</td>
+                    <td className="p-3 font-mono">{available ? `${row.periodReturnPercent}%` : 'Unranked — return unavailable'}</td>
+                    <td className="p-3">{available ? `${row.observationCount ?? 0} closed periods · ${row.sourceCalculationVersion ?? row.calculationVersion}${row.sourceCalculationVersion && row.calculationVersion ? ` · ${row.calculationVersion}` : ""}` : row.unavailableReason ?? 'No verified period evidence'}</td>
+                    <td className="p-3"><Link href={`/traders/${encodeURIComponent(row.traderId)}/performance`} className="underline">Analytics</Link></td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -32,3 +32,27 @@ export function resolveActiveCustomerRoutes(
     return true;
   });
 }
+
+
+export interface CustomerFeatureCatalogEntry {
+  key: string;
+  requiresEntitlement?: string;
+  requiresPermission?: readonly string[];
+  requiresRole?: readonly string[];
+}
+
+export const featureCatalog: readonly CustomerFeatureCatalogEntry[] = [
+  { key: 'dashboard' },
+  { key: 'portfolio', requiresPermission: ['portfolio:read', 'risk:read'] },
+  { key: 'traders', requiresEntitlement: 'copy_trading' },
+  { key: 'strategies', requiresEntitlement: 'copy_trading' },
+  { key: 'copy_trading', requiresEntitlement: 'copy_trading' },
+  { key: 'exchanges', requiresPermission: ['exchange:read'] },
+  { key: 'funding', requiresEntitlement: 'funding' },
+  { key: 'billing' },
+  { key: 'statements', requiresPermission: ['portfolio:read'] },
+  { key: 'security' },
+  { key: 'notifications' },
+  { key: 'account' },
+  { key: 'risk_exposure', requiresPermission: ['risk:read', 'portfolio:read'] },
+];

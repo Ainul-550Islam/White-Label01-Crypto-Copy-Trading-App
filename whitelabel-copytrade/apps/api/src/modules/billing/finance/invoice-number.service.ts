@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { CacheService } from '../../../infrastructure/redis/cache.service';
@@ -166,8 +167,12 @@ export class InvoiceNumberService {
       const client = this.redis.client;
       const value = await client.get(this.COUNTER_KEY);
       return value ? parseInt(value, 10) : 0;
-    } catch {
-      return 0;
+    } catch (error) {
+      failClosedMoneyOperation(error, {
+        code: 'BILLING_INVOICE_GLOBAL_SEQUENCE_LOOKUP_FAILED',
+        tenantId: 'UNAVAILABLE',
+        entityId: this.COUNTER_KEY,
+      });
     }
   }
 
@@ -177,8 +182,12 @@ export class InvoiceNumberService {
       const client = this.redis.client;
       const value = await client.get(key);
       return value ? parseInt(value, 10) : 0;
-    } catch {
-      return 0;
+    } catch (error) {
+      failClosedMoneyOperation(error, {
+        code: 'BILLING_INVOICE_TENANT_SEQUENCE_LOOKUP_FAILED',
+        tenantId,
+        entityId: 'invoice-sequence',
+      });
     }
   }
 }

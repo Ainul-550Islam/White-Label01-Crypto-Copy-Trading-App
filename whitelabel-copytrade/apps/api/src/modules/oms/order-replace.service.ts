@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
@@ -142,7 +143,7 @@ export class OrderReplaceService {
         where: { id: newIntent.id },
         data: { metadata: { ...(newIntent.metadata as any), replacedFrom: intentId, replaceReason: reason } },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_ORDER_REPLACE_OPERATION_1_FAILED', tenantId: tenantId, entityId: intentId }); }
 
     this.logger.log(`Intent ${intentId} REPLACED by ${newIntent.id} tenant ${tenantId} qty ${newQuantity ?? 'same'} price ${newPrice ?? 'same'}`);
     return { originalIntentId: intentId, newIntentId: newIntent.id, riskDecisionId: riskResult.id };

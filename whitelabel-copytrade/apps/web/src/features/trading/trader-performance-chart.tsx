@@ -39,11 +39,11 @@ export function TraderPerformanceChart({ performance }: TraderPerformanceChartPr
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="trader-performance-chart">
       <div className="rounded border bg-card p-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Canonical PnL & Drawdown Profile</h3>
+          <h3 className="text-sm font-semibold">PnL & Drawdown Profile</h3>
           <span className="text-xs text-muted">Source: {performance.source || "FILLS"}</span>
         </div>
         <p className="mt-1 text-xs text-muted">
-          Deterministic breakdown derived from canonical fills and open mark-to-market positions.
+          Deterministic breakdown derived from executed fills and open mark-to-market positions.
         </p>
 
         <div className="mt-4 space-y-3">

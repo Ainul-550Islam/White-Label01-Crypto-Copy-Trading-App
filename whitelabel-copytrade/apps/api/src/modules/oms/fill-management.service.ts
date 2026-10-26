@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Records partial and complete fills with precision-safe remaining quantity and average price tracking
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -212,7 +213,7 @@ export class FillManagementService {
           where: { id: orderId },
           data: { filledQuantity: cumulativeQuantity as any, averageFillPrice: averagePrice as any } as any,
         });
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_FILL_MANAGEMENT_OPERATION_1_FAILED', tenantId: tenantId, entityId: intentId }); }
     }
 
     // Transition lifecycle

@@ -306,7 +306,7 @@ describe('plan repository delete is tenant-scoped', () => {
 describe('in-app notifications publish realtime for real', () => {
   it('emits NOTIFICATION_CREATED to the user after persisting', async () => {
     const record = { id: 'n1' };
-    const prisma = { notification: { create: jest.fn(async () => record) } };
+    const prisma = { notification: { findFirst: jest.fn(async () => null), create: jest.fn(async () => record) } };
     const realtime = { emitToUser: jest.fn(async () => undefined) };
     const svc = new InAppNotificationService(prisma as any, realtime as any);
     const out = await svc.createNotification({
@@ -329,7 +329,7 @@ describe('in-app notifications publish realtime for real', () => {
 
   it('a realtime failure does not lose the persisted notification', async () => {
     const record = { id: 'n2' };
-    const prisma = { notification: { create: jest.fn(async () => record) } };
+    const prisma = { notification: { findFirst: jest.fn(async () => null), create: jest.fn(async () => record) } };
     const realtime = {
       emitToUser: jest.fn(async () => {
         throw new Error('redis down');

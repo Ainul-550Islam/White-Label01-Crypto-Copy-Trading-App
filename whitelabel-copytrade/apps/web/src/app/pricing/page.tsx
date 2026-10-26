@@ -83,7 +83,7 @@ export default function PricingPage(): JSX.Element {
             <h2 className="text-base font-semibold">Organisation-Scoped Pricing Catalogue</h2>
             <p className="text-sm text-muted leading-relaxed">
               Plan pricing, billing intervals, trial windows, currency, and usage quotas are configured per
-              organisation on the backend and are never hardcoded in the browser. Sign in or create an account to
+              organisation on the backend and are provided by your organisation’s billing catalogue. Sign in or create an account to
               inspect the live plans published for your organisation and start a checkout session.
             </p>
             <div className="flex flex-wrap gap-3 pt-1">

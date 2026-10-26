@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { RealtimeEvent } from '@wlct/shared-types';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
@@ -49,7 +50,7 @@ export class InAppNotificationService {
         this.logger.log(`Idempotent in-app notification return by idempotencyKey: ${params.idempotencyKey}`);
         return existing;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_IN_APP_NOTIFICATION_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
 
     try {
       const record = await this.prisma.notification.create({
@@ -109,7 +110,7 @@ export class InAppNotificationService {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_IN_APP_NOTIFICATION_OPERATION_2_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
         return { id: randomUUID(), tenantId: params.tenantId, userId: params.userId, type: params.eventKey, title: params.title, fallback: true };
       }
       throw error;

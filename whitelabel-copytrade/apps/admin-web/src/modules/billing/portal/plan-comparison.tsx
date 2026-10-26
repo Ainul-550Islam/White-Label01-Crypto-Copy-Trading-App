@@ -100,7 +100,7 @@ export default function PlanComparisonPage() {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">Compare Plans</h1>
-      <p className="text-gray-600">Choose the plan that fits your needs. All pricing from canonical billing catalog.</p>
+      <p className="text-gray-600">Choose the plan that fits your needs. Pricing and features reflect your organisation’s current plans.</p>
 
       {message && (
         <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">{message}</div>

@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { PlansService } from '../plans.service';
@@ -40,9 +41,7 @@ export class FeePolicyService {
               isPlatformUser: true,
             });
             plan = dto;
-          } catch {
-            // ignore, fallback to subscription plan fields if present
-          }
+          } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_POLICY_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
         }
 
         if (plan) {

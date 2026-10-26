@@ -125,7 +125,7 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-xl font-bold">Plan Management - Tenant: {tenant?.name || tenantId}</h1>
-      <p className="text-sm text-gray-500">All plan data from canonical backend catalog. No direct subscription.planId mutation. All changes via existing billing services.</p>
+      <p className="text-sm text-gray-500">Plans and subscription changes are managed through the billing service.</p>
 
       {message && <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">{message}</div>}
 
@@ -163,13 +163,13 @@ export default function SaasPlanManagementPage({ tenantId }: { tenantId: string 
 
       <div className="bg-white border rounded-lg p-4">
         <div className="flex justify-between items-center mb-3">
-          <h3 className="font-medium">Available Plans (Canonical Catalog)</h3>
+          <h3 className="font-medium">Available Plans</h3>
           <label className="flex items-center gap-2 text-xs">
             <input type="checkbox" checked={atPeriodEnd} onChange={(e) => setAtPeriodEnd(e.target.checked)} />
             At period end
           </label>
         </div>
-        <p className="text-xs text-gray-500 mb-3">Price, currency, interval, features, limits from backend. No hardcoded Basic/Standard/Premium prices.</p>
+        <p className="text-xs text-gray-500 mb-3">Prices, billing intervals, features, and limits are maintained in the billing service.</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {plans.map((plan: any) => (
             <div key={plan.id} className={`border rounded p-4 ${currentPlanId === plan.id ? 'border-blue-500 bg-blue-50' : ''}`}>

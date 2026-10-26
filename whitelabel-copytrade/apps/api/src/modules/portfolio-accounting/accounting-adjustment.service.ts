@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
@@ -83,7 +84,7 @@ export class AccountingAdjustmentService {
     try {
       const existing = await (this.prisma as any).portfolioAccountingAdjustment.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return toAdjustmentView(existing);
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_ADJUSTMENT_OPERATION_1_FAILED', tenantId: tenantId, entityId: profileId }); }
 
     // If originalEventId provided, verify it exists and belongs to tenant/profile
     if (originalEventId) {
@@ -150,7 +151,7 @@ export class AccountingAdjustmentService {
             } as any,
           },
         });
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_ADJUSTMENT_OPERATION_2_FAILED', tenantId: tenantId, entityId: profileId }); }
     }
 
     // For correction, create a new accounting event that is the correction — original stays
@@ -190,7 +191,7 @@ export class AccountingAdjustmentService {
             },
           });
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_ADJUSTMENT_OPERATION_3_FAILED', tenantId: tenantId, entityId: profileId }); }
     }
 
     this.logger.log({ event: 'portfolio.adjustment.created', tenantId, profileId, adjustmentType, originalEventId });

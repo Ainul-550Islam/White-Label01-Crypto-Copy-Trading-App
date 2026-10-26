@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ExchangeAccountRepository } from './exchange-account.repository';
@@ -255,7 +256,7 @@ export class ExchangeAccountService {
       // Release slot on failure
       try {
         await this.limitGuard.release(enforcementActor, input.userId);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'EXCHANGES_EXCHANGE_ACCOUNT_OPERATION_1_FAILED', tenantId: input.tenantId, entityId: 'UNAVAILABLE' }); }
 
       // If the account row was created but the connect failed later, discard
       // it: never leave it ACTIVE, and never let it keep holding the key.
@@ -328,7 +329,7 @@ export class ExchangeAccountService {
       try {
         const actor = { tenantId, userId: actorId } as any;
         await this.limitGuard.release(actor, record.userId);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'EXCHANGES_EXCHANGE_ACCOUNT_OPERATION_2_FAILED', tenantId: tenantId, entityId: accountId }); }
     }
 
     await this.auditService.record({

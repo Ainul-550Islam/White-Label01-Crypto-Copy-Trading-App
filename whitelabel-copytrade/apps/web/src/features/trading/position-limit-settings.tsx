@@ -147,7 +147,7 @@ export function PositionLimitSettings(): JSX.Element {
                 className="w-full rounded-md border bg-background px-3 py-2"
               />
               <span className="block text-xs text-muted">
-                Counts active OMS intents and canonical open orders once per client order ID, including cancellation requests.
+                Counts active OMS intents and recorded open orders once per client order ID, including cancellation requests.
               </span>
             </label>
           </div>
@@ -197,7 +197,7 @@ export function PositionLimitSettings(): JSX.Element {
           </dl>
         ) : (
           <p className="mt-3 text-sm text-amber-700" role="status" data-testid="position-limit-usage-unknown">
-            Usage is unknown because one or more canonical position/order sources could not be read. The platform does not substitute zero.
+            Usage is unknown because one or more position or order records could not be read. The platform does not substitute zero.
           </p>
         )}
         <p className="mt-3 text-xs text-muted">Usage sampled at {new Date(view.asOf).toISOString()} UTC.</p>
@@ -207,12 +207,12 @@ export function PositionLimitSettings(): JSX.Element {
         <h3 className="font-semibold">How enforcement works</h3>
         <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
           <li>Open OMS intents reserve slots before they are persisted; concurrent submissions are serialized per tenant and account owner.</li>
-          <li>Positions and active OMS trades hold a slot until their canonical lifecycle reports them closed. Orders in cancellation or reconciliation states remain counted.</li>
+          <li>Positions and active OMS trades hold a slot until their recorded lifecycle reports them closed. Orders in cancellation or reconciliation states remain counted.</li>
           <li>A blank field means no user-wide ceiling; zero blocks new reservations. Lowering a limit does not cancel existing orders or positions.</li>
           <li>These are count limits, not notional or balance limits. Existing account risk checks, live-trading enablement, exchange credentials, kill switches, and execution gates still apply.</li>
           <li>Limits guard orders submitted through the platform OMS. Orders placed directly at an exchange cannot be blocked before they are synchronized into platform records.</li>
         </ul>
-        <p className="mt-3 text-xs text-muted">The usage view unions canonical non-zero positions, active OMS trades, and pending OMS/canonical order symbols by account and symbol; active order rows are de-duplicated by client order ID.</p>
+        <p className="mt-3 text-xs text-muted">The usage view unions non-zero positions, active OMS trades, and pending order symbols by account and symbol; active order rows are de-duplicated by client order ID.</p>
       </div>
     </section>
   );

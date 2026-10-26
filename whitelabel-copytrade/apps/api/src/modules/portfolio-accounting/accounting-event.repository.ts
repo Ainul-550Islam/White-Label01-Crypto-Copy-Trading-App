@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { deterministicAccountingFingerprint, redactSecrets } from './portfolio-accounting.types';
@@ -56,7 +57,7 @@ export class AccountingEventRepository {
         this.logger.log({ event: 'portfolio.event.idempotent_hit', idempotencyKey: params.idempotencyKey });
         return existing;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_EVENT_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: params.sourceId }); }
 
     const fingerprint = deterministicAccountingFingerprint({
       sourceType: params.sourceType,
@@ -76,7 +77,7 @@ export class AccountingEventRepository {
         this.logger.log({ event: 'portfolio.event.fingerprint_duplicate', fingerprint });
         return existingByFingerprint;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_EVENT_OPERATION_2_FAILED', tenantId: params.tenantId, entityId: params.sourceId }); }
 
     const created = await (this.prisma as any).portfolioAccountingEvent.create({
       data: {

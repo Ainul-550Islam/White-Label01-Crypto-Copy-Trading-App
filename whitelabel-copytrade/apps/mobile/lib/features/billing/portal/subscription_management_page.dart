@@ -318,7 +318,7 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
                   children: [
                     const Text('Change Plan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    const Text('From canonical catalog - no hardcoded pricing', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    const Text('Plan prices are managed by your organisation.', style: TextStyle(fontSize: 11, color: Colors.grey)),
                     const SizedBox(height: 12),
                     ..._plans.map((plan) {
                       final p = plan as Map<String, dynamic>;

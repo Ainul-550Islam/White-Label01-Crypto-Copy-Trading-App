@@ -174,7 +174,7 @@ export default function SaasTenantManagementPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <h3 className="font-medium mb-2">Effective Features (canonical entitlement)</h3>
+              <h3 className="font-medium mb-2">Effective Features</h3>
               <div className="space-y-1 max-h-64 overflow-y-auto">
                 {(selectedTenant.entitlements || []).map((e: any) => (
                   <div key={e.featureKey} className="flex justify-between text-xs border-b py-1">
@@ -185,7 +185,7 @@ export default function SaasTenantManagementPage() {
               </div>
             </div>
             <div>
-              <h3 className="font-medium mb-2">Limits (canonical plan limits)</h3>
+              <h3 className="font-medium mb-2">Plan Limits</h3>
               <div className="space-y-1 max-h-64 overflow-y-auto">
                 {(selectedTenant.limits || []).map((l: any) => (
                   <div key={l.limitKey} className="flex justify-between text-xs border-b py-1">
@@ -271,7 +271,7 @@ export default function SaasTenantManagementPage() {
                   <option key={p.id} value={p.id}>{p.name} - {p.code} - {p.price} {p.currency} / {p.interval}</option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500">Plan pricing from canonical catalog, never hardcoded. Provisioning is idempotent - duplicate slug returns existing.</p>
+              <p className="text-xs text-gray-500">Plan pricing is managed by the billing service. Reusing a tenant slug returns the existing tenant.</p>
             </div>
             <div className="flex gap-2 mt-4">
               <button onClick={handleProvision} disabled={provisionLoading || !provisionForm.slug || !provisionForm.name} className="flex-1 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50">

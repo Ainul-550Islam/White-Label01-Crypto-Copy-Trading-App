@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { SubscriptionsService } from '../subscriptions.service';
@@ -423,7 +424,7 @@ export class PaymentSubscriptionSyncService {
         where: { id: payment.id },
         data: { subscriptionId: subscription.id },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_PAYMENT_SUBSCRIPTION_SYNC_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: 'UNAVAILABLE' }); }
   }
 
   private async renewSubscription(existingSubscription: any, payment: PaymentRecord): Promise<void> {

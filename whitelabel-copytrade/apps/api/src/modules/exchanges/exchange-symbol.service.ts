@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeSymbol } from './exchange.types';
@@ -184,7 +185,7 @@ export class ExchangeSymbolService {
         try {
           await this.cache.set(`symbol:${input.tenantId}:${sym.canonicalSymbol}`, sym, 3600);
           await this.cache.set(`symbol:${input.tenantId}:${sym.exchangeSymbol}`, sym, 3600);
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'EXCHANGES_EXCHANGE_SYMBOL_OPERATION_1_FAILED', tenantId: input.tenantId, entityId: input.accountId }); }
       } catch (e: any) {
         this.logger.warn(`Failed to sync symbol ${sym.exchangeSymbol} tenant=${input.tenantId} error=${e.message}`);
       }
@@ -199,7 +200,7 @@ export class ExchangeSymbolService {
     try {
       const cached = await this.cache.get<ExchangeSymbol>(`symbol:${tenantId}:${canonicalSymbol}`);
       if (cached) return cached;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'EXCHANGES_EXCHANGE_SYMBOL_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     const record = await this.prisma.tradingSymbol.findFirst({
       where: { tenantId, symbol: canonicalSymbol },

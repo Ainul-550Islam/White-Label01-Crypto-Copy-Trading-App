@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CustodyAuditService } from './custody-audit.service';
@@ -77,7 +78,7 @@ export class WalletAddressService {
     try {
       const existingByKey = await (this.prisma as any).custodyWalletAddress.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existingByKey) return existingByKey;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_WALLET_ADDRESS_OPERATION_1_FAILED', tenantId: tenantId, entityId: accountId }); }
 
     const walletAddress = await (this.prisma as any).custodyWalletAddress.create({
       data: {

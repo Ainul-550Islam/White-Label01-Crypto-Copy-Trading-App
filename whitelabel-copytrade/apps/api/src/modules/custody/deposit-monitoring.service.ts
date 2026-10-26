@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Tracks confirmations and credits available balance upon threshold
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -51,7 +52,7 @@ export class DepositMonitoringService {
     let addressRecord: any = null;
     try {
       addressRecord = await (this.prisma as any).custodyWalletAddress.findFirst({ where: { tenantId, address: toAddress, networkId } });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_DEPOSIT_MONITORING_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     if (!addressRecord) {
       // Check if address is expected but not yet registered — create EXPECTED deposit
@@ -73,7 +74,7 @@ export class DepositMonitoringService {
         this.logger.log({ event: 'custody.deposit.idempotent_hit', idempotencyKey, transactionHash });
         return existing;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_DEPOSIT_MONITORING_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     // Check for duplicate transaction hash across different tenants — network-aware uniqueness
     try {
@@ -221,7 +222,7 @@ export class DepositMonitoringService {
           providerReference,
         });
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_DEPOSIT_MONITORING_OPERATION_3_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     if (newState === CustodyDepositState.CONFIRMED) {
       await this.auditService.log({

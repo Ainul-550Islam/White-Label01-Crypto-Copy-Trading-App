@@ -8,7 +8,10 @@ import { useAuth } from '@/auth/auth.store';
 import { featureCatalog } from '@/config/feature-config';
 import { permissionsAllowAny } from '@/auth/permissions';
 
-const navGroups = [
+interface SidebarNavItem { key: string; label: string; href: string; icon: string }
+interface SidebarNavGroup { label: string; items: SidebarNavItem[] }
+
+const navGroups: SidebarNavGroup[] = [
   {
     label: 'Main',
     items: [

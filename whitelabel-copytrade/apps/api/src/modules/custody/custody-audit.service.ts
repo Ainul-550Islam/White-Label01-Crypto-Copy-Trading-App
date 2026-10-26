@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CustodyAuditAction, redactSecrets } from './custody.types';
@@ -106,9 +107,7 @@ export class CustodyAuditService {
     let data: any[] = [];
     try {
       data = await (this.prisma as any).custodyAudit.findMany({ where, orderBy: { createdAt: 'asc' }, take: 10000 });
-    } catch {
-      data = [];
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_CUSTODY_AUDIT_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     // Ensure deterministic ordering and redaction
     const sorted = data.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());

@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountingPolicyService } from './accounting-policy.service';
@@ -49,7 +50,7 @@ export class AccountingPeriodService {
     try {
       const existing = await (this.prisma as any).portfolioAccountingPeriod.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_ACCOUNTING_PERIOD_OPERATION_1_FAILED', tenantId: tenantId, entityId: profileId }); }
 
     // Check for overlapping periods — conflict check
     try {

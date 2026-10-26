@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
@@ -45,9 +46,7 @@ export class ExecutionAckService {
     let intent: any;
     try {
       intent = await (this.prisma as any).omsOrderIntent.findFirst({ where: { tenantId, clientOrderId } });
-    } catch {
-      intent = null;
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_EXECUTION_ACK_OPERATION_1_FAILED', tenantId: tenantId, entityId: orderId }); }
     if (!intent) {
       intent = await this.prisma.order.findFirst({ where: { tenantId, clientOrderId } });
     }
@@ -72,9 +71,7 @@ export class ExecutionAckService {
         ackAlreadyPersisted = true;
         this.logger.log(`Duplicate ack row reused for lifecycle recovery clientOrderId ${clientOrderId} exchangeOrderId ${exchangeOrderId}`);
       }
-    } catch {
-      // model may not exist yet
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_EXECUTION_ACK_OPERATION_2_FAILED', tenantId: tenantId, entityId: orderId }); }
 
     // Persist ack only once; retry the authoritative lifecycle transition below even on a hit.
     if (!ackAlreadyPersisted) try {

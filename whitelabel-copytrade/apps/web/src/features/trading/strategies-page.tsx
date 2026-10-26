@@ -29,7 +29,7 @@ export function StrategiesPage(): JSX.Element {
   return (
     <PageContainer
       title="Strategies"
-      description="Published copy-trading strategies with canonical copy policy, risk constraints, and symbol/venue coverage"
+      description="Published copy-trading strategies with published copy policy, risk constraints, and symbol/venue coverage"
     >
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input

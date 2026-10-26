@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CopyExecutionRepository } from './copy-execution.repository';
@@ -180,7 +181,7 @@ export class CopyReconciliationService {
                 }
               }
             }
-          } catch {}
+          } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_COPY_RECONCILIATION_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
         }
 
         // Status mismatch - execution FILLED but order not FILLED
@@ -203,7 +204,7 @@ export class CopyReconciliationService {
               records.push(rec);
               incrementSummary(CopyReconciliationCategory.STATUS_MISMATCH);
             }
-          } catch {}
+          } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_COPY_RECONCILIATION_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
         }
       } catch (e: any) {
         this.logger.warn(`Reconciliation error for execution=${exec.id} error=${e.message}`);

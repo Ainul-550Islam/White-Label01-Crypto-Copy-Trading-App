@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Responsibility: build tenant-scoped position and lot accounting from authoritative positions and fills.
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -61,7 +62,7 @@ export class PositionAccountingService {
     try {
       const existing = await (this.prisma as any).portfolioPositionLot.findFirst({ where: { tenantId, idempotencyKey } });
       if (existing) return existing;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_POSITION_ACCOUNTING_OPERATION_1_FAILED', tenantId: tenantId, entityId: profileId }); }
 
     const lot = await (this.prisma as any).portfolioPositionLot.create({
       data: {

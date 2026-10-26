@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { UsageEventRepository } from './usage-event.repository';
 import { UsageMeterRepository } from './usage-meter.repository';
@@ -104,7 +105,7 @@ export class UsageExportService {
           periodEnd: q.periodEnd,
           isEnforced: q.isEnforced,
         }));
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_USAGE_EXPORT_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
     }
 
     const exportData = {

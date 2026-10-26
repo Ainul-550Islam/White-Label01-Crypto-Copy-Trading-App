@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 // # Responsibility: reconcile tenant fee accruals, settlements, and payouts without silently repairing ledger data.
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
@@ -139,7 +140,7 @@ export class FeeReconciliationService {
           for (const item of items) {
             try {
               sumMinor += parseToMinorUnits(item.feeAmount, item.currency);
-            } catch {}
+            } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_RECONCILIATION_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
           }
           const settlementMinor = parseToMinorUnits(settlement.finalSettlementAmount, settlement.currency);
           if (sumMinor !== settlementMinor) {
@@ -157,7 +158,7 @@ export class FeeReconciliationService {
             });
           }
         }
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_RECONCILIATION_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
     }
 
     // 3. Check payouts without finalized settlement
@@ -236,7 +237,7 @@ export class FeeReconciliationService {
               detectedAt: new Date().toISOString(),
             });
           }
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_RECONCILIATION_OPERATION_3_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
       }
 
       // Missing provider confirmation

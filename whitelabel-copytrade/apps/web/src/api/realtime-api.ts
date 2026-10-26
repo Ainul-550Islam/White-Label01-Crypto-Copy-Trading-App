@@ -1,5 +1,5 @@
 // # NEW — WebSocket/SSE client with polling fallback for copy execution and order lifecycle events
-import { tradingApi, type CopyExecutionItem } from "./trading-api";
+import { tradingApi, type CopyExecution } from "./trading-api";
 
 export type CopyRealtimeEventType =
   | "COPY_EXECUTION_CREATED"
@@ -11,7 +11,7 @@ export interface CopyRealtimeEvent {
   eventId: string;
   type: CopyRealtimeEventType;
   subscriptionId: string;
-  execution: CopyExecutionItem;
+  execution: CopyExecution;
   occurredAt: string;
 }
 
@@ -22,11 +22,11 @@ export interface CopyRealtimeSubscriptionOptions {
   onTransportChange?: (mode: "SSE" | "POLLING") => void;
 }
 
-export function classifyExecutionEventType(execution: CopyExecutionItem): CopyRealtimeEventType {
-  if (execution.status === "RISK_BLOCKED" || execution.riskDecision === "BLOCK") {
+export function classifyExecutionEventType(execution: CopyExecution): CopyRealtimeEventType {
+  if (execution.status === "BLOCKED" || execution.riskDecision === "BLOCK") {
     return "COPY_RISK_BLOCKED";
   }
-  if (execution.status === "COMPLETED") {
+  if (execution.status === "FILLED") {
     return "COPY_ORDER_FILLED";
   }
   if (execution.status === "PENDING") {

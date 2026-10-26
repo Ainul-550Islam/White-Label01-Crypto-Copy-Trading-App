@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Responsibility: calculate portfolio valuation only from verified prices and explicit completeness evidence.
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -102,9 +103,7 @@ export class ValuationService {
         try {
           const inverted = div('1', reversePrice.price);
           return { rate: inverted, source: reversePrice.source, timestamp: reversePrice.timestamp, status: 'CONVERTED_INVERSE' };
-        } catch {
-          // fall through to missing
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_VALUATION_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
       }
 
       // Missing FX — explicit incomplete state, never invent rate/NAV
@@ -314,7 +313,7 @@ export class ValuationService {
     try {
       const existing = await (this.prisma as any).portfolioValuation.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) return existing;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_VALUATION_OPERATION_2_FAILED', tenantId: params.tenantId, entityId: idempotencyKey }); }
 
     try {
       return await (this.prisma as any).portfolioValuation.create({

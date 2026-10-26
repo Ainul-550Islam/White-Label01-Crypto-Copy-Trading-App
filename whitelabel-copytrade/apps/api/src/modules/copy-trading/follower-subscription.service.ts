@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import {
   ForbiddenException,
   Injectable,
@@ -165,7 +166,7 @@ export class FollowerSubscriptionService {
       // Release copy sub slot if follower limit fails
       try {
         await this.copySubsGuard.release(actor, input.followerId);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_FOLLOWER_SUBSCRIPTION_OPERATION_1_FAILED', tenantId: input.tenantId, entityId: 'UNAVAILABLE' }); }
       this.logger.warn(`Follower limit exceeded trader=${input.traderId} tenant=${input.tenantId}`);
       throw e;
     }
@@ -267,10 +268,10 @@ export class FollowerSubscriptionService {
       // Release both slots on failure
       try {
         await this.copySubsGuard.release(actor, input.followerId);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_FOLLOWER_SUBSCRIPTION_OPERATION_2_FAILED', tenantId: input.tenantId, entityId: 'UNAVAILABLE' }); }
       try {
         await this.followersGuard.release(actor, input.traderId);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_FOLLOWER_SUBSCRIPTION_OPERATION_3_FAILED', tenantId: input.tenantId, entityId: 'UNAVAILABLE' }); }
 
       if (subscription) {
         try {
@@ -282,11 +283,7 @@ export class FollowerSubscriptionService {
             eventType: 'copy.subscription.cancelled',
             timestamps: { cancelledAt: new Date() },
           });
-        } catch {
-          // Preserve the original subscribe failure. The failed transaction
-          // remains visible through its own error and is never marked cancelled
-          // unless the state transition and event committed together.
-        }
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_FOLLOWER_SUBSCRIPTION_OPERATION_4_FAILED', tenantId: input.tenantId, entityId: 'UNAVAILABLE' }); }
       }
 
       throw e;
@@ -384,7 +381,7 @@ export class FollowerSubscriptionService {
       await this.copySubsGuard.release(actor, sub.followerId);
       await this.followersGuard.release(actor, sub.traderId);
       await this.traderProfileService.decrementFollowerCount(tenantId, sub.traderId);
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_FOLLOWER_SUBSCRIPTION_OPERATION_5_FAILED', tenantId: tenantId, entityId: subscriptionId }); }
 
     await (this.prisma as any).copyTradingAuditLog?.create({
       data: { id: randomUUID(), tenantId, event: 'SUBSCRIPTION_STOPPED', actorId, traderId: sub.traderId, followerId: sub.followerId, strategyId: sub.strategyId, subscriptionId, result: 'SUCCESS', safeMetadata: {}, requestId, createdAt: new Date() },
@@ -414,7 +411,7 @@ export class FollowerSubscriptionService {
       await this.copySubsGuard.release(actor, sub.followerId);
       await this.followersGuard.release(actor, sub.traderId);
       await this.traderProfileService.decrementFollowerCount(tenantId, sub.traderId);
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'COPY_TRADING_FOLLOWER_SUBSCRIPTION_OPERATION_6_FAILED', tenantId: tenantId, entityId: subscriptionId }); }
 
     await (this.prisma as any).copyTradingAuditLog?.create({
       data: { id: randomUUID(), tenantId, event: 'SUBSCRIPTION_CANCELLED', actorId, traderId: sub.traderId, followerId: sub.followerId, strategyId: sub.strategyId, subscriptionId, result: 'SUCCESS', safeMetadata: {}, requestId, createdAt: new Date() },

@@ -73,6 +73,8 @@ describe('billing portal not-found handling', () => {
         invoiceNumber: 'INV-1',
         total: '49.00',
         pdfAvailable: true,
+        detailsAvailability: 'UNAVAILABLE',
+        detailsFailureCode: 'BILLING_BILLING_INVOICE_QUERY_OPERATION_1_FAILED',
       });
     });
   });

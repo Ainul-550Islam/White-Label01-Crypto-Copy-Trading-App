@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { OverageRecord, OverageStatus } from './overage.types';
@@ -126,7 +127,7 @@ export class OverageRepository {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_OVERAGE_OPERATION_1_FAILED', tenantId: data.tenantId, entityId: id }); }
         return record;
       }
       this.logger.error(`Failed to create overage record: ${error.message}`, error.stack);

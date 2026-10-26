@@ -40,6 +40,9 @@
     "check:prisma-literals": "node apps/api/scripts/check-prisma-literals.js apps/api/src",
     "check:route-authorization": "node apps/api/scripts/check-route-authorization.js",
     "check:web-api-contract": "node scripts/check-web-api-contract.js",
+    "check:next-entrypoints": "node scripts/check-next-entrypoints.mjs",
+    "check:ui-copy-leaks": "node scripts/check-ui-copy-leaks.mjs",
+    "check:tailwind-output": "node apps/web/scripts/check-tailwind-output.mjs",
     "openapi:export": "npm run openapi:export --workspace=@wlct/api",
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "webhook-docs:generate": "node scripts/gen-webhook-docs.mjs",
@@ -79,6 +82,18 @@
     "@nestjs/swagger": {
       "js-yaml": "5.4.3"
     },
-    "handlebars": "4.7.10"
+    "handlebars": "4.7.10",
+    "postcss-nested": {
+      "postcss-selector-parser": "7.1.6"
+    },
+    "@nestjs/platform-express": {
+      ".": "11.2.8",
+      "multer": "2.5.0",
+      "path-to-regexp": "8.4.2"
+    },
+    "tailwindcss": {
+      ".": "3.4.19",
+      "postcss-selector-parser": "7.1.6"
+    }
   }
 }

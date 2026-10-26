@@ -27,9 +27,9 @@ older `PART*` documents describe history.
 
 | Suite | Result |
 | --- | --- |
-| API jest (all 50 suites) | 1079 passed, 0 failed |
+| API Jest suite count and result | Run `npm test --workspace=@wlct/api -- --ci`; the runner prints the current suite/test counts |
 | New/changed API specs, `tsc --noEmit` per spec | clean (copy-trading specs checked with a Prisma type stub because the full graph exceeds the build box's memory; CI runs the real type-checked jest) |
-| execution-engine pytest incl. live Postgres under a NOSUPERUSER role | 534 passed |
+| execution-engine pytest suite count and result | Run `cd services/execution-engine && python -m pytest -q`; CI provisions the NOSUPERUSER live-test database before the suite |
 | trading-core / market-data / trading-engine / sdk-python pytest | 1767 / 19 / 43 / 6 passed |
 | Flutter 3.47.5 `flutter analyze` | 0 errors, 0 warnings |
 | Flutter `flutter test` | 35 passed |

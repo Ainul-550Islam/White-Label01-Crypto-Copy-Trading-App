@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BillingEventService } from './billing-event.service';
@@ -28,13 +29,13 @@ export class InvoiceDeliveryService {
       invoice = await (this.prisma as any).invoice?.findFirst({
         where: { id: params.invoiceId, tenantId: params.tenantId },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_INVOICE_DELIVERY_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
 
     if (!invoice) {
       try {
         const repo = await (this.prisma as any).invoice?.findFirst?.({ where: { id: params.invoiceId } });
         invoice = repo;
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_INVOICE_DELIVERY_OPERATION_2_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
     }
 
     // Build safe totals - never expose internal paths, only safe fields
@@ -98,7 +99,7 @@ export class InvoiceDeliveryService {
         invoice = await (this.prisma as any).invoice?.findFirst({
           where: { id: params.invoiceId, tenantId: params.tenantId },
         });
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_INVOICE_DELIVERY_OPERATION_3_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
 
       await this.billingEventService.onInvoiceOverdue({
         tenantId: params.tenantId,

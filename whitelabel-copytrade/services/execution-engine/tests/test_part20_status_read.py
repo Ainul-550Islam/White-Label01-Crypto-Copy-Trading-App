@@ -25,7 +25,6 @@ from typing import Any, cast
 
 import pytest
 from fastapi import HTTPException
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
@@ -39,6 +38,8 @@ from app.security.internal_auth import (
     require_internal_auth_readonly,
 )
 from tests.conftest import BASE_ENV, auth_headers
+from tests._routes import dependant_calls as _dependant_calls
+from tests._routes import internal_api_routes as _internal_routes
 
 TOKEN = BASE_ENV["EXECUTION_INTERNAL_TOKEN"]
 
@@ -99,40 +100,6 @@ def _token_headers() -> dict[str, str]:
     return {CALLER_AUTH_HEADER: TOKEN}
 
 
-def _internal_routes(app: Any) -> list[APIRoute]:
-    """Walk concrete routes through FastAPI's eager and lazy router layouts.
-
-    FastAPI versions before 0.143 placed included APIRoutes directly in
-    ``app.routes``. Newer versions retain ``_IncludedRouter`` wrappers there
-    and expose the source APIRouter through ``original_router``. The audit must
-    inspect the concrete route dependencies in either layout, rather than
-    treating an implementation wrapper as a route or silently finding none.
-    """
-    found: list[APIRoute] = []
-    pending = [app]
-    visited: set[int] = set()
-    while pending:
-        router = pending.pop()
-        router_id = id(router)
-        if router_id in visited:
-            continue
-        visited.add(router_id)
-        for route in getattr(router, "routes", []):
-            if isinstance(route, APIRoute):
-                if route.path.startswith("/internal/v1"):
-                    found.append(route)
-                continue
-            included_router = getattr(route, "original_router", None)
-            if included_router is not None:
-                pending.append(included_router)
-    return found
-
-
-def _dependant_calls(dependant: Any) -> set[Any]:
-    found: set[Any] = {dependant.call}
-    for sub in dependant.dependencies:
-        found |= _dependant_calls(sub)
-    return found
 
 
 class TestReadScopeAnswers:

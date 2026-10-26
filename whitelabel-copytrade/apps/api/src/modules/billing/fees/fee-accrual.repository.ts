@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
@@ -195,7 +196,7 @@ export class FeeAccrualRepository {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_ACCRUAL_OPERATION_1_FAILED', tenantId: data.tenantId, entityId: id }); }
         return accrual;
       }
 
@@ -368,7 +369,7 @@ export class FeeAccrualRepository {
       try {
         const minor = parseToMinorUnits(accrual.feeAmount, accrual.currency);
         totalMinor += minor;
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_ACCRUAL_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
     }
 
     return {

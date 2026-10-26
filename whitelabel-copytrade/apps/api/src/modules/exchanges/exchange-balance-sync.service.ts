@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeSyncState, ExchangeBalance, normalizeTimestampMicros } from './exchange.types';
@@ -199,7 +200,7 @@ export class ExchangeBalanceSyncService {
         // Cache latest balance for fast reads - idempotent
         try {
           await this.cache.set(`balance:${input.tenantId}:${input.accountId}:${balance.asset}`, { free, locked, total, observedAtMicros: observedAtMicros.toString() }, 300);
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'EXCHANGES_EXCHANGE_BALANCE_SYNC_OPERATION_1_FAILED', tenantId: input.tenantId, entityId: input.accountId }); }
       } catch (e: any) {
         this.logger.warn(`Failed to sync balance asset=${balance.asset} tenant=${input.tenantId} account=${input.accountId} error=${e.message}`);
         skipped++;

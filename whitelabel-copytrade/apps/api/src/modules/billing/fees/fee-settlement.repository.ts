@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { SettlementBatch, SettlementItem, SettlementState, FeeType } from './fee.types';
@@ -105,7 +106,7 @@ export class FeeSettlementRepository {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_SETTLEMENT_OPERATION_1_FAILED', tenantId: data.tenantId, entityId: id }); }
         return settlement;
       }
       this.logger.error(`Failed to create settlement: ${error.message}`, error.stack);
@@ -140,7 +141,7 @@ export class FeeSettlementRepository {
                 updatedAt: new Date(),
               },
             });
-          } catch {}
+          } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_FEE_SETTLEMENT_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
         }
         return;
       }

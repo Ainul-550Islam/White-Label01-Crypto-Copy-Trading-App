@@ -2,14 +2,29 @@ import { Injectable } from '@nestjs/common';
 import { CACHE_KEY, CACHE_TTL } from '@wlct/config';
 import {
   NON_WILDCARD_PERMISSIONS,
+  Permission,
   describePermissions,
-  hasAllPermissions,
-  hasAnyPermission,
+  permissionMatches,
 } from '@wlct/shared-types';
 import type { PermissionDefinition } from '@wlct/shared-types';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CacheService } from '../../infrastructure/redis/cache.service';
+
+function isPermissionKey(value: string): boolean {
+  if (value === Permission.ALL) return true;
+  const parts = value.split(':');
+  return parts.length === 2
+    && parts[0].length > 0
+    && parts[1].length > 0
+    && !parts[0].includes('*')
+    && (!parts[1].includes('*') || parts[1] === '*');
+}
+
+function matchesPermission(granted: string, required: string): boolean {
+  if (!isPermissionKey(granted) || !isPermissionKey(required)) return false;
+  return permissionMatches(granted, required);
+}
 
 export interface EffectiveAccess {
   roleKeys: string[];
@@ -87,11 +102,15 @@ export class PermissionsService {
   }
 
   hasAll(granted: readonly string[], required: readonly string[]): boolean {
-    return hasAllPermissions(granted, required);
+    return required.every((permission) =>
+      granted.some((grant) => matchesPermission(grant, permission)),
+    );
   }
 
   hasAny(granted: readonly string[], required: readonly string[]): boolean {
-    return hasAnyPermission(granted, required);
+    return required.some((permission) =>
+      granted.some((grant) => matchesPermission(grant, permission)),
+    );
   }
 
   /** Catalogue of permissions available for building custom roles. */

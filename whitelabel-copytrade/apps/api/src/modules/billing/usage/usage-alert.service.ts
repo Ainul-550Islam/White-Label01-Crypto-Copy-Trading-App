@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { UsageAlertConfig, UsageAlertEvent, AlertThresholdType, AlertSeverity, AlertState } from './usage-alert.types';
@@ -394,7 +395,7 @@ export class UsageAlertService {
               createdAt: new Date(),
             },
           });
-        } catch {}
+        } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_USAGE_ALERT_OPERATION_1_FAILED', tenantId: 'UNAVAILABLE', entityId: id }); }
         return event;
       }
       if (error.code === 'P2002') {
@@ -421,7 +422,7 @@ export class UsageAlertService {
         where: { id },
         data: { lastTriggeredAt: new Date(), updatedAt: new Date() },
       });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_USAGE_ALERT_OPERATION_2_FAILED', tenantId: 'UNAVAILABLE', entityId: id }); }
   }
 
   private mapConfigToDomain(raw: any): UsageAlertConfig {

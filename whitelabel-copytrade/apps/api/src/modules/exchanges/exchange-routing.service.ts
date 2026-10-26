@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { ExchangeVenue, ExchangeEnvironment, ExchangeCapability, ExchangeHealthState, ExchangeAccountState, ExchangeRoutingDecision } from './exchange.types';
 import { ExchangeAccountRepository } from './exchange-account.repository';
@@ -393,7 +394,7 @@ export class ExchangeRoutingService {
       try {
         const symbolExists = await this.prisma.tradingSymbol.findFirst({ where: { tenantId, symbol } });
         if (symbolExists) eligible.push(account.id);
-      } catch {}
+      } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'EXCHANGES_EXCHANGE_ROUTING_OPERATION_1_FAILED', tenantId: tenantId, entityId: userId }); }
     }
     return eligible;
   }

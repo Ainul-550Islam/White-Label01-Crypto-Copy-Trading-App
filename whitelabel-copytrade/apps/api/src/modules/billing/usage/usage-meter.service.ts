@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { UsageMeterRepository } from './usage-meter.repository';
 import { UsageEventRepository } from './usage-event.repository';
@@ -217,7 +218,7 @@ export class UsageMeterService {
       if (events.length > 0) {
         lastEventAt = events[0].timestamp;
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'BILLING_USAGE_METER_OPERATION_1_FAILED', tenantId: params.tenantId, entityId: 'UNAVAILABLE' }); }
 
     return {
       meterKey: params.meterKey,

@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { isValidDecimal, parseScaled, formatScaled } from './oms.types';
@@ -177,7 +178,7 @@ export class ExecutionQualityService {
           }
         }
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_EXECUTION_QUALITY_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     latencies.sort((a, b) => a - b);
     const avgLatency = latencyCount > 0 ? latencySum / latencyCount : null;
@@ -222,7 +223,7 @@ export class ExecutionQualityService {
     // Persist if model exists
     try {
       await (this.prisma as any).omsExecutionQuality.create({ data: metrics });
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_EXECUTION_QUALITY_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     this.logger.log(`Execution quality calculated tenant ${tenantId} period ${from.toISOString()}→${to.toISOString()} orders ${totalOrders} fills ${fills.length}`);
     return metrics;

@@ -20904,10 +20904,9 @@ class DistributedLocks:
 class DurableStore(InMemoryOrderStore):
     """An in-memory store that claims durability, for wiring tests only.
 
-    It exists to satisfy one ``getattr`` in the live-mode checks so a test can
-    reach the reviewer gate at the end of them. Nothing here submits live
-    orders for real; a test that needs durability behaviour uses the SQL store's
-    own suite.
+    It models the durable-store capability so tests can exercise the reviewer
+    gate without submitting live orders. Durability behavior is covered by the
+    SQL store's own suite.
     """
 
     @property

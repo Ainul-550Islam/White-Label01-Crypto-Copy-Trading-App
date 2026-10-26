@@ -1,7 +1,7 @@
 // # NEW — Renders chronological compliance audit timeline
 'use client';
 
-import React from 'react';
+import React, { type ReactElement } from 'react';
 import { Badge } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
 import { theme } from '@/lib/theme';
@@ -20,7 +20,7 @@ export interface ComplianceAuditTimelineProps {
   events: ComplianceAuditTimelineEvent[];
 }
 
-export function ComplianceAuditTimeline({ events }: ComplianceAuditTimelineProps): JSX.Element {
+export function ComplianceAuditTimeline({ events }: ComplianceAuditTimelineProps): ReactElement {
   const sorted = [...events].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );

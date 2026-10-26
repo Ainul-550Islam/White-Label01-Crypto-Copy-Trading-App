@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CustodyPolicyService } from './custody-policy.service';
@@ -65,7 +66,7 @@ export class ConfirmationService {
     try {
       const existing = await (this.prisma as any).custodyTransactionConfirmation.findFirst({ where: { transactionId, confirmationCount } });
       if (existing) return existing;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_CONFIRMATION_OPERATION_1_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     const confirmation = await (this.prisma as any).custodyTransactionConfirmation.create({
       data: {
@@ -120,7 +121,7 @@ export class ConfirmationService {
           data: { confirmationCount, blockHash: blockHash ?? tx.blockHash, blockNumber: blockNumber ?? tx.blockNumber },
         });
       }
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_CONFIRMATION_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     return confirmation;
   }

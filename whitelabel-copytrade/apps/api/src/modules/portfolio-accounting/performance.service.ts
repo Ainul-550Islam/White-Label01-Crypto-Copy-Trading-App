@@ -1,3 +1,4 @@
+import { failClosedMoneyOperation } from '../../common/money-path-failure';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import type { PortfolioCashLedgerEntry } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -75,6 +76,7 @@ interface TWRCalculationResult {
   evidence: TWRPerformanceEvidence;
   canCalculate: boolean;
   reason?: string;
+  failureCode?: string;
 }
 
 interface NormalizedExternalCashFlow {
@@ -210,11 +212,13 @@ export class PerformanceService {
       this.logger.warn(
         `TWR cash-flow source unavailable tenant=${tenantId} profile=${profileId}: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
-      return unavailable('CASH_FLOW_SOURCE_UNAVAILABLE', null);
+      const result = unavailable('CASH_FLOW_SOURCE_UNAVAILABLE', null);
+      result.failureCode = 'CASH_FLOW_LOOKUP_FAILED';
+      return result;
     }
 
     if (cashFlows.length > 100) {
-      return unavailable('CASH_FLOW_LIMIT_EXCEEDED', null);
+      return unavailable('TOO_MANY_CASH_FLOWS', null);
     }
 
     const duplicateKeys = new Set<string>();
@@ -497,9 +501,7 @@ export class PerformanceService {
         },
         orderBy: { occurredAt: 'asc' },
       });
-    } catch {
-      cashFlows = [];
-    }
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_PERFORMANCE_OPERATION_1_FAILED', tenantId: tenantId, entityId: profileId }); }
 
     // If no cash flows, MWR = TWR
     if (cashFlows.length === 0) {
@@ -660,7 +662,7 @@ export class PerformanceService {
     try {
       const existing = await (this.prisma as any).portfolioPerformanceRecord.findFirst({ where: { tenantId: params.tenantId, idempotencyKey } });
       if (existing) return existing;
-    } catch {}
+    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'PORTFOLIO_ACCOUNTING_PERFORMANCE_OPERATION_2_FAILED', tenantId: params.tenantId, entityId: idempotencyKey }); }
 
     try {
       return await (this.prisma as any).portfolioPerformanceRecord.create({
