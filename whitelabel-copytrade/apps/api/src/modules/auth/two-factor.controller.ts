@@ -11,9 +11,13 @@ import {
   RegenerateRecoveryCodesDto,
 } from './dto/two-factor.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { RequestMeta, type RequestMetadata } from '../../common/decorators/request-context.decorator';
+import {
+  RequestMeta,
+  type RequestMetadata,
+} from '../../common/decorators/request-context.decorator';
 import { ApiStandardResponses } from '../../common/decorators/api-standard-responses.decorator';
 import { UsersService } from '../users/users.service';
+import { RequireStepUp } from './step-up/require-step-up.decorator';
 
 /**
  * Two-factor enrolment and management for the authenticated account.
@@ -63,6 +67,7 @@ export class TwoFactorController {
     });
   }
 
+  @RequireStepUp('TWO_FACTOR_DISABLE')
   @Post('disable')
   @Throttle({ auth: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
@@ -82,6 +87,7 @@ export class TwoFactorController {
     );
   }
 
+  @RequireStepUp('RECOVERY_CODES_REGENERATE')
   @Post('recovery-codes')
   @Throttle({ auth: { limit: 3, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)

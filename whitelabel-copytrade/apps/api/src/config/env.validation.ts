@@ -8,7 +8,20 @@ import { AppEnv, EnvValidationError, validateEnv } from '@wlct/config';
  */
 export function validateEnvironment(raw: Record<string, unknown>): AppEnv {
   try {
-    return validateEnv(raw);
+    const env = validateEnv(raw);
+    if (raw === process.env && env.NODE_ENV === 'production') {
+      for (const name of [
+        'API_PUBLIC_URL',
+        'ADMIN_WEB_URL',
+        'TRADING_ENGINE_URL',
+        'EXECUTION_ENGINE_URL',
+        'MARKET_DATA_URL',
+        'NOTIFICATION_SERVICE_URL',
+      ] as const) {
+        if (raw[name] !== env[name]) process.env[name] = env[name];
+      }
+    }
+    return env;
   } catch (error) {
     if (error instanceof EnvValidationError) {
       const details = error.failures

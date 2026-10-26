@@ -83,7 +83,7 @@ impl Histogram {
         let mut out = Vec::with_capacity(self.buckets.len());
         for (i, slot) in self.buckets.iter().enumerate() {
             let label = match HISTO_BOUNDARIES_NS.get(i) {
-                Some(b) => format!("le_{}", b),
+                Some(b) => format!("le_{b}"),
                 None => "le_inf".to_string(),
             };
             out.push((label, slot.load(Ordering::Relaxed)));

@@ -1,0 +1,7 @@
+# Helm chart metadata for the White Label Copy Trading platform.
+apiVersion: v2
+name: wlct
+description: Production workloads for White Label Copy Trading
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

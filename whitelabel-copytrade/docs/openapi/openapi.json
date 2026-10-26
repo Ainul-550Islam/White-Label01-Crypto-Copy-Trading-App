@@ -3730,6 +3730,10 @@
         "properties": {},
         "type": "object"
       },
+      "ReferralAbuseReviewDecisionDto": {
+        "properties": {},
+        "type": "object"
+      },
       "RefreshCapabilitiesDto": {
         "properties": {},
         "type": "object"
@@ -5652,6 +5656,10 @@
         "required": [
           "domain"
         ],
+        "type": "object"
+      },
+      "VerifyStepUpDto": {
+        "properties": {},
         "type": "object"
       },
       "VerifyTwoFactorDto": {
@@ -7806,6 +7814,114 @@
         "summary": "Start a single sign-on login for the resolved tenant",
         "tags": [
           "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/step-up/status": {
+      "get": {
+        "operationId": "StepUp_status",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "action",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "StepUp"
+        ]
+      }
+    },
+    "/api/v1/auth/step-up/verify": {
+      "post": {
+        "operationId": "StepUp_verify",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyStepUpDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "StepUp"
         ]
       }
     },
@@ -48809,6 +48925,122 @@
         },
         "tags": [
           "PartnerPortal"
+        ]
+      }
+    },
+    "/api/v1/partner/referral-abuse/reviews": {
+      "get": {
+        "operationId": "ReferralAbuseReview_listReviewQueue",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ReferralAbuseReview"
+        ]
+      }
+    },
+    "/api/v1/partner/referral-abuse/reviews/{caseId}/decision": {
+      "post": {
+        "operationId": "ReferralAbuseReview_resolveReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "caseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralAbuseReviewDecisionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ReferralAbuseReview"
         ]
       }
     },

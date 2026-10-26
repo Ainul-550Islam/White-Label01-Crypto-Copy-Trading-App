@@ -15,10 +15,9 @@ SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 SDK_ROOT = SCRIPT_DIRECTORY.parent
 REPOSITORY_ROOT = SDK_ROOT.parents[1]
 SPEC_PATH = REPOSITORY_ROOT / "docs" / "openapi" / "openapi.json"
-GENERATED_DIRECTORY = SDK_ROOT / "wlct_sdk" / "generated"
+GENERATED_DIRECTORY = SDK_ROOT / "wlct_sdk"
 MODELS_PATH = GENERATED_DIRECTORY / "models.py"
 EVENT_TYPES_PATH = GENERATED_DIRECTORY / "event_types.py"
-INIT_PATH = GENERATED_DIRECTORY / "__init__.py"
 
 
 def load_event_types() -> list[str]:
@@ -46,14 +45,6 @@ def event_types_source(event_types: Sequence[str]) -> str:
         "DEVELOPER_EVENT_TYPES: Tuple[str, ...] = (\n"
         f"{entries}\n"
         ")\n"
-    )
-
-
-def generated_init_source() -> str:
-    return (
-        "# # NEW — Exports the generated webhook event catalog for the Python SDK.\n"
-        "from .event_types import DEVELOPER_EVENT_TYPES\n\n"
-        "__all__ = [\"DEVELOPER_EVENT_TYPES\"]\n"
     )
 
 
@@ -113,7 +104,6 @@ def main() -> int:
 
     compare_or_write(MODELS_PATH, models_source, args.check)
     compare_or_write(EVENT_TYPES_PATH, event_types_source(event_types), args.check)
-    compare_or_write(INIT_PATH, generated_init_source(), args.check)
     print(f"{'Verified' if args.check else 'Generated'} Python SDK models and {len(event_types)} webhook event types.")
     return 0
 

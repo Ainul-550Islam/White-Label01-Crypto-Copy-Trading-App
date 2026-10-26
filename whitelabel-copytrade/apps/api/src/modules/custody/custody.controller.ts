@@ -1,5 +1,14 @@
 // # Exposes customer withdrawal request and admin approval/rejection endpoints
-import { Controller, Get, Post, Body, Query, Param, Request, ForbiddenException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Param,
+  Request,
+  ForbiddenException,
+} from '@nestjs/common';
 import { WalletService } from './wallet.service';
 import { WalletRepository } from './wallet.repository';
 import { WalletAddressService } from './wallet-address.service';
@@ -28,13 +37,19 @@ import { Permission, hasPermission } from '@wlct/shared-types';
 import { isPlatformPrincipal } from '../../common/guards/request-principal';
 import { PlatformOnly, RequireAnyPermission } from '../../common/decorators/permissions.decorator';
 import { limitParam, pageParam } from '../../common/dto/pagination-params';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 
 /**
  * Read-only custody oversight: staff-only permissions (platform, finance, tenant
  * administration, compliance). report:read and reconciliation:read are not used
  * because the system TRADER / FOLLOWER roles hold them for their own data.
  */
-const CUSTODY_READ = [Permission.PLATFORM_MANAGE, Permission.PAYOUT_MANAGE, Permission.TENANT_UPDATE, Permission.COMPLIANCE_READ] as const;
+const CUSTODY_READ = [
+  Permission.PLATFORM_MANAGE,
+  Permission.PAYOUT_MANAGE,
+  Permission.TENANT_UPDATE,
+  Permission.COMPLIANCE_READ,
+] as const;
 
 /**
  * Custody is an operator surface: wallets, addresses, withdrawals, settlement,
@@ -103,10 +118,12 @@ export class CustodyController {
 
   private derivedScope(req: any): CustodyScope {
     const permissions: string[] = Array.isArray(req?.user?.permissions) ? req.user.permissions : [];
-    if (isPlatformPrincipal(req) || hasPermission(permissions, Permission.PLATFORM_MANAGE)) return CustodyScope.PLATFORM_ADMIN;
+    if (isPlatformPrincipal(req) || hasPermission(permissions, Permission.PLATFORM_MANAGE))
+      return CustodyScope.PLATFORM_ADMIN;
     if (hasPermission(permissions, Permission.PAYOUT_MANAGE)) return CustodyScope.TREASURY_OPERATOR;
     if (hasPermission(permissions, Permission.TENANT_UPDATE)) return CustodyScope.TENANT_OWNER;
-    if (hasPermission(permissions, Permission.COMPLIANCE_READ)) return CustodyScope.COMPLIANCE_REVIEWER;
+    if (hasPermission(permissions, Permission.COMPLIANCE_READ))
+      return CustodyScope.COMPLIANCE_REVIEWER;
     return CustodyScope.CLIENT;
   }
 
@@ -120,7 +137,8 @@ export class CustodyController {
     const authTenant: string | undefined = req?.user?.tenantId;
     if (!authTenant) throw new ForbiddenException('Tenant context required');
     const requested = bodyTenantId ?? queryTenantId;
-    if (requested && requested !== authTenant) throw new ForbiddenException('Cross-tenant custody access refused');
+    if (requested && requested !== authTenant)
+      throw new ForbiddenException('Cross-tenant custody access refused');
     return authTenant;
   }
 
@@ -134,14 +152,26 @@ export class CustodyController {
   @Post('wallets/transition')
   async transitionWallet(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.walletService.transitionWallet({ tenantId, walletId: body.walletId, toState: body.toState, operatorId: body.operatorId, reason: body.reason, correlationId: body.correlationId });
+    return await this.walletService.transitionWallet({
+      tenantId,
+      walletId: body.walletId,
+      toState: body.toState,
+      operatorId: body.operatorId,
+      reason: body.reason,
+      correlationId: body.correlationId,
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('wallets')
   async listWallets(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.walletService.listWallets({ tenantId, ...query, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.walletService.listWallets({
+      tenantId,
+      ...query,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
@@ -156,6 +186,7 @@ export class CustodyController {
   }
 
   // Address endpoints
+  @RequireStepUp('CUSTODY_ADDRESS_ISSUE')
   @Post('addresses')
   async createAddress(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
@@ -166,9 +197,15 @@ export class CustodyController {
   @Get('addresses')
   async listAddresses(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.walletAddressService.listAddresses({ tenantId, ...query, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.walletAddressService.listAddresses({
+      tenantId,
+      ...query,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
+  @RequireStepUp('CUSTODY_ADDRESS_ISSUE')
   @Post('deposit-addresses/get-or-create')
   async getOrCreateDepositAddress(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
@@ -187,17 +224,37 @@ export class CustodyController {
   @PlatformOnly()
   @RequireAnyPermission(Permission.PLATFORM_MANAGE)
   @Post('deposits/:depositId/confirmations')
-  async updateDepositConfirmations(@Request() req: any, @Param('depositId') depositId: string, @Body() body: any) {
+  async updateDepositConfirmations(
+    @Request() req: any,
+    @Param('depositId') depositId: string,
+    @Body() body: any,
+  ) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.depositMonitoringService.updateDepositConfirmations({ tenantId, depositId, confirmationCount: body.confirmationCount, blockHash: body.blockHash, blockNumber: body.blockNumber, providerReference: body.providerReference });
+    return await this.depositMonitoringService.updateDepositConfirmations({
+      tenantId,
+      depositId,
+      confirmationCount: body.confirmationCount,
+      blockHash: body.blockHash,
+      blockNumber: body.blockNumber,
+      providerReference: body.providerReference,
+    });
   }
 
   @PlatformOnly()
   @RequireAnyPermission(Permission.PLATFORM_MANAGE)
   @Post('deposits/:depositId/reorg')
-  async handleDepositReorg(@Request() req: any, @Param('depositId') depositId: string, @Body() body: any) {
+  async handleDepositReorg(
+    @Request() req: any,
+    @Param('depositId') depositId: string,
+    @Body() body: any,
+  ) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.depositMonitoringService.handleReorg({ tenantId, depositId, reason: body.reason, providerReference: body.providerReference });
+    return await this.depositMonitoringService.handleReorg({
+      tenantId,
+      depositId,
+      reason: body.reason,
+      providerReference: body.providerReference,
+    });
   }
 
   // Withdrawal policy & orchestration
@@ -210,7 +267,12 @@ export class CustodyController {
   @Post('withdrawals/submit')
   async submitWithdrawal(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.withdrawalOrchestrationService.submitWithdrawal({ tenantId, custodyWithdrawalId: body.custodyWithdrawalId, operatorId: body.operatorId, correlationId: body.correlationId });
+    return await this.withdrawalOrchestrationService.submitWithdrawal({
+      tenantId,
+      custodyWithdrawalId: body.custodyWithdrawalId,
+      operatorId: body.operatorId,
+      correlationId: body.correlationId,
+    });
   }
 
   // Transaction endpoints
@@ -223,19 +285,39 @@ export class CustodyController {
   @Post('transactions/transition')
   async transitionTransaction(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.transactionService.transitionTransaction({ tenantId, transactionId: body.transactionId, toState: body.toState, blockHash: body.blockHash, blockNumber: body.blockNumber, confirmationCount: body.confirmationCount, actualFee: body.actualFee, failureReason: body.failureReason, operatorId: body.operatorId, correlationId: body.correlationId });
+    return await this.transactionService.transitionTransaction({
+      tenantId,
+      transactionId: body.transactionId,
+      toState: body.toState,
+      blockHash: body.blockHash,
+      blockNumber: body.blockNumber,
+      confirmationCount: body.confirmationCount,
+      actualFee: body.actualFee,
+      failureReason: body.failureReason,
+      operatorId: body.operatorId,
+      correlationId: body.correlationId,
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('transactions')
   async listTransactions(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.transactionService.listTransactions({ tenantId, ...query, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.transactionService.listTransactions({
+      tenantId,
+      ...query,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('transactions/:transactionId')
-  async getTransaction(@Request() req: any, @Param('transactionId') transactionId: string, @Query() query: any) {
+  async getTransaction(
+    @Request() req: any,
+    @Param('transactionId') transactionId: string,
+    @Query() query: any,
+  ) {
     const tenantId = this.getTenantId(req, query.tenantId);
     return await this.transactionService.getTransaction({ tenantId, transactionId });
   }
@@ -243,7 +325,11 @@ export class CustodyController {
   @PlatformOnly()
   @RequireAnyPermission(Permission.PLATFORM_MANAGE)
   @Post('transactions/:transactionId/poll')
-  async pollTransaction(@Request() req: any, @Param('transactionId') transactionId: string, @Body() body: any) {
+  async pollTransaction(
+    @Request() req: any,
+    @Param('transactionId') transactionId: string,
+    @Body() body: any,
+  ) {
     const tenantId = this.getTenantId(req, body.tenantId);
     return await this.transactionMonitoringService.pollTransaction({ tenantId, transactionId });
   }
@@ -251,9 +337,19 @@ export class CustodyController {
   @PlatformOnly()
   @RequireAnyPermission(Permission.PLATFORM_MANAGE)
   @Post('transactions/:transactionId/reorg')
-  async handleTransactionReorg(@Request() req: any, @Param('transactionId') transactionId: string, @Body() body: any) {
+  async handleTransactionReorg(
+    @Request() req: any,
+    @Param('transactionId') transactionId: string,
+    @Body() body: any,
+  ) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.transactionMonitoringService.handleReorg({ tenantId, transactionId, reason: body.reason, newBlockHash: body.newBlockHash, newBlockNumber: body.newBlockNumber });
+    return await this.transactionMonitoringService.handleReorg({
+      tenantId,
+      transactionId,
+      reason: body.reason,
+      newBlockHash: body.newBlockHash,
+      newBlockNumber: body.newBlockNumber,
+    });
   }
 
   // Confirmation
@@ -267,7 +363,11 @@ export class CustodyController {
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('confirmations/:transactionId')
-  async getConfirmations(@Request() req: any, @Param('transactionId') transactionId: string, @Query() query: any) {
+  async getConfirmations(
+    @Request() req: any,
+    @Param('transactionId') transactionId: string,
+    @Query() query: any,
+  ) {
     const tenantId = this.getTenantId(req, query.tenantId);
     return await this.confirmationService.getConfirmations({ tenantId, transactionId });
   }
@@ -281,7 +381,11 @@ export class CustodyController {
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('fees/:transactionId')
-  async getActualFee(@Request() req: any, @Param('transactionId') transactionId: string, @Query() query: any) {
+  async getActualFee(
+    @Request() req: any,
+    @Param('transactionId') transactionId: string,
+    @Query() query: any,
+  ) {
     const tenantId = this.getTenantId(req, query.tenantId);
     return await this.blockchainFeeService.getActualFee({ tenantId, transactionId });
   }
@@ -309,35 +413,63 @@ export class CustodyController {
   @Get('internal-transfers')
   async listInternalTransfers(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.internalTransferService.listInternalTransfers({ tenantId, ...query, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.internalTransferService.listInternalTransfers({
+      tenantId,
+      ...query,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   // Settlement
   @Post('settlement/deposit/finalize')
   async finalizeDepositSettlement(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.settlementService.finalizeDepositSettlement({ tenantId, depositId: body.depositId, operatorId: body.operatorId, correlationId: body.correlationId });
+    return await this.settlementService.finalizeDepositSettlement({
+      tenantId,
+      depositId: body.depositId,
+      operatorId: body.operatorId,
+      correlationId: body.correlationId,
+    });
   }
 
   @Post('settlement/withdrawal/finalize')
   async finalizeWithdrawalSettlement(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.settlementService.finalizeWithdrawalSettlement({ tenantId, custodyWithdrawalId: body.custodyWithdrawalId, operatorId: body.operatorId, correlationId: body.correlationId });
+    return await this.settlementService.finalizeWithdrawalSettlement({
+      tenantId,
+      custodyWithdrawalId: body.custodyWithdrawalId,
+      operatorId: body.operatorId,
+      correlationId: body.correlationId,
+    });
   }
 
   // Treasury balances
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('balances/wallet/:walletId')
-  async getWalletBalance(@Request() req: any, @Param('walletId') walletId: string, @Query() query: any) {
+  async getWalletBalance(
+    @Request() req: any,
+    @Param('walletId') walletId: string,
+    @Query() query: any,
+  ) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.treasuryBalanceService.getWalletBalance({ tenantId, walletId, assetId: query.assetId, networkId: query.networkId });
+    return await this.treasuryBalanceService.getWalletBalance({
+      tenantId,
+      walletId,
+      assetId: query.assetId,
+      networkId: query.networkId,
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('balances/treasury')
   async getTreasuryBalance(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.treasuryBalanceService.getTreasuryBalance({ tenantId, assetId: query.assetId, networkId: query.networkId });
+    return await this.treasuryBalanceService.getTreasuryBalance({
+      tenantId,
+      assetId: query.assetId,
+      networkId: query.networkId,
+    });
   }
 
   // Reserves
@@ -351,7 +483,12 @@ export class CustodyController {
   @Get('reserves')
   async listReserves(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.reserveService.listReserves({ tenantId, ...query, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.reserveService.listReserves({
+      tenantId,
+      ...query,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   @Post('reserves/evaluate')
@@ -361,18 +498,21 @@ export class CustodyController {
   }
 
   // Sweeps
+  @RequireStepUp('CUSTODY_SWEEP')
   @Post('sweeps')
   async createSweep(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
     return await this.sweepService.createSweep({ tenantId, ...body });
   }
 
+  @RequireStepUp('PAYOUT_APPROVE')
   @Post('sweeps/approve')
   async approveSweep(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
     return await this.sweepService.approveSweep({ tenantId, ...body });
   }
 
+  @RequireStepUp('CUSTODY_SWEEP')
   @Post('sweeps/execute')
   async executeSweep(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
@@ -383,7 +523,12 @@ export class CustodyController {
   @Get('sweeps')
   async listSweeps(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.sweepService.listSweeps({ tenantId, ...query, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.sweepService.listSweeps({
+      tenantId,
+      ...query,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   // Reconciliation
@@ -398,7 +543,13 @@ export class CustodyController {
   @Get('reconciliation/findings')
   async listFindings(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.reconciliationService.listFindings({ tenantId, ...query, resolved: query.resolved ? query.resolved === 'true' : undefined, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.reconciliationService.listFindings({
+      tenantId,
+      ...query,
+      resolved: query.resolved ? query.resolved === 'true' : undefined,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   @RequireAnyPermission(Permission.PLATFORM_MANAGE, Permission.RECONCILIATION_RESOLVE)
@@ -413,14 +564,26 @@ export class CustodyController {
   @Get('audits')
   async listAudits(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.auditService.listAudits({ tenantId, ...query, fromDate: query.fromDate ? new Date(query.fromDate) : undefined, toDate: query.toDate ? new Date(query.toDate) : undefined, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.auditService.listAudits({
+      tenantId,
+      ...query,
+      fromDate: query.fromDate ? new Date(query.fromDate) : undefined,
+      toDate: query.toDate ? new Date(query.toDate) : undefined,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Post('audits/export')
   async exportAudits(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.auditService.exportAudits({ tenantId, fromDate: new Date(body.fromDate), toDate: new Date(body.toDate), format: body.format });
+    return await this.auditService.exportAudits({
+      tenantId,
+      fromDate: new Date(body.fromDate),
+      toDate: new Date(body.toDate),
+      format: body.format,
+    });
   }
 
   // Policy & registries
@@ -428,21 +591,35 @@ export class CustodyController {
   @Get('policy')
   async getPolicy(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.policyService.resolvePolicy({ tenantId, walletId: query.walletId, accountId: query.accountId });
+    return await this.policyService.resolvePolicy({
+      tenantId,
+      walletId: query.walletId,
+      accountId: query.accountId,
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('assets')
   async listAssets(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.assetRegistry.listAssets({ tenantId, ...query, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.assetRegistry.listAssets({
+      tenantId,
+      ...query,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
   @Get('networks')
   async listNetworks(@Request() req: any, @Query() query: any) {
     const tenantId = this.getTenantId(req, query.tenantId);
-    return await this.networkRegistry.listNetworks({ tenantId, ...query, page: pageParam(query.page), limit: limitParam(query.limit, 50) });
+    return await this.networkRegistry.listNetworks({
+      tenantId,
+      ...query,
+      page: pageParam(query.page),
+      limit: limitParam(query.limit, 50),
+    });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)

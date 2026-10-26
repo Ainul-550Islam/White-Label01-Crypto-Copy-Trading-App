@@ -1,0 +1,112 @@
+# Safe production defaults; databases and cache are external services only.
+releaseTag: "1.0.0"
+imagePullSecrets: []
+external:
+  postgres:
+    host: postgres.example.internal
+    port: 5432
+    secretRef: wlct-database
+  redis:
+    host: redis.example.internal
+    port: 6379
+    secretRef: wlct-redis
+hosts:
+  api: api.example.com
+  app: app.example.com
+  admin: admin.example.com
+ingress:
+  className: nginx
+  tlsSecretName: wlct-tls
+services:
+  api:
+    image: registry.example.com/wlct/api
+    tag: "1.0.0"
+    replicas: 2
+    port: 4000
+    secretRef: wlct-api-secrets
+    resources:
+      {
+        requests: { cpu: 500m, memory: 1Gi },
+        limits: { cpu: "2", memory: 3Gi },
+      }
+  worker:
+    image: registry.example.com/wlct/api
+    tag: "1.0.0"
+    replicas: 2
+    port: 4000
+    secretRef: wlct-api-secrets
+    resources:
+      {
+        requests: { cpu: 500m, memory: 1Gi },
+        limits: { cpu: "2", memory: 3Gi },
+      }
+  web:
+    image: registry.example.com/wlct/web
+    tag: "1.0.0"
+    replicas: 2
+    port: 3001
+    secretRef: wlct-web-secrets
+    resources:
+      {
+        requests: { cpu: 250m, memory: 512Mi },
+        limits: { cpu: "1", memory: 1Gi },
+      }
+  adminWeb:
+    image: registry.example.com/wlct/admin-web
+    tag: "1.0.0"
+    replicas: 2
+    port: 3000
+    secretRef: wlct-admin-web-secrets
+    resources:
+      {
+        requests: { cpu: 250m, memory: 512Mi },
+        limits: { cpu: "1", memory: 1Gi },
+      }
+  tradingEngine:
+    image: registry.example.com/wlct/trading-engine
+    tag: "1.0.0"
+    replicas: 2
+    port: 8001
+    secretRef: wlct-engine-secrets
+    resources:
+      {
+        requests: { cpu: 500m, memory: 1Gi },
+        limits: { cpu: "2", memory: 2Gi },
+      }
+  executionEngine:
+    image: registry.example.com/wlct/execution-engine
+    tag: "1.0.0"
+    replicas: 2
+    port: 8093
+    secretRef: wlct-engine-secrets
+    resources:
+      {
+        requests: { cpu: 500m, memory: 1Gi },
+        limits: { cpu: "2", memory: 2Gi },
+      }
+  marketData:
+    image: registry.example.com/wlct/market-data
+    tag: "1.0.0"
+    replicas: 2
+    port: 8002
+    secretRef: wlct-engine-secrets
+    resources:
+      {
+        requests: { cpu: 250m, memory: 512Mi },
+        limits: { cpu: "1", memory: 1Gi },
+      }
+  notificationService:
+    image: registry.example.com/wlct/notification-service
+    tag: "1.0.0"
+    replicas: 2
+    port: 8003
+    secretRef: wlct-notification-secrets
+    resources:
+      {
+        requests: { cpu: 250m, memory: 512Mi },
+        limits: { cpu: "1", memory: 1Gi },
+      }
+
+networkPolicy:
+  postgresCidrs: []
+  redisCidrs: []

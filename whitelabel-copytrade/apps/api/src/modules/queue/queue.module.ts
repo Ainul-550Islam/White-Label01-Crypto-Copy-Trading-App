@@ -9,6 +9,7 @@ import { AppConfigService } from '../../config/app-config.service';
 import { QueueService } from './queue.service';
 import { MaintenanceProcessor } from './processors/maintenance.processor';
 import { MaintenanceScheduler } from './maintenance.scheduler';
+import { defaultQueueJobOptions } from './retry-policy';
 
 const REGISTERED_QUEUES = Object.values(QUEUE_NAMES);
 
@@ -38,12 +39,7 @@ const REGISTERED_QUEUES = Object.values(QUEUE_NAMES);
       useFactory: (config: AppConfigService) => ({
         connection: config.queueRedisOptions,
         prefix: config.queuePrefix,
-        defaultJobOptions: {
-          attempts: config.queueDefaultAttempts,
-          backoff: { type: 'exponential', delay: config.queueBackoffMs },
-          removeOnComplete: config.queueRemoveOnComplete,
-          removeOnFail: config.queueRemoveOnFail,
-        },
+        defaultJobOptions: defaultQueueJobOptions(config),
       }),
     }),
     ...REGISTERED_QUEUES.map((name) => BullModule.registerQueue({ name })),

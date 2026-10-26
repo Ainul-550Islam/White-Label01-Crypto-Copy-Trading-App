@@ -6,12 +6,7 @@ import {
   type PartnerPayout,
 } from '../partners/partner.types';
 
-export {
-  PartnerPayoutService,
-  PartnerPayoutState,
-  PARTNER_PAYOUT_TRANSITIONS,
-  type PartnerPayout,
-};
+export { PartnerPayoutService, PartnerPayoutState, PARTNER_PAYOUT_TRANSITIONS, type PartnerPayout };
 
 export interface PartnerPayoutPolicyCheck {
   allowed: boolean;
@@ -19,24 +14,26 @@ export interface PartnerPayoutPolicyCheck {
 }
 
 export function evaluatePartnerPayoutThresholdAndHold(params: {
-  amount: string | number;
-  minPayoutThreshold: number;
+  amount: string;
+  minPayoutThreshold: string;
   settlementLockedAtIso?: string | null;
   holdWindowHours?: number;
   nowMs?: number;
 }): PartnerPayoutPolicyCheck {
-  const numericAmount = Number(params.amount);
-  if (!Number.isFinite(numericAmount) || numericAmount < params.minPayoutThreshold) {
+  const amountMinor = exactDecimalUnits(params.amount);
+  const minimumMinor = exactDecimalUnits(params.minPayoutThreshold);
+  if (amountMinor === null || minimumMinor === null || amountMinor < minimumMinor) {
     return {
       allowed: false,
-      reason: `Payout amount ${params.amount} is below minimum threshold ${params.minPayoutThreshold}.`,
+      reason: 'Payout amount is invalid or below the configured exact-decimal threshold.',
     };
   }
   if (params.settlementLockedAtIso && (params.holdWindowHours ?? 0) > 0) {
     const lockedMs = new Date(params.settlementLockedAtIso).getTime();
     const now = params.nowMs ?? Date.now();
-    const elapsedHours = (now - lockedMs) / (1_000 * 60 * 60);
-    if (elapsedHours < (params.holdWindowHours ?? 0)) {
+    const elapsedMs = now - lockedMs;
+    const requiredMs = (params.holdWindowHours ?? 0) * 3_600_000;
+    if (!Number.isFinite(lockedMs) || elapsedMs < requiredMs) {
       return {
         allowed: false,
         reason: `Settlement hold window of ${params.holdWindowHours}h has not elapsed yet.`,
@@ -44,6 +41,13 @@ export function evaluatePartnerPayoutThresholdAndHold(params: {
     }
   }
   return { allowed: true };
+}
+
+/** Convert a plain decimal string to exact 10^-18 units without binary floats. */
+function exactDecimalUnits(value: string): bigint | null {
+  if (typeof value !== 'string' || !/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value)) return null;
+  const [whole, fraction = ''] = value.split('.');
+  return BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, '0'));
 }
 
 export default PartnerPayoutService;

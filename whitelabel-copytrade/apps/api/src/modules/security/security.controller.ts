@@ -29,10 +29,23 @@ import { SecurityAuditService } from './security-audit.service';
 import { SecurityThreatDetectionService } from './security-threat-detection.service';
 import { CreateSamlConfigDto, CreateOidcConfigDto, UpdateSsoConfigDto } from './dto/sso-config.dto';
 import { CryptoService } from '../../infrastructure/crypto/crypto.service';
-import { CreateApiKeyDto, ListApiKeyDto, RotateApiKeyDto, RevokeApiKeyDto } from './dto/api-key.dto';
-import { CreateSecurityPolicyDto, UpdateSecurityPolicyDto, SessionQueryDto, DeviceQueryDto, SecurityEventQueryDto, ThreatQueryDto } from './dto/security-policy.dto';
+import {
+  CreateApiKeyDto,
+  ListApiKeyDto,
+  RotateApiKeyDto,
+  RevokeApiKeyDto,
+} from './dto/api-key.dto';
+import {
+  CreateSecurityPolicyDto,
+  UpdateSecurityPolicyDto,
+  SessionQueryDto,
+  DeviceQueryDto,
+  SecurityEventQueryDto,
+  ThreatQueryDto,
+} from './dto/security-policy.dto';
 import { SsoProvider } from './security.types';
 import { isPlatformPrincipal } from '../../common/guards/request-principal';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 
 /**
  * RBAC-protected security API for SSO, API keys, sessions, devices, security events, and policy management.
@@ -64,7 +77,11 @@ export class SecurityController {
   // ===== Security Policy =====
 
   @Get('policy')
-  @RequirePermissions(Permission.SECURITY_POLICY_READ, Permission.PLATFORM_MANAGE, Permission.SECURITY_EVENT_READ)
+  @RequirePermissions(
+    Permission.SECURITY_POLICY_READ,
+    Permission.PLATFORM_MANAGE,
+    Permission.SECURITY_EVENT_READ,
+  )
   async getPolicy(@CurrentTenant() tenant: any, @Query('tenantId') tenantIdQuery?: string) {
     const tenantId = tenantIdQuery || tenant?.tenantId || tenant?.id;
     return this.policyService.getEffectivePolicy({ tenantId });
@@ -78,7 +95,11 @@ export class SecurityController {
 
   @Post('policy')
   @RequirePermissions(Permission.SECURITY_POLICY_WRITE, Permission.PLATFORM_MANAGE)
-  async createPolicy(@Body() dto: CreateSecurityPolicyDto, @CurrentUser() user: any, @Req() req: any) {
+  async createPolicy(
+    @Body() dto: CreateSecurityPolicyDto,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const tenantId = dto.tenantId || null;
     return this.policyService.createOrUpdatePolicy({
       tenantId,
@@ -104,9 +125,16 @@ export class SecurityController {
 
   @Put('policy/:id')
   @RequirePermissions(Permission.SECURITY_POLICY_WRITE, Permission.PLATFORM_MANAGE)
-  async updatePolicy(@Param('id') id: string, @Body() dto: UpdateSecurityPolicyDto, @CurrentUser() user: any, @Req() req: any) {
+  async updatePolicy(
+    @Param('id') id: string,
+    @Body() dto: UpdateSecurityPolicyDto,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     // For simplicity, treat update as createOrUpdate with same version if provided, else fetch existing version
-    const existing = await (this.policyService as any).prisma?.securityPolicy?.findUnique?.({ where: { id } });
+    const existing = await (this.policyService as any).prisma?.securityPolicy?.findUnique?.({
+      where: { id },
+    });
     const policyVersion = existing?.policyVersion || `v${Date.now()}`;
     const tenantId = existing?.tenantId || null;
 
@@ -142,7 +170,12 @@ export class SecurityController {
 
   @Post('sso/saml/config')
   @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE)
-  async configureSaml(@Body() dto: CreateSamlConfigDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async configureSaml(
+    @Body() dto: CreateSamlConfigDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     return this.ssoService.configureSso({
       tenantId,
       providerType: SsoProvider.SAML,
@@ -175,7 +208,12 @@ export class SecurityController {
 
   @Post('sso/oidc/config')
   @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE)
-  async configureOidc(@Body() dto: CreateOidcConfigDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async configureOidc(
+    @Body() dto: CreateOidcConfigDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     return this.ssoService.configureSso({
       tenantId,
       providerType: SsoProvider.OIDC,
@@ -206,7 +244,13 @@ export class SecurityController {
 
   @Put('sso/:providerType/config')
   @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE)
-  async updateSsoConfig(@Param('providerType') providerType: string, @Body() dto: UpdateSsoConfigDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async updateSsoConfig(
+    @Param('providerType') providerType: string,
+    @Body() dto: UpdateSsoConfigDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const provider = providerType.toUpperCase() as SsoProvider;
     if (![SsoProvider.SAML, SsoProvider.OIDC].includes(provider)) {
       throw new BadRequestException(`Invalid provider type ${providerType}`);
@@ -253,7 +297,12 @@ export class SecurityController {
 
   @Delete('sso/:providerType/config')
   @RequirePermissions(Permission.SSO_MANAGE, Permission.SECURITY_POLICY_WRITE)
-  async disableSso(@Param('providerType') providerType: string, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async disableSso(
+    @Param('providerType') providerType: string,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const provider = providerType.toUpperCase() as SsoProvider;
     if (![SsoProvider.SAML, SsoProvider.OIDC].includes(provider)) {
       throw new BadRequestException(`Invalid provider type ${providerType}`);
@@ -275,7 +324,11 @@ export class SecurityController {
 
   @Get('sso/providers')
   @RequirePermissions(Permission.SSO_READ)
-  async listSsoProviders(@TenantId() tenantId: string, @Query('tenantId') tenantIdQuery?: string, @CurrentUser() user?: any) {
+  async listSsoProviders(
+    @TenantId() tenantId: string,
+    @Query('tenantId') tenantIdQuery?: string,
+    @CurrentUser() user?: any,
+  ) {
     const effectiveTenantId = tenantIdQuery || tenantId;
     // Platform admin can query any tenant
     if (tenantIdQuery && tenantIdQuery !== tenantId) {
@@ -293,9 +346,15 @@ export class SecurityController {
 
   // ===== API Keys =====
 
+  @RequireStepUp('API_KEY_CREATE')
   @Post('api-keys')
   @RequirePermissions(Permission.API_KEY_WRITE, Permission.API_KEY_MANAGE)
-  async createApiKey(@Body() dto: CreateApiKeyDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async createApiKey(
+    @Body() dto: CreateApiKeyDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const result = await this.apiKeyService.createApiKey({
       tenantId,
       userId: user.userId || user.id,
@@ -320,7 +379,11 @@ export class SecurityController {
 
   @Get('api-keys')
   @RequirePermissions(Permission.API_KEY_READ, Permission.API_KEY_MANAGE)
-  async listApiKeys(@Query() query: ListApiKeyDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async listApiKeys(
+    @Query() query: ListApiKeyDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+  ) {
     const caller = {
       userId: user.userId || user.id,
       tenantId: tenantId,
@@ -334,9 +397,16 @@ export class SecurityController {
     });
   }
 
+  @RequireStepUp('API_KEY_CREATE')
   @Post('api-keys/:id/rotate')
   @RequirePermissions(Permission.API_KEY_WRITE, Permission.API_KEY_MANAGE)
-  async rotateApiKey(@Param('id') id: string, @Body() dto: RotateApiKeyDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async rotateApiKey(
+    @Param('id') id: string,
+    @Body() dto: RotateApiKeyDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const caller = {
       userId: user.userId || user.id,
       tenantId,
@@ -359,9 +429,16 @@ export class SecurityController {
     };
   }
 
+  @RequireStepUp('API_KEY_REVOKE')
   @Post('api-keys/:id/revoke')
   @RequirePermissions(Permission.API_KEY_WRITE, Permission.API_KEY_MANAGE)
-  async revokeApiKey(@Param('id') id: string, @Body() dto: RevokeApiKeyDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async revokeApiKey(
+    @Param('id') id: string,
+    @Body() dto: RevokeApiKeyDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const caller = {
       userId: user.userId || user.id,
       tenantId,
@@ -381,22 +458,37 @@ export class SecurityController {
 
   @Get('sessions')
   @RequirePermissions(Permission.SESSION_READ, Permission.SECURITY_EVENT_READ)
-  async listSessions(@Query() query: SessionQueryDto, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async listSessions(
+    @Query() query: SessionQueryDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const userId = query.userId || user.userId || user.id;
     const perms = user.permissions || user.roles || [];
-    const isPrivileged = perms.includes('ADMIN') || perms.includes('OWNER') || perms.includes('PLATFORM_MANAGE');
+    const isPrivileged =
+      perms.includes('ADMIN') || perms.includes('OWNER') || perms.includes('PLATFORM_MANAGE');
 
     if (query.userId && query.userId !== (user.userId || user.id) && !isPrivileged) {
       throw new ForbiddenException('Cannot list other users sessions');
     }
 
-    const sessions = await this.sessionService.listUserSessions(userId, tenantId, (req as any).sessionId || null);
+    const sessions = await this.sessionService.listUserSessions(
+      userId,
+      tenantId,
+      (req as any).sessionId || null,
+    );
     return { data: sessions, total: sessions.length };
   }
 
   @Post('sessions/:sessionId/revoke')
   @RequirePermissions(Permission.SESSION_WRITE)
-  async revokeSession(@Param('sessionId') sessionId: string, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async revokeSession(
+    @Param('sessionId') sessionId: string,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const userId = user.userId || user.id;
     // Users can revoke own sessions, admins can revoke any in tenant
     return this.sessionService.revokeSession({
@@ -412,7 +504,12 @@ export class SecurityController {
 
   @Post('sessions/revoke-all')
   @RequirePermissions(Permission.SESSION_WRITE)
-  async revokeAllSessions(@Body() body: { exceptCurrent?: boolean }, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async revokeAllSessions(
+    @Body() body: { exceptCurrent?: boolean },
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     const userId = user.userId || user.id;
     const exceptSessionId = body.exceptCurrent ? (req as any).sessionId || null : null;
     const count = await this.sessionService.revokeAllSessions({
@@ -431,21 +528,35 @@ export class SecurityController {
 
   @Get('devices')
   @RequirePermissions(Permission.DEVICE_READ, Permission.SECURITY_EVENT_READ)
-  async listDevices(@Query() query: DeviceQueryDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async listDevices(
+    @Query() query: DeviceQueryDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+  ) {
     const userId = query.userId || user.userId || user.id;
     const perms = user.permissions || user.roles || [];
-    const isPrivileged = perms.includes('ADMIN') || perms.includes('OWNER') || perms.includes('PLATFORM_MANAGE');
+    const isPrivileged =
+      perms.includes('ADMIN') || perms.includes('OWNER') || perms.includes('PLATFORM_MANAGE');
 
     if (query.userId && query.userId !== (user.userId || user.id) && !isPrivileged) {
       throw new ForbiddenException('Cannot list other users devices');
     }
 
-    return this.deviceService.listDevices(tenantId, userId, { state: query.state as any, page: query.page, limit: query.limit });
+    return this.deviceService.listDevices(tenantId, userId, {
+      state: query.state as any,
+      page: query.page,
+      limit: query.limit,
+    });
   }
 
   @Post('devices/register')
   @RequirePermissions(Permission.DEVICE_WRITE)
-  async registerDevice(@Body() body: { deviceId: string; userAgent?: string }, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async registerDevice(
+    @Body() body: { deviceId: string; userAgent?: string },
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     return this.deviceService.registerDevice({
       tenantId,
       userId: user.userId || user.id,
@@ -458,7 +569,12 @@ export class SecurityController {
 
   @Post('devices/:deviceId/trust')
   @RequirePermissions(Permission.DEVICE_WRITE, Permission.SECURITY_POLICY_WRITE)
-  async trustDevice(@Param('deviceId') deviceId: string, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async trustDevice(
+    @Param('deviceId') deviceId: string,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     return this.deviceService.trustDevice({
       tenantId,
       userId: user.userId || user.id,
@@ -471,7 +587,13 @@ export class SecurityController {
 
   @Post('devices/:deviceId/revoke')
   @RequirePermissions(Permission.DEVICE_WRITE)
-  async revokeDevice(@Param('deviceId') deviceId: string, @Body() body: { reason?: string }, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async revokeDevice(
+    @Param('deviceId') deviceId: string,
+    @Body() body: { reason?: string },
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     return this.deviceService.revokeDevice({
       tenantId,
       userId: user.userId || user.id,
@@ -485,7 +607,12 @@ export class SecurityController {
 
   @Get('devices/trust/evaluate')
   @RequirePermissions(Permission.DEVICE_READ)
-  async evaluateDeviceTrust(@Query('deviceId') deviceId: string, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async evaluateDeviceTrust(
+    @Query('deviceId') deviceId: string,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     if (!deviceId) throw new BadRequestException('deviceId required');
     return this.deviceService.evaluateDeviceTrust({
       tenantId,
@@ -500,7 +627,13 @@ export class SecurityController {
 
   @Get('mfa/required')
   @RequirePermissions(Permission.MFA_READ, Permission.SECURITY_EVENT_READ)
-  async isMfaRequired(@Query('operation') operation: string, @Query('deviceId') deviceId: string, @TenantId() tenantId: string, @CurrentUser() user: any, @Req() req: any) {
+  async isMfaRequired(
+    @Query('operation') operation: string,
+    @Query('deviceId') deviceId: string,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Req() req: any,
+  ) {
     return this.mfaPolicyService.isMfaRequired({
       tenantId,
       userId: user.userId || user.id,
@@ -516,7 +649,11 @@ export class SecurityController {
 
   @Get('events')
   @RequirePermissions(Permission.SECURITY_EVENT_READ, Permission.PLATFORM_MANAGE)
-  async listSecurityEvents(@Query() query: SecurityEventQueryDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async listSecurityEvents(
+    @Query() query: SecurityEventQueryDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+  ) {
     // Tenant isolation - platform admin can query any tenant via query param? For now tenantId from context
     const effectiveTenantId = (query as any).tenantId || tenantId;
     if ((query as any).tenantId && (query as any).tenantId !== tenantId) {
@@ -539,7 +676,11 @@ export class SecurityController {
 
   @Get('audit')
   @RequirePermissions(Permission.SECURITY_EVENT_READ, Permission.PLATFORM_MANAGE)
-  async listAuditLogs(@Query() query: SecurityEventQueryDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async listAuditLogs(
+    @Query() query: SecurityEventQueryDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+  ) {
     const effectiveTenantId = (query as any).tenantId || tenantId;
     if ((query as any).tenantId && (query as any).tenantId !== tenantId) {
       const perms = user.permissions || user.roles || [];
@@ -562,7 +703,11 @@ export class SecurityController {
 
   @Get('threats')
   @RequirePermissions(Permission.SECURITY_EVENT_READ, Permission.PLATFORM_MANAGE)
-  async listThreats(@Query() query: ThreatQueryDto, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async listThreats(
+    @Query() query: ThreatQueryDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+  ) {
     const effectiveTenantId = (query as any).tenantId || tenantId;
     if ((query as any).tenantId && (query as any).tenantId !== tenantId) {
       const perms = user.permissions || user.roles || [];
@@ -583,7 +728,10 @@ export class SecurityController {
 
   @Post('threats/detect')
   @RequirePermissions(Permission.PLATFORM_MANAGE, Permission.SECURITY_EVENT_READ)
-  async detectThreats(@Body() body: { tenantId?: string; userId?: string; fromDate?: string; toDate?: string }, @TenantId() tenantId: string) {
+  async detectThreats(
+    @Body() body: { tenantId?: string; userId?: string; fromDate?: string; toDate?: string },
+    @TenantId() tenantId: string,
+  ) {
     const effectiveTenantId = body.tenantId || tenantId;
     return this.threatService.detectThreats({
       tenantId: effectiveTenantId,
@@ -595,7 +743,12 @@ export class SecurityController {
 
   @Post('threats/:id/resolve')
   @RequirePermissions(Permission.SECURITY_EVENT_WRITE, Permission.PLATFORM_MANAGE)
-  async resolveThreat(@Param('id') id: string, @Body() body: { resolution: string }, @TenantId() tenantId: string, @CurrentUser() user: any) {
+  async resolveThreat(
+    @Param('id') id: string,
+    @Body() body: { resolution: string },
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+  ) {
     return this.threatService.resolveThreat(id, tenantId, user.userId || user.id, body.resolution);
   }
 

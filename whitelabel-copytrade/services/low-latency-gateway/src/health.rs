@@ -140,7 +140,7 @@ impl HealthService {
         checks.push(ReadinessCheck {
             name: "backpressure_below_critical",
             ok: state < BackpressureState::Critical,
-            detail: format!("queue depth {depth} in state {:?}", state),
+            detail: format!("queue depth {depth} in state {state:?}"),
         });
 
         let ready = checks.iter().all(|c| c.ok);

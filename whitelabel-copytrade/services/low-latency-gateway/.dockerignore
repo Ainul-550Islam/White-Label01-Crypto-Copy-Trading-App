@@ -1,0 +1,3 @@
+# Exclude build output and repository metadata from the gateway image context.
+target/
+.git/

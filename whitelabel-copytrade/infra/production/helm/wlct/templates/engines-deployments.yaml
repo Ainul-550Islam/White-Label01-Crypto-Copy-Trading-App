@@ -1,0 +1,44 @@
+# Deploy private engines and notification worker with no ingress exposure.
+{{- $root := . }}
+{{- range $name, $service := dict "trading-engine" .Values.services.tradingEngine "execution-engine" .Values.services.executionEngine "market-data" .Values.services.marketData "notification-service" .Values.services.notificationService }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $root.Release.Name }}-{{ $name }}
+  labels:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $service.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $name }} }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $name }} }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: {{ $name }}
+          image: {{ printf "%s:%s" $service.image $service.tag | quote }}
+          ports: [{ name: http, containerPort: {{ $service.port }} }]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: SERVICE_PORT
+              value: {{ $service.port | quote }}
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ $root.Values.external.postgres.secretRef | quote }}, key: url } }
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: {{ $root.Values.external.redis.secretRef | quote }}, key: url } }
+            - name: EXECUTION_ENABLED
+              value: "false"
+            - name: EXCHANGE_SANDBOX_MODE
+              value: "true"
+          envFrom: [{ secretRef: { name: {{ $service.secretRef | quote }} } }]
+          startupProbe: { httpGet: { path: /health, port: http }, failureThreshold: 30, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 20 }
+          resources: {{- toYaml $service.resources | nindent 12 }}
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 10001, capabilities: { drop: [ALL] } }
+{{- end }}

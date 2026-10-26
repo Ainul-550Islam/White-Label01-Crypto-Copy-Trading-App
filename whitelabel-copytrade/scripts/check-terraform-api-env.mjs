@@ -140,6 +140,30 @@ const result = schema.safeParse(env);
 if (!result.success) {
   for (const issue of result.error.issues)
     fail(`${issue.path.join(".") || "(root)"}: ${issue.message}`);
+} else {
+  const parsed = result.data;
+  if (
+    typeof parsed.API_PUBLIC_URL !== "string" ||
+    !parsed.API_PUBLIC_URL.startsWith("https://")
+  ) {
+    fail("production API_PUBLIC_URL must resolve to the HTTPS public API hostname");
+  }
+  for (const name of [
+    "TRADING_ENGINE_URL",
+    "EXECUTION_ENGINE_URL",
+    "MARKET_DATA_URL",
+    "NOTIFICATION_SERVICE_URL",
+  ]) {
+    if (
+      typeof parsed[name] !== "string" ||
+      !parsed[name].includes(".wlct.internal") ||
+      /localhost|127\\.0\\.0\\.1/u.test(parsed[name])
+    ) {
+      fail(
+        `${name} must resolve through private ECS service discovery, not a localhost default`,
+      );
+    }
+  }
 }
 
 // --- dataset directories must exist in the image ------------------------------

@@ -290,6 +290,38 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/v1/auth/step-up/status": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["StepUp_status"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/v1/auth/step-up/verify": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["StepUp_verify"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/v1/auth/two-factor/confirm": {
         readonly parameters: {
             readonly query?: never;
@@ -8885,6 +8917,38 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/v1/partner/referral-abuse/reviews": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["ReferralAbuseReview_listReviewQueue"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/v1/partner/referral-abuse/reviews/{caseId}/decision": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["ReferralAbuseReview_resolveReview"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/v1/partner/referrals": {
         readonly parameters: {
             readonly query?: never;
@@ -14041,6 +14105,7 @@ export interface components {
             readonly warningCount: number;
         };
         readonly RecoveryOrderDto: Record<string, never>;
+        readonly ReferralAbuseReviewDecisionDto: Record<string, never>;
         readonly RefreshCapabilitiesDto: Record<string, never>;
         readonly RefreshTokenDto: {
             /**
@@ -14690,6 +14755,7 @@ export interface components {
             /** @example app.acme-capital.com */
             readonly domain: string;
         };
+        readonly VerifyStepUpDto: Record<string, never>;
         readonly VerifyTwoFactorDto: {
             /** @description Challenge token returned by the login endpoint. */
             readonly challengeToken: string;
@@ -16070,6 +16136,60 @@ export interface operations {
                 content: {
                     readonly "application/json": components["schemas"]["ApiErrorResponseDto"];
                 };
+            };
+        };
+    };
+    readonly StepUp_status: {
+        readonly parameters: {
+            readonly query: {
+                readonly action: string;
+            };
+            readonly header?: {
+                /** @description Idempotency key for unsafe operations that must not be applied twice. */
+                readonly "idempotency-key"?: string;
+                /** @description Stable per-installation device identifier used for session binding. */
+                readonly "x-device-id"?: string;
+                /** @description Client-supplied correlation id. Echoed back on every response. */
+                readonly "x-request-id"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly StepUp_verify: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                /** @description Idempotency key for unsafe operations that must not be applied twice. */
+                readonly "idempotency-key"?: string;
+                /** @description Stable per-installation device identifier used for session binding. */
+                readonly "x-device-id"?: string;
+                /** @description Client-supplied correlation id. Echoed back on every response. */
+                readonly "x-request-id"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["VerifyStepUpDto"];
+            };
+        };
+        readonly responses: {
+            readonly 201: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -39149,6 +39269,62 @@ export interface operations {
         readonly requestBody?: never;
         readonly responses: {
             readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly ReferralAbuseReview_listReviewQueue: {
+        readonly parameters: {
+            readonly query: {
+                readonly limit: string;
+            };
+            readonly header?: {
+                /** @description Idempotency key for unsafe operations that must not be applied twice. */
+                readonly "idempotency-key"?: string;
+                /** @description Stable per-installation device identifier used for session binding. */
+                readonly "x-device-id"?: string;
+                /** @description Client-supplied correlation id. Echoed back on every response. */
+                readonly "x-request-id"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly ReferralAbuseReview_resolveReview: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                /** @description Idempotency key for unsafe operations that must not be applied twice. */
+                readonly "idempotency-key"?: string;
+                /** @description Stable per-installation device identifier used for session binding. */
+                readonly "x-device-id"?: string;
+                /** @description Client-supplied correlation id. Echoed back on every response. */
+                readonly "x-request-id"?: string;
+            };
+            readonly path: {
+                readonly caseId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ReferralAbuseReviewDecisionDto"];
+            };
+        };
+        readonly responses: {
+            readonly 201: {
                 headers: {
                     readonly [name: string]: unknown;
                 };

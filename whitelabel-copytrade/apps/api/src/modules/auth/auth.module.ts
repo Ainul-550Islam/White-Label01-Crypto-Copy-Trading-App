@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 
@@ -21,6 +21,7 @@ import { SsoLoginService } from './sso/sso-login.service';
 import { SsoTransactionService } from './sso/sso-transaction.service';
 import { SsoIdentityService } from './sso/sso-identity.service';
 import { SsoAuditService } from './sso/sso-audit.service';
+import { StepUpModule } from './step-up/step-up.module';
 
 /**
  * Authentication and session management.
@@ -40,6 +41,7 @@ import { SsoAuditService } from './sso/sso-audit.service';
     UsersModule,
     TenantsModule,
     ObservabilityModule,
+    forwardRef(() => StepUpModule),
   ],
   controllers: [AuthController, TwoFactorController, SessionsController, SsoAuthController],
   providers: [
@@ -56,6 +58,6 @@ import { SsoAuditService } from './sso/sso-audit.service';
     SsoIdentityService,
     SsoAuditService,
   ],
-  exports: [AuthService, TokenService, SessionService, TwoFactorService],
+  exports: [AuthService, TokenService, SessionService, TwoFactorService, AccountLockoutService],
 })
 export class AuthModule {}

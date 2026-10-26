@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "releaseTag",
+    "external",
+    "hosts",
+    "ingress",
+    "services",
+    "networkPolicy"
+  ],
+  "properties": {
+    "releaseTag": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "enum": ["latest", "main"]
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "external": {
+      "type": "object",
+      "required": ["postgres", "redis"],
+      "properties": {
+        "postgres": {
+          "$ref": "#/definitions/endpoint"
+        },
+        "redis": {
+          "$ref": "#/definitions/endpoint"
+        }
+      }
+    },
+    "hosts": {
+      "type": "object",
+      "required": ["api", "app", "admin"],
+      "properties": {
+        "api": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1
+        },
+        "admin": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "required": ["className", "tlsSecretName"],
+      "properties": {
+        "className": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tlsSecretName": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "required": [
+        "api",
+        "worker",
+        "web",
+        "adminWeb",
+        "tradingEngine",
+        "executionEngine",
+        "marketData",
+        "notificationService"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z]+$": {
+          "$ref": "#/definitions/workload"
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "required": ["postgresCidrs", "redisCidrs"],
+      "properties": {
+        "postgresCidrs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "ipv4"
+          }
+        },
+        "redisCidrs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "ipv4"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "endpoint": {
+      "type": "object",
+      "required": ["host", "port", "secretRef"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "secretRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "required": [
+        "image",
+        "tag",
+        "replicas",
+        "port",
+        "secretRef",
+        "resources"
+      ],
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "enum": ["latest", "main"]
+          }
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "secretRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resources": {
+          "type": "object",
+          "required": ["requests", "limits"],
+          "properties": {
+            "requests": {
+              "type": "object",
+              "required": ["cpu", "memory"]
+            },
+            "limits": {
+              "type": "object",
+              "required": ["cpu", "memory"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -11999,6 +11999,38 @@ model PartnerAttribution {
   @@map("partner_attributions")
 }
 
+model PartnerReferralAbuseReview {
+  id                 String    @id @db.VarChar(64)
+  tenantId           String    @map("tenant_id") @db.Uuid
+  partnerId          String    @map("partner_id") @db.VarChar(64)
+  referrerUserId     String    @map("referrer_user_id") @db.VarChar(64)
+  referredUserId     String    @map("referred_user_id") @db.VarChar(64)
+  referrerDeviceHash String?   @map("referrer_device_hash") @db.VarChar(128)
+  referredDeviceHash String?   @map("referred_device_hash") @db.VarChar(128)
+  referrerIpHash     String?   @map("referrer_ip_hash") @db.VarChar(128)
+  referredIpHash     String?   @map("referred_ip_hash") @db.VarChar(128)
+  idempotencyKey     String    @map("idempotency_key") @db.VarChar(255)
+  riskScore          Int       @map("risk_score")
+  reasons            Json
+  velocityCounts     Json      @map("velocity_counts")
+  decision           String    @db.VarChar(32)
+  state              String    @db.VarChar(32)
+  reviewerUserId     String?   @map("reviewer_user_id") @db.VarChar(64)
+  resolutionNote     String?   @map("resolution_note") @db.VarChar(1000)
+  reviewedAt         DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, state, riskScore, createdAt])
+  @@index([tenantId, partnerId, referrerUserId, createdAt])
+  @@index([tenantId, referrerDeviceHash, createdAt])
+  @@index([tenantId, referredDeviceHash, createdAt])
+  @@index([tenantId, referrerIpHash, createdAt])
+  @@index([tenantId, referredIpHash, createdAt])
+  @@map("partner_referral_abuse_reviews")
+}
+
 model PartnerCampaign {
   id                     String    @id @db.VarChar(64)
   partnerId              String    @map("partner_id") @db.VarChar(64)

@@ -5,6 +5,8 @@ import { PartnerPortalController } from './partner.controller';
 import { PartnerCommissionLedgerService } from './partner-commission-ledger.service';
 import { PartnerPayoutService } from './partner-payout.service';
 import { PartnerReconciliationService } from './partner-reconciliation.service';
+import { ReferralAbuseService } from './referral-abuse.service';
+import { evaluateReferralAbuse } from './referral-abuse.rules';
 
 export {
   PartnerModule,
@@ -13,6 +15,8 @@ export {
   PartnerCommissionLedgerService,
   PartnerPayoutService,
   PartnerReconciliationService,
+  ReferralAbuseService,
+  evaluateReferralAbuse,
 };
 
 export const PARTNER_PORTAL_ROUTE_PREFIX = '/v1/partner';

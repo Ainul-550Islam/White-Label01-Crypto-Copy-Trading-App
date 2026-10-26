@@ -1,0 +1,66 @@
+# Default deny all pod ingress/egress; permit only public ingress, internal engines, DNS, DB, Redis and venue HTTPS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-permitted-egress
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }} } }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - to: {{- range .Values.networkPolicy.postgresCidrs }}
+        - ipBlock: { cidr: {{ . | quote }} }
+      {{- end }}
+      ports: [{ protocol: TCP, port: {{ .Values.external.postgres.port }} }]
+    - to: {{- range .Values.networkPolicy.redisCidrs }}
+        - ipBlock: { cidr: {{ . | quote }} }
+      {{- end }}
+      ports: [{ protocol: TCP, port: {{ .Values.external.redis.port }} }]
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports: [{ protocol: TCP, port: 443 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-public-frontends
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/component, operator: In, values: [api, web, admin-web] }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+          podSelector: { matchLabels: { app.kubernetes.io/component: controller } }
+      ports:
+        - { protocol: TCP, port: 4000 }
+        - { protocol: TCP, port: 3001 }
+        - { protocol: TCP, port: 3000 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-engine-ingress
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/component, operator: In, values: [trading-engine, execution-engine, market-data, notification-service] }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: api } }
+        - podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: worker } }

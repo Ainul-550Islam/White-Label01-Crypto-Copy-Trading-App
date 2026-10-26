@@ -1,0 +1,20 @@
+# Scale API, web and worker replicas against CPU and memory utilization.
+{{- range $name, $spec := dict "api" .Values.services.api "web" .Values.services.web "worker" .Values.services.worker }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $.Release.Name }}-{{ $name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $.Release.Name }}-{{ $name }}
+  minReplicas: {{ $spec.replicas }}
+  maxReplicas: {{ ternary 10 5 (eq $name "api") }}
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }
+    - type: Resource
+      resource: { name: memory, target: { type: Utilization, averageUtilization: 70 } }
+{{- end }}

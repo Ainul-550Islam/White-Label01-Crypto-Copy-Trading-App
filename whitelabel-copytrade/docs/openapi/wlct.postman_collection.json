@@ -21435,6 +21435,83 @@
       ]
     },
     {
+      "name": "ReferralAbuseReview",
+      "item": [
+        {
+          "name": "ReferralAbuseReview_listReviewQueue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/partner/referral-abuse/reviews",
+              "variable": [],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "set-limit",
+                  "description": "Query parameter limit",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/partner/referral-abuse/reviews"
+          }
+        },
+        {
+          "name": "ReferralAbuseReview_resolveReview",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/partner/referral-abuse/reviews/:caseId/decision",
+              "variable": [
+                {
+                  "key": "caseId",
+                  "value": "set-caseId",
+                  "description": "Path parameter caseId"
+                }
+              ]
+            },
+            "description": "POST /api/v1/partner/referral-abuse/reviews/{caseId}/decision",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Reliability (SLOs & tracing)",
       "item": [
         {
@@ -26128,6 +26205,77 @@
               "variable": []
             },
             "description": "Revoke every session except the current device"
+          }
+        }
+      ]
+    },
+    {
+      "name": "StepUp",
+      "item": [
+        {
+          "name": "StepUp_status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/step-up/status",
+              "variable": [],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "set-action",
+                  "description": "Query parameter action",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/auth/step-up/status"
+          }
+        },
+        {
+          "name": "StepUp_verify",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/step-up/verify",
+              "variable": []
+            },
+            "description": "POST /api/v1/auth/step-up/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         }
       ]

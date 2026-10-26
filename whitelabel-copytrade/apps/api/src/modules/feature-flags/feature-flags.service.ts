@@ -21,6 +21,8 @@ import type { UpsertFeatureFlagDto, SetTenantFlagDto } from './dto/feature-flag.
  * money, custody or compliance defaults to OFF: a brand must consciously turn
  * it on after the corresponding contractual and regulatory work is done.
  */
+const GLOBAL_KILL_SWITCH_KEY = 'platform.kill_switch';
+
 const TENANT_DEFAULTS: Record<string, boolean> = {
   [FEATURE_FLAG_KEYS.COPY_TRADING]: false,
   [FEATURE_FLAG_KEYS.FUTURES_TRADING]: false,
@@ -66,7 +68,21 @@ export class FeatureFlagsService {
         }
 
         for (const override of overrides) {
-          resolved[override.featureFlag.key] = override.enabled;
+          if (override.featureFlag.key !== GLOBAL_KILL_SWITCH_KEY) {
+            resolved[override.featureFlag.key] = override.enabled;
+          }
+        }
+
+        // A global kill switch is controlled only by the platform definition;
+        // tenant overrides cannot re-enable a feature while it is engaged.
+        const killSwitchActive = definitions.some(
+          (definition) => definition.key === GLOBAL_KILL_SWITCH_KEY && definition.isGlobalDefault,
+        );
+        resolved[GLOBAL_KILL_SWITCH_KEY] = killSwitchActive;
+        if (killSwitchActive) {
+          for (const key of Object.keys(resolved)) {
+            if (key !== GLOBAL_KILL_SWITCH_KEY) resolved[key] = false;
+          }
         }
 
         return resolved;

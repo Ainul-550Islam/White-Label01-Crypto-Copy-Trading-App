@@ -1,0 +1,36 @@
+# Deploy the API worker separately to isolate queue consumption.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-worker
+  labels: {{- include "wlct.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.worker.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: worker }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: worker }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: worker
+          image: {{ include "wlct.image" .Values.services.worker | quote }}
+          command: ["node", "dist/worker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ .Values.external.postgres.secretRef | quote }}, key: url } }
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: {{ .Values.external.redis.secretRef | quote }}, key: url } }
+            - name: EXECUTION_ENABLED
+              value: "false"
+            - name: EXCHANGE_SANDBOX_MODE
+              value: "true"
+          envFrom: [{ secretRef: { name: {{ .Values.services.worker.secretRef | quote }} } }]
+          startupProbe: { exec: { command: ["node", "-e", "process.exit(0)"] }, failureThreshold: 30, periodSeconds: 10 }
+          readinessProbe: { exec: { command: ["node", "-e", "process.exit(0)"] }, periodSeconds: 10 }
+          livenessProbe: { exec: { command: ["node", "-e", "process.exit(0)"] }, periodSeconds: 20 }
+          resources: {{- toYaml .Values.services.worker.resources | nindent 12 }}
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 10001, capabilities: { drop: [ALL] } }

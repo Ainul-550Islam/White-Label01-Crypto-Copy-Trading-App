@@ -63,3 +63,7 @@ opt-level = 1
 [dev-dependencies]
 # None: every deterministic test uses the crate itself plus std/tokio already
 # declared above. No test-only backdoors into production types.
+
+[[bin]]
+name = "gateway-healthcheck"
+path = "src/bin/healthcheck.rs"

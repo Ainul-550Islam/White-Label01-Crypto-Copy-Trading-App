@@ -11,16 +11,14 @@ import {
 import { Permission, hasAnyPermission, type AuthenticatedActor } from '@wlct/shared-types';
 import { RequireAnyPermission } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 import { PartnerProfileService } from '../partners/partner-profile.service';
 import { PartnerReferralService } from '../partners/partner-referral.service';
 import { PartnerAttributionService } from '../partners/partner-attribution.service';
 import { PartnerCommissionLedgerService } from '../partners/partner-commission-ledger.service';
 import { PartnerPayoutService } from '../partners/partner-payout.service';
 import { PartnerPortalService } from '../partners/partner-portal.service';
-import {
-  CreateReferralDto,
-  RequestPayoutDto,
-} from '../partners/dto/partner-campaign.dto';
+import { CreateReferralDto, RequestPayoutDto } from '../partners/dto/partner-campaign.dto';
 import {
   PartnerCommissionQueryDto,
   PartnerPayoutQueryDto,
@@ -45,15 +43,18 @@ export class PartnerPortalController {
     private readonly portalService: PartnerPortalService,
   ) {}
 
-  private async resolvePartnerId(user: AuthenticatedActor, explicitPartnerId?: string): Promise<string> {
+  private async resolvePartnerId(
+    user: AuthenticatedActor,
+    explicitPartnerId?: string,
+  ): Promise<string> {
     if (!user.userId) {
       throw new ForbiddenException('An authenticated user identity is required');
     }
 
     if (explicitPartnerId) {
       const profile = await this.profileService.getProfile(explicitPartnerId);
-      const platformManager = user.isPlatformUser
-        && hasAnyPermission(user.permissions, [Permission.PLATFORM_MANAGE]);
+      const platformManager =
+        user.isPlatformUser && hasAnyPermission(user.permissions, [Permission.PLATFORM_MANAGE]);
       if (profile.ownerUserId !== user.userId && !platformManager) {
         throw new ForbiddenException('Partner profile is outside the authenticated user scope');
       }
@@ -115,10 +116,7 @@ export class PartnerPortalController {
   }
 
   @Post('referrals')
-  async createMyReferral(
-    @CurrentUser() user: AuthenticatedActor,
-    @Body() dto: CreateReferralDto,
-  ) {
+  async createMyReferral(@CurrentUser() user: AuthenticatedActor, @Body() dto: CreateReferralDto) {
     const partnerId = await this.resolvePartnerId(user, dto.partnerId);
     return this.referralService.createReferral({
       partnerId,
@@ -166,12 +164,10 @@ export class PartnerPortalController {
     };
   }
 
+  @RequireStepUp('PAYOUT_CREATE')
   @Post('payouts')
   @RequireAnyPermission(Permission.PAYOUT_MANAGE, Permission.PLATFORM_MANAGE)
-  async requestMyPayout(
-    @CurrentUser() user: AuthenticatedActor,
-    @Body() dto: RequestPayoutDto,
-  ) {
+  async requestMyPayout(@CurrentUser() user: AuthenticatedActor, @Body() dto: RequestPayoutDto) {
     const partnerId = await this.resolvePartnerId(user, dto.partnerId);
     return this.payoutService.requestPayout({
       partnerId,

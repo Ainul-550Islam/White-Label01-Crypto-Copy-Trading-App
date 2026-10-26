@@ -296,6 +296,10 @@ export class AppConfigService {
     return this.env.TWO_FACTOR_PERIOD;
   }
 
+  get stepUpTtlSeconds(): number {
+    return this.env.STEP_UP_TTL_SECONDS;
+  }
+
   get twoFactorRecoveryCodeCount(): number {
     return this.env.TWO_FACTOR_RECOVERY_CODES;
   }
@@ -360,7 +364,10 @@ export class AppConfigService {
       }
       try {
         const { hostname, protocol } = new URL(origin);
-        if (protocol === 'https:' && (hostname === rootDomain || hostname.endsWith(`.${rootDomain}`))) {
+        if (
+          protocol === 'https:' &&
+          (hostname === rootDomain || hostname.endsWith(`.${rootDomain}`))
+        ) {
           callback(null, true);
           return;
         }
@@ -600,7 +607,7 @@ export class AppConfigService {
   /** Secret: readable only where it is needed, never logged, never echoed
    * into a response - the same discipline as every token on this service. */
   get executionEngineToken(): string | undefined {
-    return this.env.EXECUTION_ENGINE_TOKEN;
+    return this.env.EXECUTION_ENGINE_TOKEN ?? this.env.INTERNAL_SERVICE_TOKEN;
   }
 
   get databaseReadEnabled(): boolean {
@@ -1021,8 +1028,7 @@ export class AppConfigService {
       failClosed: this.riskFailClosed,
       maxRiskStateAgeMs: this.maxRiskStateAgeMs,
       snapshotRefreshMs: this.riskSnapshotRefreshMs,
-      refreshOutpacesStaleness:
-        this.riskSnapshotRefreshMs < this.maxRiskStateAgeMs,
+      refreshOutpacesStaleness: this.riskSnapshotRefreshMs < this.maxRiskStateAgeMs,
       ceilings: this.riskPlatformCeilings,
       note:
         'Risk controls reduce operational risk but cannot guarantee against ' +

@@ -20,9 +20,17 @@ import {
   TRADING_GATES,
 } from './alert.constants';
 import { evaluateTradingReadiness, type GateEvidence } from './readiness-eval';
-import { MetricsRegistry, MetricPolicyError, FORBIDDEN_LABEL_NAMES } from '../../infrastructure/metrics/metrics.registry';
+import {
+  MetricsRegistry,
+  MetricPolicyError,
+  FORBIDDEN_LABEL_NAMES,
+} from '../../infrastructure/metrics/metrics.registry';
 import { createMetricsRegistry } from './metrics.registry.provider';
-import { parseAlertsDocument, parseHealthDocument, parseReadinessDocument } from './observability.mapper';
+import {
+  parseAlertsDocument,
+  parseHealthDocument,
+  parseReadinessDocument,
+} from './observability.mapper';
 import { ForceResolveAlertDto } from './dto/observability.dto';
 
 /**
@@ -72,7 +80,13 @@ const fixture = JSON.parse(
         help: string;
         labels: string[];
         buckets?: number[];
-        record: Array<{ op: string; labels: Record<string, string>; amount?: number; value?: number; micros?: number }>;
+        record: Array<{
+          op: string;
+          labels: Record<string, string>;
+          amount?: number;
+          value?: number;
+          micros?: number;
+        }>;
       }>;
       text: string;
     }>;
@@ -90,7 +104,13 @@ const fixture = JSON.parse(
     staleRows: Array<{ stale: string; ready: boolean; blocking: string[] }>;
   };
   catalogs: {
-    alert_rules: Array<{ ruleId: string; severity: string; title: string; requiresRecovery: boolean; blocksTrading: boolean }>;
+    alert_rules: Array<{
+      ruleId: string;
+      severity: string;
+      title: string;
+      requiresRecovery: boolean;
+      blocksTrading: boolean;
+    }>;
     alert_severities: string[];
     alert_states: string[];
     health_statuses: string[];
@@ -101,7 +121,9 @@ const fixture = JSON.parse(
 };
 
 describe('Part 9 fixture parity - the two languages render the same bytes', () => {
-  const buildFromVector = (vector: (typeof fixture.prometheus.vectors)[number]): MetricsRegistry => {
+  const buildFromVector = (
+    vector: (typeof fixture.prometheus.vectors)[number],
+  ): MetricsRegistry => {
     const registry = new MetricsRegistry(vector.service);
     for (const family of vector.families) {
       if (family.type === 'counter') {
@@ -180,7 +202,9 @@ describe('Part 9 catalog parity - parsed from live Python source, not re-typed',
   };
 
   it('the rule id sets are identical', () => {
-    const python = parseRuleTuples().map((entry) => entry.ruleId).sort();
+    const python = parseRuleTuples()
+      .map((entry) => entry.ruleId)
+      .sort();
     const ts = ALERT_RULE_CATALOG.map((entry) => entry.ruleId).sort();
     expect(ts).toEqual(python);
     expect(python.length).toBeGreaterThan(10);
@@ -204,7 +228,9 @@ describe('Part 9 catalog parity - parsed from live Python source, not re-typed',
 
   it('the fixture, the source and the constants agree on the gate list', () => {
     const readinessSource = read('libs/trading-core/wlct_trading/observability/readiness.py');
-    const pythonGates = [...readinessSource.matchAll(/TradingGate\(\s*"([a-z_]+)"/g)].map((m) => m[1] as string);
+    const pythonGates = [...readinessSource.matchAll(/TradingGate\(\s*"([a-z_]+)"/g)].map(
+      (m) => m[1] as string,
+    );
     expect(TRADING_GATES).toEqual(pythonGates);
     expect(fixture.readiness.gates).toEqual(pythonGates);
   });
@@ -220,7 +246,9 @@ describe('Part 9 catalog parity - parsed from live Python source, not re-typed',
     const pythonAllowed = extractSet('ALLOWED_LABEL_NAMES: frozenset[str] = frozenset(');
     expect([...FORBIDDEN_LABEL_NAMES].sort()).toEqual(pythonForbidden);
     const registry = new MetricsRegistry('probe');
-    expect(() => registry.registerCounter('wlct_any', 'help', ['shoe_size'])).toThrow(MetricPolicyError);
+    expect(() => registry.registerCounter('wlct_any', 'help', ['shoe_size'])).toThrow(
+      MetricPolicyError,
+    );
     expect(pythonAllowed.length).toBeGreaterThan(10);
     // The TS allow-list lives in the fixture; compare against it.
     expect([...fixture.catalogs.allowed_labels].sort()).toEqual(pythonAllowed);
@@ -236,13 +264,16 @@ describe('Part 9 catalog parity - parsed from live Python source, not re-typed',
       incidentsSource.indexOf('class IncidentLinkKind'),
       incidentsSource.indexOf('class IncidentStatus'),
     );
-    const pythonLinkKinds = [...linkSection.matchAll(/^\s{4}([A-Z_]+) = "/gm)].map((m) => m[1] as string);
+    const pythonLinkKinds = [...linkSection.matchAll(/^\s{4}([A-Z_]+) = "/gm)].map(
+      (m) => m[1] as string,
+    );
     expect(pythonLinkKinds).toEqual([...INCIDENT_LINK_KINDS]);
   });
 });
 
 describe('Part 9 readiness truth table - 530 verdicts replayed', () => {
-  const rows: Array<{ satisfied: string; ready: boolean; blocking: string[] }> = fixture.readiness.rows;
+  const rows: Array<{ satisfied: string; ready: boolean; blocking: string[] }> =
+    fixture.readiness.rows;
 
   it('the fixture table is complete (2^9 rows)', () => {
     expect(rows.length).toBe(512);
@@ -290,7 +321,9 @@ describe('Part 9 readiness truth table - 530 verdicts replayed', () => {
   });
 
   it('an undeclared gate name is a hard error, not a silent extra key', () => {
-    expect(() => evaluateTradingReadiness({ vibes: { value: true } } as never)).toThrow(/undeclared gate/);
+    expect(() => evaluateTradingReadiness({ vibes: { value: true } } as never)).toThrow(
+      /undeclared gate/,
+    );
   });
 });
 
@@ -300,13 +333,24 @@ describe('Part 9 metric cardinality - the rules the registry enforces at the doo
     expect(() =>
       registry.registerCounter('wlct_orders_submitted_total', 'help', ['exchange', 'result']),
     ).not.toThrow();
-    for (const forbidden of ['order_id', 'request_id', 'correlation_id', 'tenant_id', 'api_key', 'token']) {
-      expect(() => registry.registerCounter(`wlct_probe_${forbidden}_total`, 'help', [forbidden])).toThrow(
-        /forbidden label name/,
-      );
+    for (const forbidden of [
+      'order_id',
+      'request_id',
+      'correlation_id',
+      'tenant_id',
+      'api_key',
+      'token',
+    ]) {
+      expect(() =>
+        registry.registerCounter(`wlct_probe_${forbidden}_total`, 'help', [forbidden]),
+      ).toThrow(/forbidden label name/);
     }
-    expect(() => registry.registerCounter('wlct_probe_total', 'help', ['shoe_size'])).toThrow(/allow-list/);
-    expect(() => registry.registerCounter('wlct_probe_total', 'help', ['result', 'result'])).toThrow(/twice/);
+    expect(() => registry.registerCounter('wlct_probe_total', 'help', ['shoe_size'])).toThrow(
+      /allow-list/,
+    );
+    expect(() =>
+      registry.registerCounter('wlct_probe_total', 'help', ['result', 'result']),
+    ).toThrow(/twice/);
   });
 
   it('refuses (counts, does not throw) malformed label sets at record time', () => {
@@ -373,7 +417,9 @@ describe('Part 9 metric cardinality - the rules the registry enforces at the doo
   it('the API registry exposes only allow-listed label universes', () => {
     const registry = createMetricsRegistry();
     const source = read('apps/api/src/modules/observability/metrics.registry.provider.ts');
-    const labelArrays = [...source.matchAll(/register(?:Counter|Gauge|Histogram)\([^)]*?'([a-z_,\s']+)'\]/gs)]
+    const labelArrays = [
+      ...source.matchAll(/register(?:Counter|Gauge|Histogram)\([^)]*?'([a-z_,\s']+)'\]/gs),
+    ]
       .flatMap((match) => (match[1] ?? '').split(/[\s,']+/))
       .filter((token) => token.length > 1);
     for (const label of labelArrays) {
@@ -392,7 +438,8 @@ describe('Part 9 metric cardinality - the rules the registry enforces at the doo
     ).toThrow(/URL-/);
     expect(() =>
       MetricsRegistry.assertLabelValuesSafe({
-        component: 'header.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij_k',
+        component:
+          'header.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij_k',
       }),
     ).toThrow(/URL- or credential/);
   });
@@ -436,7 +483,9 @@ describe('Part 9 published-document parsing - corrupt mirrors degrade, never cra
   });
 
   it('health documents keep their per-component status whitelist', () => {
-    expect(parseHealthDocument('{"status":"HEALTHY","checkedAtMicros":1,"components":[]}')).not.toBeNull();
+    expect(
+      parseHealthDocument('{"status":"HEALTHY","checkedAtMicros":1,"components":[]}'),
+    ).not.toBeNull();
     expect(parseHealthDocument('{"status":"FINE","checkedAtMicros":1,"components":[]}')).toBeNull();
   });
 
@@ -479,7 +528,7 @@ describe('Part 9 source-level guarantees - what this plane can NEVER do', () => 
       'order.service',
       'risk-policy.service',
       'risk-protection.service',
-      'queue.service\'.*enqueueOrThrow|TRADE_EXECUTION',
+      "queue.service'.*enqueueOrThrow|TRADE_EXECUTION",
       'updateMany.*orders',
       'update.*killSwitch',
     ];
@@ -506,13 +555,18 @@ describe('Part 9 source-level guarantees - what this plane can NEVER do', () => 
 
   it('no route disables observability or risk at runtime', () => {
     const all = files.map((file) => read(`${moduleDir}/${file}`)).join('\n');
-    expect(all).not.toMatch(/RISK_ENGINE_ENABLED\s*=\s*false|failClosed\s*=\s*false|fail.?closed.{0,20}disable/is);
+    expect(all).not.toMatch(
+      /RISK_ENGINE_ENABLED\s*=\s*false|failClosed\s*=\s*false|fail.?closed.{0,20}disable/is,
+    );
     expect(all).not.toMatch(/UPDATE\s+(risk_|orders|kill_switches)/i);
   });
 
   it('the operations writers touch ONLY the ops tables', () => {
-    const writePattern = /this\.prisma\.(\w+)\.(create|update|deleteMany|upsert|createMany|delete)\(/g;
-    const alerts = [...read(`${moduleDir}/alerts.service.ts`).matchAll(writePattern)].map((m) => m[1] as string);
+    const writePattern =
+      /this\.prisma\.(\w+)\.(create|update|deleteMany|upsert|createMany|delete)\(/g;
+    const alerts = [...read(`${moduleDir}/alerts.service.ts`).matchAll(writePattern)].map(
+      (m) => m[1] as string,
+    );
     expect([...new Set(alerts)].sort()).toEqual(['opsAlert']);
     const incidentsSource = read(`${moduleDir}/incidents.service.ts`);
     const incidents = [...incidentsSource.matchAll(writePattern)].map((m) => m[1] as string);
@@ -537,7 +591,10 @@ describe('Part 9 source-level guarantees - what this plane can NEVER do', () => 
 
 describe('Part 9 DTO discipline', () => {
   it('force-resolve demands the phrase and a 20-character reason', async () => {
-    const missing = plainToInstance(ForceResolveAlertDto, { reason: 'short', confirmPhrase: 'nope' });
+    const missing = plainToInstance(ForceResolveAlertDto, {
+      reason: 'short',
+      confirmPhrase: 'nope',
+    });
     const errors = await validate(missing);
     const byProperty = new Map(errors.map((error) => [error.property, error]));
     expect(byProperty.has('reason')).toBe(true);
@@ -567,6 +624,7 @@ describe('Part 9 environment validation - production cannot fly blind', () => {
       INTERNAL_SERVICE_TOKEN: 'c'.repeat(32),
       EXCHANGE_WEBHOOK_SIGNING_SECRET: 'd'.repeat(32),
       METRICS_TOKEN: 'e'.repeat(32),
+      DEVELOPER_SECRET_HMAC_KEY: 'f'.repeat(32),
       SWAGGER_PASSWORD: 's'.repeat(24),
       DATASET_LOCAL_ROOT: '/var/lib/wlct/datasets',
       DATASET_TEMP_ROOT: '/var/lib/wlct/datasets-tmp',
@@ -596,8 +654,8 @@ describe('Part 9 environment validation - production cannot fly blind', () => {
   it('retention floors are enforced at parse time', () => {
     expect(() => validateEnv(base({ ALERT_RETENTION_DAYS: '1' }))).toThrow(EnvValidationError);
     expect(() => validateEnv(base({ INCIDENT_RETENTION_DAYS: '2' }))).toThrow(EnvValidationError);
-    expect(() => validateEnv(base({ ALERT_DEDUP_WINDOW_MS: '100', HEALTH_REFRESH_MS: '5000' }))).toThrow(
-      EnvValidationError,
-    );
+    expect(() =>
+      validateEnv(base({ ALERT_DEDUP_WINDOW_MS: '100', HEALTH_REFRESH_MS: '5000' })),
+    ).toThrow(EnvValidationError);
   });
 });

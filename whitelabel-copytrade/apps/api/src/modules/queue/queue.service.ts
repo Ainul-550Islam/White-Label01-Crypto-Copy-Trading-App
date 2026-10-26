@@ -5,6 +5,7 @@ import { Queue, type JobsOptions } from 'bullmq';
 import { QUEUE_NAMES, type QueueName } from '@wlct/config';
 
 import { TracingService } from '../../infrastructure/tracing/tracing.service';
+import { classifyQueueFailure, repeatableJobId } from './retry-policy';
 
 export interface QueueDepth {
   name: QueueName;
@@ -115,6 +116,7 @@ export class QueueService implements OnModuleDestroy {
           event: 'queue.enqueue_failed',
           queue: name,
           jobName,
+          retryPolicy: classifyQueueFailure(error, { attempts: 1, backoffMs: 1 }),
           err: error instanceof Error ? { message: error.message, name: error.name } : undefined,
         },
         'Failed to enqueue background job',
@@ -148,7 +150,7 @@ export class QueueService implements OnModuleDestroy {
   ): Promise<void> {
     await this.getQueue(name).add(jobName, payload, {
       repeat: { pattern },
-      jobId: `repeat:${jobName}`,
+      jobId: repeatableJobId(jobName),
       removeOnComplete: true,
     });
   }

@@ -1,0 +1,40 @@
+# Deploy API with external persistence, probes, resource caps, and restricted container privileges.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "wlct.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.api.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: api }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: api }
+    spec:
+      {{- with .Values.imagePullSecrets }}imagePullSecrets: {{ toYaml . | nindent 8 }}{{- end }}
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: api
+          image: {{ include "wlct.image" .Values.services.api | quote }}
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 4000 }]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4000"
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ .Values.external.postgres.secretRef | quote }}, key: url } }
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: {{ .Values.external.redis.secretRef | quote }}, key: url } }
+            - name: EXECUTION_ENABLED
+              value: "false"
+            - name: EXCHANGE_SANDBOX_MODE
+              value: "true"
+          envFrom: [{ secretRef: { name: {{ .Values.services.api.secretRef | quote }} } }]
+          startupProbe: { httpGet: { path: /health, port: http }, failureThreshold: 30, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 3 }
+          livenessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 20, timeoutSeconds: 3 }
+          resources: {{- toYaml .Values.services.api.resources | nindent 12 }}
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 10001, capabilities: { drop: [ALL] } }

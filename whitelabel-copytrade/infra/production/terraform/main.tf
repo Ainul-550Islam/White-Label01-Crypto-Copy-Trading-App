@@ -371,6 +371,22 @@ resource "aws_security_group" "ecs" {
     security_groups = [aws_security_group.alb.id]
   }
 
+  ingress {
+    description     = "Web application ports from ALB"
+    from_port       = 3000
+    to_port         = 3001
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  ingress {
+    description = "Internal service-to-service traffic only"
+    from_port   = 8001
+    to_port     = 8093
+    protocol    = "tcp"
+    self        = true
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -632,7 +648,9 @@ resource "aws_ecs_task_definition" "api" {
       ]
       environment = [
         { name = "NODE_ENV", value = "production" },
-        { name = "PORT", value = "4000" },
+        { name = "API_PORT", value = "4000" },
+        { name = "PLATFORM_ROOT_DOMAIN", value = var.domain_name },
+        { name = "CORS_ORIGINS", value = format("https://%s,https://%s", var.web_domain, var.admin_domain) },
         { name = "AWS_REGION", value = var.aws_region },
         { name = "S3_BUCKET", value = aws_s3_bucket.app_storage.bucket },
         { name = "BACKUP_BUCKET", value = aws_s3_bucket.backups.bucket },

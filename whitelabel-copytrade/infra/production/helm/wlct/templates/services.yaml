@@ -1,0 +1,20 @@
+# ClusterIP-only services; public ingress is restricted to API and the two web frontends.
+{{- $root := . }}
+{{- range $name, $service := dict "api" .Values.services.api "worker" .Values.services.worker "web" .Values.services.web "admin-web" .Values.services.adminWeb "trading-engine" .Values.services.tradingEngine "execution-engine" .Values.services.executionEngine "market-data" .Values.services.marketData "notification-service" .Values.services.notificationService }}
+{{- if ne $name "worker" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $root.Release.Name }}-{{ $name }}
+  labels: { app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $name }} }
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $name }} }
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}
+{{- end }}

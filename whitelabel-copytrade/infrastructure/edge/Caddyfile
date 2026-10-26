@@ -1,0 +1,41 @@
+# # Automatic TLS edge proxy with WebSocket support and credential-free access logs.
+{
+  email {$ACME_EMAIL}
+  admin off
+  servers {
+    max_header_size 16KB
+  }
+  log {
+    output file /var/log/caddy/access.log
+    format json
+  }
+}
+
+(api_security) {
+  request_body {
+    max_size 10MB
+  }
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    -Server
+  }
+}
+
+api.{$DOMAIN} {
+  import api_security
+  reverse_proxy api:4000
+}
+
+app.{$DOMAIN} {
+  import api_security
+  reverse_proxy web:3001
+}
+
+admin.{$DOMAIN} {
+  import api_security
+  reverse_proxy admin-web:3000
+}

@@ -1,0 +1,35 @@
+# Adds the internal-only Rust market-data/intent gateway to the development topology.
+services:
+  low-latency-gateway:
+    image: "${GATEWAY_IMAGE:-wlct/low-latency-gateway:release-2026-10-25}"
+    build:
+      context: .
+      dockerfile: infrastructure/docker/low-latency-gateway.Dockerfile
+    restart: unless-stopped
+    environment:
+      LLE_ENVIRONMENT: "${LLE_ENVIRONMENT:-development}"
+      LLE_HEALTH_BIND: "0.0.0.0:9100"
+      LLE_TRANSPORT_BIND: "0.0.0.0:9101"
+      LLE_EXECUTION_ENGINE_URL: "http://execution-engine:8093"
+      LLE_INTENT_HMAC_KEY_ID: "${LLE_INTENT_HMAC_KEY_ID:?LLE_INTENT_HMAC_KEY_ID is required}"
+      LLE_INTENT_HMAC_KEY: "${LLE_INTENT_HMAC_KEY:?LLE_INTENT_HMAC_KEY must be supplied by a secret manager}"
+      LLE_VENUES: "${LLE_VENUES:-binance}"
+      LLE_BINANCE_SYMBOLS: "${LLE_BINANCE_SYMBOLS:-BTCUSDT}"
+      LLE_BP_PRESSURED: "${LLE_BP_PRESSURED:-1024}"
+      LLE_BP_CRITICAL: "${LLE_BP_CRITICAL:-4096}"
+      LLE_BP_BLOCKED: "${LLE_BP_BLOCKED:-8192}"
+      LLE_BP_SHED_NONCRITICAL: "${LLE_BP_SHED_NONCRITICAL:-true}"
+    expose:
+      - "9100"
+      - "9101"
+    depends_on:
+      execution-engine:
+        condition: service_started
+    networks:
+      - wlct-internal
+    healthcheck:
+      test: ["CMD", "/app/gateway-healthcheck"]
+      interval: 30s
+      timeout: 4s
+      retries: 3
+      start_period: 20s

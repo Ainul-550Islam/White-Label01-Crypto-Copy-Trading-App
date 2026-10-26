@@ -39,6 +39,7 @@ import { DeveloperModule } from './modules/developer-platform/developer.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { MobileReleaseModule } from './modules/mobile-release/mobile-release.module';
 import { PartnerModule } from './modules/partners/partner.module';
+import { ReferralAbuseModule } from './modules/partner/referral-abuse.module';
 import { ProviderModule } from './modules/providers/provider.module';
 import { OutboxModule } from './infrastructure/outbox/outbox.module';
 
@@ -112,6 +113,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     GovernanceModule,
     MobileReleaseModule,
     PartnerModule,
+    ReferralAbuseModule,
     ProviderModule,
     OutboxModule,
   ],

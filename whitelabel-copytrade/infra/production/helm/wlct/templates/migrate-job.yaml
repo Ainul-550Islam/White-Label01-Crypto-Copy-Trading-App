@@ -1,0 +1,29 @@
+# Run additive Prisma migrations before install and upgrade; never embeds database credentials.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: migrate }
+    spec:
+      restartPolicy: Never
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: migrate
+          image: {{ include "wlct.image" .Values.services.api | quote }}
+          command: ["npx", "prisma", "migrate", "deploy", "--schema", "apps/api/prisma/schema.prisma"]
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ .Values.external.postgres.secretRef | quote }}, key: url } }
+            - name: DIRECT_DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ .Values.external.postgres.secretRef | quote }}, key: directUrl } }
+          envFrom: [{ secretRef: { name: {{ .Values.services.api.secretRef | quote }} } }]
+          resources: {{- toYaml .Values.services.api.resources | nindent 12 }}
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 10001, capabilities: { drop: [ALL] } }

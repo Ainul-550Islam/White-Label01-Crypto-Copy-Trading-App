@@ -1,0 +1,12 @@
+# Preserve at least one API and web pod during voluntary disruptions.
+{{- range $name := list "api" "web" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $.Release.Name }}-{{ $name }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/instance: {{ $.Release.Name }}, app.kubernetes.io/component: {{ $name }} }
+{{- end }}
