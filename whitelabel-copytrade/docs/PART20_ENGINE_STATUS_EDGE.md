@@ -350,7 +350,7 @@ same commit edits is worth, so the reference is now by service name.
 Section 1 said the contract had one reader. It had, more precisely, no *working* reader.
 `apps/api/src/worker.ts` calls `GET /internal/v1/status` at startup with the internal
 token and no tenant header - correct, because a process-level read has no tenant to name -
-and `app/security.py::require_internal_auth` required a tenant header on *every* internal
+and `app/security/internal_auth.py::require_internal_auth` required a tenant header on *every* internal
 route, so the engine answered:
 
 ```
@@ -454,7 +454,7 @@ live-engine row is what no suite could have told me: 428 engine tests, 425 API t
 script tests were all green while the reference worker could not start.
 
 The claim "display and derivation only" is checked by the diff rather than asserted: the
-Python under `services/execution-engine/` is `app/security.py` (two scopes over one law),
+Python under `services/execution-engine/` is `app/security/internal_auth.py` (two scopes over one law),
 `app/routers/internal.py` (one `Depends` line), `tests/conftest.py` (a fixture whose
 `-> TestClient` lied about a generator, typed honestly while section 7's tests came to
 depend on it), and the new `tests/test_part20_status_read.py`. `libs/trading-core` - every

@@ -145,7 +145,7 @@ export function evaluatePassword(
 
 export function buildPasswordSchema(
   policy: PasswordPolicyOptions = DEFAULT_PASSWORD_POLICY,
-): z.ZodEffects<z.ZodString, string, string> {
+): z.ZodString {
   return z
     .string()
     .min(1, 'Password is required')

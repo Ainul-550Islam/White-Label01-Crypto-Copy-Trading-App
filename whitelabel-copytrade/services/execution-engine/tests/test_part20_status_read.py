@@ -37,9 +37,9 @@ from app.security.internal_auth import (
     require_internal_auth,
     require_internal_auth_readonly,
 )
-from tests.conftest import BASE_ENV, auth_headers
 from tests._routes import dependant_calls as _dependant_calls
 from tests._routes import internal_api_routes as _internal_routes
+from tests.conftest import BASE_ENV, auth_headers
 
 TOKEN = BASE_ENV["EXECUTION_INTERNAL_TOKEN"]
 
@@ -76,6 +76,8 @@ STATUS_CONTRACT_KEYS: frozenset[str] = frozenset(
         "storeBackend",
         "storeDurable",
         "venueAttestation",
+        # The Binance venue stack (testnet/live); additive, null when simulated.
+        "venue",
     }
 )
 
@@ -118,6 +120,7 @@ class TestReadScopeAnswers:
         assert body["credentialSource"] == "none"
         assert body["credentialFetcher"] is None
         assert body["simulated"] is True
+        assert body["venue"] is None
         assert isinstance(body["commands"], list)
         enablement = body["liveEnablement"]
         assert enablement is not None

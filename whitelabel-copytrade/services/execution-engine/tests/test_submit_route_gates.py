@@ -26,9 +26,11 @@ because a mocked gate proves the mock.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
+import httpx2
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -77,7 +79,9 @@ def submit_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
-def post(client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"):
+def post(
+    client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"
+) -> httpx2.Response:
     return client.post("/internal/v1/orders/submit", headers=auth_headers(tenant), json=body)
 
 
@@ -158,7 +162,7 @@ class TestTheNonSimulatedAdapterRefusal:
 
     @staticmethod
     def _runtime(client: TestClient) -> Any:
-        return client.app.state.runtime
+        return cast(FastAPI, client.app).state.runtime
 
     def test_the_route_refuses_a_non_simulated_adapter(self, client: TestClient) -> None:
         runtime = self._runtime(client)

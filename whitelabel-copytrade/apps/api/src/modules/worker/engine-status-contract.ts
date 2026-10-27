@@ -51,7 +51,9 @@ export type EngineStatusKind =
   | 'incidentSinkView'
   | 'distributedLockWiringView'
   | 'venueAttestationView'
-  | 'credentialRegistryView';
+  | 'credentialRegistryView'
+  | 'venueStatusView'
+  | 'venueTransportView';
 
 export interface EngineStatusField {
   /** The wire name, i.e. the camelCase alias Pydantic emits. */
@@ -159,6 +161,33 @@ export interface EngineCredentialRegistryView {
   readonly selection: string;
 }
 
+/** `VenueTransportView`: where signed requests may go and what the venue last
+ * said about this process's weight budget. Hosts and counts only - the API key
+ * and signature exist nowhere near this surface. Key spellings `usedWeight1M`,
+ * `orderCount10S` and `orderCount1D` are Binance's own header names, which is
+ * also what the schema's alias generator produces for the Python fields. */
+export interface EngineVenueTransportView {
+  readonly baseUrl: string;
+  readonly allowedBaseUrls: readonly string[];
+  readonly recvWindowMs: number;
+  readonly usedWeight1M: number | null;
+  readonly orderCount10S: number | null;
+  readonly orderCount1D: number | null;
+  readonly secondsUntilAvailable: number;
+}
+
+/** `VenueStatusView`: the venue stack (testnet/live), or absent (null) in
+ * simulated mode, where no venue is wired. */
+export interface EngineVenueStatusView {
+  readonly exchange: string;
+  readonly market: string;
+  readonly testnet: boolean;
+  readonly wsBaseUrl: string;
+  readonly attestorSource: string;
+  readonly userStream: string;
+  readonly transport: EngineVenueTransportView;
+}
+
 export interface EngineStatus {
   readonly instanceId: string;
   readonly mode: string;
@@ -187,6 +216,8 @@ export interface EngineStatus {
   readonly venueAttestation: EngineVenueAttestationView | null;
   // --- Part 23: credential registry -------------------------------------------
   readonly credentialRegistry: EngineCredentialRegistryView | null;
+  // --- Venue stack (schemas.py VenueStatusView); null in simulated mode -----
+  readonly venue: EngineVenueStatusView | null;
   readonly placement: EnginePlacementView | null;
   readonly incidents: EngineIncidentSinkView | null;
   readonly metricsConfigured: boolean;
@@ -213,6 +244,26 @@ export class EngineStatusShapeError extends Error {
     this.why = why;
   }
 }
+
+export const VENUE_TRANSPORT_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
+  { key: 'baseUrl', kind: 'string', required: true },
+  { key: 'allowedBaseUrls', kind: 'stringArray', required: false, absentAs: [] },
+  { key: 'recvWindowMs', kind: 'integer', required: true },
+  { key: 'usedWeight1M', kind: 'integer', required: false, absentAs: null, nullable: true },
+  { key: 'orderCount10S', kind: 'integer', required: false, absentAs: null, nullable: true },
+  { key: 'orderCount1D', kind: 'integer', required: false, absentAs: null, nullable: true },
+  { key: 'secondsUntilAvailable', kind: 'number', required: false, absentAs: 0 },
+]);
+
+export const VENUE_STATUS_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
+  { key: 'exchange', kind: 'string', required: true },
+  { key: 'market', kind: 'string', required: true },
+  { key: 'testnet', kind: 'boolean', required: true },
+  { key: 'wsBaseUrl', kind: 'string', required: true },
+  { key: 'attestorSource', kind: 'string', required: true },
+  { key: 'userStream', kind: 'string', required: true },
+  { key: 'transport', kind: 'venueTransportView', required: true },
+]);
 
 export const PLACEMENT_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
   { key: 'label', kind: 'string', required: true },
@@ -274,6 +325,10 @@ export const ENGINE_STATUS_FIELDS: readonly EngineStatusField[] = Object.freeze(
   { key: 'venueAttestation', kind: 'venueAttestationView', required: false, absentAs: null, nullable: true },
   // Part 23: credential registry posture
   { key: 'credentialRegistry', kind: 'credentialRegistryView', required: false, absentAs: null, nullable: true },
+  // Venue stack: the engine wires no venue in simulated mode and says so with
+  // null; a reply with no key at all predates the venue stack and reads the
+  // same way, which is the schema's own default, copied.
+  { key: 'venue', kind: 'venueStatusView', required: false, absentAs: null, nullable: true },
   { key: 'commands', kind: 'stringArray', required: true },
   { key: 'simulated', kind: 'boolean', required: false, absentAs: true },
 ]);
@@ -315,6 +370,8 @@ const checkOne = (kind: EngineStatusKind, value: unknown): boolean => {
     case 'distributedLockWiringView':
     case 'venueAttestationView':
     case 'credentialRegistryView':
+    case 'venueStatusView':
+    case 'venueTransportView':
       return isRecord(value);
   }
 };
@@ -358,6 +415,8 @@ const viewFieldsFor = (kind: EngineStatusKind): readonly EngineStatusField[] | n
   if (kind === 'distributedLockWiringView') return DISTRIBUTED_LOCK_WIRING_VIEW_FIELDS;
   if (kind === 'venueAttestationView') return VENUE_ATTESTATION_VIEW_FIELDS;
   if (kind === 'credentialRegistryView') return CREDENTIAL_REGISTRY_VIEW_FIELDS;
+  if (kind === 'venueStatusView') return VENUE_STATUS_VIEW_FIELDS;
+  if (kind === 'venueTransportView') return VENUE_TRANSPORT_VIEW_FIELDS;
   return null;
 };
 

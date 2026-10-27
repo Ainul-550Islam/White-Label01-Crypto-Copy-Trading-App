@@ -35,10 +35,10 @@ export class ProfitShareStatementController {
 @RequirePermissions(Permission.PLATFORM_MANAGE)
 export class AdminProfitShareStatementController {
   constructor(private readonly service:ProfitShareStatementService){}
-  @Post('generate') @HttpCode(HttpStatus.CREATED) @RequireStepUp('STATEMENT_REGENERATE')
+  @Post('generate') @HttpCode(HttpStatus.CREATED) @RequirePermissions(Permission.PLATFORM_MANAGE) @RequireStepUp('STATEMENT_REGENERATE')
   @ApiOperation({summary:'Generate or correct finalized statements from posted performance-fee ledger entries',description:'Step-up protected; each statement version is immutable and corrections create a superseding version.'})
   generate(@TenantId() tenantId:string,@Body() dto:GenerateProfitShareStatementDto){return this.service.generate({...dto,tenantId},Boolean(dto.correction));}
-  @Post(':id/finalize') @HttpCode(HttpStatus.OK) @RequireStepUp('STATEMENT_REGENERATE')
+  @Post(':id/finalize') @HttpCode(HttpStatus.OK) @RequirePermissions(Permission.PLATFORM_MANAGE) @RequireStepUp('STATEMENT_REGENERATE')
   @ApiOperation({summary:'Finalize a draft profit-share statement',description:'Only draft statements can transition to finalized; finalized amounts are immutable.'})
   finalize(@TenantId() tenantId:string,@Param('id',ParseUuidPipe) id:string){return this.service.finalize(tenantId,id);}
 }

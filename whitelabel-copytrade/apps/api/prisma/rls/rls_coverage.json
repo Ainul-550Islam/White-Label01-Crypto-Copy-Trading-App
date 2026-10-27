@@ -1,6 +1,6 @@
 {
   "schema": "part11-rls-coverage-v1",
-  "stamp": "20261115110000",
+  "stamp": "20261220000000",
   "policyName": "tenant_isolation",
   "functionName": "wlct_current_tenant_id",
   "covered": [
@@ -11,6 +11,10 @@
     {
       "table": "account_ownerships",
       "model": "AccountOwnership"
+    },
+    {
+      "table": "account_recovery_tokens",
+      "model": "AccountRecoveryToken"
     },
     {
       "table": "account_relationships",
@@ -111,6 +115,10 @@
     {
       "table": "consent_records",
       "model": "ConsentRecord"
+    },
+    {
+      "table": "copy_budgets",
+      "model": "CopyBudget"
     },
     {
       "table": "copy_executions",
@@ -325,6 +333,10 @@
       "model": "LoginAttempt"
     },
     {
+      "table": "login_devices",
+      "model": "LoginDevice"
+    },
+    {
       "table": "mobile_applications",
       "model": "MobileApplication"
     },
@@ -449,6 +461,10 @@
       "model": "Payout"
     },
     {
+      "table": "policy_acceptances",
+      "model": "PolicyAcceptance"
+    },
+    {
       "table": "portfolio_accounting_adjustments",
       "model": "PortfolioAccountingAdjustment"
     },
@@ -511,6 +527,14 @@
     {
       "table": "privacy_requests",
       "model": "PrivacyRequest"
+    },
+    {
+      "table": "profit_share_statements",
+      "model": "ProfitShareStatement"
+    },
+    {
+      "table": "public_share_links",
+      "model": "PublicShareLink"
     },
     {
       "table": "reconciliation_discrepancies",
@@ -741,6 +765,10 @@
       "model": "UserPositionLimit"
     },
     {
+      "table": "user_preferences",
+      "model": "UserPreferences"
+    },
+    {
       "table": "user_roles",
       "model": "UserRole"
     },
@@ -765,6 +793,10 @@
       "model": "WebhookSubscription"
     },
     {
+      "table": "withdrawal_destinations",
+      "model": "WithdrawalDestination"
+    },
+    {
       "table": "withdrawal_requests",
       "model": "WithdrawalRequest"
     }
@@ -781,6 +813,10 @@
     {
       "table": "compliance_policy_records",
       "model": "CompliancePolicyRecord"
+    },
+    {
+      "table": "fee_schedule_versions",
+      "model": "FeeScheduleVersion"
     },
     {
       "table": "institutional_risk_policies",

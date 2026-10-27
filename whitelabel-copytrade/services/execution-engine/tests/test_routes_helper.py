@@ -7,7 +7,13 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from tests._routes import dependant_calls, internal_api_routes, iter_routes, route_paths, walk_routes
+from tests._routes import (
+    dependant_calls,
+    internal_api_routes,
+    iter_routes,
+    route_paths,
+    walk_routes,
+)
 
 
 def root_dependency() -> str:
@@ -39,7 +45,8 @@ def test_walk_routes_includes_eager_and_lazy_router_routes_once() -> None:
     assert '/internal/v1/eager' in paths
     assert '/internal/v1/lazy' in paths
     assert len([route for route in walk_routes(app) if route.path == '/internal/v1/lazy']) == 1
-    assert ('GET', '/internal/v1/lazy', lazy_route, frozenset({lazy_route, nested_dependency})) in list(iter_routes(app))
+    expected = ('GET', '/internal/v1/lazy', lazy_route, frozenset({lazy_route, nested_dependency}))
+    assert expected in list(iter_routes(app))
 
 
 def test_internal_api_routes_excludes_outside_prefix_and_returns_methods_and_dependencies() -> None:
@@ -76,22 +83,30 @@ def test_dependant_calls_recurses_transitive_dependency_tree() -> None:
 
     app = FastAPI()
     app.include_router(router)
-    route = next(route for route in internal_api_routes(app) if route.path.endswith('/dependencies'))
+    route = next(
+        route for route in internal_api_routes(app) if route.path.endswith('/dependencies')
+    )
     calls = dependant_calls(route.dependant)
     assert endpoint in calls
     assert middle in calls
     assert leaf in calls
 
 
-def test_real_application_walk_finds_the_status_route_and_all_router_decorators(client: TestClient) -> None:
+def test_real_application_walk_finds_the_status_route_and_all_router_decorators(
+    client: TestClient
+) -> None:
     project_root = Path(__file__).resolve().parents[1]
     router_dir = project_root / 'app' / 'routers'
-    decorator = re.compile(r'@\w+\.(?:get|post|put|patch|delete|options|head|api_route|route)\s*\(', re.IGNORECASE)
+    decorator = re.compile(
+        r'@\w+\.(?:get|post|put|patch|delete|options|head|api_route|route)\s*\(', re.IGNORECASE
+    )
     declared = sum(
         len(decorator.findall(path.read_text(encoding='utf-8')))
         for path in sorted(router_dir.glob('*.py'))
     )
 
     routes = list(iter_routes(client.app))
-    assert len(routes) >= declared, f'found {len(routes)} concrete method routes for {declared} router decorators'
+    assert len(routes) >= declared, (
+        f'found {len(routes)} concrete method routes for {declared} router decorators'
+    )
     assert any(path == '/internal/v1/status' for _method, path, _endpoint, _dependencies in routes)

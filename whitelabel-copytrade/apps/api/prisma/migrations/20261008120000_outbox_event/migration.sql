@@ -1,6 +1,12 @@
 -- # Responsibility: adds tenant-scoped transactional outbox persistence and notification idempotency.
 -- GAP-177: outbox rows are committed with the domain state that produced them.
 -- Row-level-security policy generation is additive and follows this migration.
+-- Repair (2026-10-27): the two aggregate-sequence index names below were
+-- written at 74 chars; Postgres truncates identifiers at 63 bytes, which
+-- made both names truncate to the same string and the second CREATE INDEX
+-- fail on every fresh database. They now use the exact names Prisma itself
+-- generates for the OutboxEvent model, so this migration applies cleanly and
+-- stays drift-free against schema.prisma.
 
 BEGIN;
 
@@ -52,13 +58,13 @@ CREATE TABLE "outbox_events" (
 CREATE UNIQUE INDEX "outbox_events_tenant_id_idempotency_key_key"
     ON "outbox_events"("tenant_id", "idempotency_key");
 
-CREATE UNIQUE INDEX "outbox_events_tenant_id_aggregate_type_aggregate_id_aggregate_sequence_key"
+CREATE UNIQUE INDEX "outbox_events_tenant_id_aggregate_type_aggregate_id_aggrega_key"
     ON "outbox_events"("tenant_id", "aggregate_type", "aggregate_id", "aggregate_sequence");
 
 CREATE INDEX "outbox_events_tenant_id_status_available_at_created_at_idx"
     ON "outbox_events"("tenant_id", "status", "available_at", "created_at");
 
-CREATE INDEX "outbox_events_tenant_id_aggregate_type_aggregate_id_aggregate_sequence_idx"
+CREATE INDEX "outbox_events_tenant_id_aggregate_type_aggregate_id_aggrega_idx"
     ON "outbox_events"("tenant_id", "aggregate_type", "aggregate_id", "aggregate_sequence");
 
 COMMIT;

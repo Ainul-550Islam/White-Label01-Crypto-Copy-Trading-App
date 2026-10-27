@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
@@ -38,7 +39,7 @@ from wlct_trading.enums import (
     OrderType,
     TimeInForce,
 )
-from wlct_trading.execution.store import ReconciliationState
+from wlct_trading.execution.store import OrderStoreError, ReconciliationState
 from wlct_trading.orders import Fill, Order, OrderEvent
 
 from app import store_sql
@@ -57,42 +58,24 @@ TENANT = "3f2a1b04-7c5d-4e6f-9a8b-0c1d2e3f4a5b"
 OTHER_TENANT = "9a8b7c6d-5e4f-4a3b-8c7d-6e5f4a3b2c1d"
 
 
-def make_order(**overrides: object) -> Order:
-    base: dict[str, object] = {
-        "order_id": "ord_01",
-        "client_order_id": "wlc-0001",
-        "tenant_id": TENANT,
-        "account_id": "acct_01",
-        "strategy_id": None,
-        "exchange": ExchangeId.BINANCE,
-        "symbol": "BTCUSDT",
-        "side": OrderSide.BUY,
-        "order_type": OrderType.LIMIT,
-        "quantity": Decimal("0.10"),
-        "price": Decimal("50000.00"),
-        "time_in_force": TimeInForce.GTC,
-        "is_simulated": True,
-        "status": OrderStatus.PENDING,
-        "created_at": 1_700_000_000_000_000,
-        "updated_at": 1_700_000_000_000_001,
-    }
+def make_order(**overrides: Any) -> Order:
     order = Order(
-        order_id=str(base["order_id"]),
-        client_order_id=str(base["client_order_id"]),
-        tenant_id=str(base["tenant_id"]),
-        account_id=str(base["account_id"]),
-        strategy_id=base["strategy_id"],
-        exchange=base["exchange"],
-        symbol=str(base["symbol"]),
-        side=base["side"],
-        order_type=base["order_type"],
-        quantity=base["quantity"],
-        price=base["price"],
-        time_in_force=base["time_in_force"],
-        is_simulated=base["is_simulated"],
-        status=base["status"],
-        created_at=base["created_at"],
-        updated_at=base["updated_at"],
+        order_id="ord_01",
+        client_order_id="wlc-0001",
+        tenant_id=TENANT,
+        account_id="acct_01",
+        strategy_id=None,
+        exchange=ExchangeId.BINANCE,
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.10"),
+        price=Decimal("50000.00"),
+        time_in_force=TimeInForce.GTC,
+        is_simulated=True,
+        status=OrderStatus.PENDING,
+        created_at=1_700_000_000_000_000,
+        updated_at=1_700_000_000_000_001,
     )
     return replace(order, **overrides) if overrides else order
 
@@ -462,7 +445,9 @@ class TestStatementShapes:
 class TestTenantTransactionLaw:
     @pytest.mark.asyncio
     async def test_every_operation_sets_the_tenant_guc_first_in_one_tx(self) -> None:
-        for script, call in (
+        cases: list[
+            tuple[list[Any], Callable[[PostgresOrderStore], Awaitable[Any]]]
+        ] = [
             ([None], lambda s: s.get_order(TENANT, "ord_01")),
             (
                 [{"order_id": "ord_01"}],
@@ -483,7 +468,8 @@ class TestTenantTransactionLaw:
                 fill_id="f", order_id="o", trade_id="t", price=Decimal("1"),
                 quantity=Decimal("1"), fee=Decimal("0"), fee_currency="USDT", is_maker=False,
                 is_simulated=True, exchange_timestamp=1, received_timestamp=2))),
-        ):
+        ]
+        for script, call in cases:
             subject, conn, pool = store(*script)
             await call(subject)
             assert conn.statements[0][0] == SET_TENANT_SQL
@@ -528,7 +514,7 @@ class TestTenantTransactionLaw:
         # raw "invalid input syntax" - the store states the law itself,
         # first, so a string-tenant deployment sees the reason not the cast.
         subject, conn, _pool = store()
-        with pytest.raises(store_sql.OrderStoreError, match="canonical UUID"):
+        with pytest.raises(OrderStoreError, match="canonical UUID"):
             await subject.get_order("tenant-a", "ord_01")
         assert conn.statements == []
 

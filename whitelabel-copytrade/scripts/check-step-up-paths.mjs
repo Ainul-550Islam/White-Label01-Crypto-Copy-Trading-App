@@ -204,11 +204,11 @@ if (localGuardUses > 0) {
  * entry that stays here for long enough to ship is an action nobody gated.
  */
 const RESERVED_FOR_BATCH_04 = new Set([
-  'AUDIT_EXPORT',
-  'DATA_DELETION_REQUEST',
-  'FEE_SCHEDULE_PUBLISH',
-  'FEATURE_FLAG_LIVE_TOGGLE',
-  'STATEMENT_REGENERATE',
+  // Empty: every action declared in the union is now required by a route
+  // (AUDIT_EXPORT, DATA_DELETION_REQUEST, FEE_SCHEDULE_PUBLISH,
+  // STATEMENT_REGENERATE, FEATURE_FLAG_LIVE_TOGGLE). The mechanism stays so
+  // the next deliberately-predeclared action is named here, not exempted
+  // silently.
 ]);
 
 for (const action of actions) {

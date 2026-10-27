@@ -13,9 +13,10 @@ export const STEP_UP_ACTIONS = [
   "CUSTODY_SWEEP",
   "VENUE_STATUS_OVERRIDE",
   "ORDER_RECOVERY",
-  // Declared now, used by Batch 04's routes: both branches must agree on the union
-  // or one of them can issue a proof the other refuses. An action that no route
-  // uses yet is listed as RESERVED_FOR_BATCH_04 in scripts/check-step-up-paths.mjs.
+  // Both branches must agree on the union or one of them can issue a proof the
+  // other refuses. Every action below is required by at least one route; an
+  // action predeclared ahead of its route must be listed as
+  // RESERVED_FOR_BATCH_04 in scripts/check-step-up-paths.mjs until it is.
   "AUDIT_EXPORT",
   "DATA_DELETION_REQUEST",
   "FEE_SCHEDULE_PUBLISH",

@@ -311,7 +311,7 @@ async def test_an_awaitable_fetcher_is_supported() -> None:
     sync = VenueClockSync(
         fetch,
         monotonic_nanos=monotonic,
-        wall_millis=wall.now_millis,  # type: ignore[arg-type]
+        wall_millis=wall.now_millis,
     )
     sample = await sync.synchronise()
 

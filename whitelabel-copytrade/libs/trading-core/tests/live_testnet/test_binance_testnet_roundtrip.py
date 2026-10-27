@@ -1,17 +1,24 @@
-# Proves one complete Binance Spot testnet round trip - submit, poll, cancel, cancel-again, user-stream echo - through the real adapters, replayed from a recording and optionally against the live testnet.
+# Proves one complete Binance Spot testnet round trip - submit, poll, cancel, cancel-again, user-stream echo - through the real adapters, replayed from a recording, through the execution-engine's venue transport, and optionally against the live testnet.
 """Binance testnet round-trip proof.
 
 The claim this file has to support is narrow and load-bearing: *the platform can
 place, observe and cancel a real order at a venue, and every value it reports
 about that order came from the venue rather than from its own optimism.*
 
-It is proven twice, against the same adapters:
+It is proven three times, against the same adapters:
 
   REPLAY (always runs, no credentials)
       ``fixtures/binance_testnet_roundtrip.json`` holds a recorded round trip.
       The requests go through the real signer (HMAC, timestamp, recvWindow) and
       the responses through the real parser. What is replayed is the venue's
       bytes, not the platform's assumptions.
+
+  SERVICE TRANSPORT (always runs when the monorepo service tree is present)
+      The replay again, but with the adapters sending through the
+      execution-engine's ``BinanceHttpTransport`` - the component a real
+      deployment transmits through, with its host allowlist, weight budget
+      and retry law in the path. Skipped (not faked) when this library is
+      checked out without ``services/execution-engine`` beside it.
 
   LIVE (``WLCT_LIVE_TESTNET=1`` plus ``BINANCE_TESTNET_API_KEY`` and
       ``BINANCE_TESTNET_API_SECRET``)
@@ -41,7 +48,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import time
+from pathlib import Path
 from decimal import Decimal
 from typing import Any, Callable, Mapping
 
@@ -440,6 +449,151 @@ async def _no_time() -> int:
 
 
 # ======================================================================
+# Through the execution-engine's venue transport
+# ======================================================================
+def _service_transport_module() -> Any | None:
+    """The service's transport module, or ``None`` outside the monorepo.
+
+    The dependency direction matters: ``services/execution-engine`` builds on
+    this library, not the other way round, so the import is opportunistic by
+    path and the proof skips - by name, in the report - when the service tree
+    is not beside the library. It never falls back to a look-alike: in a
+    monorepo run the real component is in the path, or the test says why not.
+    """
+    service_root = (
+        Path(__file__).resolve().parents[4] / "services" / "execution-engine"
+    )
+    if not (service_root / "app" / "venue" / "binance_transport.py").is_file():
+        return None
+    if str(service_root) not in sys.path:
+        sys.path.insert(0, str(service_root))
+    try:
+        import app.venue.binance_transport as module
+    except ImportError:
+        return None
+    return module
+
+
+class _QueuedSender:
+    """A SignedRequestSender answering from recorded steps, in order."""
+
+    def __init__(self, responses: list[HttpResponse]) -> None:
+        self._responses = responses
+        self.sent: list[Any] = []
+
+    async def __call__(self, request: Any, timeout_ms: int) -> HttpResponse:
+        self.sent.append(request)
+        if not self._responses:
+            raise AssertionError("no recorded response left for this request")
+        return self._responses.pop(0)
+
+
+def _recorded(step_payload: Mapping[str, Any]) -> HttpResponse:
+    return HttpResponse(
+        status=int(step_payload["response"]["status"]),
+        headers={"content-type": "application/json"},
+        body=json.dumps(step_payload["response"]["body"]),
+    )
+
+
+class TestServiceTransportReplay:
+    """The recorded round trip with the deployment's transport in the path."""
+
+    def test_place_query_cancel_through_the_service_transport(
+        self, step: Callable[[str], Mapping[str, Any]]
+    ) -> None:
+        module = _service_transport_module()
+        if module is None:
+            pytest.skip(
+                "services/execution-engine is not beside this library in this "
+                "checkout; the transport proof runs in the service suite"
+            )
+        from wlct_trading.execution.credentials import (
+            ExchangeCredentials,
+            StaticCredentialProvider,
+        )
+        from wlct_trading.execution.timesync import ExchangeClock
+        from wlct_trading.exchanges.binance.trading import BinanceAccountAdapter
+
+        queued = _QueuedSender(
+            [_recorded(step(name)) for name in ("submit", "poll", "cancel")]
+        )
+        transport = module.BinanceHttpTransport(
+            base_url=BINANCE_TESTNET_REST_BASE, sender=queued
+        )
+        credentials = StaticCredentialProvider(
+            [
+                ExchangeCredentials(
+                    exchange=ExchangeId.BINANCE,
+                    tenant_id=TENANT,
+                    account_id=ACCOUNT,
+                    api_key="testnet" + "key" + "0000000000" + "proof",
+                    api_secret="testnet" + "secret" + "0000000000" + "proof",
+                    permissions=frozenset({"SPOT", "READ"}),
+                    source="env",
+                )
+            ]
+        )
+        clock = ExchangeClock(
+            lambda: _no_time(), max_skew_millis=1_000, require_sync=True
+        )
+        clock.seed(offset_millis=0, round_trip_millis=12)
+        trading = BinanceTradingAdapter(
+            send=transport, credentials=credentials, clock=clock, testnet=True
+        )
+        account = BinanceAccountAdapter(
+            send=transport, credentials=credentials, clock=clock, testnet=True
+        )
+        assert account is not None
+
+        submitted = asyncio.run(trading.submit_order(limit_intent(), CLIENT_ORDER_ID))
+        assert submitted.accepted is True
+        assert submitted.exchange_order_id == "7745219"
+        assert submitted.is_simulated is False
+
+        polled = asyncio.run(trading.fetch_order_for(local_order()))
+        assert polled is not None
+        assert polled.status is OrderStatus.ACKNOWLEDGED
+        assert polled.quantity == Decimal("0.00100000")
+
+        cancelled = asyncio.run(trading.cancel_order(local_order()))
+        assert cancelled.accepted is True
+        assert cancelled.status is OrderStatus.CANCELLED
+
+        assert [request.method for request in queued.sent] == [
+            "POST",
+            "GET",
+            "DELETE",
+        ]
+        assert transport.describe()["baseUrl"] == BINANCE_TESTNET_REST_BASE
+
+    def test_the_service_transport_refuses_mainnet_for_a_testnet_runtime(
+        self,
+    ) -> None:
+        module = _service_transport_module()
+        if module is None:
+            pytest.skip(
+                "services/execution-engine is not beside this library in this "
+                "checkout; the transport proof runs in the service suite"
+            )
+        from wlct_trading.exchanges.binance.signing import SignedRequest
+
+        queued = _QueuedSender([])
+        transport = module.BinanceHttpTransport(
+            base_url=BINANCE_TESTNET_REST_BASE, sender=queued
+        )
+        mainnet_request = SignedRequest(
+            method="POST",
+            url=f"{MAINNET_REST_BASE}/api/v3/order",
+            query="symbol=BTCUSDT",
+            headers={},
+        )
+        with pytest.raises(module.VenueHostNotAllowed):
+            asyncio.run(transport(mainnet_request, 5_000))
+        assert queued.sent == []
+
+
+# ======================================================================
 # Live
 # ======================================================================
 _LIVE_ENV = "WLCT_LIVE_TESTNET"
@@ -468,15 +622,22 @@ pytestmark_live = pytest.mark.skipif(
 )
 
 
-def _live_adapters() -> tuple[BinanceTradingAdapter, Any, list[Any]]:
-    """Real HTTP through a sender that still enforces the testnet origin."""
-    import httpx
+def _live_adapters() -> tuple[BinanceTradingAdapter, Any, list[Any], Any | None, Any]:
+    """Real HTTP, through the service's venue transport when it is present.
 
+    In the monorepo this is the exact egress stack a testnet deployment
+    runs: ``BinanceHttpTransport`` (host allowlist, weight budget, no blind
+    POST retry) over the core's ``HttpxSignedSender``, with the venue clock
+    measuring ``/api/v3/time`` through that same transport. In a standalone
+    library checkout the origin-refusing inline sender below still proves
+    the adapter wire; it asserts the testnet origin before every send.
+    """
     from wlct_trading.execution.credentials import (
         ExchangeCredentials,
         StaticCredentialProvider,
     )
     from wlct_trading.execution.timesync import ExchangeClock
+    from wlct_trading.exchanges.binance.trading import BinanceAccountAdapter
 
     pair = _live_pair()
     assert pair is not None, "the live suite must not run without credentials"
@@ -493,32 +654,58 @@ def _live_adapters() -> tuple[BinanceTradingAdapter, Any, list[Any]]:
             )
         ]
     )
-    clock = ExchangeClock(
-        lambda: _no_time(), max_skew_millis=1_000, require_sync=True
-    )
-    clock.seed(offset_millis=0, round_trip_millis=40)
-    client = httpx.Client(timeout=20.0)
     sent: list[Any] = []
+    module = _service_transport_module()
+    transport: Any | None = None
+    if module is not None:
+        import httpx
 
-    async def send(request: Any, timeout_ms: int) -> HttpResponse:
-        url = getattr(request, "url", "")
-        assert url.startswith(BINANCE_TESTNET_REST_BASE), (
-            f"refusing to transmit to {url!r}; only {BINANCE_TESTNET_REST_BASE} is allowed"
+        from wlct_trading.net.config import TransportSettings
+        from wlct_trading.net.signed_client import HttpxSignedSender
+
+        sender = HttpxSignedSender(
+            TransportSettings(
+                binance_rest_url=BINANCE_TESTNET_REST_BASE, use_testnet=True
+            ),
+            client=httpx.AsyncClient(timeout=20.0),
         )
-        query = getattr(request, "query", "")
-        sent.append(request)
-        response = client.request(
-            method=getattr(request, "method"),
-            url=f"{url}?{query}" if query else url,
-            headers=dict(getattr(request, "headers")),
+        transport = module.BinanceHttpTransport(
+            base_url=BINANCE_TESTNET_REST_BASE, sender=sender
         )
-        return HttpResponse(
-            status=response.status_code,
-            headers=dict(response.headers),
-            body=response.text,
+        clock = ExchangeClock(
+            transport.server_time, max_skew_millis=1_000, require_sync=True
         )
 
-    from wlct_trading.exchanges.binance.trading import BinanceAccountAdapter
+        async def send(request: Any, timeout_ms: int) -> HttpResponse:
+            sent.append(request)
+            return await transport(request, timeout_ms)
+
+    else:
+        import httpx
+
+        clock = ExchangeClock(
+            lambda: _no_time(), max_skew_millis=1_000, require_sync=True
+        )
+        clock.seed(offset_millis=0, round_trip_millis=40)
+        client = httpx.Client(timeout=20.0)
+
+        async def send(request: Any, timeout_ms: int) -> HttpResponse:  # noqa: F811
+            url = getattr(request, "url", "")
+            assert url.startswith(BINANCE_TESTNET_REST_BASE), (
+                f"refusing to transmit to {url!r}; only {BINANCE_TESTNET_REST_BASE} is allowed"
+            )
+            query = getattr(request, "query", "")
+            sent.append(request)
+            response = client.request(
+                method=getattr(request, "method"),
+                url=f"{url}?{query}" if query else url,
+                headers=dict(getattr(request, "headers")),
+            )
+            return HttpResponse(
+                status=response.status_code,
+                headers=dict(response.headers),
+                body=response.text,
+            )
 
     trading = BinanceTradingAdapter(
         send=send, credentials=credentials, clock=clock, testnet=True
@@ -526,7 +713,7 @@ def _live_adapters() -> tuple[BinanceTradingAdapter, Any, list[Any]]:
     account = BinanceAccountAdapter(
         send=send, credentials=credentials, clock=clock, testnet=True
     )
-    return trading, account, sent
+    return trading, account, sent, transport, clock
 
 
 @pytestmark_live
@@ -540,46 +727,68 @@ class TestLiveTestnetRoundTrip:
         the test runs, so the cancel exercises the cancellation path rather than
         a race, and no testnet balance is spent.
         """
-        trading, _, sent = _live_adapters()
+        trading, _, sent, transport, clock = _live_adapters()
         client_order_id = f"wlct-proof-{os.getpid()}-{int(time.time())}"
 
-        submitted = asyncio.run(
-            trading.submit_order(
-                limit_intent(price="2000.00000000", quantity="0.00100000"),
-                client_order_id,
-            )
-        )
-        assert submitted.is_simulated is False
-        assert submitted.accepted is True, "the testnet refused a resting LIMIT order"
-        assert submitted.exchange_order_id, "the venue returned no orderId"
+        async def sequence() -> None:
+            try:
+                if transport is not None:
+                    # The deployment path measures the venue clock through
+                    # the transport before anything may sign; so does this.
+                    await clock.synchronise()
+                submitted = await trading.submit_order(
+                    limit_intent(price="2000.00000000", quantity="0.00100000"),
+                    client_order_id,
+                )
+                assert submitted.is_simulated is False
+                assert submitted.accepted is True, (
+                    "the testnet refused a resting LIMIT order"
+                )
+                assert submitted.exchange_order_id, "the venue returned no orderId"
 
-        order = local_order(client_order_id=client_order_id)
-        order.exchange_order_id = submitted.exchange_order_id
-        polled = asyncio.run(trading.fetch_order_for(order))
-        assert polled is not None
-        assert polled.status in {OrderStatus.ACKNOWLEDGED, OrderStatus.PARTIALLY_FILLED}
-        assert polled.filled_quantity == Decimal("0"), (
-            "a resting order in the live proof filled; the proof must not spend testnet funds"
-        )
+                order = local_order(client_order_id=client_order_id)
+                order.exchange_order_id = submitted.exchange_order_id
+                polled = await trading.fetch_order_for(order)
+                assert polled is not None
+                assert polled.status in {
+                    OrderStatus.ACKNOWLEDGED,
+                    OrderStatus.PARTIALLY_FILLED,
+                }
+                assert polled.filled_quantity == Decimal("0"), (
+                    "a resting order in the live proof filled; the proof must not spend testnet funds"
+                )
 
-        cancelled = asyncio.run(trading.cancel_order(order))
-        assert cancelled.accepted is True
-        assert cancelled.status is OrderStatus.CANCELLED
+                cancelled = await trading.cancel_order(order)
+                assert cancelled.accepted is True
+                assert cancelled.status is OrderStatus.CANCELLED
+            finally:
+                if transport is not None:
+                    await transport.aclose()
 
+        asyncio.run(sequence())
         assert all(
             getattr(request, "url", "").startswith(BINANCE_TESTNET_REST_BASE)
             for request in sent
         )
-        assert [getattr(request, "method") for request in sent] == [
-            "POST",
-            "GET",
-            "DELETE",
-        ]
+        methods = [getattr(request, "method") for request in sent]
+        # The service-transport path reads server time first (one extra GET);
+        # the order sequence itself is place -> query -> cancel either way.
+        assert methods[-3:] == ["POST", "GET", "DELETE"]
 
     def test_live_key_cannot_withdraw(self) -> None:
         """The key used for the proof must be less dangerous than the money path."""
-        _, account, _ = _live_adapters()
-        venue_account = asyncio.run(account.fetch_account(TENANT, ACCOUNT))
+        _, account, _, transport, clock = _live_adapters()
+
+        async def probe() -> Any:
+            try:
+                if transport is not None:
+                    await clock.synchronise()
+                return await account.fetch_account(TENANT, ACCOUNT)
+            finally:
+                if transport is not None:
+                    await transport.aclose()
+
+        venue_account = asyncio.run(probe())
         assert venue_account.can_trade is True
         assert venue_account.can_withdraw is False, (
             "the testnet key carries withdrawal permission; revoke it before using it "

@@ -29,9 +29,10 @@ from __future__ import annotations
 import re
 from contextlib import ExitStack
 from dataclasses import fields
-from typing import cast
+from typing import Any, cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from wlct_trading.metrics import (
     EXECUTION_STAGES,
@@ -307,7 +308,9 @@ class TestNothingIdentifyingLeaves:
         metrics = FakeMetrics(orders_submitted=5)
         metrics.record_stage("validation", micros=20, samples=2)
         hub = hub_for(metrics)
-        before = (metrics.counters.orders_submitted, metrics.stage("validation").count)
+        recorded = metrics.stage("validation")
+        assert recorded is not None  # recorded two lines above
+        before = (metrics.counters.orders_submitted, recorded.count)
         hub.scrape()
         hub.scrape()
         after = (metrics.counters.orders_submitted, metrics._stages["validation"].count)
@@ -409,7 +412,7 @@ class TestMetricsRoute:
         # that a number the engine holds reaches the text: it goes through the
         # public metrics port on the REAL runtime, not through a fake, so a hub
         # wired to the wrong attribute would fail here rather than in production.
-        engine = client.app.state.runtime.engine
+        engine = cast(FastAPI, client.app).state.runtime.engine
         assert engine.metrics is not None
         engine.metrics.counters.orders_submitted = 1
         after = client.get("/metrics").text
@@ -423,13 +426,14 @@ class TestMetricsRoute:
         # service never supplied one, so the counters every document describes were
         # accumulated by nothing. Nothing here is new machinery - it is the line
         # that connects the machinery to the process.
-        engine = client.app.state.runtime.engine
+        engine = cast(FastAPI, client.app).state.runtime.engine
         instrument = engine.metrics
         assert isinstance(instrument, ExecutionMetrics)
         # The instrument carries the adapter's own id: this runtime is simulated,
         # and labelling its timings with the venue it simulates would be a lie.
         assert instrument.to_dict()["exchange"] == "paper"
-        assert set(instrument.to_dict()["stages"]) == set()  # nothing measured yet
+        stages = cast(dict[str, Any], instrument.to_dict()["stages"])
+        assert set(stages) == set()  # nothing measured yet
 
     def test_the_status_document_agrees_with_the_gauge(self, client: TestClient) -> None:
         # /status is the plane the worker asserts against, /metrics the plane a
@@ -460,10 +464,10 @@ class TestMetricsRoute:
     def test_reading_metrics_changes_nothing_the_command_plane_sees(
         self, client: TestClient
     ) -> None:
-        wiring = client.app.state.runtime.describe()
+        wiring = cast(FastAPI, client.app).state.runtime.describe()
         client.get("/metrics")
         client.get("/metrics")
-        assert client.app.state.runtime.describe() == wiring
+        assert cast(FastAPI, client.app).state.runtime.describe() == wiring
 
     def test_the_diagnostic_review_is_not_counted_as_a_gated_review(
         self, client: TestClient

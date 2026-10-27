@@ -256,11 +256,12 @@ async def event_ids(conn: asyncpg.Connection, tenant: str) -> list[str]:
 
 
 async def ledger_rows(conn: asyncpg.Connection, tenant: str) -> list[asyncpg.Record]:
-    return await conn.fetch(
+    rows: list[asyncpg.Record] = await conn.fetch(
         "SELECT dry_run, rows_deleted, batches, exhausted FROM engine_retention_runs "
         "WHERE tenant_id = $1 ORDER BY seq",
         tenant,
     )
+    return rows
 
 
 async def seed_fill(conn: asyncpg.Connection, tenant: str, order_id: str) -> None:

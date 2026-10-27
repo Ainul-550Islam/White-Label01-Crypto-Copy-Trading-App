@@ -15,6 +15,7 @@ import { TenantId } from '../../common/decorators/current-tenant.decorator';
 import { PlatformOnly, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { RequestMeta, type RequestMetadata } from '../../common/decorators/request-context.decorator';
 import { Audited } from '../../common/decorators/audit.decorator';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 import { ApiStandardResponses } from '../../common/decorators/api-standard-responses.decorator';
 
 @ApiTags('Feature flags')
@@ -60,6 +61,38 @@ export class FeatureFlagsController {
       ipHash: meta.ipHash,
       requestId: meta.requestId,
     });
+  }
+
+  @Put('live')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(Permission.FEATURE_FLAG_MANAGE)
+  @RequireStepUp('FEATURE_FLAG_LIVE_TOGGLE')
+  @Audited(AuditAction.FEATURE_FLAG_UPDATED, 'TenantFeatureFlag')
+  @ApiOperation({
+    summary: 'Enable or disable a live-trading feature for the current organisation',
+    description:
+      'Live/mainnet switches only. Requires a fresh single-use step-up proof for FEATURE_FLAG_LIVE_TOGGLE plus plan entitlement to enable.',
+  })
+  @ApiOkResponse({ description: 'The stored override.' })
+  async setLiveForTenant(
+    @Body() dto: SetTenantFlagDto,
+    @TenantId() tenantId: string,
+    @CurrentUser() actor: AuthenticatedActor,
+    @RequestMeta() meta: RequestMetadata,
+  ): Promise<TenantFeatureFlagDto> {
+    // The StepUpGuard has consumed the proof by the time this runs; `true`
+    // is the service-layer echo of that fact, and it is the only call site
+    // allowed to pass it.
+    return this.featureFlags.setForTenant(
+      tenantId,
+      dto,
+      {
+        actorId: actor.userId,
+        ipHash: meta.ipHash,
+        requestId: meta.requestId,
+      },
+      true,
+    );
   }
 
   @Get('definitions')

@@ -89,7 +89,7 @@ export class UpdateBrandingDto {
   privacyUrl?: string;
 
   @ApiPropertyOptional({
-    description: 'Custom CSS. Sanitised server-side: @import, url() and script vectors are removed.',
+    description: 'Custom CSS. Rejected with 400 when it contains @import, remote url(), expression() or markup; accepted CSS is additionally sanitised server-side.',
   })
   @IsOptional()
   @IsString()

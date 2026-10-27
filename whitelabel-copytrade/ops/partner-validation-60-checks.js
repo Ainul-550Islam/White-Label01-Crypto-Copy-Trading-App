@@ -179,7 +179,7 @@ check(22, 'expired attribution rejected - checks expiresAt < now', () => {
 
 check(23, 'conflicting partner attribution rejected - primary conflict check', () => {
   const c = readFile('partner-attribution.service.ts');
-  return c.includes('already attributed') && c.includes('ConflictException') && c.includes('primary');
+  return c.includes('already has primary attribution') && c.includes('ConflictException') && c.includes('primary');
 });
 
 check(24, 'client cannot submit trusted partnerId - requires referral evidence', () => {

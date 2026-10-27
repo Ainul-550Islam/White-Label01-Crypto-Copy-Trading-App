@@ -431,6 +431,33 @@ class IncidentSinkView(_WireModel):
     stats: dict[str, int] = Field(default_factory=dict)
 
 
+class VenueTransportView(_WireModel):
+    """The Binance transport as /status publishes it: where signed requests
+    may go, and what the venue last said about this process's weight budget.
+    Hosts and counts only - the API key and signature exist nowhere near
+    this surface."""
+
+    base_url: str
+    allowed_base_urls: list[str] = []
+    recv_window_ms: int
+    used_weight_1m: int | None = None
+    order_count_10s: int | None = None
+    order_count_1d: int | None = None
+    seconds_until_available: float = 0.0
+
+
+class VenueStatusView(_WireModel):
+    """The venue stack (testnet/live), or absent (None) in simulated mode."""
+
+    exchange: str
+    market: str
+    testnet: bool
+    ws_base_url: str
+    attestor_source: str
+    user_stream: str
+    transport: VenueTransportView
+
+
 class StatusResponse(_WireModel):
     instance_id: str
     mode: str
@@ -504,6 +531,11 @@ class StatusResponse(_WireModel):
     #: Part 23: credential registry posture. Provider selection, capabilities,
     #: and credential metadata (no secrets).
     credential_registry: dict[str, object] | None = None
+    #: The venue stack posture for testnet/live: which host, which attestor
+    #: source, what the weight budget says. None in simulated mode - and
+    #: None from an engine too old to have a venue at all, which is the same
+    #: operational fact (nothing here can transmit).
+    venue: VenueStatusView | None = None
     commands: list[str]
     simulated: bool = True
 

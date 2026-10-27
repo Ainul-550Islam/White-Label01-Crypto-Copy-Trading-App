@@ -27,7 +27,9 @@ from contextlib import ExitStack
 from typing import Any, cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.routing import Route
 from wlct_trading.enums import ExchangeId
 from wlct_trading.execution.incidents import (
     ExecutionErrorCode,
@@ -211,7 +213,7 @@ class TestWritePath:
     async def test_details_are_stable_json(self) -> None:
         sink, conn = recorder()
         await sink.record(incident())
-        payload = conn.statements[1][1][11]
+        payload = cast(str, conn.statements[1][1][11])
         assert json.loads(payload) == {"code": "NO_ATTESTATION", "gate": "PLACEMENT_ATTESTED"}
         assert payload == json.dumps(
             {"code": "NO_ATTESTATION", "gate": "PLACEMENT_ATTESTED"}, sort_keys=True
@@ -534,7 +536,9 @@ class TestSurfaceAndSchema:
         from app.routers import incidents as incidents_router
 
         assert incidents_router.router.prefix == "/internal/v1"
-        assert [r.path for r in incidents_router.router.routes] == [LIST_PATH]
+        assert [
+            r.path for r in incidents_router.router.routes if isinstance(r, Route)
+        ] == [LIST_PATH]
 
     def test_the_worker_never_forwards_it(self) -> None:
         from tests.test_part15_drift_parity import ENGINE_CLIENT
@@ -558,4 +562,4 @@ class TestSurfaceAndSchema:
 
     def test_the_status_body_publishes_the_sink(self, client: TestClient) -> None:
         body = client.get("/internal/v1/status", headers=auth_headers(TENANT)).json()
-        assert body["incidents"] == client.app.state.runtime.describe()["incidents"]
+        assert body["incidents"] == cast(FastAPI, client.app).state.runtime.describe()["incidents"]

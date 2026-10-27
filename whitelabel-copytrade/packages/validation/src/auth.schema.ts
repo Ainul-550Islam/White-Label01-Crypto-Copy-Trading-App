@@ -17,7 +17,7 @@ export const registerSchema = z.object({
   locale: localeSchema.optional(),
   referralCode: z.string().trim().max(32).optional(),
   acceptedTerms: z.literal(true, {
-    errorMap: () => ({ message: 'You must accept the terms of service' }),
+    error: 'You must accept the terms of service',
   }),
   deviceId: deviceIdSchema,
   deviceName: plainTextSchema(64).optional(),

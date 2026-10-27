@@ -5,8 +5,8 @@
 
 ## Delivery contents
 
-- The complete Batch 01 source patch is packaged as `batch01-changes.zip`.
-- `_apply/apply_batch01.sh` installs the archive entries and removes every prompt-declared deleted path from the target Git worktree.
+- The complete Batch 01 source patch is packaged as `batch01-code.zip`, containing only new and modified files at their exact repo-relative paths; it unzips at the repository root.
+- `scripts/apply-batch01-deletes.sh` (inside the archive) removes every prompt-declared deleted path from the target Git worktree with `git rm`, after verifying no remaining file imports a deletion target.
 - The root workflow and the project workflow copy are synchronized; the repository-root workflow is the one GitHub executes.
 - The exchange-provider implementation is canonical under `apps/api/src/modules/exchanges/providers/`; duplicate `venues/` adapters/spec and the unused provider-factory shim are removed.
 - The existing Part 11 migration already contains the `lead_trader_applications` policy. The schema inventory and generated enable/disable artifacts are aligned; the RLS coverage Jest spec parses all migration files and verifies policy coverage.

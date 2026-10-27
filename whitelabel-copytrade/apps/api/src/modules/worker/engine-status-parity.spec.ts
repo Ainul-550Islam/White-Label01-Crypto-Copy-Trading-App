@@ -34,6 +34,8 @@ import {
   LIVE_ENABLEMENT_VIEW_FIELDS,
   PLACEMENT_VIEW_FIELDS,
   VENUE_ATTESTATION_VIEW_FIELDS,
+  VENUE_STATUS_VIEW_FIELDS,
+  VENUE_TRANSPORT_VIEW_FIELDS,
   type EngineStatusField,
   type EngineStatusKind,
 } from './engine-status-contract';
@@ -63,10 +65,24 @@ interface DeclaredField {
 
 /** `_to_camel` in schemas.py: first segment as-is, the rest title-cased. Restated
  * here rather than trusted, because the wire names are exactly what the mirror keys
- * on - a divergence in THIS function is a drift bug of the loudest kind. */
+ * on - a divergence in THIS function is a drift bug of the loudest kind. Python's
+ * `str.title()` upper-cases the first LETTER of a segment and lower-cases the rest,
+ * which for the digit-leading segments of `used_weight_1m` / `order_count_10s`
+ * yields `usedWeight1M` / `orderCount10S` - Binance's own header spellings. The
+ * earlier restatement (upper-case the first CHARACTER) produced `usedWeight1m`:
+ * a key no engine emits, which would have read as permanently absent. */
+const titleSegment = (part: string): string => {
+  const firstLetter = part.search(/[a-zA-Z]/);
+  if (firstLetter < 0) return part;
+  return (
+    part.slice(0, firstLetter) +
+    part.charAt(firstLetter).toUpperCase() +
+    part.slice(firstLetter + 1).toLowerCase()
+  );
+};
 const toCamel = (name: string): string => {
   const [head, ...rest] = name.split('_');
-  return head + rest.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+  return head + rest.map(titleSegment).join('');
 };
 
 /** The annotation -> kind law. An annotation this function does not recognize is a
@@ -86,6 +102,7 @@ const kindFor = (
     str: 'string',
     bool: 'boolean',
     int: 'integer',
+    float: 'number',
     'list[str]': 'stringArray',
     'dict[str, int]': 'integerMap',
     'dict[str, int | bool]': 'scalarMap',
@@ -93,6 +110,8 @@ const kindFor = (
     PlacementStatusView: 'placementView',
     LiveEnablementView: 'liveEnablementView',
     IncidentSinkView: 'incidentSinkView',
+    VenueStatusView: 'venueStatusView',
+    VenueTransportView: 'venueTransportView',
     'dict[str, object]': 'distributedLockWiringView',
   };
   // Name-based overrides for fields that share the same Python type but map to
@@ -129,6 +148,7 @@ const literal = (source: string): unknown => {
   const quoted = /^"([^"]*)"$/.exec(text);
   if (quoted !== null) return quoted[1];
   if (/^-?\d+$/.test(text)) return Number(text);
+  if (/^-?\d+\.\d+$/.test(text)) return Number(text);
   throw new Error(`cannot normalize the Python default ${JSON.stringify(text)} - teach literal() about it`);
 };
 
@@ -254,16 +274,16 @@ const compare = (
 };
 
 describe('engine status contract - parity with the Python schema that defines it', () => {
-  it('mirrors StatusResponse exactly: 20 keys, same required set, same defaults', () => {
+  it('mirrors StatusResponse exactly: 26 keys, same required set, same defaults', () => {
     compare(
       ENGINE_STATUS_FIELDS,
       declaredFields(source, 'StatusResponse'),
       'StatusResponse',
     );
-    expect(ENGINE_STATUS_FIELDS).toHaveLength(25);
+    expect(ENGINE_STATUS_FIELDS).toHaveLength(26);
   });
 
-  it('mirrors the three sub-documents the status route validates through', () => {
+  it('mirrors the sub-documents the status route validates through', () => {
     compare(PLACEMENT_VIEW_FIELDS, declaredFields(source, 'PlacementStatusView'), 'PlacementStatusView');
     compare(
       LIVE_ENABLEMENT_VIEW_FIELDS,
@@ -271,6 +291,12 @@ describe('engine status contract - parity with the Python schema that defines it
       'LiveEnablementView',
     );
     compare(INCIDENT_SINK_VIEW_FIELDS, declaredFields(source, 'IncidentSinkView'), 'IncidentSinkView');
+    compare(VENUE_STATUS_VIEW_FIELDS, declaredFields(source, 'VenueStatusView'), 'VenueStatusView');
+    compare(
+      VENUE_TRANSPORT_VIEW_FIELDS,
+      declaredFields(source, 'VenueTransportView'),
+      'VenueTransportView',
+    );
   });
 
   it('mirrors the three posture blocks exactly as their describe() publishes them', () => {

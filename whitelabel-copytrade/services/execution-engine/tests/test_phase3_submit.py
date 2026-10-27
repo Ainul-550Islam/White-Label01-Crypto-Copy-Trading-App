@@ -12,8 +12,10 @@ What these tests pin:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
@@ -59,12 +61,14 @@ def submit_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
-def post(client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"):
+def post(
+    client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"
+) -> httpx2.Response:
     return client.post("/internal/v1/orders/submit", headers=auth_headers(tenant), json=body)
 
 
 @pytest.fixture
-def live_paper_client(monkeypatch: pytest.MonkeyPatch):
+def live_paper_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """A runtime that actually fills against the paper book (dry run off)."""
     monkeypatch.setenv("EXECUTION_DRY_RUN", "false")
     get_settings.cache_clear()

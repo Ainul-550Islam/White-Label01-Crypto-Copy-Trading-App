@@ -1,4 +1,9 @@
 -- # Durable referral-abuse decisions and tenant-scoped manual-review queue.
+-- Repair (2026-10-27): the six index names below were written at 70-83
+-- chars; Postgres silently truncates identifiers at 63 bytes, so the created
+-- indexes carried different names than this file (and schema.prisma) claim.
+-- They now use the exact names Prisma generates for the model, keeping a
+-- freshly migrated database drift-free against schema.prisma.
 CREATE TABLE "partner_referral_abuse_reviews" (
     "id" VARCHAR(64) NOT NULL,
     "tenant_id" UUID NOT NULL,
@@ -28,15 +33,15 @@ CREATE TABLE "partner_referral_abuse_reviews" (
 
 CREATE UNIQUE INDEX "partner_referral_abuse_reviews_tenant_id_idempotency_key_key"
     ON "partner_referral_abuse_reviews" ("tenant_id", "idempotency_key");
-CREATE INDEX "partner_referral_abuse_reviews_tenant_id_state_risk_score_created_at_idx"
+CREATE INDEX "partner_referral_abuse_reviews_tenant_id_state_risk_score_c_idx"
     ON "partner_referral_abuse_reviews" ("tenant_id", "state", "risk_score", "created_at");
-CREATE INDEX "partner_referral_abuse_reviews_tenant_id_partner_id_referrer_user_id_created_at_idx"
+CREATE INDEX "partner_referral_abuse_reviews_tenant_id_partner_id_referre_idx"
     ON "partner_referral_abuse_reviews" ("tenant_id", "partner_id", "referrer_user_id", "created_at");
-CREATE INDEX "partner_referral_abuse_reviews_tenant_id_referrer_device_hash_created_at_idx"
+CREATE INDEX "partner_referral_abuse_reviews_tenant_id_referrer_device_ha_idx"
     ON "partner_referral_abuse_reviews" ("tenant_id", "referrer_device_hash", "created_at");
-CREATE INDEX "partner_referral_abuse_reviews_tenant_id_referred_device_hash_created_at_idx"
+CREATE INDEX "partner_referral_abuse_reviews_tenant_id_referred_device_ha_idx"
     ON "partner_referral_abuse_reviews" ("tenant_id", "referred_device_hash", "created_at");
-CREATE INDEX "partner_referral_abuse_reviews_tenant_id_referrer_ip_hash_created_at_idx"
+CREATE INDEX "partner_referral_abuse_reviews_tenant_id_referrer_ip_hash_c_idx"
     ON "partner_referral_abuse_reviews" ("tenant_id", "referrer_ip_hash", "created_at");
-CREATE INDEX "partner_referral_abuse_reviews_tenant_id_referred_ip_hash_created_at_idx"
+CREATE INDEX "partner_referral_abuse_reviews_tenant_id_referred_ip_hash_c_idx"
     ON "partner_referral_abuse_reviews" ("tenant_id", "referred_ip_hash", "created_at");

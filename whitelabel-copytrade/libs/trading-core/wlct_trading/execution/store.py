@@ -121,6 +121,18 @@ class ReservationOutcome:
 class OrderStore(ABC):
     """Durable record of orders, their events and their fills."""
 
+    @property
+    @abstractmethod
+    def is_durable(self) -> bool:
+        """Whether records survive a process restart.
+
+        Startup gates read this before live trading is permitted: a store
+        that cannot say True must not be allowed to forget an order the
+        venue filled. Declared here because both stores implement it and
+        every reader (the engine, the worker's gate, the live gates) was
+        otherwise reaching for it through getattr.
+        """
+
     @abstractmethod
     async def reserve_client_order_id(
         self, tenant_id: str, client_order_id: str, order: Order

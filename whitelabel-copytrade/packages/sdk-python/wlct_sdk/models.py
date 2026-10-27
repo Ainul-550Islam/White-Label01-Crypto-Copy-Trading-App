@@ -296,6 +296,10 @@ class ClosePeriodDto(BaseModel):
     pass
 
 
+class CompleteAccountRecoveryDto(BaseModel):
+    pass
+
+
 class ConfirmTwoFactorSetupDto(BaseModel):
     code: Annotated[
         str, Field(description='Code from the authenticator app.', examples=['482913'])
@@ -610,6 +614,10 @@ class CreateUserDto(BaseModel):
 
 
 class CreateWebhookSubscriptionDto(BaseModel):
+    pass
+
+
+class CreateWithdrawalDestinationDto(BaseModel):
     pass
 
 
@@ -1311,6 +1319,10 @@ class OperatorNoteDto(BaseModel):
     pass
 
 
+class OrderRecoveryDto(BaseModel):
+    pass
+
+
 class ParameterSweepDto(BaseModel):
     pass
 
@@ -1559,6 +1571,10 @@ class ReplaceOrderDto(BaseModel):
     pass
 
 
+class RequestAccountRecoveryDto(BaseModel):
+    pass
+
+
 class RequestCertificationDto(BaseModel):
     pass
 
@@ -1703,6 +1719,10 @@ class RevokeSessionDto(BaseModel):
     reason: Annotated[
         str | None, Field(description='Reason recorded in the audit trail.')
     ] = None
+
+
+class RevokeWithdrawalDestinationDto(BaseModel):
+    pass
 
 
 class RiskCheckDto(BaseModel):
@@ -1941,6 +1961,10 @@ class StartPaperSessionDto(BaseModel):
     symbol: Annotated[str, Field(examples=['BTC-USDT'])]
 
 
+class StepUpChallengeDto(BaseModel):
+    pass
+
+
 class StopPaperSessionDto(BaseModel):
     reason: Annotated[str, Field(max_length=500, min_length=3)]
 
@@ -2164,7 +2188,7 @@ class UpdateBrandingDto(BaseModel):
     customCss: Annotated[
         str | None,
         Field(
-            description='Custom CSS. Sanitised server-side: @import, url() and script vectors are removed.'
+            description='Custom CSS. Rejected with 400 when it contains @import, remote url(), expression() or markup; accepted CSS is additionally sanitised server-side.'
         ),
     ] = None
     faviconUrl: str | None = None
@@ -2444,6 +2468,10 @@ class UpdateWebhookSubscriptionDto(BaseModel):
     pass
 
 
+class UpsertCopyBudgetDto(BaseModel):
+    pass
+
+
 class UpsertFeatureFlagDto(BaseModel):
     description: str | None = None
     isGlobalDefault: Annotated[
@@ -2472,16 +2500,20 @@ class ValidationErrorDetailDto(BaseModel):
     message: Annotated[str, Field(examples=['Must be a valid email address'])]
 
 
+class VenueStatusOverrideDto(BaseModel):
+    pass
+
+
+class VerifyAccountRecoveryDto(BaseModel):
+    pass
+
+
 class VerifyArtifactDto(BaseModel):
     artifactId: Annotated[str, Field(description='Artifact id to re-verify from bytes')]
 
 
 class VerifyDomainRequestDto(BaseModel):
     domain: Annotated[str, Field(examples=['app.acme-capital.com'])]
-
-
-class VerifyStepUpDto(BaseModel):
-    pass
 
 
 class VerifyTwoFactorDto(BaseModel):

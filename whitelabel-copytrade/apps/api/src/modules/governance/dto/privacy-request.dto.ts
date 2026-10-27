@@ -365,7 +365,14 @@ export class AuditExportDto {
   operatorId!: string;
 
   @IsOptional()
-  filters?: { actionType?: string; subjectUserId?: string };
+  filters?: {
+    actorId?: string;
+    actionType?: string;
+    subjectUserId?: string;
+    entityType?: string;
+    entityId?: string;
+    outcome?: string;
+  };
 }
 
 export class EvaluateRetentionDto {

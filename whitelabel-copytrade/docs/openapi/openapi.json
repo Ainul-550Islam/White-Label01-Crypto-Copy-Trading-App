@@ -498,6 +498,10 @@
         "properties": {},
         "type": "object"
       },
+      "CompleteAccountRecoveryDto": {
+        "properties": {},
+        "type": "object"
+      },
       "ConfirmTwoFactorSetupDto": {
         "properties": {
           "code": {
@@ -1161,6 +1165,10 @@
         "type": "object"
       },
       "CreateWebhookSubscriptionDto": {
+        "properties": {},
+        "type": "object"
+      },
+      "CreateWithdrawalDestinationDto": {
         "properties": {},
         "type": "object"
       },
@@ -3460,6 +3468,10 @@
         "properties": {},
         "type": "object"
       },
+      "OrderRecoveryDto": {
+        "properties": {},
+        "type": "object"
+      },
       "ParameterSweepDto": {
         "properties": {},
         "type": "object"
@@ -4036,6 +4048,10 @@
         "properties": {},
         "type": "object"
       },
+      "RequestAccountRecoveryDto": {
+        "properties": {},
+        "type": "object"
+      },
       "RequestCertificationDto": {
         "properties": {},
         "type": "object"
@@ -4266,6 +4282,10 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "RevokeWithdrawalDestinationDto": {
+        "properties": {},
         "type": "object"
       },
       "RiskCheckDto": {
@@ -4693,6 +4713,10 @@
         ],
         "type": "object"
       },
+      "StepUpChallengeDto": {
+        "properties": {},
+        "type": "object"
+      },
       "StopPaperSessionDto": {
         "properties": {
           "reason": {
@@ -5010,7 +5034,7 @@
             "type": "string"
           },
           "customCss": {
-            "description": "Custom CSS. Sanitised server-side: @import, url() and script vectors are removed.",
+            "description": "Custom CSS. Rejected with 400 when it contains @import, remote url(), expression() or markup; accepted CSS is additionally sanitised server-side.",
             "type": "string"
           },
           "faviconUrl": {
@@ -5560,6 +5584,10 @@
         "properties": {},
         "type": "object"
       },
+      "UpsertCopyBudgetDto": {
+        "properties": {},
+        "type": "object"
+      },
       "UpsertFeatureFlagDto": {
         "properties": {
           "description": {
@@ -5634,6 +5662,14 @@
         ],
         "type": "object"
       },
+      "VenueStatusOverrideDto": {
+        "properties": {},
+        "type": "object"
+      },
+      "VerifyAccountRecoveryDto": {
+        "properties": {},
+        "type": "object"
+      },
       "VerifyArtifactDto": {
         "properties": {
           "artifactId": {
@@ -5656,10 +5692,6 @@
         "required": [
           "domain"
         ],
-        "type": "object"
-      },
-      "VerifyStepUpDto": {
-        "properties": {},
         "type": "object"
       },
       "VerifyTwoFactorDto": {
@@ -5758,7 +5790,7 @@
       "name": "Platform engineering",
       "url": "http://localhost:4000"
     },
-    "description": "Multi-tenant crypto copy-trading platform API\n\n## Multi-tenancy\nEvery request is bound to exactly one organisation. For authenticated calls the tenant is read\nfrom the `tid` claim of the access token and a client-supplied tenant identifier can never\noverride it. For unauthenticated calls the tenant is resolved from the custom domain, then the\nplatform sub-domain, then the `x-tenant-slug` header.\n\n## Response envelope\nSuccessful responses are wrapped as `{ \"success\": true, \"data\": ..., \"meta\": { \"requestId\", \"timestamp\" } }`.\nErrors are wrapped as `{ \"success\": false, \"error\": { \"code\", \"message\", \"details\", \"requestId\", \"timestamp\", \"path\" } }`.\nStack traces are never returned outside development.\n\n## Authentication\nBearer access tokens are short lived. Refresh tokens rotate on every use and are bound to a\ndevice; presenting a consumed refresh token revokes the entire token family and signs the user\nout everywhere.\n\n## Rate limiting\nTwo buckets are enforced: a generous default bucket and a strict bucket on authentication\nendpoints. Exceeding either returns 429 with `Retry-After`.",
+    "description": "Multi-tenant non-custodial crypto copy-trading platform API\n\n## Multi-tenancy\nEvery request is bound to exactly one organisation. For authenticated calls the tenant is read\nfrom the `tid` claim of the access token and a client-supplied tenant identifier can never\noverride it. For unauthenticated calls the tenant is resolved from the custom domain, then the\nplatform sub-domain, then the `x-tenant-slug` header.\n\n## Response envelope\nSuccessful responses are wrapped as `{ \"success\": true, \"data\": ..., \"meta\": { \"requestId\", \"timestamp\" } }`.\nErrors are wrapped as `{ \"success\": false, \"error\": { \"code\", \"message\", \"details\", \"requestId\", \"timestamp\", \"path\" } }`.\nStack traces are never returned outside development.\n\n## Authentication\nBearer access tokens are short lived. Refresh tokens rotate on every use and are bound to a\ndevice; presenting a consumed refresh token revokes the entire token family and signs the user\nout everywhere.\n\n## Rate limiting\nTwo buckets are enforced: a generous default bucket and a strict bucket on authentication\nendpoints. Exceeding either returns 429 with `Retry-After`.",
     "license": {
       "name": "Proprietary",
       "url": ""
@@ -5768,6 +5800,387 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/v1/admin/custody/destinations": {
+      "get": {
+        "operationId": "WithdrawalDestinationAdmin_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "WithdrawalDestinationAdmin"
+        ]
+      }
+    },
+    "/api/v1/admin/exchange-user-streams": {
+      "get": {
+        "operationId": "ExchangeUserStreamAdmin_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ExchangeUserStreamAdmin"
+        ]
+      }
+    },
+    "/api/v1/admin/oms/orders/{orderId}/recover": {
+      "post": {
+        "operationId": "OmsRecoveryAdmin_recover",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orderId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderRecoveryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "OmsRecoveryAdmin"
+        ]
+      }
+    },
+    "/api/v1/admin/oms/orders/{orderId}/timeline": {
+      "get": {
+        "operationId": "OmsRecoveryAdmin_timeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orderId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "OmsRecoveryAdmin"
+        ]
+      }
+    },
+    "/api/v1/admin/venues": {
+      "get": {
+        "operationId": "VenueStatusAdmin_list",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "VenueStatusAdmin"
+        ]
+      }
+    },
+    "/api/v1/admin/venues/{venue}/status": {
+      "delete": {
+        "operationId": "VenueStatusAdmin_clear",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "venue",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "VenueStatusAdmin"
+        ]
+      },
+      "put": {
+        "operationId": "VenueStatusAdmin_set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "venue",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VenueStatusOverrideDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "VenueStatusAdmin"
+        ]
+      }
+    },
     "/api/v1/audit-logs": {
       "get": {
         "description": "Returns the tenant-scoped audit trail. Platform operators may pass `tenantId` to inspect another organisation.",
@@ -6694,6 +7107,171 @@
         "summary": "Return the authenticated user with roles and permissions",
         "tags": [
           "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/recovery/complete": {
+      "post": {
+        "operationId": "AccountRecovery_complete",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteAccountRecoveryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AccountRecovery"
+        ]
+      }
+    },
+    "/api/v1/auth/recovery/request": {
+      "post": {
+        "operationId": "AccountRecovery_request",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestAccountRecoveryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AccountRecovery"
+        ]
+      }
+    },
+    "/api/v1/auth/recovery/verify": {
+      "post": {
+        "operationId": "AccountRecovery_verify",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyAccountRecoveryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AccountRecovery"
         ]
       }
     },
@@ -7817,9 +8395,231 @@
         ]
       }
     },
+    "/api/v1/auth/step-up": {
+      "post": {
+        "operationId": "StepUpAuth_challengeAtRoot",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepUpChallengeDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A single-use, action-bound proof."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Missing, expired or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted (RBAC, tenancy or feature flag)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Validation failed. `error.details` lists the offending fields."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Rate limit exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Unexpected server error. Quote the `meta.requestId` in support tickets."
+          }
+        },
+        "summary": "Verify a credential for one sensitive action and receive a single-use proof",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/step-up/actions": {
+      "get": {
+        "operationId": "StepUpAuth_actions",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Missing, expired or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted (RBAC, tenancy or feature flag)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Validation failed. `error.details` lists the offending fields."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Rate limit exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Unexpected server error. Quote the `meta.requestId` in support tickets."
+          }
+        },
+        "summary": "Every action a step-up proof can be issued for",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
     "/api/v1/auth/step-up/status": {
       "get": {
-        "operationId": "StepUp_status",
+        "operationId": "StepUpAuth_status",
         "parameters": [
           {
             "in": "query",
@@ -7862,17 +8662,79 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "Freshness of the caller’s own proof for the named action."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Missing, expired or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted (RBAC, tenancy or feature flag)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Validation failed. `error.details` lists the offending fields."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Rate limit exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Unexpected server error. Quote the `meta.requestId` in support tickets."
           }
         },
+        "summary": "Whether a live step-up proof exists for this action",
         "tags": [
-          "StepUp"
+          "Authentication"
         ]
       }
     },
     "/api/v1/auth/step-up/verify": {
       "post": {
-        "operationId": "StepUp_verify",
+        "description": "Returns a single-use proof id bound to (tenant, user, session, action). It is consumed by the first request that uses it, and a proof for one action is refused for any other.",
+        "operationId": "StepUpAuth_challenge",
         "parameters": [
           {
             "description": "Stable per-installation device identifier used for session binding.",
@@ -7909,19 +8771,80 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/VerifyStepUpDto"
+                "$ref": "#/components/schemas/StepUpChallengeDto"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "A single-use, action-bound proof."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Missing, expired or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted (RBAC, tenancy or feature flag)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Validation failed. `error.details` lists the offending fields."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Rate limit exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Unexpected server error. Quote the `meta.requestId` in support tickets."
           }
         },
+        "summary": "Verify a credential for one sensitive action",
         "tags": [
-          "StepUp"
+          "Authentication"
         ]
       }
     },
@@ -21877,6 +22800,104 @@
         ]
       }
     },
+    "/api/v1/copy-trading/budget": {
+      "get": {
+        "operationId": "CopyBudget_getBudget",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CopyBudget"
+        ]
+      },
+      "put": {
+        "operationId": "CopyBudget_putBudget",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertCopyBudgetDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CopyBudget"
+        ]
+      }
+    },
     "/api/v1/copy-trading/executions": {
       "get": {
         "operationId": "CopyTrading_listExecutions",
@@ -22017,6 +23038,59 @@
         },
         "tags": [
           "CopyTrading"
+        ]
+      }
+    },
+    "/api/v1/copy-trading/executions/{executionId}/timeline": {
+      "get": {
+        "operationId": "CopyExecutionTimeline_timeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "executionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CopyExecutionTimeline"
         ]
       }
     },
@@ -22409,6 +23483,147 @@
         },
         "tags": [
           "CopyTrading"
+        ]
+      }
+    },
+    "/api/v1/copy-trading/shares": {
+      "get": {
+        "operationId": "PublicShare_list",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublicShare"
+        ]
+      },
+      "post": {
+        "operationId": "PublicShare_create",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublicShare"
+        ]
+      }
+    },
+    "/api/v1/copy-trading/shares/{id}": {
+      "delete": {
+        "operationId": "PublicShare_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublicShare"
         ]
       }
     },
@@ -24510,6 +25725,167 @@
         },
         "tags": [
           "Custody"
+        ]
+      }
+    },
+    "/api/v1/custody/destinations": {
+      "get": {
+        "operationId": "WithdrawalDestination_list",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "WithdrawalDestination"
+        ]
+      },
+      "post": {
+        "operationId": "WithdrawalDestination_add",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWithdrawalDestinationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "WithdrawalDestination"
+        ]
+      }
+    },
+    "/api/v1/custody/destinations/{id}": {
+      "delete": {
+        "operationId": "WithdrawalDestination_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeWithdrawalDestinationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "WithdrawalDestination"
         ]
       }
     },
@@ -29939,6 +31315,59 @@
         ]
       }
     },
+    "/api/v1/exchanges/accounts/{id}/capability-health": {
+      "get": {
+        "operationId": "Exchanges_capabilityHealth",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Exchanges"
+        ]
+      }
+    },
     "/api/v1/exchanges/accounts/{id}/disable": {
       "post": {
         "operationId": "Exchanges_disableAccount",
@@ -31040,6 +32469,59 @@
         },
         "tags": [
           "Exchanges"
+        ]
+      }
+    },
+    "/api/v1/exchanges/{accountId}/user-stream": {
+      "get": {
+        "operationId": "ExchangeUserStream_getUserStream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "accountId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ExchangeUserStream"
         ]
       }
     },
@@ -35496,6 +36978,123 @@
         ]
       }
     },
+    "/api/v1/feature-flags/live": {
+      "put": {
+        "description": "Live/mainnet switches only. Requires a fresh single-use step-up proof for FEATURE_FLAG_LIVE_TOGGLE plus plan entitlement to enable.",
+        "operationId": "FeatureFlags_setLiveForTenant",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTenantFlagDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The stored override."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Missing, expired or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted (RBAC, tenancy or feature flag)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Validation failed. `error.details` lists the offending fields."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Rate limit exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "Unexpected server error. Quote the `meta.requestId` in support tickets."
+          }
+        },
+        "summary": "Enable or disable a live-trading feature for the current organisation",
+        "tags": [
+          "Feature flags"
+        ]
+      }
+    },
     "/api/v1/feature-flags/resolved": {
       "get": {
         "description": "The effective on/off state after tenant overrides are applied.",
@@ -35695,6 +37294,67 @@
         },
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Governance"
+        ]
+      }
+    },
+    "/api/v1/governance/audit/export/{jobId}": {
+      "get": {
+        "operationId": "Governance_getAuditExportJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tenantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
@@ -53808,6 +55468,59 @@
         ]
       }
     },
+    "/api/v1/public/shares/{token}": {
+      "get": {
+        "operationId": "PublicShare_resolve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublicShare"
+        ]
+      }
+    },
     "/api/v1/research/backtests": {
       "get": {
         "operationId": "Research_listBacktests",
@@ -60016,6 +61729,51 @@
         "summary": "Clear an engaged switch (typed confirmation required)",
         "tags": [
           "risk"
+        ]
+      }
+    },
+    "/api/v1/risk/liquidation-alerts": {
+      "get": {
+        "operationId": "LiquidationAlert_list",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "LiquidationAlert"
         ]
       }
     },
@@ -68714,6 +70472,112 @@
         "summary": "Suspend a user",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/api/v1/venues/status": {
+      "get": {
+        "operationId": "VenueStatus_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "venues",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "VenueStatus"
+        ]
+      }
+    },
+    "/api/v1/venues/{venue}/status": {
+      "get": {
+        "operationId": "VenueStatus_one",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "venue",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "VenueStatus"
         ]
       }
     },

@@ -76,8 +76,8 @@ check(3, 'missing required configuration fails', () => {
 
 // 4. release manifest is deterministic
 check(4, 'release manifest is deterministic', () => {
-  const content = readFile(path.join(prodRoot, 'release-manifest.service.ts'));
-  return content.includes('deterministic') && content.includes('sort') && content.includes('isDeterministic');
+  const content = readFile(path.join(root, 'packages/utils/src/release-manifest.ts'));
+  return content.includes('sortManifestDeterministically') && content.includes('.sort()') && content.includes('isDeterministic');
 });
 
 // 5. artifact digest mismatch blocks release

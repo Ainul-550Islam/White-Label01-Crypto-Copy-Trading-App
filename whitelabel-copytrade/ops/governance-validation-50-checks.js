@@ -41,6 +41,10 @@ const requiredFiles = [
   'templates/report-definitions.ts',
   'privacy-governance.contract.spec.ts',
   'compliance-report.contract.spec.ts',
+  'compliance-report.fail-closed.spec.ts',
+  'consent.service.spec.ts',
+  'governance-audit-export-job.spec.ts',
+  'dto/audit-export-job-state.dto.ts',
 ];
 
 function readFile(rel) {
@@ -68,7 +72,7 @@ function check(id, description, fn) {
 }
 
 // 1-5 file existence and count
-check(1, 'exactly 30 files exist', () => {
+check(1, 'exactly 34 files exist', () => {
   const all = [];
   function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -78,7 +82,7 @@ check(1, 'exactly 30 files exist', () => {
     }
   }
   walk(base);
-  return all.length === 30;
+  return all.length === 34;
 });
 
 check(2, 'all required files present', () => {
@@ -265,7 +269,7 @@ check(36, 'delivery states NOT_DELIVERED/QUEUED/SUBMITTED/DELIVERED/FAILED/RETRY
 
 check(37, 'delivery never mark submitted without evidence', () => {
   const c = readFile('compliance-report-delivery.service.ts');
-  return c.includes('deliveryEvidence required') && c.includes('never mark submitted without evidence');
+  return c.includes('Delivery evidence reference required') && c.includes('caller text is not authoritative submission or delivery proof');
 });
 
 check(38, 'evidence package immutable with case/ref/hash/redaction', () => {

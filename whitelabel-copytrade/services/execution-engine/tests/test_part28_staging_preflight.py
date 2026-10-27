@@ -31,6 +31,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import live_readiness as preflight  # noqa: E402
+import pytest  # noqa: E402
 from wlct_trading.execution.live_enablement import (  # noqa: E402
     LiveEnablementReport,
     LivePrerequisite,
@@ -174,7 +175,7 @@ class TestRunPreflight:
 
 class TestStagingEnvLoading:
     def test_load_staging_env_sets_unset_variables_and_returns_the_count(
-        self, tmp_path: Path, monkeypatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         env_file = tmp_path / ".env.staging"
         env_file.write_text(
@@ -195,7 +196,7 @@ class TestStagingEnvLoading:
         assert __import__("os").environ["EXECUTION_SIMULATED_MID"] == "50000"
 
     def test_an_already_exported_variable_wins_over_the_file(
-        self, tmp_path: Path, monkeypatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         env_file = tmp_path / ".env.staging"
         env_file.write_text("EXECUTION_MODE=live\n", encoding="utf-8")
@@ -208,18 +209,20 @@ class TestStagingEnvLoading:
 
 
 class TestTheProductionGuard:
-    def test_production_without_opt_in_refuses_with_exit_two(self, monkeypatch) -> None:
+    def test_production_without_opt_in_refuses_with_exit_two(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("NODE_ENV", "production")
         assert preflight.main([]) == 2
 
     def test_the_guard_reads_the_environment_case_sensitively_lowercased(
-        self, monkeypatch
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("NODE_ENV", "Production")
         assert preflight.main([]) == 2
 
     def test_non_production_environments_are_not_the_guarded_thing(
-        self, monkeypatch
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # The guard fires on NODE_ENV, not on EXECUTION_MODE: a staging run
         # with simulated mode is the tool's whole purpose.
@@ -235,7 +238,7 @@ class TestTheProductionGuard:
 
 class TestPreflightAgainstTheRealRuntime:
     def test_a_bare_development_box_reports_fail_for_required_and_exits_one(
-        self, capsys
+        self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         # BASE_ENV (conftest): memory store, in-memory locks, signed transport
         # wired. The preflight must say exactly that, in enum order.
@@ -259,7 +262,9 @@ class TestPreflightAgainstTheRealRuntime:
         assert "live execution remains refused by code" in output
         assert code == 1
 
-    def test_json_mode_is_a_single_payload_with_all_eight(self, capsys) -> None:
+    def test_json_mode_is_a_single_payload_with_all_eight(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         code = preflight.main(["--json"])
         payload = json.loads(capsys.readouterr().out)
         assert payload["ready"] is False
@@ -268,13 +273,17 @@ class TestPreflightAgainstTheRealRuntime:
         assert len(payload["prerequisites"]) == 8
         assert code == 1
 
-    def test_json_mode_is_the_only_output_in_json_mode(self, capsys) -> None:
+    def test_json_mode_is_the_only_output_in_json_mode(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         preflight.main(["--json"])
         out = capsys.readouterr().out
         json.loads(out)  # raises if anything prose-shaped leaked in
         assert out.count("\n") == 1
 
-    def test_an_unconfigured_boot_is_a_refusal_not_a_traceback(self, monkeypatch, capsys) -> None:
+    def test_an_unconfigured_boot_is_a_refusal_not_a_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         # The service's fail-closed settings (no internal token) must surface
         # as an exit-2 answer, never a stack trace an operator has to parse.
         monkeypatch.delenv("EXECUTION_INTERNAL_TOKEN", raising=False)
@@ -282,7 +291,9 @@ class TestPreflightAgainstTheRealRuntime:
         assert code == 2
         assert "configuration refused" in capsys.readouterr().out
 
-    def test_the_unconfigured_boot_answers_in_json_too(self, monkeypatch, capsys) -> None:
+    def test_the_unconfigured_boot_answers_in_json_too(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         monkeypatch.delenv("EXECUTION_INTERNAL_TOKEN", raising=False)
         code = preflight.main(["--json"])
         payload = json.loads(capsys.readouterr().out)
@@ -295,7 +306,9 @@ class TestPreflightAgainstTheRealRuntime:
         assert "configuration refused" in payload["error"]
         assert code == 2
 
-    def test_staging_flag_without_a_file_changes_nothing(self, capsys) -> None:
+    def test_staging_flag_without_a_file_changes_nothing(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         # No .env.staging in the repo (it is gitignored by design), so
         # --staging must be a no-op here, not a crash.
         code = preflight.main(["--staging", "--json"])

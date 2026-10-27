@@ -22,22 +22,29 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from starlette.routing import Route
+from wlct_trading.enums import ExchangeId
 from wlct_trading.execution.credentials import (
+    CachingCredentialProvider,
     CredentialNotFound,
     EnvironmentCredentialProvider,
     ExchangeCredentials,
     NullCredentialProvider,
+    ResolvedSecret,
     SecretManagerCredentialProvider,
 )
 from wlct_trading.execution.live_enablement import LivePrerequisite
 from wlct_trading.execution.placement_attestor import (
     MAX_ATTESTER_TTL_MS,
+    CachingPlacementAttestor,
     LocalPlacementAttestor,
+    PlacementAttestation,
     PlacementReviewer,
     PlacementReviewRequest,
     UnattestedPlacementAttestor,
@@ -46,14 +53,16 @@ from wlct_trading.execution.placement_review import (
     MAX_KEY_AGE_DAYS,
     MIN_KEY_AGE_DAYS,
     PlacementReviewError,
+    PlacementVerdict,
 )
 
-from app.composition import ExecutionUnavailable, build_runtime
+from app.composition import EngineRuntime, ExecutionUnavailable, build_runtime
+from app.config import Settings
 from app.exchanges.credentials import (
     build_credential_provider,
     credential_env_names,
 )
-from app.orders.placement import build_placement_reviewer, review_placement
+from app.orders.placement import PlacementWiring, build_placement_reviewer, review_placement
 from app.routers import placement as placement_router
 from app.schemas import (
     PlacementAttestRequest,
@@ -97,7 +106,7 @@ def json_keys(node: object) -> set[str]:
     return set()
 
 
-def runtime_for(*overrides: tuple[str, object]):
+def runtime_for(*overrides: tuple[str, object]) -> tuple[EngineRuntime, Settings]:
     """``build_runtime`` over a Settings object with the given env overrides."""
     settings = settings_for(*overrides)
     return build_runtime(settings), settings
@@ -116,7 +125,7 @@ class TestCredentialWiring:
         # The refusal has to be an instance of the error every caller already
         # catches, or "no credentials" escapes as an unexpected exception.
         with pytest.raises(CredentialNotFound):
-            asyncio.run(wiring.provider.resolve("tenant-a", "account-1", None))
+            asyncio.run(wiring.provider.resolve("tenant-a", "account-1", ExchangeId.BINANCE))
 
     def test_description_carries_the_source_and_nothing_else_secret(self) -> None:
         wiring = build_credential_provider(settings_for())
@@ -144,7 +153,9 @@ class TestCredentialWiring:
         # reachable: "cached(...)" alone would let a second, unintended wrapper
         # pass as the intended one.
         assert wiring.provider.source.startswith("cached(")
-        assert isinstance(wiring.provider.inner, EnvironmentCredentialProvider)
+        provider = wiring.provider
+        assert isinstance(provider, CachingCredentialProvider)
+        assert isinstance(provider.inner, EnvironmentCredentialProvider)
         resolved = asyncio.run(
             wiring.provider.resolve(
                 settings.EXECUTION_CREDENTIAL_TENANT_ID,
@@ -209,11 +220,15 @@ class TestCredentialWiring:
         with pytest.raises(ValueError, match="secret fetcher"):
             build_credential_provider(settings)
 
-        async def fetch(tenant_id: str, account_id: str, exchange: Any) -> None:
-            return None
+        async def fetch(
+            tenant_id: str, account_id: str, exchange: ExchangeId
+        ) -> ResolvedSecret:
+            raise AssertionError("construction must not call the fetcher")
 
         wiring = build_credential_provider(settings, secret_fetcher=fetch)
-        assert isinstance(wiring.provider.inner, SecretManagerCredentialProvider)
+        provider = wiring.provider
+        assert isinstance(provider, CachingCredentialProvider)
+        assert isinstance(provider.inner, SecretManagerCredentialProvider)
         assert wiring.source == "secret-manager"
 
 
@@ -233,16 +248,18 @@ class TestPlacementWiring:
         assert wiring.requires_venue_attestation is False
         assert wiring.cache_ttl_ms == settings.EXECUTION_PLACEMENT_ATTESTATION_TTL_MS
         description = wiring.describe()
-        assert description["attestorSource"].startswith("local:")
+        assert cast(str, description["attestorSource"]).startswith("local:")
         # The cache is between the reviewer and the gatherer, so the source the
         # reviewer reports is the cached gatherer's label, not the reviewer's.
-        assert description["cache"]["ttlMillis"] == wiring.cache_ttl_ms
+        assert cast(dict[str, Any], description["cache"])["ttlMillis"] == wiring.cache_ttl_ms
 
     def test_no_gatherer_at_all_is_not_the_same_as_a_permissive_one(self) -> None:
         settings = settings_for()
         wiring = build_placement_reviewer(settings, will_transmit_orders=False)
         assert wiring.mode == "unattested"
-        assert isinstance(wiring.reviewer.attestor.inner, UnattestedPlacementAttestor)
+        attestor = wiring.reviewer.attestor
+        assert isinstance(attestor, CachingPlacementAttestor)
+        assert isinstance(attestor.inner, UnattestedPlacementAttestor)
         _, verdict = asyncio.run(
             review_placement(
                 wiring,
@@ -288,12 +305,14 @@ class TestPlacementWiring:
         is the one that notices.
         """
         class Exploding(LocalPlacementAttestor):
-            async def attest(self, request: PlacementReviewRequest):
+            async def attest(self, request: PlacementReviewRequest) -> PlacementAttestation:
                 raise RuntimeError("the venue is on fire")
 
         settings = settings_for()
 
-        async def run(wiring):
+        async def run(
+            wiring: PlacementWiring,
+        ) -> tuple[PlacementAttestation, PlacementVerdict]:
             return await review_placement(
                 wiring,
                 tenant_id="tenant-a",
@@ -328,7 +347,7 @@ class TestPlacementWiring:
             def source(self) -> str:
                 raise RuntimeError("the source property itself is broken")
 
-            async def attest(self, request: PlacementReviewRequest):
+            async def attest(self, request: PlacementReviewRequest) -> PlacementAttestation:
                 raise RuntimeError("no answer")
 
         wiring = build_placement_reviewer(
@@ -445,7 +464,7 @@ class TestComposedRuntime:
         runtime, _ = runtime_for()
         assert runtime.placement.mode == "local"
         engine = runtime.engine
-        reviewer: PlacementReviewer = engine._placement_reviewer
+        reviewer = engine._placement_reviewer
         assert isinstance(reviewer, PlacementReviewer)
         assert reviewer.requires_venue_attestation is False
 
@@ -463,7 +482,9 @@ class TestComposedRuntime:
         runtime, settings = runtime_for(
             ("EXECUTION_PLACEMENT_ATTESTATION_TTL_MS", "45000"),
         )
-        stats = runtime.placement.reviewer.attestor.stats()
+        attestor = runtime.placement.reviewer.attestor
+        assert isinstance(attestor, CachingPlacementAttestor)
+        stats = attestor.stats()
         assert stats["ttlMillis"] == 45_000 == settings.EXECUTION_PLACEMENT_ATTESTATION_TTL_MS
         # Failures are evicted sooner than successes are refreshed, so a venue
         # outage slows reviews down instead of locking them out for a window.
@@ -510,7 +531,7 @@ class TestAttestEndpoint:
         }
 
     def test_it_places_no_order_and_creates_no_record(self, client: TestClient) -> None:
-        runtime = client.app.state.runtime
+        runtime = cast(FastAPI, client.app).state.runtime
         before = runtime.store.order_count()
         client.post(
             REVIEW_PATH,
@@ -520,14 +541,14 @@ class TestAttestEndpoint:
         assert runtime.store.order_count() == before
         # The defaults are asserted rather than assumed: the endpoint's shape is
         # a spot limit order, which is what an operator typing curl means.
-        request = PlacementAttestRequest(
-            tenantId="tenant-a", accountId="account-1", symbol="eth-usdt"
+        request = PlacementAttestRequest.model_validate(
+            {"tenantId": "tenant-a", "accountId": "account-1", "symbol": "eth-usdt"}
         )
         assert (request.order_type, request.time_in_force) == ("LIMIT", "GTC")
         assert request.symbol == "ETH-USDT"
 
     def test_the_review_is_cached_across_requests(self, client: TestClient) -> None:
-        attestor = client.app.state.runtime.placement.reviewer.attestor
+        attestor = cast(FastAPI, client.app).state.runtime.placement.reviewer.attestor
         before = attestor.stats()["misses"]
         for _ in range(3):
             client.post(
@@ -578,10 +599,10 @@ class TestAttestEndpoint:
     def test_the_endpoint_survives_a_gatherer_that_raises(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        runtime = client.app.state.runtime
+        runtime = cast(FastAPI, client.app).state.runtime
         inner = runtime.placement.reviewer.attestor.inner
 
-        async def explode(request: PlacementReviewRequest):
+        async def explode(request: PlacementReviewRequest) -> PlacementAttestation:
             raise RuntimeError("the venue is on fire")
 
         monkeypatch.setattr(inner, "attest", explode)
@@ -644,7 +665,7 @@ class TestStatusExposesTheWiring:
         an undocumented coercion in a status surface is how a dashboard starts
         lying.
         """
-        wiring = client.app.state.runtime.describe()
+        wiring = cast(FastAPI, client.app).state.runtime.describe()
         body = client.get(
             "/internal/v1/status", headers=auth_headers("tenant-a")
         ).json()
@@ -675,7 +696,7 @@ class TestStatusExposesTheWiring:
         ``describe()`` without a matching field here is a failure in this test, not
         a 500 in production and not a silently unpublished fact.
         """
-        wiring = client.app.state.runtime.describe()
+        wiring = cast(FastAPI, client.app).state.runtime.describe()
         status_aliases = {
             field.alias or name for name, field in StatusResponse.model_fields.items()
         }
@@ -702,7 +723,7 @@ class TestStatusExposesTheWiring:
         for), the placement block must arrive whole, and nothing
         credential-shaped may appear at any depth of the body.
         """
-        wiring = client.app.state.runtime.describe()
+        wiring = cast(FastAPI, client.app).state.runtime.describe()
         body = client.get("/health/ready").json()
         assert body["status"] == "ready"
         for key in wiring:
@@ -720,14 +741,16 @@ class TestStatusExposesTheWiring:
         from app.orders.placement import REVIEW_ENDPOINT_LABEL
 
         with pytest.raises(ValidationError, match="apiSecret"):
-            PlacementStatusView(
-                label=REVIEW_ENDPOINT_LABEL,
-                mode="local",
-                requires_venue_attestation=False,
-                cacheTtlMillis=1,
-                attestorSource="local:in-process",
-                policy={},
-                apiSecret="nope",
+            PlacementStatusView.model_validate(
+                {
+                    "label": REVIEW_ENDPOINT_LABEL,
+                    "mode": "local",
+                    "requiresVenueAttestation": False,
+                    "cacheTtlMillis": 1,
+                    "attestorSource": "local:in-process",
+                    "policy": {},
+                    "apiSecret": "nope",
+                }
             )
 
     def test_an_older_engine_reads_as_unproven_not_as_wired_with_nothing(self) -> None:
@@ -763,7 +786,11 @@ class TestStatusExposesTheWiring:
 class TestPlacementDriftParity:
     def test_the_route_lives_only_on_the_internal_prefix(self) -> None:
         assert placement_router.router.prefix == "/internal/v1"
-        paths = [route.path for route in placement_router.router.routes]
+        paths = [
+            route.path
+            for route in placement_router.router.routes
+            if isinstance(route, Route)
+        ]
         assert paths == [REVIEW_PATH]
 
     def test_the_worker_never_forwards_it(self) -> None:
@@ -775,7 +802,9 @@ class TestPlacementDriftParity:
     def test_the_shipped_defaults_are_inside_the_cores_bounds(self) -> None:
         settings = settings_for()
         policy = settings.placement_policy
-        assert MIN_KEY_AGE_DAYS <= policy.max_key_age_days <= MAX_KEY_AGE_DAYS
+        max_key_age_days = policy.max_key_age_days
+        assert max_key_age_days is not None
+        assert MIN_KEY_AGE_DAYS <= max_key_age_days <= MAX_KEY_AGE_DAYS
         assert 0 < settings.EXECUTION_CREDENTIAL_CACHE_SECONDS
         assert policy.require_ip_allowlist is True
 

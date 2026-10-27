@@ -1,7 +1,10 @@
 // # Proves step-up proofs are action-bound, single-use, session-bound and fail closed when the proof store is down.
 import { ErrorCode } from '@wlct/shared-types';
 
+import { THROTTLER_LIMIT, THROTTLER_TTL } from '@nestjs/throttler/dist/throttler.constants';
+
 import { STEP_UP_CONSUME_LUA, StepUpAuthService } from './step-up-auth.service';
+import { StepUpAuthController } from './step-up-auth.controller';
 
 const ACTOR = { userId: 'user-a', tenantId: 'tenant-a', sessionId: 'session-a' } as never;
 const CONTEXT = { ipHash: 'ip-hash', requestId: 'request-a', userAgent: 'jest' };
@@ -318,5 +321,21 @@ describe('StepUpAuthService', () => {
         }),
       );
     });
+  });
+});
+
+// Rescued from the removed duplicate-stack spec (step-up.controller.spec):
+// credential verification is throttled to five attempts per minute on BOTH
+// issue routes of the canonical controller, so a six-digit TOTP cannot be
+// brute-forced inside its own validity window.
+describe('StepUpAuthController throttling', () => {
+  it('throttles both proof-issue routes to five attempts per minute', () => {
+    for (const handler of [
+      StepUpAuthController.prototype.challengeAtRoot,
+      StepUpAuthController.prototype.challenge,
+    ]) {
+      expect(Reflect.getMetadata(`${THROTTLER_LIMIT}auth`, handler)).toBe(5);
+      expect(Reflect.getMetadata(`${THROTTLER_TTL}auth`, handler)).toBe(60_000);
+    }
   });
 });

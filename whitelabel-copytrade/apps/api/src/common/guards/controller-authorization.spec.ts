@@ -164,7 +164,9 @@ const { TENANT_ADMIN: TA, TRADER: TR, FOLLOWER: FO, SUPPORT: SU, FINANCE: FI, CO
 const SUPER_ADMIN = roleActor(SystemRole.SUPER_ADMIN);
 
 const AUDITED: Array<{ controller: Ctor; routeCount: number; followerRoutes: Array<[Method, string]> }> = [
-  { controller: GovernanceController, routeCount: 47, followerRoutes: [] },
+  // 48 since GET audit/export/:jobId (queued audit-export polling) was
+  // classified: compliance:read + audit_log:read, tenant-scoped, no step-up.
+  { controller: GovernanceController, routeCount: 48, followerRoutes: [] },
   { controller: PartnerController, routeCount: 47, followerRoutes: [] },
   {
     controller: OperationsController,

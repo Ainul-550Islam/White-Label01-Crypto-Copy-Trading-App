@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from wlct_trading.enablement import EnablementError, EnablementPolicy
 from wlct_trading.execution.live_confirmation import (
@@ -105,10 +105,28 @@ class Settings(BaseSettings):
     EXECUTION_INTERNAL_TOKEN: str | None = None
 
     # --- Mode ---------------------------------------------------------------
-    #: "simulated" is the only mode this build transmits in. "live" parses
-    #: (so a staged config does not fail boot for a syntax reason while it
-    #: fails a safety reason) but startup refuses it with MODE_NOT_WIRED.
-    EXECUTION_MODE: Literal["simulated", "live"] = "simulated"
+    #: "simulated" wires the paper venue and is the default. "testnet"
+    #: wires the signed Binance SPOT transport (app.venue) against
+    #: https://testnet.binance.vision for rehearsals. "live" wires the same
+    #: transport against https://api.binance.com but composition refuses it
+    #: unless every live gate passes (app.venue.live_gates): the typed live
+    #: enablement assessment, operator confirmation, IP allowlist, secret
+    #: manager custody, durable Postgres, an explicit EXECUTION_DRY_RUN=false
+    #: and a readable, un-tripped kill switch. See
+    #: docs/LIVE_ENABLEMENT_RUNBOOK.md.
+    EXECUTION_MODE: Literal["simulated", "testnet", "live"] = "simulated"
+    #: The venue clock re-sync cadence for testnet/live. Binance rejects
+    #: signed requests whose timestamp drifts more than recvWindow
+    #: (5000 ms) from server time, so the offset is refreshed on this
+    #: interval and the adapter refuses to sign once the last measurement
+    #: is stale.
+    EXECUTION_CLOCK_SYNC_INTERVAL_SECONDS: int = 60
+    #: Operator kill-switch state read at composition. Live mode requires
+    #: an explicit "false": an unset value (None) means the switch state
+    #: could not be read, which alone refuses live, and "true" means the
+    #: switch is engaged. This is the at-startup gate; the per-order kill
+    #: switch inside the core engine still applies to every placement.
+    EXECUTION_LIVE_KILL_SWITCH_ENGAGED: bool | None = None
     #: When true, order SUBMISSION stops before transmission. Cancellation
     #: is not a new position and stays available either way - failing to
     #: cancel a resting order is the larger risk of the two.
@@ -302,6 +320,16 @@ class Settings(BaseSettings):
     #: boot by app/orders/placement.py, which is where the verifier is assembled.
     EXECUTION_CONFIRMATION_KEY_ENV: str = "EXECUTION_CONFIRMATION_HMAC_KEY"
 
+    @field_validator("EXECUTION_LIVE_KILL_SWITCH_ENGAGED", mode="before")
+    @classmethod
+    def _empty_kill_switch_is_unread(cls, value: object) -> object:
+        # The shipped production example sets this empty; empty must read as
+        # "state unreadable" (None), never as a parse error and never as
+        # False - False is the only value that can open the live gate.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @model_validator(mode="after")
     def _require_observability_in_production(self) -> Settings:
         if self.NODE_ENV == "production" and not self.OBSERVABILITY_ENABLED:
@@ -339,6 +367,13 @@ class Settings(BaseSettings):
             raise ValueError("EXECUTION_INSTANCE_ID must be at most 64 characters")
         if self.SERVICE_PORT < 1 or self.SERVICE_PORT > 65_535:
             raise ValueError("SERVICE_PORT must be a valid TCP port")
+        if not 5 <= self.EXECUTION_CLOCK_SYNC_INTERVAL_SECONDS <= 300:
+            raise ValueError(
+                "EXECUTION_CLOCK_SYNC_INTERVAL_SECONDS must be between 5 and 300 "
+                "seconds: below that the sync traffic itself spends signature "
+                "weight, above it the measured offset can drift past recvWindow "
+                "between refreshes"
+            )
         if self.EXECUTION_REQUEST_TIMEOUT_MS < 250:
             raise ValueError(
                 "EXECUTION_REQUEST_TIMEOUT_MS below 250 tests the venue, not the network"
@@ -778,6 +813,8 @@ class Settings(BaseSettings):
             "servicePort": self.SERVICE_PORT,
             "mode": self.EXECUTION_MODE,
             "dryRun": self.EXECUTION_DRY_RUN,
+            "clockSyncIntervalSeconds": self.EXECUTION_CLOCK_SYNC_INTERVAL_SECONDS,
+            "liveKillSwitchEngaged": self.EXECUTION_LIVE_KILL_SWITCH_ENGAGED,
             "requestTimeoutMillis": self.EXECUTION_REQUEST_TIMEOUT_MS,
             "lockTtlMillis": self.EXECUTION_LOCK_TTL_MS,
             "lockAcquisitionTimeoutMillis": self.EXECUTION_LOCK_ACQUISITION_TIMEOUT_MS,

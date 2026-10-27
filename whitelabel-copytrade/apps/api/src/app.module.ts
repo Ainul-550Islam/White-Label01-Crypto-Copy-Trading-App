@@ -51,6 +51,7 @@ import { AuditContextInterceptor } from './common/interceptors/audit-context.int
 import { GlobalValidationPipe } from './common/pipes/global-validation.pipe';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './modules/auth/guards/permissions.guard';
+import { StepUpGuard } from './modules/auth/step-up/step-up.guard';
 import { TenantGuard } from './modules/tenants/guards/tenant.guard';
 import { FeatureFlagGuard } from './modules/feature-flags/guards/feature-flag.guard';
 import { ThrottlerBehindProxyGuard } from './common/guards/throttler-behind-proxy.guard';
@@ -124,11 +125,19 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     { provide: APP_INTERCEPTOR, useClass: TimeoutInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditContextInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseTransformInterceptor },
-    // Guards execute in registration order.
+    // Guards execute in registration order: throttling, authentication,
+    // tenancy, authorisation, then step-up. The step-up guard is registered
+    // HERE and nowhere else - it consumes the single-use proof, so a second
+    // registration would consume the proof in the first pass and refuse in
+    // the second, making every sensitive route permanently unusable. It
+    // reuses the AuthModule provider instance (AuthModule is @Global and
+    // exports the guard), and it must run AFTER PermissionsGuard: step-up is
+    // a second factor on top of an authorisation, never a substitute for one.
     { provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: TenantGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useExisting: StepUpGuard },
     { provide: APP_GUARD, useClass: FeatureFlagGuard },
   ],
 })

@@ -19,7 +19,11 @@ strict = true
 # editables. Pointing mypy_path at the source makes every wlct_trading import
 # FULLY TYPED (better than site-packages resolution), so the money path's
 # types are checked, not blurred to Any.
-mypy_path = "$MYPY_CONFIG_FILE_DIR/../../libs/trading-core"
+mypy_path = "$MYPY_CONFIG_FILE_DIR/../../libs/trading-core:$MYPY_CONFIG_FILE_DIR/../../scripts/staging"
+# scripts/staging joins the path because the Part 28/29 suites import the
+# preflight and rehearsal tools by that same sys.path route; without the
+# entry, mypy blurs the tools under test to Any and the suites testify
+# about an unchecked surface.
 warn_unreachable = true
 disallow_untyped_defs = true
 

@@ -235,7 +235,6 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
   'billing/analytics/revenue-cohort.service.ts': { count: 1, reason: 'cohort key derivation from a date (pure computation)' },
   'billing/entitlements/entitlement.resolver.ts': { count: 3, reason: 'EntitlementResolver is exported but not registered in any Nest module (no route reaches it)' },
   'billing/fees/payout-provider.factory.ts': { count: 1, reason: 'provider availability probe; unavailable is the fail-closed answer' },
-  'billing/finance/invoice-number.service.ts': { count: 2, reason: 'Redis sequence readers with no callers (numbers are allocated elsewhere)' },
   'billing/limits/limit.resolver.ts': { count: 3, reason: 'LimitResolver is exported but not registered in any Nest module (no route reaches it)' },
   'billing/notifications/notification-worker.service.ts': { count: 1, reason: 'worker loop: logs the (now propagated) repository error and retries on the next tick' },
   'billing/notifications/push-notification.service.ts': { count: 1, reason: 'optional firebase-admin module import' },
@@ -247,12 +246,16 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
   'oms/order-submission-result.service.ts': { count: 1, reason: 'JSON.parse of a queue return value' },
   'compliance/compliance-case.repository.ts': { count: 1, reason: 'reviewer assignment write flow that logs its failure (write side)' },
   'compliance/transaction-monitoring.service.ts': { count: 1, reason: 'signal acknowledgement updateMany that logs its failure (write side)' },
+  'copy-trading/copy-budget.service.ts': { count: 1, reason: 'decimal-string validation (pure computation); an unparseable amount is refused, never read as zero' },
   'copy-trading/copy-execution.service.ts': { count: 5, reason: 'fail-closed pre-trade guards: a failed lookup BLOCKS the leader event and logs it' },
   'copy-trading/performance-calculation.service.ts': { count: 1, reason: 'invalid exact-decimal compounding input returns unavailable performance evidence' },
+  'copy-trading/public-share.service.ts': { count: 1, reason: 'indexability probe for public share pages; an adapter failure means do-not-index (fail closed)' },
   'custody/custody-audit.service.ts': { count: 1, reason: 'audit record create that logs its failure (write side)' },
   'exchanges/exchange-rate-limit.service.ts': { count: 1, reason: 'rate-limit state from the cache (status read, not storage)' },
   'exchanges/exchange-symbol.service.ts': { count: 1, reason: 'symbol string parsing' },
+  'exchanges/exchange-user-stream.service.ts': { count: 1, reason: 'microsecond-string to ISO conversion (pure computation); unconvertible is no timestamp' },
   'exchanges/secret-store.ts': { count: 1, reason: 'reading VAULT_TOKEN_FILE; a missing token then fails closed with NOT_CONFIGURED' },
+  'exchanges/venue-status.service.ts': { count: 1, reason: 'unreadable override store reads as no override (a store failure must not create one); a failed status feed lands on UNKNOWN' },
   'governance/compliance-report-template.service.ts': { count: 1, reason: 'in-memory template lookup' },
   'health/trading-readiness.service.ts': { count: 1, reason: 'queue-depth samples from Redis for a metrics sampler' },
   'mobile-release/mobile-artifact-verification.service.ts': { count: 1, reason: 'timingSafeEqual on hex digests of different length' },
@@ -277,6 +280,7 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
  * None of them swallows a read the caller then treats as data.
  */
 const ALLOWED_PROMISE_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
+  'auth/account-recovery.service.ts': { count: 1, reason: 'recovery-token lookup; a failed read refuses the recovery (fail closed), the user retries' },
   'billing/finance/vies-vat.client.ts': { count: 1, reason: 'parsing a provider response body' },
   'billing/notifications/email-notification.provider.ts': { count: 1, reason: 'optional nodemailer module import' },
   'billing/notifications/twilio-sms.provider.ts': { count: 1, reason: 'parsing a provider response body' },

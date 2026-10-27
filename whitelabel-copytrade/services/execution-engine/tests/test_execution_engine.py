@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
+from typing import cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from wlct_trading.adapters.paper import PaperTradingAdapter
 from wlct_trading.enums import ExchangeId, OrderSide, OrderStatus, OrderType
@@ -234,7 +236,7 @@ class TestCommands:
         assert response.json()["code"] == "ORDER_NOT_FOUND"
 
     def test_cancel_full_path_through_the_real_engine(self, client: TestClient) -> None:
-        runtime = client.app.state.runtime
+        runtime = cast(FastAPI, client.app).state.runtime
         order = resting_order()
         # Seed the SAME store the request path reads - no parallel fake.
         asyncio.run(runtime.store.save_order(order))
@@ -260,7 +262,7 @@ class TestCommands:
         assert stored.status is OrderStatus.CANCELLED
 
     def test_cancel_identity_mismatch_is_409(self, client: TestClient) -> None:
-        runtime = client.app.state.runtime
+        runtime = cast(FastAPI, client.app).state.runtime
         order = resting_order()
         asyncio.run(runtime.store.save_order(order))
         response = client.post(
@@ -312,7 +314,7 @@ class TestCompositionProperties:
         assert priced.best_bid == priced.best_ask == Decimal("50000")
 
     def test_runtime_reuses_one_store_and_lock_table(self, client: TestClient) -> None:
-        runtime = client.app.state.runtime
+        runtime = cast(FastAPI, client.app).state.runtime
         # the engine and the reconciler must be looking at ONE ledger
         assert runtime.reconciliation is not None
         order = resting_order()

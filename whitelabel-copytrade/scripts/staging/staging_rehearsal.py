@@ -53,9 +53,11 @@ import secrets
 import ssl
 import sys
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlsplit
 
 # Same layout assumption as the preflight: this script sits in
@@ -296,16 +298,21 @@ class StagingRedisClient:
 
     async def set(
         self, name: str, value: str, *, nx: bool = False, px: int | None = None
-    ) -> object:
+    ) -> bool | None:
         parts: list[str | bytes] = ["SET", name, value]
         if nx:
             parts.append("NX")
         if px is not None:
             parts.extend(("PX", str(px)))
-        return await self.command(*parts)
+        # The protocol's answer is the redis-py one: True when the write
+        # landed (+OK), None when NX refused it (nil). The raw "OK" string
+        # must not leak through - the lock manager reads the boolean.
+        reply = await self.command(*parts)
+        return None if reply is None else True
 
     async def get(self, name: str) -> bytes | str | None:
-        return await self.command("GET", name)
+        # GET answers a bulk string or nil by definition of the command.
+        return cast("bytes | str | None", await self.command("GET", name))
 
     async def eval(self, script: str, numkeys: int, *args: str) -> object:
         return await self.command("EVAL", script, str(numkeys), *args)
@@ -758,7 +765,7 @@ def check_live_mode_gate(report: LiveEnablementReport) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 
-def _looks_like_production(env: dict[str, str]) -> bool:
+def _looks_like_production(env: Mapping[str, str]) -> bool:
     mode = (env.get("NODE_ENV") or "").strip().lower()
     return mode == "production"
 

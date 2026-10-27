@@ -2,7 +2,6 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { APP_GUARD } from '@nestjs/core';
 
 import { AuthController } from './auth.controller';
 import { TwoFactorController } from './two-factor.controller';
@@ -97,8 +96,11 @@ import { CryptoService } from '../../infrastructure/crypto/crypto.service';
     SsoIdentityService,
     SsoAuditService,
     StepUpAuthService,
+    // The guard is PROVIDED here (its dependencies live in this module) but
+    // registered as a global guard exactly once, in AppModule, where the
+    // guard order (auth -> permissions -> step-up) is decided. Registering
+    // it here as well consumed each single-use proof twice.
     StepUpGuard,
-    { provide: APP_GUARD, useExisting: StepUpGuard },
     // Ports first, then the services that are built from them. The recovery
     // service takes its store, account lookup, session revocation and audit trail
     // as constructor PORTS, so its single-use and enumeration rules are testable

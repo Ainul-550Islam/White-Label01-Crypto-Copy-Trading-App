@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
 from fastapi.routing import APIRoute
 
@@ -140,7 +141,9 @@ def walk_routes(app: Any) -> list[FlattenedRoute]:
                 if candidate is not None and candidate is not router and _router_routes(candidate):
                     if all(candidate is not existing for existing in nested_routers):
                         nested_routers.append(candidate)
-            next_prefix = _join_path(prefix, _include_prefix(route)) if _include_prefix(route) else prefix
+            next_prefix = (
+                _join_path(prefix, _include_prefix(route)) if _include_prefix(route) else prefix
+            )
             next_dependencies = inherited_dependencies | _included_dependencies(route)
             for nested_router in nested_routers:
                 visit(nested_router, next_prefix, next_dependencies)

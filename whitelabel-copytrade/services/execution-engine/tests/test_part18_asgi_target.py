@@ -244,7 +244,14 @@ def _uvicorn_run_target(tree: ast.Module) -> UvicornTarget | None:
         for call in ast.walk(node):
             if not (isinstance(call, ast.Call) and _is_uvicorn_run(call.func)):
                 continue
-            target = _target_of_string(call.args[0].value) if call.args else None
+            first = call.args[0] if call.args else None
+            target = (
+                _target_of_string(first.value)
+                if isinstance(first, ast.Constant) and isinstance(first.value, str)
+                else None
+            )
+            if target is None:
+                continue  # not a "module:attribute" string - nothing to name
             factory = any(
                 kw.arg == "factory" and isinstance(kw.value, ast.Constant) and kw.value.value
                 for kw in call.keywords

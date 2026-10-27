@@ -2,13 +2,14 @@
 
 The process owns the money path's runtime and nothing else: no public
 routes, no admin surface, no UI. Startup is where wiring mistakes die -
-``build_runtime`` refuses live mode, ``get_settings`` refuses missing or
+``build_runtime`` refuses an under-gated live mode, ``get_settings`` refuses missing or
 placeholder secrets - so the first request ever served meets either a fully
 composed engine or no process at all.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -49,6 +50,29 @@ logger = logging.getLogger(__name__)
 CORRELATION_HEADER = "x-correlation-id"
 
 
+async def _venue_clock_sync_loop(wiring: object, interval_seconds: float) -> None:
+    """Keep the venue clock's offset fresh for the process lifetime.
+
+    The adapter refuses to sign while the last measurement is stale
+    (``max_age_seconds`` is twice this interval), so a loop that dies fails
+    closed: placements stop, loudly, rather than drifting outside Binance's
+    recvWindow. Failures are logged by exception type only - the transport
+    never puts secrets in its errors, and this loop keeps it that way.
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await wiring.synchronise_clock()  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the loop must outlive outages
+            logger.warning(
+                "execution_engine.venue_clock_sync_failed",
+                extra={
+                    "event": "execution_engine.venue_clock_sync_failed",
+                    "errorType": type(exc).__name__,
+                },
+            )
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.LOG_LEVEL)
@@ -80,6 +104,31 @@ def create_app() -> FastAPI:
         # startup log, and invisible in every panel that reads zero.
         if settings.OBSERVABILITY_ENABLED:
             app.state.observability = ExecutionEngineObservability(app.state.runtime)
+        # Venue modes: the clock must be measured before anything can sign
+        # and re-measured on the configured cadence. A failed initial sync
+        # does not kill the process - signing stays refused (fail-closed)
+        # and the loop retries - but it is logged at warning because a
+        # venue runtime that cannot tell venue time cannot place.
+        venue_wiring = app.state.runtime.venue_wiring
+        venue_sync_task: asyncio.Task[None] | None = None
+        if venue_wiring is not None:
+            try:
+                await venue_wiring.synchronise_clock()
+            except Exception as exc:  # noqa: BLE001 - refused at sign time
+                logger.warning(
+                    "execution_engine.venue_clock_initial_sync_failed",
+                    extra={
+                        "event": "execution_engine.venue_clock_initial_sync_failed",
+                        "errorType": type(exc).__name__,
+                    },
+                )
+            venue_sync_task = asyncio.create_task(
+                _venue_clock_sync_loop(
+                    venue_wiring,
+                    float(settings.EXECUTION_CLOCK_SYNC_INTERVAL_SECONDS),
+                )
+            )
+        app.state.venue_sync_task = venue_sync_task
         app.state.store_pool = pool
         logger.info(
             "execution_engine.started",
@@ -91,6 +140,14 @@ def create_app() -> FastAPI:
             },
         )
         yield
+        if venue_sync_task is not None:
+            venue_sync_task.cancel()
+            try:
+                await venue_sync_task
+            except asyncio.CancelledError:
+                pass
+        if venue_wiring is not None:
+            await venue_wiring.aclose()
         if pool is not None:
             await pool.close()
         logger.info("execution_engine.stopped", extra={"event": "execution_engine.stopped"})

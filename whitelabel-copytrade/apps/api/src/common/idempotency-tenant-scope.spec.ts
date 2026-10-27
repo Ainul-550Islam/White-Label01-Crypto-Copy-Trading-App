@@ -427,8 +427,8 @@ describe('idempotency tenant-scope guards', () => {
       if (/@@unique\(\[tenantId, idempotencyKey\]\)/.test(body)) perTenant++;
     }
     expect(offenders).toEqual([]);
-    // The original migration creates 68 keys; later tenant-owned models add three more.
-    expect(perTenant).toBe(71);
+    // The original migration creates 68 keys; later tenant-owned models add four more.
+    expect(perTenant).toBe(72);
   });
 
   it('the migration that moves the indexes exists and only swaps indexes', () => {

@@ -29,9 +29,11 @@ import ast
 import json
 import re
 from pathlib import Path
+from typing import cast
 
 import pytest
 from sqlglot import parse as sqlglot_parse
+from starlette.routing import Route
 from wlct_trading.enablement import (
     EVIDENCE_LEDGER_TABLE,
     MAX_EVIDENCE_AGE_DAYS,
@@ -56,7 +58,16 @@ from app.schemas import EnablementRequest
 ROOT = Path(__file__).resolve().parents[3]
 RLS_DIR = ROOT / "apps" / "api" / "prisma" / "rls"
 MIGRATION_DIRECTORY = ROOT / "apps" / "api" / "prisma" / "migrations"
-MIGRATION_FILES = sorted(MIGRATION_DIRECTORY.glob("*_part11_row_level_security/migration.sql"))
+# The policy history is BOTH stamp families: the part11 generations and the
+# gap-close generations the same generator emits when only a few tables are
+# missing policies. Stamp-prefixed directory names sort chronologically, so a
+# plain path sort keeps the concatenation in application order.
+MIGRATION_FILES = sorted(
+    [
+        *MIGRATION_DIRECTORY.glob("*_part11_row_level_security/migration.sql"),
+        *MIGRATION_DIRECTORY.glob("*_rls_policy_gap_close/migration.sql"),
+    ]
+)
 assert MIGRATION_FILES, "the Part 11 RLS migration history is missing"
 PRISMA_SERVICE = ROOT / "apps" / "api" / "src" / "infrastructure" / "prisma" / "prisma.service.ts"
 ENGINE_APP = ROOT / "services" / "execution-engine" / "app"
@@ -70,7 +81,28 @@ def rls_artifact(name: str) -> str:
 
 
 def coverage_manifest() -> dict[str, object]:
-    return json.loads((RLS_DIR / "rls_coverage.json").read_text(encoding="utf-8"))
+    return cast(
+        "dict[str, object]",
+        json.loads((RLS_DIR / "rls_coverage.json").read_text(encoding="utf-8")),
+    )
+
+
+def manifest_tables(manifest: dict[str, object], key: str) -> list[str]:
+    """The table names under one manifest key, shape-asserted.
+
+    The manifest is generated JSON; reading it through ``object`` and
+    asserting the shape here keeps a malformed regeneration a test failure
+    with a location, not an AttributeError three asserts later.
+    """
+    entries = manifest[key]
+    assert isinstance(entries, list), f"manifest[{key!r}] is not a list"
+    tables: list[str] = []
+    for entry in entries:
+        assert isinstance(entry, dict), f"manifest[{key!r}] entry is not an object"
+        table = entry.get("table")
+        assert isinstance(table, str), f"manifest[{key!r}] entry has no table name"
+        tables.append(table)
+    return tables
 
 
 def covered_tables(text: str) -> list[str]:
@@ -135,8 +167,8 @@ class TestProbeTableSetMatchesTheArtifacts:
         # The probe asserts FORCE as a per-table fact; an unpaired ENABLE
         # (owner bypasses policies) is precisely what that assertion is for.
         manifest = coverage_manifest()
-        assert len(covered_tables(ENABLE)) == len(manifest["covered"])
-        assert {entry["table"] for entry in manifest["covered"]} == set(covered_tables(ENABLE))
+        assert len(covered_tables(ENABLE)) == len(manifest_tables(manifest, "covered"))
+        assert set(manifest_tables(manifest, "covered")) == set(covered_tables(ENABLE))
         # The historical count reached 182 after the regeneration that followed
         # the domain-persistence migration (20260923085000): the previous 161
         # (the Part 28 set of 153 at stamp 20260923090000 plus the eight
@@ -150,13 +182,20 @@ class TestProbeTableSetMatchesTheArtifacts:
         # partner_referral_abuse_reviews (20261115100000) to 191 - the referral
         # abuse review queue is tenant-owned, so the generator picked it up on the
         # next rerun and enable.sql, disable.sql and rls_coverage.json all moved
-        # together. The exclusion list remains 30. The current count is pinned
+        # together. The exclusion list remains 30. The merged batch03+batch04
+        # schema (20261201000000, 20261215000000) then added eight tenant-owned
+        # tables - copy_budgets, withdrawal_destinations, login_devices,
+        # account_recovery_tokens, public_share_links, profit_share_statements,
+        # user_preferences, policy_acceptances - for 199, and fee_schedule_versions
+        # (nullable tenant_id: platform-published schedule versions) took
+        # exclusions to 31; the regeneration at stamp 20261220000000 picked all
+        # of them up. The current count is pinned
         # rather than derived because the pairing tests must detect disagreement
         # among enable.sql, disable.sql, rls_coverage.json and the stated count;
         # a pin that is stale by exactly one table is the signal that a migration
         # added a tenant table without anyone re-reading this file.
-        assert len(covered_tables(ENABLE)) == 191
-        assert len(coverage_manifest()["excluded"]) == 30
+        assert len(covered_tables(ENABLE)) == 199
+        assert len(manifest_tables(coverage_manifest(), "excluded")) == 31
 
     def test_every_covered_table_has_a_policy_in_the_migration_history(self) -> None:
         policies = migrated_tables(MIGRATION_SQL)
@@ -166,13 +205,16 @@ class TestProbeTableSetMatchesTheArtifacts:
             assert "WITH CHECK (tenant_id = wlct_current_tenant_id())" in policies[table]
 
     def test_platform_scoped_set_matches_the_migrations_exclusion_list(self) -> None:
-        excluded = re.search(
+        # Every generated migration restates the WHOLE exclusion list as of
+        # its stamp, so the newest block in the history is the current
+        # statement and the earlier ones are superseded generations of it.
+        blocks = re.findall(
             r"-- Excluded by design.*?\n(.*?)-- Their tenant-bearing rows",
             MIGRATION_SQL,
             re.DOTALL,
         )
-        assert excluded is not None, "the migration's exclusion list moved; update this test"
-        listed = set(re.findall(r"^--\s+([a-z_]+)\s+\(", excluded.group(1), re.MULTILINE))
+        assert blocks, "the migration's exclusion list moved; update this test"
+        listed = set(re.findall(r"^--\s+([a-z_]+)\s+\(", blocks[-1], re.MULTILINE))
         assert PLATFORM_SCOPED_TABLES == frozenset(listed)
         assert listed.isdisjoint(covered_tables(ENABLE))
 
@@ -181,7 +223,7 @@ class TestProbeTableSetMatchesTheArtifacts:
         assert manifest["schema"] == "part11-rls-coverage-v1"
         assert manifest["policyName"] == "tenant_isolation"
         assert manifest["functionName"] == "wlct_current_tenant_id"
-        assert {entry["table"] for entry in manifest["excluded"]} == PLATFORM_SCOPED_TABLES
+        assert set(manifest_tables(manifest, "excluded")) == PLATFORM_SCOPED_TABLES
 
 
 class TestProbeSqlAgreesWithTheLaw:
@@ -300,7 +342,11 @@ class TestTheManifestPointsAtThisEngine:
 
     def test_the_verifier_is_this_routes_path(self) -> None:
         evidence = self.MANIFEST["rlsEvidence"]
-        paths = [route.path for route in enablement_router.router.routes]
+        paths = [
+            route.path
+            for route in enablement_router.router.routes
+            if isinstance(route, Route)
+        ]
         assert evidence["verifier"] in paths
         assert evidence["requiredGrade"] == "pass"
 
@@ -351,7 +397,11 @@ class TestTheManifestPointsAtThisEngine:
 class TestRouteSurfaceStaysInternal:
     def test_the_route_lives_only_on_the_internal_prefix(self) -> None:
         assert enablement_router.router.prefix == "/internal/v1"
-        paths = [route.path for route in enablement_router.router.routes]
+        paths = [
+            route.path
+            for route in enablement_router.router.routes
+            if isinstance(route, Route)
+        ]
         assert paths == ["/internal/v1/enablement/audit"]
 
     def test_the_forwarding_surface_never_reaches_it(self) -> None:

@@ -45,26 +45,29 @@ export const createUserSchema = z.object({
 });
 export type CreateUserSchema = z.infer<typeof createUserSchema>;
 
-export const updateUserSchema = z
-  .object({
+const updateUserFieldsSchema = z.object({
     firstName: plainTextSchema(64).optional(),
-    lastName: plainTextSchema(64).optional(),
-    displayName: plainTextSchema(64).optional(),
-    phone: phoneSchema.nullable().optional(),
-    avatarUrl: urlSchema.nullable().optional(),
-    bio: plainTextSchema(500).nullable().optional(),
-    countryCode: countryCodeSchema.nullable().optional(),
-    timezone: timezoneSchema.optional(),
-    locale: localeSchema.optional(),
-    preferredCurrency: currencySchema.optional(),
-    marketingOptIn: z.boolean().optional(),
-  })
-  .refine((value) => Object.keys(value).length > 0, {
+  lastName: plainTextSchema(64).optional(),
+  displayName: plainTextSchema(64).optional(),
+  phone: phoneSchema.nullable().optional(),
+  avatarUrl: urlSchema.nullable().optional(),
+  bio: plainTextSchema(500).nullable().optional(),
+  countryCode: countryCodeSchema.nullable().optional(),
+  timezone: timezoneSchema.optional(),
+  locale: localeSchema.optional(),
+  preferredCurrency: currencySchema.optional(),
+  marketingOptIn: z.boolean().optional(),
+});
+
+export const updateUserSchema = updateUserFieldsSchema.refine(
+  (value) => Object.keys(value).length > 0,
+  {
     message: 'At least one field must be provided',
-  });
+  },
+);
 export type UpdateUserSchema = z.infer<typeof updateUserSchema>;
 
-export const adminUpdateUserSchema = updateUserSchema.innerType().extend({
+export const adminUpdateUserSchema = updateUserFieldsSchema.extend({
   status: userStatusSchema.optional(),
   emailVerified: z.boolean().optional(),
 });

@@ -53,6 +53,7 @@ from wlct_trading.execution.live_enablement import (
     evaluate_live_enablement,
 )
 from wlct_trading.execution.locks import LockManager
+from wlct_trading.execution.placement_attestor import PlacementAttestor
 from wlct_trading.execution.reconciliation import ReconciliationService
 from wlct_trading.execution.store import InMemoryOrderStore, OrderStore
 from wlct_trading.execution.transport.client import SignedTransportClient
@@ -74,6 +75,11 @@ from app.distributed_locks import (
 )
 from app.exchanges.credentials import CredentialWiring, build_credential_provider
 from app.orders.placement import PlacementWiring, build_placement_reviewer
+from app.venue import (
+    BinanceVenueWiring,
+    build_binance_runtime,
+    evaluate_live_gates,
+)
 from app.venue_attestation import (
     VenueAttestationConfig,
     VenueAttestationError,
@@ -190,6 +196,12 @@ class EngineRuntime:
     #: and credential metadata. Carried on the runtime so /status can report
     #: the actual credential posture without recomputing it.
     credential_registry_wiring: CredentialRegistryWiring | None = None
+    #: Venue modes (testnet/live): the shared Binance SPOT stack - one
+    #: transport, one clock, one rate-limit registry, one trading adapter
+    #: shared with the placement attestor. None in simulated mode, where no
+    #: venue adapter exists in the process at all. The lifespan owns its
+    #: lifecycle (clock synchronisation loop, transport close).
+    venue_wiring: BinanceVenueWiring | None = None
     #: Phase 3: the SAME book function the paper adapter prices against, so the
     #: submission route's reference price and the simulator's fill price can
     #: never disagree. ``None`` (or a provider returning ``None``) means "no
@@ -301,6 +313,11 @@ class EngineRuntime:
                 if self.credential_registry_wiring is None
                 else self.credential_registry_wiring.describe()
             ),
+            # The venue stack, when one is wired (testnet/live). Rendered
+            # through describe() even when absent so /status keeps one shape.
+            "venue": (
+                None if self.venue_wiring is None else self.venue_wiring.describe()
+            ),
             "commands": sorted(SUPPORTED_COMMANDS),
         }
 
@@ -367,6 +384,7 @@ def build_runtime(
     settings: Settings,
     store: OrderStore | None = None,
     incidents: IncidentRecorder | None = None,
+    venue_transport_client: Any | None = None,
 ) -> EngineRuntime:
     """Construct the execution plane, or refuse loudly at startup.
 
@@ -387,9 +405,14 @@ def build_runtime(
     # credential provider shipped - because prose about a checklist cannot notice the
     # checklist changing. What follows grades the wiring this function built and
     # renders the refusal from the grade, which is narrower (it cannot overstate what
-    # is missing), better (it names what IS satisfied), and still unconditional: the
-    # report can never come back empty in this build, because SIGNED_TRANSPORT_WIRED
-    # is a prerequisite no environment variable in this service can satisfy.
+    # is missing) and better (it names what IS satisfied). The signed HTTP transport
+    # to Binance SPOT now exists (app.venue), so the report CAN come back empty -
+    # which is why live mode is no longer refused by that sentence but by the gate
+    # evaluation in app.venue.live_gates: every gate must pass (enablement grade,
+    # operator confirmation, IP allowlist, secret-manager custody, key-age policy,
+    # durable store, an explicit dry-run opt-out, a readable un-tripped kill
+    # switch) or the refusal names each gate that failed. Simulated stays the
+    # default and is byte-for-byte the wiring it has always been.
     #
     # The refusal is raised at the END of this function rather than the top so that the
     # grade is a measurement and not a guess. A runtime that refuses live mode while
@@ -427,9 +450,42 @@ def build_runtime(
     lock_wiring = build_distributed_lock_manager(lock_config)
     locks = lock_wiring.manager
     durable_store = bool(getattr(store, "is_durable", False))
-    book_provider = make_paper_book_provider(settings.simulated_mid)
-    trading = PaperTradingAdapter(book_provider)
-    account = PaperAccountAdapter(settings.paper_balances)
+    # Credentials are built before the adapters because venue modes construct
+    # their adapters over this provider; simulated mode builds the same
+    # provider it always has (the Null provider under source "none").
+    credentials = build_credential_provider(settings)
+    # Part 23: Wire the credential registry. The registry wraps the provider
+    # constructed above and adds lifecycle metadata, capability declarations,
+    # and a named selection mechanism for status reporting.
+    credential_registry_wiring = build_credential_registry(
+        settings,
+        provider=credentials.provider,
+    )
+    # Mode selects the venue. Simulated wires the paper adapters exactly as
+    # before. Testnet/live wire the Binance SPOT stack from app.venue: one
+    # transport, one synchronised clock, one rate-limit registry, and ONE
+    # trading adapter shared by the engine, the reconciler, the outcome
+    # resolver and the placement attestor. Construction performs no network
+    # I/O and resolves no credentials; whether this stack may transmit is
+    # decided below (engine settings) and, for live, by the gates.
+    venue_wiring: BinanceVenueWiring | None = None
+    if settings.EXECUTION_MODE in ("testnet", "live"):
+        venue_wiring = build_binance_runtime(
+            settings,
+            credential_provider=credentials.provider,
+            testnet=settings.EXECUTION_MODE == "testnet",
+            transport_client=venue_transport_client,
+        )
+        trading: TradingAdapter = venue_wiring.trading_adapter
+        account: AccountAdapter = venue_wiring.account_adapter
+        # A paper mid must never price a live submission's reference checks:
+        # venue modes have no book here, so the submission route reports
+        # market data down and refuses rather than inventing a price.
+        book_provider = make_paper_book_provider(None)
+    else:
+        book_provider = make_paper_book_provider(settings.simulated_mid)
+        trading = PaperTradingAdapter(book_provider)
+        account = PaperAccountAdapter(settings.paper_balances)
     if incidents is None:
         # Part 17's pairing law, decided HERE rather than trusted to the caller:
         # a durable store with the in-memory sink is the exact state this part
@@ -461,23 +517,34 @@ def build_runtime(
         locks=locks,
     )
 
-    credentials = build_credential_provider(settings)
-    # Part 23: Wire the credential registry. The registry wraps the provider
-    # constructed above and adds lifecycle metadata, capability declarations,
-    # and a named selection mechanism for status reporting.
-    credential_registry_wiring = build_credential_registry(
-        settings,
-        provider=credentials.provider,
-    )
-    engine_settings = ExecutionSettings(
-        live_trading_enabled=False,
-        dry_run=settings.EXECUTION_DRY_RUN,
-        paper_trading=True,
-        trading_mode_setting="PAPER",
-        trading_enabled=True,
-        live_trading_confirmed=False,
-        order_request_timeout_ms=settings.EXECUTION_REQUEST_TIMEOUT_MS,
-    )
+    if venue_wiring is None:
+        engine_settings = ExecutionSettings(
+            live_trading_enabled=False,
+            dry_run=settings.EXECUTION_DRY_RUN,
+            paper_trading=True,
+            trading_mode_setting="PAPER",
+            trading_enabled=True,
+            live_trading_confirmed=False,
+            order_request_timeout_ms=settings.EXECUTION_REQUEST_TIMEOUT_MS,
+        )
+    else:
+        # Venue modes transmit only when the operator explicitly turned
+        # dry-run off (and, for live, the gates below additionally pass -
+        # including a verified operator confirmation, which is what makes
+        # live_trading_confirmed=True a statement of fact here rather than
+        # of intent). With dry-run on, the venue stack is wired for reads,
+        # attestation and reconciliation while the engine stops every
+        # placement before transmission.
+        transmitting = not settings.EXECUTION_DRY_RUN
+        engine_settings = ExecutionSettings(
+            live_trading_enabled=transmitting,
+            dry_run=settings.EXECUTION_DRY_RUN,
+            paper_trading=False,
+            trading_mode_setting="LIVE",
+            trading_enabled=True,
+            live_trading_confirmed=transmitting,
+            order_request_timeout_ms=settings.EXECUTION_REQUEST_TIMEOUT_MS,
+        )
     # Part 22: Wire venue attestation when real credentials are configured.
     # The BinancePlacementAttestor queries the venue's authenticated endpoints
     # (apiRestrictions, optionally account) to establish whether this key may
@@ -490,8 +557,14 @@ def build_runtime(
     # transport to present it over, and no reason to ask Binance whether a
     # nonexistent key may trade. This is the honest state.
     venue_attestation_wiring: VenueAttestationWiring | None = None
-    venue_attestor = None
-    if credentials.source != "none":
+    venue_attestor: PlacementAttestor | None = None
+    if venue_wiring is not None:
+        # The venue stack's attestor, constructed over the SAME trading
+        # adapter the engine places with - same credentials, clock and
+        # rate-limit budget. Building the Part 22 wiring here as well would
+        # create a second signed client and split the accounting.
+        venue_attestor = venue_wiring.attestor
+    elif credentials.source != "none":
         try:
             attestation_config = VenueAttestationConfig(
                 enabled=True,
@@ -565,6 +638,61 @@ def build_runtime(
         credential_provider=credentials.provider,
         venue_attestor=venue_attestor,
     )
+    # The enablement grade is computed BEFORE the engine is constructed so
+    # that a live refusal can name every failed gate: the engine's own wiring
+    # law would (correctly) refuse a transmitting runtime over a memory store
+    # first, with a message about the store alone, and the operator would fix
+    # gates one refusal at a time. The grade reads only objects that exist by
+    # now (placement, credentials, store, locks), so it stays a measurement.
+    confirmation_accepted = _confirmation_grading(settings, placement)
+    live_enablement = evaluate_live_enablement(
+        LiveEnablementInputs(
+            credential_source=settings.EXECUTION_CREDENTIAL_SOURCE,
+            credential_fetcher_wired=credentials.fetcher_source is not None,
+            venue_attestor_wired=placement.mode == "venue",
+            confirmation_accepted=confirmation_accepted,
+            durable_store_wired=bool(getattr(store, "is_durable", False)),
+            distributed_locks_wired=bool(getattr(locks, "is_distributed", False)),
+            # Part 24: derived from the actual policy object wired into the
+            # placement reviewer, not from the raw config flag. The policy is
+            # what the runtime actually enforces; the setting is what the
+            # operator asked for. Every other prerequisite in this block reads
+            # from the objects build_runtime constructed; this one must too.
+            ip_allowlist_enforced=placement.reviewer.policy.require_ip_allowlist,
+            # Part 20: signed transport is now wired when the key registry has
+            # an active key and the transport client/verifier are constructed.
+            # This is a fact about the objects build_runtime actually built,
+            # not a configuration flag.
+            signed_transport_wired=signed_transport_wired,
+        )
+    )
+    if settings.EXECUTION_MODE == "testnet" and credentials.source == "none":
+        raise ExecutionUnavailable(
+            "EXECUTION_MODE=testnet wires the signed Binance SPOT testnet "
+            "transport but EXECUTION_CREDENTIAL_SOURCE=none leaves it no key "
+            "to sign with. Configure a credential source holding testnet keys "
+            "(see docs/LIVE_ENABLEMENT_RUNBOOK.md) or run simulated."
+        )
+    if settings.EXECUTION_MODE == "live":
+        failed_gates = evaluate_live_gates(
+            settings,
+            live_enablement,
+            confirmation_accepted,
+            store,
+        )
+        if failed_gates:
+            raise ExecutionUnavailable(
+                live_enablement.render_refusal("live")
+                + " Failed live gates: "
+                + ", ".join(failed_gates)
+                + ". The signed HTTP transport to Binance SPOT is wired in this "
+                "build (app.venue), the venue trading adapter is constructed over "
+                "it sharing one clock, one rate-limit budget and one placement "
+                "attestor, and docs/LIVE_ENABLEMENT_RUNBOOK.md is the operator "
+                "procedure for the enablement evidence. The gates named above are "
+                "what refuse; every one of them must pass before a live runtime "
+                "is returned. Simulated mode is available now."
+            )
     # Part 18, and the reason it exists: the port has been optional on this
     # constructor since Part 5, this service never passed one, and so the engine
     # in the reference deployment has been refusing to count anything. Every
@@ -614,39 +742,6 @@ def build_runtime(
             },
         },
     )
-    live_enablement = evaluate_live_enablement(
-        LiveEnablementInputs(
-            credential_source=settings.EXECUTION_CREDENTIAL_SOURCE,
-            credential_fetcher_wired=credentials.fetcher_source is not None,
-            venue_attestor_wired=placement.mode == "venue",
-            confirmation_accepted=_confirmation_grading(settings, placement),
-            durable_store_wired=bool(getattr(store, "is_durable", False)),
-            distributed_locks_wired=bool(getattr(locks, "is_distributed", False)),
-            # Part 24: derived from the actual policy object wired into the
-            # placement reviewer, not from the raw config flag. The policy is
-            # what the runtime actually enforces; the setting is what the
-            # operator asked for. Every other prerequisite in this block reads
-            # from the objects build_runtime constructed; this one must too.
-            ip_allowlist_enforced=placement.reviewer.policy.require_ip_allowlist,
-            # Part 20: signed transport is now wired when the key registry has
-            # an active key and the transport client/verifier are constructed.
-            # This is a fact about the objects build_runtime actually built,
-            # not a configuration flag.
-            signed_transport_wired=signed_transport_wired,
-        )
-    )
-    if settings.EXECUTION_MODE == "live":
-        raise ExecutionUnavailable(
-            live_enablement.render_refusal("live")
-            + " Concretely absent here, in the terms this service is written in: no "
-            "signed HTTP transport to a venue is wired, this composition root never "
-            "constructs a venue trading adapter, no live or testnet base URL is "
-            "selected for one, and there is no operator runbook for the enablement "
-            "evidence a live account must present. The credential plumbing, the "
-            "durable store, the placement review and the operator's confirmation are "
-            "each built and graded above; the transport is the part that does not "
-            "exist. Simulated mode is available now."
-        )
     return EngineRuntime(
         engine=engine,
         store=store,
@@ -665,5 +760,6 @@ def build_runtime(
         distributed_lock_wiring=lock_wiring,
         venue_attestation_wiring=venue_attestation_wiring,
         credential_registry_wiring=credential_registry_wiring,
+        venue_wiring=venue_wiring,
         book_provider=book_provider,
     )

@@ -41,6 +41,7 @@ from app.schemas import (
     StatusResponse,
     SubmitOrderRequest,
     SubmitOrderResponse,
+    VenueStatusView,
     VerifyResponse,
 )
 from app.security.internal_auth import (
@@ -138,6 +139,15 @@ async def engine_status(
         venue_attestation=wiring.get("venueAttestation"),
         # Part 23: credential registry posture.
         credential_registry=wiring.get("credentialRegistry"),
+        # The venue stack, mapped through its typed view for the same reason
+        # the placement block is: a describe() that starts publishing
+        # something new fails here instead of reaching the wire unreviewed.
+        # None in simulated mode, where no venue is wired.
+        venue=(
+            None
+            if wiring.get("venue") is None
+            else VenueStatusView(**wiring["venue"])
+        ),
         commands=[str(command) for command in wiring["commands"]],
     )
 

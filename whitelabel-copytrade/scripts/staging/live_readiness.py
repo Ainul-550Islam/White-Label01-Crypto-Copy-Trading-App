@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -173,7 +174,7 @@ def load_staging_env(path: Path) -> int:
     return loaded
 
 
-def _looks_like_production(env: dict[str, str]) -> bool:
+def _looks_like_production(env: Mapping[str, str]) -> bool:
     mode = (env.get("NODE_ENV") or "").strip().lower()
     return mode == "production"
 
@@ -222,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         # exit BLOCKED.
         first = str(error).splitlines()
         detail = first[1].strip() if len(first) > 1 else str(error)
-        payload = {
+        payload: dict[str, object] = {
             "mode": None,
             "ready": False,
             "prerequisites": [],

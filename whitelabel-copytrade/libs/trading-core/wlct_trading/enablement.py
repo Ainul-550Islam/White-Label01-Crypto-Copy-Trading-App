@@ -100,6 +100,7 @@ PLATFORM_SCOPED_TABLES: Final[frozenset[str]] = frozenset(
         "audit_logs",
         "circuit_breaker_records",
         "compliance_policy_records",
+        "fee_schedule_versions",
         "institutional_risk_policies",
         "kill_switches",
         "legal_holds",

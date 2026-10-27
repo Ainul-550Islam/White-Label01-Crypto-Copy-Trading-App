@@ -39,14 +39,13 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from wlct_trading.clock import epoch_micros
-from wlct_trading.enablement import EnablementPolicy
+from wlct_trading.enablement import EVIDENCE_LEDGER_TABLE, EnablementPolicy
 from wlct_trading.execution.store import OrderStoreError
 
 from app import rls_probe
 from app.config import get_settings
 from app.rls_probe import (
     BARE_COUNT_SQL,
-    EVIDENCE_LEDGER_TABLE,
     POLICY_POSTURE_SQL,
     PROBE_TABLES,
     READ_ONLY_SQL,

@@ -34,6 +34,119 @@
   ],
   "item": [
     {
+      "name": "AccountRecovery",
+      "item": [
+        {
+          "name": "AccountRecovery_complete",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/recovery/complete",
+              "variable": []
+            },
+            "description": "POST /api/v1/auth/recovery/complete",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "AccountRecovery_request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/recovery/request",
+              "variable": []
+            },
+            "description": "POST /api/v1/auth/recovery/request",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "AccountRecovery_verify",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/recovery/verify",
+              "variable": []
+            },
+            "description": "POST /api/v1/auth/recovery/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "AllocationRebalance",
       "item": [
         {
@@ -665,6 +778,130 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"deviceId\": \"web-6E9F1C7A-2B34-4A11-9E7C-D0F2A1B3C4D5\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Verify a credential for one sensitive action and receive a single-use proof",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/step-up",
+              "variable": []
+            },
+            "description": "Verify a credential for one sensitive action and receive a single-use proof",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Every action a step-up proof can be issued for",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/step-up/actions",
+              "variable": []
+            },
+            "description": "Every action a step-up proof can be issued for"
+          }
+        },
+        {
+          "name": "Whether a live step-up proof exists for this action",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/step-up/status",
+              "variable": [],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "set-action",
+                  "description": "Query parameter action",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Whether a live step-up proof exists for this action"
+          }
+        },
+        {
+          "name": "Verify a credential for one sensitive action",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/step-up/verify",
+              "variable": []
+            },
+            "description": "Returns a single-use proof id bound to (tenant, user, session, action). It is consumed by the first request that uses it, and a proof for one action is refused for any other.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -6406,6 +6643,102 @@
       ]
     },
     {
+      "name": "CopyBudget",
+      "item": [
+        {
+          "name": "CopyBudget_getBudget",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/copy-trading/budget",
+              "variable": []
+            },
+            "description": "GET /api/v1/copy-trading/budget"
+          }
+        },
+        {
+          "name": "CopyBudget_putBudget",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/copy-trading/budget",
+              "variable": []
+            },
+            "description": "PUT /api/v1/copy-trading/budget",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "CopyExecutionTimeline",
+      "item": [
+        {
+          "name": "CopyExecutionTimeline_timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/copy-trading/executions/:executionId/timeline",
+              "variable": [
+                {
+                  "key": "executionId",
+                  "value": "set-executionId",
+                  "description": "Path parameter executionId"
+                }
+              ]
+            },
+            "description": "GET /api/v1/copy-trading/executions/{executionId}/timeline"
+          }
+        }
+      ]
+    },
+    {
       "name": "CopyTrading",
       "item": [
         {
@@ -10274,6 +10607,34 @@
           }
         },
         {
+          "name": "Exchanges_capabilityHealth",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exchanges/accounts/:id/capability-health",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "GET /api/v1/exchanges/accounts/{id}/capability-health"
+          }
+        },
+        {
           "name": "Exchanges_disableAccount",
           "request": {
             "method": "POST",
@@ -10931,6 +11292,74 @@
                 }
               }
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ExchangeUserStream",
+      "item": [
+        {
+          "name": "ExchangeUserStream_getUserStream",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exchanges/:accountId/user-stream",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "set-accountId",
+                  "description": "Path parameter accountId"
+                }
+              ]
+            },
+            "description": "GET /api/v1/exchanges/{accountId}/user-stream"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ExchangeUserStreamAdmin",
+      "item": [
+        {
+          "name": "ExchangeUserStreamAdmin_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/exchange-user-streams",
+              "variable": [],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "set-limit",
+                  "description": "Query parameter limit",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/admin/exchange-user-streams"
           }
         }
       ]
@@ -12306,6 +12735,42 @@
           }
         },
         {
+          "name": "Enable or disable a live-trading feature for the current organisation",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feature-flags/live",
+              "variable": []
+            },
+            "description": "Live/mainnet switches only. Requires a fresh single-use step-up proof for FEATURE_FLAG_LIVE_TOGGLE plus plan entitlement to enable.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false,\n  \"key\": \"copy_trading\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Resolved flag map for the current organisation",
           "request": {
             "method": "GET",
@@ -12388,6 +12853,42 @@
                 }
               }
             }
+          }
+        },
+        {
+          "name": "Governance_getAuditExportJob",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/governance/audit/export/:jobId",
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "set-jobId",
+                  "description": "Path parameter jobId"
+                }
+              ],
+              "query": [
+                {
+                  "key": "tenantId",
+                  "value": "set-tenantId",
+                  "description": "Query parameter tenantId",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/governance/audit/export/{jobId}"
           }
         },
         {
@@ -14168,6 +14669,33 @@
               "variable": []
             },
             "description": "Identical verdict to GET /health/ready. Returns 503 when PostgreSQL or Redis is unavailable."
+          }
+        }
+      ]
+    },
+    {
+      "name": "LiquidationAlert",
+      "item": [
+        {
+          "name": "LiquidationAlert_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/risk/liquidation-alerts",
+              "variable": []
+            },
+            "description": "GET /api/v1/risk/liquidation-alerts"
           }
         }
       ]
@@ -16624,6 +17152,81 @@
               "variable": []
             },
             "description": "GET /api/v1/oms/venue-scores"
+          }
+        }
+      ]
+    },
+    {
+      "name": "OmsRecoveryAdmin",
+      "item": [
+        {
+          "name": "OmsRecoveryAdmin_recover",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/oms/orders/:orderId/recover",
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "set-orderId",
+                  "description": "Path parameter orderId"
+                }
+              ]
+            },
+            "description": "POST /api/v1/admin/oms/orders/{orderId}/recover",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "OmsRecoveryAdmin_timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/oms/orders/:orderId/timeline",
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "set-orderId",
+                  "description": "Path parameter orderId"
+                }
+              ]
+            },
+            "description": "GET /api/v1/admin/oms/orders/{orderId}/timeline"
           }
         }
       ]
@@ -21435,6 +22038,111 @@
       ]
     },
     {
+      "name": "PublicShare",
+      "item": [
+        {
+          "name": "PublicShare_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/copy-trading/shares",
+              "variable": []
+            },
+            "description": "GET /api/v1/copy-trading/shares"
+          }
+        },
+        {
+          "name": "PublicShare_create",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/copy-trading/shares",
+              "variable": []
+            },
+            "description": "POST /api/v1/copy-trading/shares"
+          }
+        },
+        {
+          "name": "PublicShare_revoke",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/copy-trading/shares/:id",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "DELETE /api/v1/copy-trading/shares/{id}"
+          }
+        },
+        {
+          "name": "PublicShare_resolve",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/public/shares/:token",
+              "variable": [
+                {
+                  "key": "token",
+                  "value": "set-token",
+                  "description": "Path parameter token"
+                }
+              ]
+            },
+            "description": "GET /api/v1/public/shares/{token}"
+          }
+        }
+      ]
+    },
+    {
       "name": "ReferralAbuseReview",
       "item": [
         {
@@ -26210,77 +26918,6 @@
       ]
     },
     {
-      "name": "StepUp",
-      "item": [
-        {
-          "name": "StepUp_status",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Tenant-Slug",
-                "value": "{{tenantSlug}}",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/step-up/status",
-              "variable": [],
-              "query": [
-                {
-                  "key": "action",
-                  "value": "set-action",
-                  "description": "Query parameter action",
-                  "disabled": false
-                }
-              ]
-            },
-            "description": "GET /api/v1/auth/step-up/status"
-          }
-        },
-        {
-          "name": "StepUp_verify",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Tenant-Slug",
-                "value": "{{tenantSlug}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/step-up/verify",
-              "variable": []
-            },
-            "description": "POST /api/v1/auth/step-up/verify",
-            "body": {
-              "mode": "raw",
-              "raw": "{}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "Strategies",
       "item": [
         {
@@ -28434,6 +29071,306 @@
                 }
               }
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "VenueStatus",
+      "item": [
+        {
+          "name": "VenueStatus_one",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venues/:venue/status",
+              "variable": [
+                {
+                  "key": "venue",
+                  "value": "set-venue",
+                  "description": "Path parameter venue"
+                }
+              ]
+            },
+            "description": "GET /api/v1/venues/{venue}/status"
+          }
+        },
+        {
+          "name": "VenueStatus_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venues/status",
+              "variable": [],
+              "query": [
+                {
+                  "key": "venues",
+                  "value": "set-venues",
+                  "description": "Query parameter venues",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/venues/status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "VenueStatusAdmin",
+      "item": [
+        {
+          "name": "VenueStatusAdmin_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/venues",
+              "variable": []
+            },
+            "description": "GET /api/v1/admin/venues"
+          }
+        },
+        {
+          "name": "VenueStatusAdmin_clear",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/venues/:venue/status",
+              "variable": [
+                {
+                  "key": "venue",
+                  "value": "set-venue",
+                  "description": "Path parameter venue"
+                }
+              ]
+            },
+            "description": "DELETE /api/v1/admin/venues/{venue}/status"
+          }
+        },
+        {
+          "name": "VenueStatusAdmin_set",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/venues/:venue/status",
+              "variable": [
+                {
+                  "key": "venue",
+                  "value": "set-venue",
+                  "description": "Path parameter venue"
+                }
+              ]
+            },
+            "description": "PUT /api/v1/admin/venues/{venue}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "WithdrawalDestination",
+      "item": [
+        {
+          "name": "WithdrawalDestination_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/custody/destinations",
+              "variable": []
+            },
+            "description": "GET /api/v1/custody/destinations"
+          }
+        },
+        {
+          "name": "WithdrawalDestination_add",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/custody/destinations",
+              "variable": []
+            },
+            "description": "POST /api/v1/custody/destinations",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "WithdrawalDestination_revoke",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/custody/destinations/:id",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "DELETE /api/v1/custody/destinations/{id}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "WithdrawalDestinationAdmin",
+      "item": [
+        {
+          "name": "WithdrawalDestinationAdmin_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/custody/destinations",
+              "variable": [],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "set-limit",
+                  "description": "Query parameter limit",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/admin/custody/destinations"
           }
         }
       ]

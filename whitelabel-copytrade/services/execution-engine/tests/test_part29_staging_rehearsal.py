@@ -32,6 +32,7 @@ SCRIPTS = ROOT / "scripts" / "staging"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import pytest  # noqa: E402
 import staging_rehearsal as rehearsal  # noqa: E402
 from wlct_trading.execution.live_enablement import (  # noqa: E402
     LiveEnablementReport,
@@ -473,7 +474,9 @@ class TestDependencyChecksNotConfigured:
 
 
 class TestMainWiring:
-    def test_the_production_guard_refuses_with_exit_two(self, monkeypatch) -> None:
+    def test_the_production_guard_refuses_with_exit_two(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("NODE_ENV", "production")
         assert rehearsal.main([]) == 2
 
@@ -485,12 +488,16 @@ class TestMainWiring:
         else:  # pragma: no cover
             raise AssertionError("contradictory flags were accepted")
 
-    def test_an_unconfigured_boot_is_blocked_not_a_traceback(self, monkeypatch) -> None:
+    def test_an_unconfigured_boot_is_blocked_not_a_traceback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("EXECUTION_INTERNAL_TOKEN", raising=False)
         code = rehearsal.main(["--check-runtime", "--json"])
         assert code == 2
 
-    def test_json_payload_carries_the_contract_keys(self, capsys) -> None:
+    def test_json_payload_carries_the_contract_keys(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         code = rehearsal.main(["--check-runtime", "--json"])
         payload = json.loads(capsys.readouterr().out)
         assert set(payload) == {"stagingReady", "exitCode", "checks"}
@@ -509,7 +516,7 @@ class TestMainWiring:
         assert rehearsal.main(["--check-runtime"]) == 1
 
     def test_the_prose_output_names_every_check_and_the_gate_sentence(
-        self, capsys
+        self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         rehearsal.main(["--check-runtime"])
         out = capsys.readouterr().out
@@ -526,7 +533,9 @@ class TestMainWiring:
 
 
 class TestEnvFileLoading:
-    def test_load_env_file_sets_unset_variables(self, tmp_path: Path, monkeypatch) -> None:
+    def test_load_env_file_sets_unset_variables(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         env_file = tmp_path / ".env.staging"
         env_file.write_text(
             "# staging\n"
@@ -545,7 +554,9 @@ class TestEnvFileLoading:
         assert os.environ["POSTGRES_PASSWORD"] == "staging-pg"  # noqa: S105
         assert os.environ["REDIS_PASSWORD"] == "staging-redis"  # noqa: S105
 
-    def test_already_exported_variables_win(self, tmp_path: Path, monkeypatch) -> None:
+    def test_already_exported_variables_win(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         env_file = tmp_path / ".env.staging"
         env_file.write_text("REDIS_PASSWORD=from-file\n", encoding="utf-8")
         monkeypatch.setenv("REDIS_PASSWORD", "from-shell")  # noqa: S105

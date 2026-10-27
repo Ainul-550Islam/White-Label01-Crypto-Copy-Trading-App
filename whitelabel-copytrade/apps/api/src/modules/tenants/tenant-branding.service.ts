@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { AuditAction, AuditActorType, AuditOutcome } from '@wlct/shared-types';
 import type { TenantBrandingDto } from '@wlct/shared-types';
 import { CACHE_KEY } from '@wlct/config';
@@ -9,13 +9,31 @@ import { AuditService } from '../audit/audit.service';
 import { NotFoundException } from '../../common/errors/app.exception';
 import type { UpdateBrandingDto } from './dto/update-branding.dto';
 
+/** WCAG AA minimum contrast for normal text. */
+const MIN_TEXT_CONTRAST_RATIO = 4.5;
+
+/**
+ * CSS constructs that make an update unacceptable rather than sanitised:
+ * network reach (remote url(), @import), script vectors (expression(),
+ * javascript:/vbscript:, behaviour/-moz-binding) and embedded markup.
+ * Inline data: images stay allowed, matching {@link TenantBrandingService.sanitiseCss}.
+ */
+const DANGEROUS_CSS =
+  /@import|expression\s*\(|javascript\s*:|vbscript\s*:|behaviou?r\s*:|-moz-binding|<\/?[a-z][^>]*>|url\s*\(\s*(['"]?)\s*(?!data:image\/(png|jpe?g|gif|svg\+xml|webp);base64,)/i;
+
 /**
  * White-label branding.
  *
- * Custom CSS is accepted because brands demand it, but it is sanitised on the
- * way in: anything that can execute script or exfiltrate data (url(), @import,
- * expression(), behaviour bindings) is stripped rather than escaped, so the
- * stored value is safe for every downstream renderer.
+ * Custom CSS is accepted because brands demand it, but CSS that can execute
+ * script or reach the network (remote url(), @import, expression(), behaviour
+ * bindings, embedded markup) is REJECTED with a 400: silently stripping pieces
+ * out of attacker-shaped input and storing the rest would hand downstream
+ * renderers a stylesheet nobody actually reviewed. CSS that passes is still
+ * sanitised on the way in as defence in depth, so the stored value is safe
+ * for every renderer. Asset URLs must be HTTPS (they are rendered into the
+ * tenant's pages, where plain HTTP is mixed content), and the text/background
+ * pair must keep WCAG AA contrast (at least 4.5:1) so a brand update cannot
+ * make the app unreadable.
  */
 @Injectable()
 export class TenantBrandingService {
@@ -44,6 +62,8 @@ export class TenantBrandingService {
     if (!existing) {
       throw new NotFoundException('Branding configuration', tenantId);
     }
+
+    this.validateBrandingUpdate(dto, existing);
 
     const sanitisedCss =
       dto.customCss !== undefined ? this.sanitiseCss(dto.customCss ?? '') : undefined;
@@ -89,6 +109,66 @@ export class TenantBrandingService {
     });
 
     return this.toDto(updated);
+  }
+
+  /**
+   * Rejects branding updates that are unsafe or unreadable before anything is
+   * stored: non-HTTPS asset URLs, dangerous custom CSS, and a text/background
+   * pair below WCAG AA contrast. Partial updates are judged on the merged
+   * result, because that is what gets rendered.
+   */
+  private validateBrandingUpdate(
+    dto: UpdateBrandingDto,
+    existing: { backgroundColor: string; textColor: string },
+  ): void {
+    const assetUrls: Array<[string, string | null | undefined]> = [
+      ['logoUrl', dto.logoUrl],
+      ['logoDarkUrl', dto.logoDarkUrl],
+      ['faviconUrl', dto.faviconUrl],
+    ];
+    for (const [field, value] of assetUrls) {
+      if (typeof value === 'string' && value.trim() !== '' && !/^https:\/\//i.test(value.trim())) {
+        throw new BadRequestException(`${field} must be an HTTPS URL`);
+      }
+    }
+
+    if (typeof dto.customCss === 'string' && DANGEROUS_CSS.test(dto.customCss)) {
+      throw new BadRequestException(
+        'customCss contains a construct that is not allowed (@import, url(), expression(), behaviour bindings or markup)',
+      );
+    }
+
+    if (dto.textColor !== undefined || dto.backgroundColor !== undefined) {
+      const text = this.relativeLuminance(dto.textColor ?? existing.textColor, 'textColor');
+      const background = this.relativeLuminance(
+        dto.backgroundColor ?? existing.backgroundColor,
+        'backgroundColor',
+      );
+      const ratio = (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05);
+      if (ratio < MIN_TEXT_CONTRAST_RATIO) {
+        throw new BadRequestException(
+          'textColor must keep at least 4.5:1 contrast against backgroundColor',
+        );
+      }
+    }
+  }
+
+  /** WCAG 2.x relative luminance of a #RGB/#RRGGBB/#RRGGBBAA hex color. */
+  private relativeLuminance(hexColor: string, field: string): number {
+    const match = /^#(?:([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])|([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})(?:[0-9a-fA-F]{2})?)$/.exec(
+      hexColor.trim(),
+    );
+    if (!match) {
+      throw new BadRequestException(`${field} must be a hex color`);
+    }
+    const channels = match[1]
+      ? [match[1] + match[1], match[2] + match[2], match[3] + match[3]]
+      : [match[4], match[5], match[6]];
+    const [red, green, blue] = channels.map((channel) => {
+      const value = parseInt(channel, 16) / 255;
+      return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
   }
 
   /**

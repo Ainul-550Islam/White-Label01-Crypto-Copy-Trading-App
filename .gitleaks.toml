@@ -25,31 +25,37 @@
 useDefault = true
 
 [[allowlists]]
-description = "Reviewed synthetic values matched by the generic-api-key heuristic (11 values; see the file header)."
+description = "Reviewed synthetic values matched by the generic-api-key heuristic (14 values; see the file header)."
 regexTarget = "secret"
 regexes = [
   # illustrative or fixture value: apps/api/src/modules/exchanges/secret-store.spec.ts, docs/source/06-api-modules.md
-  '''AKEY-12345678''',
+  '''^\QAKEY-12345678\E$''',
   # illustrative or fixture value: apps/api/src/modules/exchanges/exchange.types.ts, apps/web/src/features/exchanges/exchange-capabilities.tsx
-  '''CDP_JWT_ES256_ED25519''',
+  '''^\QCDP_JWT_ES256_ED25519\E$''',
   # illustrative or fixture value: docs/PART6_PERSISTENCE_HANDOVER_FULL_SOURCE.md, docs/source/10-trading-core.md …
-  '''NhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j''',
+  '''^\QNhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j\E$''',
   # illustrative or fixture value: docs/PART6_HANDOVER_FULL_SOURCE.md, docs/source/10-trading-core.md …
-  '''TEST_EXPLODING_V1''',
+  '''^\QTEST_EXPLODING_V1\E$''',
   # illustrative or fixture value: docs/PART11_HANDOVER_FULL_SOURCE.md, docs/PART12_HANDOVER_FULL_SOURCE.md …
-  '''aGVsbG93b3JsZGFiY2RlZg==''',
+  '''^\QaGVsbG93b3JsZGFiY2RlZg==\E$''',
   # illustrative or fixture value: docs/PART11_HANDOVER_FULL_SOURCE.md, docs/PART12_HANDOVER_FULL_SOURCE.md …
-  '''abcdefghijklmnop1234''',
+  '''^\Qabcdefghijklmnop1234\E$''',
   # illustrative or fixture value: docs/PART11_HANDOVER_FULL_SOURCE.md, docs/PART12_HANDOVER_FULL_SOURCE.md …
-  '''c3VwZXJzZWNyZXR2YWx1ZWZvcmV2ZXJ5b25lCg==''',
+  '''^\Qc3VwZXJzZWNyZXR2YWx1ZWZvcmV2ZXJ5b25lCg==\E$''',
   # illustrative or fixture value: apps/api/src/modules/exchanges/secret-store.spec.ts, docs/source/06-api-modules.md
-  '''hvs.12345678''',
+  '''^\Qhvs.12345678\E$''',
   # illustrative or fixture value: apps/api/src/modules/partners/partner.contract.spec.ts, docs/source/06-api-modules.md
-  '''idem_refund_123''',
+  '''^\Qidem_refund_123\E$''',
   # test fixture: apps/api/src/modules/copy-trading/leader-fee.spec.ts
-  '''leader-fee-policy-key-0001''',
+  '''^\Qleader-fee-policy-key-0001\E$''',
   # illustrative or fixture value: docs/PART11_HANDOVER_FULL_SOURCE.md, docs/PART13_HANDOVER_FULL_SOURCE.md …
-  '''replace-me-with-64-hex-characters-generated-fresh''',
+  '''^\Qreplace-me-with-64-hex-characters-generated-fresh\E$''',
+  # test fixture: apps/api/src/modules/exchanges/api-key-rotation.spec.ts
+  '''^\QNEWKEY-abcd1234\E$''',
+  # test fixture: libs/trading-core/tests/test_mainnet_refusal_matrix.py
+  '''^\Qc0nf1rmat10n-v3r1f1cat10n-k3y-0001\E$''',
+  # heuristic false positive on a pydantic Field keyword: packages/sdk-python/wlct_sdk/models.py and generated/models.py
+  '''^\Qmin_length=12\E$''',
 ]
 
 [[allowlists]]
@@ -57,13 +63,13 @@ description = "Reviewed synthetic values matched by the jwt heuristic (4 values;
 regexTarget = "secret"
 regexes = [
   # illustrative or fixture value: docs/PART9_HANDOVER_FULL_SOURCE.md, docs/fixtures/observability_fixtures.json …
-  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.9fKq-_2example_sig_x''',
+  '''^\QeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.9fKq-_2example_sig_x\E$''',
   # illustrative or fixture value: apps/api/src/modules/observability/observability-safety.spec.ts, docs/PART9_HANDOVER_FULL_SOURCE.md …
-  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij_k''',
+  '''^\QeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij_k\E$''',
   # illustrative or fixture value: apps/api/src/modules/mobile-release/mobile-release.contract.spec.ts, docs/source/06-api-modules.md
-  '''eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.c3VwZXJzZWNyZXRzaWduYXR1cmU''',
+  '''^\QeyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.c3VwZXJzZWNyZXRzaWduYXR1cmU\E$''',
   # illustrative or fixture value: docs/PART10_HANDOVER_FULL_SOURCE.md, docs/source/10-trading-core.md …
-  '''eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefGHIJKLmnop''',
+  '''^\QeyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefGHIJKLmnop\E$''',
 ]
 
 [[allowlists]]
@@ -71,13 +77,52 @@ description = "Reviewed synthetic values matched by the stripe-access-token heur
 regexTarget = "secret"
 regexes = [
   # illustrative or fixture value: RELEASE_PACKAGE_CHECK.md, docs/PART9_HANDOVER_FULL_SOURCE.md …
-  '''sk_live_0123456789abcdefghij''',
+  '''^\Qsk_live_0123456789abcdefghij\E$''',
   # illustrative or fixture value: RELEASE_PACKAGE_CHECK.md, docs/source/07-services.md …
-  '''sk_live_51H8xYzabcd''',
+  '''^\Qsk_live_51H8xYzabcd\E$''',
   # illustrative or fixture value: RELEASE_PACKAGE_CHECK.md, docs/PART16_HANDOVER_FULL_SOURCE.md …
-  '''sk_live_abcdefghij''',
+  '''^\Qsk_live_abcdefghij\E$''',
 ]
 
 [[allowlists]]
 description = "Generated test key material. apps/api/.generated/ is gitignored (.gitignore:40) and written at test time by apps/api/test/sso-test-keys.global-setup.js, so it never reaches a commit - and `gitleaks dir`/`--no-git` do not read .gitignore, so a working-tree scan would otherwise report it on every run. A path allowlist is used only here and only because `git check-ignore` proves the path is untracked; the test suite asserts that every path entry in this file satisfies that."
-paths = ['''apps/api/\.generated/''']
+paths = ['''apps/api/\.generated/[^/]+$''']
+
+[[allowlists]]
+description = "SHA-256 content hashes of source files recorded in the evidence manifests (evidence/raw-stage/start-state.json, evidence/final-validation-history.md). The manifests map file paths to file digests; filenames containing key/password/coinbase trip the generic-api-key and coinbase heuristics. A digest of a committed file is not a credential, and each value below suppresses exactly one reviewed digest. (33 values; reviewed 2026-10-27.)"
+regexTarget = "secret"
+regexes = [
+  '''^\Q135b6636cd3b00655abaa974435e221139f3f5fbd7527590658c4ef6d91e2f7b\E$''',
+  '''^\Q16fd8b26c4783c637ca4ba9060f911a19842fd67654ca5f170c83d4656cb9bb2\E$''',
+  '''^\Q1982b6aa4f49ef75c6076165575ad78209540e62c2971d91c9f654f3c312f089\E$''',
+  '''^\Q1e10812a1d415714bf7890360a49d32a9bba90b9a2855c1c390641dd25e85df4\E$''',
+  '''^\Q29b50f435162bb61932b7f286524aef258b0e58edac628d8eccb2c05f99e1588\E$''',
+  '''^\Q3b861eab39ea93588abbad7d33facf23c490fe728149879879c90d1e60d8fdef\E$''',
+  '''^\Q468cf727fd334042d644f540fe9b05dc13434f31a3e880d45dc427812f1d613d\E$''',
+  '''^\Q55c25a6fc9c07ee81951df1f60f70a56f0dc20a44460c06bff882d7cf90143cf\E$''',
+  '''^\Q578ebf8e11dc14fb93fed1628481e84412026b42e5b7078efb244b10101bb353\E$''',
+  '''^\Q5b85f7f2ada58c71d0f54cb041455a268a95a60f264fa1fc954a81b7eabff559\E$''',
+  '''^\Q66d923aedfcd346c84021a46e79db4bcc61fb19a2c97abf33d400fe5c8f41230\E$''',
+  '''^\Q6ed3f8feda56720a62bf56fd0af5759e97b5dbe1bd865cb6ea96ab359564bfea\E$''',
+  '''^\Q724ba38f5019a1a027a295b0ce6ba3bd3e2fc9afb0d85f381a3eb25808730907\E$''',
+  '''^\Q76cba388c10a7d83d651ce3638b31a7659ab1f3d6771565967ecda82125e3c95\E$''',
+  '''^\Q7a98822cb62cd162d0c010e6d8a3483687f0c2bf1c78cb8e75f59c4c78a90030\E$''',
+  '''^\Q7ee4ff37771857ff29b6c3ece566090ae559df1171099a4924072c3ae6bb1111\E$''',
+  '''^\Q881dd15fd4e7917814e8e1dd6a28e925c220298419df317d1cf65e9342fce1d0\E$''',
+  '''^\Q9a9b450a8f345f685c4ca4cd57db02a54e1b01dace90df0c61e50ddd003425a6\E$''',
+  '''^\Q9c345c9a1addb75e3b3595da450e4ca7e094cc7fa266863a6ae906a98f0d0027\E$''',
+  '''^\Qa445294e39795e548f0efbc123c3e446a70a2d1d40f58388a0d8193ea6d7f457\E$''',
+  '''^\Qa7009a2ab6878dbf3eb30f8fc83f6cfc891c4521c3d9d97be132f1e7ba06c7ae\E$''',
+  '''^\Qa8693c554826e4cdb816068a8f3994dbf0d602f47a472d14978666b9048b9f0a\E$''',
+  '''^\Qbcd33528ccb2db9507fc744b2a5ace0b917043bd67040a8ad4ccab276cee7092\E$''',
+  '''^\Qcba7095932930cb95842e6b5d32bfa5af8fad7aaa080eb014965fba75c1ecb55\E$''',
+  '''^\Qcf2cb7f2744e3dc60813cf9a82ccb14bfc4a9621349367d7752efb5a220990d6\E$''',
+  '''^\Qd9f96de8ff2fd42aea4bb284876b82d35994eb97905966c9c158c98b5af4948a\E$''',
+  '''^\Qdcc80e6c0e5f0514727fcd2398f304c6beca2d2428ec59d6b4184187166665f2\E$''',
+  '''^\Qdd993c7c594da079fb67c03685261f8d897eb9a48e17a11a1a38d45820592c68\E$''',
+  '''^\Qeba5d6ef5c6fe888b2d2203ef9738dd17539d2c6bcfd3843edf9fd64192d2e59\E$''',
+  '''^\Qed53fb4d68f4daba814713b8856d8f2fb1777c310522500bfe02ad01ab153769\E$''',
+  '''^\Qf2e77ae99ac5b49069e5422064570d56f2ffac7e53ab8c48b4b339a1c3fe5b27\E$''',
+  '''^\Qf73fff89000560cb93c76525a9a3de1f9791e69890ba0de616258d65e55b616f\E$''',
+  '''^\Qf9263f4742a2d17c97c9cab2ba27987298bf6c863763e4c82aaf865f22f6ad11\E$''',
+]

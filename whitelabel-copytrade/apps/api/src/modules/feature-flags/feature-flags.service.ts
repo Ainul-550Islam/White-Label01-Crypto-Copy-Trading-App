@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { createHash } from 'node:crypto';
 import {
@@ -22,6 +22,18 @@ import type { UpsertFeatureFlagDto, SetTenantFlagDto } from './dto/feature-flag.
  * it on after the corresponding contractual and regulatory work is done.
  */
 const GLOBAL_KILL_SWITCH_KEY = 'platform.kill_switch';
+
+/**
+ * Keys that switch a tenant toward real-money behaviour. The admin console
+ * classifies with this exact pattern; the two must stay in lockstep, or a
+ * key the console treats as "live" could be toggled through the plain route
+ * this classification exists to keep it off.
+ */
+const LIVE_FLAG_KEY_PATTERN = /(^|_)(live|mainnet)(_|$)/i;
+
+export function isLiveFlagKey(key: string): boolean {
+  return LIVE_FLAG_KEY_PATTERN.test(key);
+}
 
 const TENANT_DEFAULTS: Record<string, boolean> = {
   [FEATURE_FLAG_KEYS.COPY_TRADING]: false,
@@ -221,7 +233,27 @@ export class FeatureFlagsService {
     tenantId: string,
     dto: SetTenantFlagDto,
     context: { actorId: string; ipHash: string; requestId: string },
+    stepUpVerified = false,
   ): Promise<TenantFeatureFlagDto> {
+    // Live/mainnet switches sit behind the step-up boundary: the plain route
+    // calls this with stepUpVerified=false, and only PUT /live — gated by
+    // @RequireStepUp('FEATURE_FLAG_LIVE_TOGGLE'), whose guard consumes the
+    // single-use proof before the handler runs — may pass true. Checking
+    // here as well as at the route means no future caller can widen the
+    // plain path by forgetting the decorator.
+    if (isLiveFlagKey(dto.key) && !stepUpVerified) {
+      throw new ForbiddenException(
+        `Feature "${dto.key}" is a live-trading switch and requires step-up verification via PUT /v1/feature-flags/live`,
+      );
+    }
+
+    // Enabling is an entitlement decision; disabling never is. Turning a
+    // feature off must stay possible after a plan lapses or is cancelled —
+    // the safe direction is never gated on billing state.
+    if (dto.enabled) {
+      await this.assertPlanEntitles(tenantId, dto.key);
+    }
+
     const definition = await this.prisma.featureFlag.findUnique({ where: { key: dto.key } });
     if (!definition) {
       throw new NotFoundException('Feature flag', dto.key);
@@ -281,6 +313,26 @@ export class FeatureFlagsService {
       metadata: (override.metadata as Record<string, unknown>) ?? {},
       updatedAt: override.updatedAt.toISOString(),
     };
+  }
+
+  /**
+   * The current plan's feature list is the entitlement: a flag the plan does
+   * not name cannot be switched on for the tenant, whatever the caller's
+   * permission says. Only billable subscriptions entitle — a cancelled or
+   * expired plan keeps its history, not its privileges.
+   */
+  private async assertPlanEntitles(tenantId: string, key: string): Promise<void> {
+    const subscription = await this.prisma.tenantSubscription.findFirst({
+      where: { tenantId, status: { in: ['ACTIVE', 'TRIALING'] } },
+      include: { plan: { select: { features: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    const entitled = subscription?.plan.features ?? [];
+    if (!entitled.includes(key)) {
+      throw new ForbiddenException(
+        `The tenant's current plan does not entitle feature "${key}"`,
+      );
+    }
   }
 
   /** Writes the default override rows for a freshly provisioned tenant. */

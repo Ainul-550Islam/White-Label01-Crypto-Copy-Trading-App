@@ -33,7 +33,7 @@ export class PublicFeeScheduleController {
 @RequirePermissions(Permission.PLATFORM_MANAGE)
 export class AdminFeeScheduleController {
   constructor(private readonly service: FeeScheduleService) {}
-  @Post() @HttpCode(HttpStatus.CREATED) @RequireStepUp('FEE_SCHEDULE_PUBLISH')
+  @Post() @HttpCode(HttpStatus.CREATED) @RequirePermissions(Permission.PLATFORM_MANAGE) @RequireStepUp('FEE_SCHEDULE_PUBLISH')
   @ApiOperation({ summary: 'Publish an effective-dated fee schedule version', description: 'Platform operator only; publication requires fresh step-up. Existing versions are superseded by effective interval, never overwritten.' })
   publish(@Body() dto: PublishFeeScheduleDto, @CurrentUser() actor: AuthenticatedActor) { return this.service.publish(dto, actor.userId); }
 }

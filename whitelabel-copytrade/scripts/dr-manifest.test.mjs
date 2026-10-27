@@ -924,9 +924,9 @@ test('--verify-rls: the shipped artifacts agree on scope, and the answer is stil
   assert.equal(byName.get('scope:enable-vs-disable').grade, 'pass');
   assert.equal(byName.get('schema-stamp').grade, 'pass');
   // ...and the scan is pinned to a count, so a regex that matches nothing cannot pass as "empty scope".
-  assert.equal(document.scope.enabled, 190);
-  assert.equal(document.scope.covered, 190);
-  assert.equal(document.scope.disabled, 190);
+  assert.equal(document.scope.enabled, 199);
+  assert.equal(document.scope.covered, 199);
+  assert.equal(document.scope.disabled, 199);
   // The evidence ledger has never been written, which is the honest grade for a fresh deployment.
   assert.equal(byName.get('evidence-ledger').grade, 'unverified');
   assert.equal(document.grade, 'unverified');

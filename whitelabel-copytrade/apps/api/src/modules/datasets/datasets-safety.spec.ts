@@ -120,6 +120,9 @@ describe('Part 7 - dataset environment safety', () => {
         // Part 9 joined the production guard set; satisfy it here so the
         // assertion below is about dataset roots only.
         METRICS_TOKEN: 'm'.repeat(32),
+        // The developer-credential digest key later joined the same production
+        // guard set; satisfy it for the same reason.
+        DEVELOPER_SECRET_HMAC_KEY: 'd'.repeat(32),
       }),
     );
     expect(ok.DATASET_LOCAL_ROOT).toBe('/srv/datasets');

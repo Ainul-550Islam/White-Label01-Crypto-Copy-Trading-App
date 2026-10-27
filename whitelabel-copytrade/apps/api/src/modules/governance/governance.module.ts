@@ -24,6 +24,7 @@ import { GovernanceMetricsService } from './governance-metrics.service';
 import { GovernanceActionService } from './governance-action.service';
 import { GovernanceReportQueryService } from './governance-report-query.service';
 import { GovernanceController } from './governance.controller';
+import { GovernanceAuditExportProcessor } from '../audit/governance-audit-export.processor';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 @Module({
@@ -52,6 +53,10 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
     ComplianceReportDeliveryService,
     EvidencePackageService,
     GovernanceAuditExportService,
+    // Consumes the queued half of the audit-export pair: exports beyond the
+    // synchronous cap are enqueued by GovernanceAuditExportService onto the
+    // audit queue, and without this provider those jobs would never run.
+    GovernanceAuditExportProcessor,
     GovernanceMetricsService,
     GovernanceReportQueryService,
   ],

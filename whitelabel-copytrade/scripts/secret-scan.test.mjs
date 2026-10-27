@@ -48,7 +48,7 @@ function parsePolicy(text) {
   let inRegexes = false;
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
-    if (line === "[allowlist]") {
+    if (line === "[[allowlists]]") {
       current = { regexes: [], paths: [], description: null };
       allowlists.push(current);
       inRegexes = false;
@@ -219,7 +219,10 @@ test(
       // A syntactically valid but deliberately fake access-key fixture proves that
       // the default AWS detector remains active. Assemble it so the repository's
       // clean-tree scan cannot mistake the fixture source itself for a credential.
-      const fakeAwsKey = ["AKIA", "A1B2", "C3D4", "E5F6", "G7H8"].join("");
+      // The pinned scanner's aws-access-token rule matches AKIA + 16 chars of
+      // [A-Z2-7]; the earlier fixture used 1/8 digits and could never match,
+      // which made this probe assert a detection the rule cannot produce.
+      const fakeAwsKey = ["AKIA", "JQ7X", "K2MP", "RTW4", "ZNBC"].join("");
       writeFileSync(
         join(probeDir, "aws.env"),
         `AWS_ACCESS_KEY_ID=${fakeAwsKey}\n`,
