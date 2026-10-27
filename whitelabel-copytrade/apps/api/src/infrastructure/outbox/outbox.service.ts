@@ -95,8 +95,10 @@ export class OutboxService {
     }
 
     const aggregateLockKey = `${input.tenantId}:${input.aggregateType}:${input.aggregateId}`;
+    // PostgreSQL returns void here; Prisma cannot deserialize that type.
+    // Cast the result while preserving the transaction-scoped lock.
     await tx.$queryRaw`
-      SELECT pg_advisory_xact_lock(hashtextextended(${aggregateLockKey}, 0))
+      SELECT pg_advisory_xact_lock(hashtextextended(${aggregateLockKey}, 0))::text AS locked
     `;
     const latest = await tx.outboxEvent.aggregate({
       where: {

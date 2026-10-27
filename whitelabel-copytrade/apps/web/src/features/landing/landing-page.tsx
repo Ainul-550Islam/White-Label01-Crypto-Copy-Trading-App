@@ -108,7 +108,7 @@ export function LandingPage(): JSX.Element {
         </div>
       </header>
 
-      <main className="flex-1">
+      <div data-skip-target tabIndex={-1} className="flex-1">
         <section className="border-b bg-gradient-to-b from-gray-50 to-white py-16 sm:py-20">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
             <div className="max-w-3xl space-y-6">
@@ -206,7 +206,7 @@ export function LandingPage(): JSX.Element {
             </div>
           </div>
         </section>
-      </main>
+      </div>
 
       <footer className="border-t bg-card py-8 text-xs text-muted">
         <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 px-4 sm:flex-row sm:items-center sm:px-6">

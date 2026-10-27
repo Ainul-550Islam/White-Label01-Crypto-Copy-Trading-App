@@ -102,6 +102,17 @@ export function classifyUserStream(input: {
   if (report === null) {
     return { state: 'UNKNOWN', reasonCode: 'ENGINE_UNREACHABLE', lastEventAt: null, lastEventAgeMs: null };
   }
+  if (typeof report.subscribed !== 'boolean' ||
+      !Number.isSafeInteger(report.reconnectCount) || report.reconnectCount < 0 ||
+      (report.listenKeyAgeMs !== null &&
+        (!Number.isFinite(report.listenKeyAgeMs) || report.listenKeyAgeMs < 0))) {
+    return { state: 'UNKNOWN', reasonCode: 'MALFORMED_ENGINE_REPORT', lastEventAt: null, lastEventAgeMs: null };
+  }
+  const timestamp = microsToIso(report.lastEventAtMicros);
+  if (report.lastEventAtMicros !== null &&
+      (timestamp === null || Date.parse(timestamp) > now.getTime())) {
+    return { state: 'UNKNOWN', reasonCode: 'INVALID_EVENT_TIMESTAMP', lastEventAt: null, lastEventAgeMs: null };
+  }
   if (!report.subscribed) {
     const lastEventAt = microsToIso(report.lastEventAtMicros);
     return {
@@ -121,9 +132,13 @@ export function classifyUserStream(input: {
   if (report.listenKeyAgeMs !== null && report.listenKeyAgeMs > USER_STREAM_LISTEN_KEY_TTL_MS - USER_STREAM_LISTEN_KEY_EXPIRY_WARN_MS) {
     return { state: 'DEGRADED', reasonCode: 'LISTEN_KEY_NEAR_EXPIRY', lastEventAt, lastEventAgeMs };
   }
-  // A freshly connected socket has no event yet; that is not staleness. Anything
-  // older than the window while subscribed is.
-  if (lastEventAgeMs !== null && lastEventAgeMs > USER_STREAM_EVENT_STALE_MS) {
+  // A recently connected socket can have no event yet. Without evidence of a
+  // recent connection, an empty timestamp cannot establish stream health.
+  if (lastEventAgeMs === null && report.listenKeyAgeMs === null) {
+    return { state: 'UNKNOWN', reasonCode: 'NO_RECENT_EVENT_EVIDENCE', lastEventAt, lastEventAgeMs };
+  }
+  if ((lastEventAgeMs !== null && lastEventAgeMs > USER_STREAM_EVENT_STALE_MS) ||
+      (lastEventAgeMs === null && report.listenKeyAgeMs !== null && report.listenKeyAgeMs > USER_STREAM_EVENT_STALE_MS)) {
     return { state: 'DEGRADED', reasonCode: 'NO_RECENT_EVENTS', lastEventAt, lastEventAgeMs };
   }
   if (persistedStatus === 'ERROR' || persistedStatus === 'EXPIRED') {

@@ -5,6 +5,7 @@ import '../../../core/di/feature_providers.dart';
 import '../../../core/widgets/async_body.dart';
 import '../../../l10n/app_localizations.dart';
 import '../domain/funding_models.dart';
+import 'withdrawal_destination_check_dialog.dart';
 
 /// Funding: the customer's accounts with "request deposit", and the history of
 /// deposit and withdrawal requests. No withdraw action on mobile, by design.
@@ -19,7 +20,21 @@ class FundingScreen extends ConsumerWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Text(l10n.fundingTitle),
-          bottom: TabBar(tabs: <Widget>[Tab(text: l10n.accountsTab), Tab(text: l10n.transactionsTab)]),
+          actions: <Widget>[
+            IconButton(
+              tooltip: l10n.destinationCheckTitle,
+              icon: const Icon(Icons.playlist_add_check),
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => WithdrawalDestinationCheckDialog(
+                    repository: ref.read(fundingRepositoryProvider),),
+              ),
+            ),
+          ],
+          bottom: TabBar(tabs: <Widget>[
+            Tab(text: l10n.accountsTab),
+            Tab(text: l10n.transactionsTab),
+          ],),
         ),
         body: TabBarView(
           children: <Widget>[
@@ -38,15 +53,21 @@ class FundingScreen extends ConsumerWidget {
                         child: ListTile(
                           leading: const Icon(Icons.account_balance_outlined),
                           title: Text(a.label),
-                          subtitle: Text(a.canDeposit ? a.state : '${a.state} · ${l10n.depositsUnavailable}'),
+                          subtitle: Text(a.canDeposit
+                              ? a.state
+                              : '${a.state} · ${l10n.depositsUnavailable}',),
                           trailing: a.canDeposit
-                              ? FilledButton.tonal(onPressed: () => _requestDeposit(context, ref, a), child: Text(l10n.depositLabel))
+                              ? FilledButton.tonal(
+                                  onPressed: () =>
+                                      _requestDeposit(context, ref, a),
+                                  child: Text(l10n.depositLabel),)
                               : null,
                         ),
                       ),
                     Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Text(l10n.withdrawOnWebNotice, style: Theme.of(context).textTheme.bodySmall),
+                      child: Text(l10n.withdrawOnWebNotice,
+                          style: Theme.of(context).textTheme.bodySmall,),
                     ),
                   ],
                 ),
@@ -59,22 +80,29 @@ class FundingScreen extends ConsumerWidget {
                 onRetry: () => ref.invalidate(fundingHistoryProvider),
                 isEmpty: (List<FundingRequestSummary> rows) => rows.isEmpty,
                 emptyText: l10n.noTransactions,
-                builder: (List<FundingRequestSummary> rows) => ListView.separated(
+                builder: (List<FundingRequestSummary> rows) =>
+                    ListView.separated(
                   itemCount: rows.length + 1,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (BuildContext context, int i) {
                     if (i == 0) {
                       return Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Text(l10n.pendingNotCompleted, style: Theme.of(context).textTheme.bodySmall),
+                        child: Text(l10n.pendingNotCompleted,
+                            style: Theme.of(context).textTheme.bodySmall,),
                       );
                     }
                     final FundingRequestSummary t = rows[i - 1];
-                    final bool deposit = t.direction == FundingDirection.deposit;
-                    final String confirmed = t.confirmedAmount == null ? '' : ' · ${l10n.confirmedAmountLabel} ${t.confirmedAmount} ${t.currency}';
+                    final bool deposit =
+                        t.direction == FundingDirection.deposit;
+                    final String confirmed = t.confirmedAmount == null
+                        ? ''
+                        : ' · ${l10n.confirmedAmountLabel} ${t.confirmedAmount} ${t.currency}';
                     return ListTile(
-                      leading: Icon(deposit ? Icons.south_west : Icons.north_east),
-                      title: Text('${deposit ? l10n.depositLabel : l10n.withdrawalLabel} · ${t.requestedAmount} ${t.currency}'),
+                      leading:
+                          Icon(deposit ? Icons.south_west : Icons.north_east),
+                      title: Text(
+                          '${deposit ? l10n.depositLabel : l10n.withdrawalLabel} · ${t.requestedAmount} ${t.currency}',),
                       subtitle: Text(
                         '${t.state.replaceAll('_', ' ')}$confirmed · ${formatTimestamp(t.requestedAt)}'
                         '${t.failureReason == null ? '' : '\n${t.failureReason}'}',
@@ -96,7 +124,8 @@ class FundingScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _requestDeposit(BuildContext context, WidgetRef ref, FundingAccountSummary account) async {
+  Future<void> _requestDeposit(BuildContext context, WidgetRef ref,
+      FundingAccountSummary account,) async {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final _DepositDraft? draft = await showDialog<_DepositDraft>(
       context: context,
@@ -105,26 +134,30 @@ class FundingScreen extends ConsumerWidget {
     if (draft == null || !context.mounted) {
       return;
     }
-    final bool ok = await runAction(
-      context,
-      () async {
-        await ref.read(fundingRepositoryProvider).requestDeposit(
-              account: account,
-              amount: draft.amount,
-              currency: draft.currency,
-              externalReference: draft.reference,
-            );
-      },
-      success: l10n.depositRequested,
-    );
-    if (ok) {
+    try {
+      await ref.read(fundingRepositoryProvider).requestDeposit(
+            account: account,
+            amount: draft.amount,
+            currency: draft.currency,
+            externalReference: draft.reference,
+          );
       ref.invalidate(fundingHistoryProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.depositRequested)));
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.depositUnconfirmed)));
+      }
     }
   }
 }
 
 class _DepositDraft {
-  const _DepositDraft({required this.amount, required this.currency, required this.reference});
+  const _DepositDraft(
+      {required this.amount, required this.currency, required this.reference,});
 
   final String amount;
   final String currency;
@@ -157,7 +190,10 @@ class _DepositDialogState extends State<_DepositDialog> {
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
       Navigator.of(context).pop(
-        _DepositDraft(amount: _amount.text.trim(), currency: _currency.text.trim().toUpperCase(), reference: _reference.text.trim()),
+        _DepositDraft(
+            amount: _amount.text.trim(),
+            currency: _currency.text.trim().toUpperCase(),
+            reference: _reference.text.trim(),),
       );
     }
   }
@@ -177,28 +213,42 @@ class _DepositDialogState extends State<_DepositDialog> {
               TextFormField(
                 controller: _amount,
                 decoration: InputDecoration(labelText: l10n.amountLabel),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: (String? v) => FundingInput.isPositiveAmount((v ?? '').trim()) ? null : l10n.invalidAmount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                validator: (String? v) =>
+                    FundingInput.isPositiveAmount((v ?? '').trim())
+                        ? null
+                        : l10n.invalidAmount,
               ),
               TextFormField(
                 controller: _currency,
                 decoration: InputDecoration(labelText: l10n.currencyLabel),
                 textCapitalization: TextCapitalization.characters,
-                validator: (String? v) => FundingInput.isCurrencyCode((v ?? '').trim().toUpperCase()) ? null : l10n.invalidCurrency,
+                validator: (String? v) =>
+                    FundingInput.isCurrencyCode((v ?? '').trim().toUpperCase())
+                        ? null
+                        : l10n.invalidCurrency,
               ),
               TextFormField(
                 controller: _reference,
-                decoration: InputDecoration(labelText: l10n.transferReferenceLabel),
+                decoration:
+                    InputDecoration(labelText: l10n.transferReferenceLabel),
                 maxLength: 120,
+                validator: (String? value) => (value ?? '').trim().isEmpty
+                    ? l10n.transferReferenceRequired
+                    : null,
               ),
               const SizedBox(height: 8),
-              Text(l10n.depositRequestNotice, style: Theme.of(context).textTheme.bodySmall),
+              Text(l10n.depositRequestNotice,
+                  style: Theme.of(context).textTheme.bodySmall,),
             ],
           ),
         ),
       ),
       actions: <Widget>[
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.cancel)),
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.cancel),),
         FilledButton(onPressed: _submit, child: Text(l10n.requestDeposit)),
       ],
     );

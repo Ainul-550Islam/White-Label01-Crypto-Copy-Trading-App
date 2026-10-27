@@ -1,6 +1,7 @@
 // # Responsibility: persist typed tenant funding workflows and transactional outbox events without treating requests as proof of funds movement.
 // # Integrates deposit address provisioning and deposit status transitions
-import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ConflictException, Optional } from '@nestjs/common';
+import { isDeepStrictEqual } from 'node:util';
 import { Prisma, FundingRequestState as StoredFundingState, type FundingRequest } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
@@ -45,23 +46,19 @@ export class FundingRequestService {
     if (!isValidDecimal(requestedAmount)) throw new BadRequestException(`Invalid requestedAmount decimal: ${requestedAmount}`);
     if (!isPositiveDecimal(requestedAmount)) throw new BadRequestException('requestedAmount must be greater than zero');
 
-    const account = await this.prisma.institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
-    if (!account) throw new BadRequestException('Account not found or tenant mismatch');
-
-    if (clientProfileId) {
-      const profile = await this.prisma.clientProfile.findFirst({ where: { id: clientProfileId, tenantId } });
-      if (!profile || (account.clientProfileId && account.clientProfileId !== clientProfileId)) {
-        throw new BadRequestException('Funding client profile not found, tenant mismatch, or account/profile mismatch');
+    const account = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const scopedAccount = await tx.institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
+      if (!scopedAccount) throw new BadRequestException('Account not found or tenant mismatch');
+      if (clientProfileId) {
+        const profile = await tx.clientProfile.findFirst({ where: { id: clientProfileId, tenantId } });
+        if (!profile || (scopedAccount.clientProfileId && scopedAccount.clientProfileId !== clientProfileId)) {
+          throw new BadRequestException('Funding client profile not found, tenant mismatch, or account/profile mismatch');
+        }
       }
-    }
+      return scopedAccount;
+    });
 
     const policy = await this.policyService.resolvePolicy({ tenantId, accountId, clientProfileId: clientProfileId ?? undefined });
-
-    // Check NO_DEPOSIT restriction blocks funding request
-    const canDeposit = await this.restrictionService.hasRestriction({ tenantId, accountId, restrictionType: AccountRestrictionType.NO_DEPOSIT });
-    if (canDeposit) {
-      throw new BadRequestException('NO_DEPOSIT restriction active — funding request blocked');
-    }
 
     if (!policy.fundingControls.allowedCurrencies.includes(currency)) {
       throw new BadRequestException(`Currency ${currency} not allowed`);
@@ -78,78 +75,106 @@ export class FundingRequestService {
       externalRef: externalReference ?? `${requestedAmount}:${currency}:${Date.now()}`,
     });
 
-    // Check duplicate external funding reference
-    if (externalReference) {
-      try {
-        const dup = await this.prisma.fundingRequest.findFirst({ where: { tenantId, externalReference } });
-        if (dup) {
-          if (dup.idempotencyKey === idempotencyKey && dup.accountId === accountId
-            && dup.requestedAmount === requestedAmount && dup.currency === currency) return dup;
-          throw new BadRequestException(`Duplicate external funding reference detected: ${externalReference}`);
-        }
-      } catch (e) {
-        throw e;
-      }
-    }
-
-
+    const storedMetadata = lifecycleMetadata(metadata);
+    const effectiveProfileId = clientProfileId ?? account.clientProfileId ?? null;
+    const matchesIntent = (row: FundingRequest): boolean =>
+      row.idempotencyKey === idempotencyKey && row.accountId === accountId &&
+      row.clientProfileId === effectiveProfileId && row.requestedAmount === requestedAmount &&
+      row.currency === currency && row.externalReference === externalReference &&
+      row.sourceType === sourceType && row.requestedBy === requestedBy &&
+      isDeepStrictEqual(row.metadata, storedMetadata);
 
     if (!this.outbox) {
       throw new Error('Transactional outbox is unavailable; refusing funding request without its funding.requested event');
     }
-    const fundingRequest = await this.prisma.withTenantRls(tenantId, async (tx) => {
-      const store = tx;
-      const existing = await store.fundingRequest.findFirst({ where: { tenantId, idempotencyKey } });
-      if (existing) {
-        this.logger.log({ event: 'client.funding.idempotent_hit', idempotencyKey });
-        return existing;
-      }
-      const created = await store.fundingRequest.create({
-        data: {
+    let outcome: { request: FundingRequest; created: boolean };
+    try {
+      outcome = await this.prisma.withTenantRls(tenantId, async (tx) => {
+        const store = tx;
+        // Repeat account and restriction checks on the transaction that writes
+        // the request. Under forced RLS, an unscoped read would otherwise make
+        // an active restriction invisible to this endpoint.
+        const currentAccount = await tx.institutionalAccount.findFirst({ where: { id: accountId, tenantId } });
+        if (!currentAccount || currentAccount.deletedAt || currentAccount.state !== 'ACTIVE' || !currentAccount.isFundingEnabled ||
+            currentAccount.clientProfileId !== account.clientProfileId) {
+          throw new BadRequestException('Account is not eligible for deposits');
+        }
+        if (await this.restrictionService.hasRestriction({ tenantId, accountId, restrictionType: AccountRestrictionType.NO_DEPOSIT }, tx)) {
+          throw new BadRequestException('NO_DEPOSIT restriction active — funding request blocked');
+        }
+        if (externalReference) {
+          // Serialize the reference check and insert across concurrent requests.
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`funding-reference:${tenantId}:${externalReference}`}::text, 0))::text AS locked`;
+          const duplicate = await store.fundingRequest.findFirst({ where: { tenantId, externalReference } });
+          if (duplicate) {
+            if (matchesIntent(duplicate)) return { request: duplicate, created: false };
+            throw new BadRequestException('Duplicate external funding reference detected');
+          }
+        }
+        const existing = await store.fundingRequest.findFirst({ where: { tenantId, idempotencyKey } });
+        if (existing) {
+          if (!matchesIntent(existing)) throw new ConflictException('Request key already used for a different funding request');
+          return { request: existing, created: false };
+        }
+        const created = await store.fundingRequest.create({
+          data: {
+            tenantId,
+            accountId,
+            clientProfileId: effectiveProfileId,
+            state: 'REQUESTED',
+            requestedAmount,
+            currency,
+            externalReference: externalReference ?? null,
+            sourceType: sourceType ?? null,
+            requestedBy: requestedBy ?? null,
+            idempotencyKey,
+            metadata: storedMetadata,
+            requestedAt: new Date(),
+          },
+        });
+        await tx.clientLifecycleAudit.create({ data: {
+          tenantId, clientProfileId: effectiveProfileId, accountId, action: 'FUNDING_REQUESTED',
+          entityType: 'FUNDING_REQUEST', entityId: created.id, actorId: requestedBy,
+          actorType: requestedBy ? 'USER' : null, toState: 'REQUESTED',
+          correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+          // Do not copy the external payment reference into audit evidence.
+          evidence: { requestedAmount, currency, sourceType },
+        } });
+        await this.outbox!.append(tx, {
           tenantId,
-          accountId,
-          clientProfileId: clientProfileId ?? account.clientProfileId ?? null,
-          state: 'REQUESTED',
-          requestedAmount,
-          currency,
-          externalReference: externalReference ?? null,
-          sourceType: sourceType ?? null,
-          requestedBy: requestedBy ?? null,
-          idempotencyKey,
-          metadata: lifecycleMetadata(metadata),
-          requestedAt: new Date(),
-        },
+          aggregateType: 'funding_request',
+          aggregateId: created.id,
+          eventType: 'funding.requested',
+          idempotencyKey: `funding-request:${created.id}:requested`,
+          correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+          occurredAt: created.requestedAt,
+          payload: {
+            fundingRequestId: created.id,
+            amount: created.requestedAmount,
+            currency: created.currency,
+            status: created.state,
+          },
+        });
+        return { request: created, created: true };
       });
-      await this.outbox!.append(tx, {
-        tenantId,
-        aggregateType: 'funding_request',
-        aggregateId: created.id,
-        eventType: 'funding.requested',
-        idempotencyKey: `funding-request:${created.id}:requested`,
-        correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
-        occurredAt: created.requestedAt,
-        payload: {
-          fundingRequestId: created.id,
-          amount: created.requestedAmount,
-          currency: created.currency,
-          status: created.state,
-        },
-      });
-      return created;
-    });
+    } catch (error) {
+      // The tenant/key unique constraint serializes concurrent creation. If a
+      // competing transaction won, read the committed row and verify its
+      // immutable intent before treating this call as a retry.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const existing = await this.prisma.withTenantRls(tenantId, (tx) =>
+          tx.fundingRequest.findFirst({ where: { tenantId, idempotencyKey } }),
+        );
+        if (existing) {
+          if (!matchesIntent(existing)) throw new ConflictException('Request key already used for a different funding request');
+          return existing;
+        }
+      }
+      throw error;
+    }
+    const fundingRequest = outcome.request;
+    if (!outcome.created) return fundingRequest;
 
-    await this.auditService.log({
-      tenantId,
-      clientProfileId: clientProfileId ?? account.clientProfileId,
-      accountId,
-      action: 'FUNDING_REQUESTED',
-      entityType: 'FUNDING_REQUEST',
-      entityId: fundingRequest.id,
-      actorId: requestedBy,
-      toState: 'REQUESTED',
-      correlationId,
-      evidence: { requestedAmount, currency, externalReference, sourceType },
-    });
 
     this.logger.log({ event: 'client.funding.requested', tenantId, accountId, requestedAmount, currency });
 
@@ -266,7 +291,7 @@ export class FundingRequestService {
   }
 
   async getFundingRequest(params: { tenantId: string; fundingRequestId: string }): Promise<FundingRequest | null> {
-    return await this.prisma.fundingRequest.findFirst({ where: { id: params.fundingRequestId, tenantId: params.tenantId } });
+    return this.prisma.withTenantRls(params.tenantId, (tx) => tx.fundingRequest.findFirst({ where: { id: params.fundingRequestId, tenantId: params.tenantId } }));
   }
 
   async listFundingRequests(params: {
@@ -287,15 +312,15 @@ export class FundingRequestService {
     if (currency) where.currency = currency;
     if (externalReference) where.externalReference = externalReference;
 
-    const [data, total] = await Promise.all([
-      this.prisma.fundingRequest.findMany({
+    const [data, total] = await this.prisma.withTenantRls(tenantId, (tx) => Promise.all([
+      tx.fundingRequest.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      this.prisma.fundingRequest.count({ where }),
-    ]);
+      tx.fundingRequest.count({ where }),
+    ]));
     return { data, total, page, limit };
   }
 }

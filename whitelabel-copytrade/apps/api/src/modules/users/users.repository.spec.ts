@@ -7,6 +7,7 @@ describe('UsersRepository tenant isolation and deletion semantics', () => {
     const prisma = {
       user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       $transaction: jest.fn(async (operations: unknown[]) => Promise.all(operations)),
+      withTenantRls: jest.fn(async (_tenantId: string, work: (tx: any) => Promise<unknown>) => work(prisma)),
     } as unknown as PrismaService;
     return { repository: new UsersRepository(prisma), prisma };
   }

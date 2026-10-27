@@ -37,6 +37,7 @@ export const PUBLIC_ROUTES: readonly string[] = [
 /** Route prefixes that must never be indexed, whichever page is serving them. */
 export const PRIVATE_ROUTE_PREFIXES: readonly string[] = [
   '/account',
+  '/admin',
   '/activity',
   '/api',
   '/billing',
@@ -50,6 +51,9 @@ export const PRIVATE_ROUTE_PREFIXES: readonly string[] = [
   '/partner',
   '/portfolio',
   '/register',
+  '/recovery',
+  '/s',
+  '/settings',
   '/risk',
   '/security',
   '/statements',

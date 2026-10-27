@@ -34,7 +34,9 @@ export interface DeveloperAnalytics {
   p95LatencyMs: number | null;
   webhookDeliveries: number;
   webhookFailures: number;
+  deliveryTruncated: boolean;
   activeApplications: number;
+  activeApiKeys: number;
   topEndpoints: { endpoint: string; requests: number }[];
   apiVersionUsage: { version: string; requests: number }[];
   usage: UsageRollup;
@@ -67,9 +69,9 @@ export class DeveloperAnalyticsService {
     to: Date;
     latencyObservations: LatencyObservation[];
   }): Promise<DeveloperAnalytics> {
-    const application = await this.prisma.developerApplication.findUnique({
+    const application = await this.prisma.withTenantRls(input.tenantId, (tx) => tx.developerApplication.findUnique({
       where: { id: input.applicationId },
-    });
+    }));
     if (!application || application.tenantId !== input.tenantId) {
       throw new NotFoundException('developer application not found');
     }
@@ -86,23 +88,29 @@ export class DeveloperAnalyticsService {
     const rateLimited = usage.totalRateLimited;
     const successes = Math.max(0, usage.totalRequests - errors4xx - errors5xx - rateLimited);
 
-    const deliveryRows = await this.prisma.developerWebhookDelivery.findMany({
+    const deliveryRows = await this.prisma.withTenantRls(input.tenantId, (tx) => tx.developerWebhookDelivery.findMany({
       where: {
         tenantId: input.tenantId,
         applicationId: input.applicationId,
         createdAt: { gte: input.from, lte: input.to },
       },
       select: { state: true },
-      take: 50_000,
-    });
-    const deliveries = deliveryRows.length;
-    const failures = deliveryRows.filter(
+      take: 50_001,
+    }));
+    const deliveryTruncated = deliveryRows.length > 50_000;
+    const boundedDeliveries = deliveryRows.slice(0, 50_000);
+    const deliveries = boundedDeliveries.length;
+    const failures = boundedDeliveries.filter(
       (row: { state: string }) => row.state === 'FAILED' || row.state === 'EXHAUSTED',
     ).length;
 
-    const activeApplications = await this.prisma.developerApplication.count({
-      where: { tenantId: input.tenantId, state: 'ACTIVE' },
-    });
+    const [activeApplications, activeApiKeys] = await this.prisma.withTenantRls(input.tenantId, (tx) => Promise.all([
+      tx.developerApplication.count({ where: { tenantId: input.tenantId, state: 'ACTIVE' } }),
+      tx.developerCredential.count({ where: {
+        tenantId: input.tenantId, applicationId: input.applicationId, kind: 'API_KEY', revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      } }),
+    ]));
 
     return {
       applicationId: input.applicationId,
@@ -117,7 +125,9 @@ export class DeveloperAnalyticsService {
       p95LatencyMs: this.percentile(latencies, 95),
       webhookDeliveries: deliveries || usage.totalWebhookDeliveries,
       webhookFailures: failures || usage.totalWebhookFailures,
+      deliveryTruncated,
       activeApplications,
+      activeApiKeys,
       topEndpoints: usage.byEndpoint.slice(0, 10).map((endpoint) => ({
         endpoint: endpoint.endpoint,
         requests: endpoint.requests,

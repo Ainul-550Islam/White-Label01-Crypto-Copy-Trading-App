@@ -36,25 +36,26 @@ export interface CopyBudgetDecisionView {
 
 /** The follower's global budget across every active copy subscription. */
 export interface CopyBudget {
-  /** Cap on total active copy exposure, as a decimal string. */
-  maxActiveExposure: string;
-  /** Optional tighter bound for one trader, as a decimal string. */
+  tenantId: string;
+  userId: string;
+  /** Personal cap, effective cap, and tenant ceiling are distinct. */
+  maxActiveExposure: string | null;
   perTraderCap: string | null;
-  currency: string;
-  /** Sum of active copy exposure, or null when it could not be measured. */
+  tenantCeiling: string | null;
+  effectiveCap: string | null;
+  currency: string | null;
+  /** Sum of subscription allocation values, not verified live exposure. */
   currentExposure: string | null;
-  /** `maxActiveExposure - currentExposure`, or null when either side is unknown. */
+  exposureStatus: 'ALLOCATION_ESTIMATE' | 'UNAVAILABLE';
   remaining: string | null;
-  /** 0-100 integer percentage used by the meter; null when it cannot be computed. */
-  utilisationPercent: number | null;
-  updatedAt: string;
-  /** Why a figure is missing, when one is. Rendered verbatim; never a raw venue string. */
-  unavailableReason: string | null;
+  /** May exceed 100%; null when the effective cap is absent or zero. */
+  utilisationBps: number | null;
+  updatedAt: string | null;
 }
 
-export interface CopyBudgetUpdate {
+export interface CopyBudgetReduction {
   maxActiveExposure: string;
-  perTraderCap?: string | null;
+  currency: string;
 }
 
 /** One entry in an execution's retry/failure timeline. */
@@ -83,70 +84,122 @@ export interface CopyExecutionTimeline {
 /** Liquidation health for one open position, as the risk engine scored it. */
 export interface LiquidationAlert {
   positionId: string;
-  accountId: string | null;
+  accountId: string;
   symbol: string;
   side: string;
-  quantity: string;
-  /** SAFE | WATCH | DANGER | CRITICAL | UNKNOWN. */
-  bucket: string;
-  /** Distance to liquidation as a percentage string, or null when unknown. */
+  quantity: string | null;
+  bucket: 'SAFE' | 'WATCH' | 'DANGER' | 'CRITICAL' | 'UNKNOWN';
   distancePercent: string | null;
-  distanceBps: string | null;
   liquidationPrice: string | null;
   markPrice: string | null;
-  /** Why the distance is unknown, when it is. */
-  unavailableReason: string | null;
-  evaluatedAt: string;
+  sourceUpdatedAt: string | null;
+  containsSimulatedFills: boolean | null;
 }
 
-/** Wire types. Every field optional: a partial payload must not crash a screen. */
-interface BackendBudget {
-  maxActiveExposure?: string | null;
-  perTraderCap?: string | null;
-  currency?: string | null;
-  currentExposure?: string | null;
-  remaining?: string | null;
-  utilisationPercent?: number | null;
-  updatedAt?: string | null;
-  unavailableReason?: string | null;
+const DECIMAL = /^\d{1,64}(?:\.\d{1,18})?$/;
+const SIGNED_DECIMAL = /^-?\d{1,64}(?:\.\d{1,18})?$/;
+
+export function parseLiquidationAlerts(value: unknown, owner: { tenantId: string; userId: string }): LiquidationAlert[] {
+  const invalid = (): never => { throw new Error('Invalid liquidation response'); };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid();
+  const page = value as Record<string, unknown>;
+  if (page.tenantId !== owner.tenantId || page.userId !== owner.userId || !Array.isArray(page.data) ||
+      !Number.isSafeInteger(page.total) || page.total !== page.data.length || !Number.isSafeInteger(page.unknownCount)) return invalid();
+  const ids = new Set<string>();
+  const rows = page.data.map((value): LiquidationAlert => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid();
+    const row = value as Record<string, unknown>;
+    if (typeof row.positionId !== 'string' || !row.positionId || ids.has(row.positionId) ||
+        typeof row.accountId !== 'string' || !row.accountId || typeof row.symbol !== 'string' || typeof row.side !== 'string' ||
+        !(row.quantity === null || (typeof row.quantity === 'string' && SIGNED_DECIMAL.test(row.quantity))) ||
+        !(row.bucket === 'SAFE' || row.bucket === 'WATCH' || row.bucket === 'DANGER' || row.bucket === 'CRITICAL' || row.bucket === 'UNKNOWN') ||
+        !nullableDecimal(row.distancePercent) || !nullableDecimal(row.liquidationPrice) || !nullableDecimal(row.markPrice) ||
+        !(row.sourceUpdatedAt === null || (typeof row.sourceUpdatedAt === 'string' && Number.isFinite(Date.parse(row.sourceUpdatedAt)))) ||
+        !(row.containsSimulatedFills === null || typeof row.containsSimulatedFills === 'boolean') ||
+        typeof row.reason !== 'string' || typeof row.severity !== 'string' ||
+        (row.quantity === null && (row.bucket !== 'UNKNOWN' || row.sourceUpdatedAt !== null || row.containsSimulatedFills !== null)) ||
+        (row.quantity !== null && (!row.symbol || !row.sourceUpdatedAt || row.containsSimulatedFills === null)) ||
+        (row.bucket !== 'UNKNOWN' && (row.quantity === null || row.containsSimulatedFills || row.distancePercent === null ||
+          row.liquidationPrice === null || row.markPrice === null || !/[1-9]/.test(row.liquidationPrice) || !/[1-9]/.test(row.markPrice)))) return invalid();
+    ids.add(row.positionId);
+    return { positionId: row.positionId, accountId: row.accountId, symbol: row.symbol, side: row.side, quantity: row.quantity,
+      bucket: row.bucket, distancePercent: row.distancePercent, liquidationPrice: row.liquidationPrice, markPrice: row.markPrice,
+      sourceUpdatedAt: row.sourceUpdatedAt, containsSimulatedFills: row.containsSimulatedFills };
+  });
+  if (page.unknownCount !== rows.filter((row) => row.bucket === 'UNKNOWN').length) return invalid();
+  return rows;
 }
 
-function keepDecimal(value: unknown): string | null {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  return null;
+function nullableDecimal(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && DECIMAL.test(value));
 }
 
-function toBudget(raw: BackendBudget): CopyBudget {
-  const max = keepDecimal(raw.maxActiveExposure);
-  const exposure = keepDecimal(raw.currentExposure);
-  const remaining = keepDecimal(raw.remaining);
+/** Reject incomplete or rounded responses rather than inventing a limit or currency. */
+export function parseCopyBudget(value: unknown): CopyBudget {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid budget response');
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.tenantId !== 'string' || !raw.tenantId || typeof raw.userId !== 'string' || !raw.userId ||
+      !nullableDecimal(raw.maxActiveExposure) || !nullableDecimal(raw.perTraderCap) ||
+      !nullableDecimal(raw.tenantCeiling) || !nullableDecimal(raw.effectiveCap) ||
+      !nullableDecimal(raw.remaining) || !nullableDecimal(raw.committed) ||
+      !(raw.exposureStatus === 'ALLOCATION_ESTIMATE' || raw.exposureStatus === 'UNAVAILABLE') ||
+      !(raw.currency === null || (typeof raw.currency === 'string' && /^[A-Z0-9]{2,12}$/.test(raw.currency))) ||
+      !(raw.utilisationBps === null || (typeof raw.utilisationBps === 'number' && Number.isSafeInteger(raw.utilisationBps) && raw.utilisationBps >= 0)) ||
+      !(raw.updatedAt === null || (typeof raw.updatedAt === 'string' && Number.isFinite(Date.parse(raw.updatedAt)))) ||
+      ((raw.maxActiveExposure !== null || raw.tenantCeiling !== null) && raw.effectiveCap === null) ||
+      (raw.exposureStatus === 'ALLOCATION_ESTIMATE' && raw.committed === null) ||
+      (raw.exposureStatus === 'UNAVAILABLE' && (raw.committed !== null || raw.remaining !== null || raw.utilisationBps !== null)) ||
+      (raw.effectiveCap !== null && raw.currency === null) ||
+      (raw.effectiveCap !== null && raw.exposureStatus === 'ALLOCATION_ESTIMATE' && raw.remaining === null) ||
+      (raw.effectiveCap === null && raw.remaining !== null) ||
+      (raw.effectiveCap !== null && raw.maxActiveExposure === null && raw.tenantCeiling === null)) throw new Error('Invalid budget response');
+  if (raw.effectiveCap !== null) {
+    const caps = [raw.maxActiveExposure, raw.tenantCeiling].filter((cap): cap is string => cap !== null);
+    const tightest = caps.reduce((a, b) => compareCopyBudgetDecimals(a, b) <= 0 ? a : b);
+    if (compareCopyBudgetDecimals(raw.effectiveCap, tightest) !== 0) throw new Error('Invalid budget response');
+  }
   return {
-    maxActiveExposure: max ?? '0',
-    perTraderCap: keepDecimal(raw.perTraderCap),
-    currency: raw.currency ?? 'USDT',
-    currentExposure: exposure,
-    remaining,
-    utilisationPercent:
-      typeof raw.utilisationPercent === 'number' && Number.isFinite(raw.utilisationPercent)
-        ? Math.max(0, Math.min(100, Math.round(raw.utilisationPercent)))
-        : null,
-    updatedAt: raw.updatedAt ?? '',
-    unavailableReason: raw.unavailableReason ?? null,
+    tenantId: raw.tenantId, userId: raw.userId,
+    maxActiveExposure: raw.maxActiveExposure, perTraderCap: raw.perTraderCap,
+    tenantCeiling: raw.tenantCeiling, effectiveCap: raw.effectiveCap, currency: raw.currency,
+    currentExposure: raw.committed, exposureStatus: raw.exposureStatus, remaining: raw.remaining, utilisationBps: raw.utilisationBps,
+    updatedAt: raw.updatedAt,
   };
+}
+
+/** Compare non-negative decimal strings exactly, never using floating-point money. */
+export function compareCopyBudgetDecimals(a: string, b: string): number {
+  if (!DECIMAL.test(a) || !DECIMAL.test(b)) throw new Error('Invalid decimal');
+  const [wholeA = '0', fractionA = ''] = a.split('.');
+  const [wholeB = '0', fractionB = ''] = b.split('.');
+  const x = wholeA.replace(/^0+(?=\d)/, '');
+  const y = wholeB.replace(/^0+(?=\d)/, '');
+  if (x.length !== y.length) return x.length > y.length ? 1 : -1;
+  if (x !== y) return x > y ? 1 : -1;
+  const width = Math.max(fractionA.length, fractionB.length);
+  const p = fractionA.padEnd(width, '0');
+  const q = fractionB.padEnd(width, '0');
+  return p === q ? 0 : p > q ? 1 : -1;
 }
 
 export const copyOpsApi = {
   getBudget: async (): Promise<CopyBudget> =>
-    toBudget(await apiClient.get<BackendBudget>('/v1/copy-trading/budget')),
+    parseCopyBudget(await apiClient.get<unknown>('/v1/copy-trading/budget')),
 
-  updateBudget: async (input: CopyBudgetUpdate): Promise<CopyBudget> =>
-    toBudget(
-      await apiClient.put<BackendBudget>('/v1/copy-trading/budget', {
-        maxActiveExposure: input.maxActiveExposure,
-        ...(input.perTraderCap === undefined ? {} : { perTraderCap: input.perTraderCap }),
-      }),
-    ),
+  /** This action is self-scoped and tighten-only; a stable key survives retries. */
+  reduceBudget: async (input: CopyBudgetReduction, key: string, owner: { tenantId: string; userId: string }): Promise<CopyBudget> => {
+    if (!/^\d{1,16}(?:\.\d{1,12})?$/.test(input.maxActiveExposure) ||
+        !/^[A-Z0-9]{2,12}$/.test(input.currency) || !/^[A-Za-z0-9._:-]{8,128}$/.test(key)) {
+      throw new Error('Invalid budget reduction');
+    }
+    const budget = parseCopyBudget(await apiClient.post<unknown>('/v1/copy-trading/budget/reduce', input, { idempotencyKey: key }));
+    // A replay may return a later view. Never confirm if the cap was raised or
+    // changed currency between the commit and this response.
+    if (budget.tenantId !== owner.tenantId || budget.userId !== owner.userId || budget.currency !== input.currency || budget.maxActiveExposure === null || budget.effectiveCap === null ||
+        compareCopyBudgetDecimals(budget.maxActiveExposure, input.maxActiveExposure) > 0 ||
+        compareCopyBudgetDecimals(budget.effectiveCap, input.maxActiveExposure) > 0) throw new Error('Budget reduction not confirmed');
+    return budget;
+  },
 
   /**
    * The timeline for one execution chain.
@@ -162,12 +215,9 @@ export const copyOpsApi = {
     return raw;
   },
 
-  /** Open positions the risk engine has scored, worst bucket first. */
-  listLiquidationAlerts: async (): Promise<LiquidationAlert[]> => {
-    const page = await apiClient.get<{ data?: LiquidationAlert[] } | LiquidationAlert[]>('/v1/risk/liquidation-alerts');
-    const rows = Array.isArray(page) ? page : page?.data ?? [];
-    return rows;
-  },
+  /** Missing, incomplete or wrong-owner responses are errors, never empty positions. */
+  listLiquidationAlerts: async (owner: { tenantId: string; userId: string }): Promise<LiquidationAlert[]> =>
+    parseLiquidationAlerts(await apiClient.get<unknown>('/v1/risk/liquidation-alerts'), owner),
 };
 
 /** Bucket severity, used to sort and to pick a banner tone. */
@@ -180,9 +230,9 @@ export function liquidationSeverity(bucket: string): number {
     case 'WATCH':
       return 2;
     case 'SAFE':
-      return 1;
+      return 0;
     default:
-      return 0; // UNKNOWN sorts below SAFE: it is not reassurance, but it is not a measured emergency either
+      return 1; // UNKNOWN needs attention, even when there is no measured emergency.
   }
 }
 

@@ -3,10 +3,9 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma, type CustodyReserve } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CustodyPolicyService, type CustodyPolicy } from './custody-policy.service';
-import { CustodyAuditService } from './custody-audit.service';
 import { TreasuryBalanceService } from './treasury-balance.service';
-import { add, cmp, deterministicIdempotencyKey, isValidDecimal, sub, CustodyAuditAction,
-  CustodyReserveState, DECIMAL_SCALE } from './custody.types';
+import { add, cmp, deterministicIdempotencyKey, isValidDecimal, sub, redactSecrets, custodyJsonInput,
+  CustodyReserveState, DECIMAL_SCALE, type BalanceObservation } from './custody.types';
 
 export interface ReserveSufficiencyResult {
   sufficient: boolean;
@@ -17,6 +16,12 @@ export interface ReserveSufficiencyResult {
   reasonCodes: string[];
 }
 
+/** Serializes reserve creation against withdrawal accounting for the same tenant and asset. */
+export async function lockCustodyReserveAccounting(tx: Prisma.TransactionClient, tenantId: string, assetId: string): Promise<void> {
+  const key = `custody-reserve:${tenantId}:${assetId}`;
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text`;
+}
+
 @Injectable()
 export class ReserveManagementService {
   private readonly logger = new Logger(ReserveManagementService.name);
@@ -24,7 +29,6 @@ export class ReserveManagementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly custodyPolicyService: CustodyPolicyService,
-    private readonly auditService: CustodyAuditService,
     private readonly treasuryBalanceService: TreasuryBalanceService,
   ) {}
 
@@ -43,25 +47,31 @@ export class ReserveManagementService {
       operatorId = null, reason = null, correlationId = null } = params;
     if (!isValidDecimal(requiredAmount) || cmp(requiredAmount, '0') < 0) throw new BadRequestException('Reserve amount must be a nonnegative supported-precision decimal');
     if (!['operational', 'withdrawal', 'gas', 'network', 'risk', 'treasury'].includes(reserveType)) throw new BadRequestException('Invalid reserve type');
-    if (walletId) {
-      const wallet = await this.prisma.custodyWallet.findFirst({ where: { tenantId, id: walletId } });
-      if (!wallet || wallet.assetId !== assetId || (networkId !== null && wallet.networkId !== networkId)) {
-        throw new BadRequestException('Reserve wallet must belong to this tenant and match the asset/network');
-      }
-    }
     const idempotencyKey = deterministicIdempotencyKey({ type: `reserve:${reserveType}:${assetId}`, tenantId,
       walletId: walletId ?? undefined, assetId, networkId: networkId ?? undefined, externalRef: `${reserveType}:${requiredAmount}` });
-    const existing = await this.prisma.custodyReserve.findFirst({ where: { tenantId, idempotencyKey } });
-    if (existing) return existing;
-    const reserve = await this.prisma.custodyReserve.create({ data: {
-      tenantId, walletId, assetId, networkId, reserveType, requiredAmount,
-      // No balance has been observed here; the nullable column must remain unknown.
-      availableAmount: null, state: 'ACTIVE', metadata: { operatorId, reason }, idempotencyKey,
-    } });
-    await this.auditService.log({ tenantId, walletId, action: CustodyAuditAction.RESERVE_CREATED,
-      entityType: 'CUSTODY_RESERVE', entityId: reserve.id, actorId: operatorId, correlationId,
-      evidence: { reserveType, assetId, networkId, requiredAmount, reason } });
-    return reserve;
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      await lockCustodyReserveAccounting(tx, tenantId, assetId);
+      if (walletId) {
+        const wallet = await tx.custodyWallet.findFirst({ where: { tenantId, id: walletId } });
+        if (!wallet || wallet.assetId !== assetId || (networkId !== null && wallet.networkId !== networkId)) {
+          throw new BadRequestException('Reserve wallet must belong to this tenant and match the asset/network');
+        }
+      }
+      const existing = await tx.custodyReserve.findFirst({ where: { tenantId, idempotencyKey } });
+      if (existing) return existing;
+      const safeReason = redactSecrets(reason);
+      const reserve = await tx.custodyReserve.create({ data: {
+        tenantId, walletId, assetId, networkId, reserveType, requiredAmount,
+        // No balance has been observed here; the nullable column must remain unknown.
+        availableAmount: null, state: 'ACTIVE', metadata: custodyJsonInput({ operatorId, reason: safeReason }), idempotencyKey,
+      } });
+      // RESERVE_UPDATED is the existing database enum; the evidence records the
+      // precise creation operation. The reserve and its audit commit together.
+      await tx.custodyAudit.create({ data: { tenantId, walletId, action: 'RESERVE_UPDATED',
+        entityType: 'CUSTODY_RESERVE', entityId: reserve.id, actorId: operatorId, correlationId,
+        toState: 'ACTIVE', evidence: custodyJsonInput(redactSecrets({ operation: 'CREATE', reserveType, assetId, networkId, requiredAmount, reason })) } });
+      return reserve;
+    });
   }
 
   async evaluateReserveSufficiency(params: {
@@ -70,17 +80,20 @@ export class ReserveManagementService {
     assetId: string;
     networkId?: string | null;
     requestedAmount: string;
-  }): Promise<ReserveSufficiencyResult> {
+  }, observedBalance?: BalanceObservation): Promise<ReserveSufficiencyResult> {
     const { tenantId, walletId = null, assetId, networkId = null, requestedAmount } = params;
     if (!isValidDecimal(requestedAmount) || cmp(requestedAmount, '0') <= 0) throw new BadRequestException('Requested amount must be a positive supported-precision decimal');
     if (!assetId) throw new BadRequestException('Reserve asset must be explicit');
+    // Only trusted server code can supply this positional argument. It must
+    // identify a single wallet; HTTP DTO fields cannot inject an observation.
+    if (observedBalance && (!walletId || !networkId)) throw new BadRequestException('A supplied observation requires one wallet and network');
     const where: Prisma.CustodyReserveWhereInput = { tenantId, assetId, state: { in: ['ACTIVE', 'LOCKED', 'INSUFFICIENT', 'SUFFICIENT'] } };
     const conditions: Prisma.CustodyReserveWhereInput[] = [];
     // A wallet/network-specific check cannot ignore an applicable tenant-wide reserve.
     if (walletId) conditions.push({ OR: [{ walletId }, { walletId: null }] });
     if (networkId) conditions.push({ OR: [{ networkId }, { networkId: null }] });
     if (conditions.length) where.AND = conditions;
-    const reserves = await this.prisma.custodyReserve.findMany({ where });
+    const reserves = await this.prisma.withTenantRls(tenantId, (tx) => tx.custodyReserve.findMany({ where }));
     let storedRequired = '0';
     for (const reserve of reserves) {
       if (!isValidDecimal(reserve.requiredAmount) || cmp(reserve.requiredAmount, '0') < 0) throw new Error('Invalid persisted reserve amount');
@@ -88,19 +101,21 @@ export class ReserveManagementService {
     }
     const policy = await this.custodyPolicyService.resolvePolicy({ tenantId, walletId: walletId ?? undefined });
     // Inspect every matching wallet, not a capped/partially swallowed treasury aggregate.
-    const wallets = await this.prisma.custodyWallet.findMany({ where: {
+    const wallets = await this.prisma.withTenantRls(tenantId, (tx) => tx.custodyWallet.findMany({ where: {
       tenantId, assetId, state: 'ACTIVE', ...(walletId ? { id: walletId } : {}), ...(networkId ? { networkId } : {}),
-    } });
+    } }));
     if (walletId && wallets.length !== 1) throw new BadRequestException('Reserve wallet not found for this tenant and asset/network');
     if (wallets.length === 0) return this.unknown(reserves, storedRequired, 'NO_AUTHORITATIVE_WALLET_OBSERVATION');
     let available = '0';
     for (const wallet of wallets) {
       if (!wallet.networkId) return this.unknown(reserves, storedRequired, 'WALLET_NETWORK_UNKNOWN');
       try {
-        const balance = await this.treasuryBalanceService.getWalletBalance({ tenantId, walletId: wallet.id, assetId, networkId: wallet.networkId });
+        const balance = observedBalance ?? await this.treasuryBalanceService.getWalletBalance({ tenantId, walletId: wallet.id, assetId, networkId: wallet.networkId });
+        const observedAt = Date.parse(balance.observationTimestamp);
         if (balance.dataCompleteness !== 'PROVIDER_DERIVED' || balance.walletId !== wallet.id
           || balance.assetId !== assetId || balance.networkId !== wallet.networkId || !balance.sourceReference
-          || balance.available === null || !isValidDecimal(balance.available) || cmp(balance.available, '0') < 0) {
+          || balance.available === null || !isValidDecimal(balance.available) || cmp(balance.available, '0') < 0
+          || !Number.isFinite(observedAt) || observedAt > Date.now() + 5_000 || Date.now() - observedAt > 60_000) {
           return this.unknown(reserves, storedRequired, 'AUTHORITATIVE_BALANCE_UNKNOWN');
         }
         available = add(available, balance.available);
@@ -137,10 +152,10 @@ export class ReserveManagementService {
       if (!member) throw new BadRequestException('Invalid reserve state');
       where.state = member;
     }
-    const [data, total] = await Promise.all([
-      this.prisma.custodyReserve.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-      this.prisma.custodyReserve.count({ where }),
-    ]);
+    const [data, total] = await this.prisma.withTenantRls(tenantId, (tx) => Promise.all([
+      tx.custodyReserve.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      tx.custodyReserve.count({ where }),
+    ]));
     return { data, total, page, limit };
   }
 

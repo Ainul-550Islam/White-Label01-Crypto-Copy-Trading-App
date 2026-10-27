@@ -41,6 +41,12 @@ export class CacheService {
     }
   }
 
+  /** Atomically creates an expiring marker. Fail closed if Redis is unavailable. */
+  async setIfAbsent<T>(key: string, value: T, ttlSeconds: number): Promise<boolean> {
+    const result = await this.redis.client.set(key, JSON.stringify(value), 'EX', ttlSeconds, 'NX');
+    return result === 'OK';
+  }
+
   async delete(...keys: string[]): Promise<void> {
     if (keys.length === 0) {
       return;
@@ -140,6 +146,12 @@ export class CacheService {
     pipeline.incrby(key, amount);
     pipeline.expire(key, ttlSeconds, 'NX');
     const results = await pipeline.exec();
-    return Number(results?.[0]?.[1] ?? 0);
+    // EXEC may return null or per-command errors without throwing. Treating
+    // either as zero/NaN would let rate limits and reservations fail open.
+    if (!results || results.length !== 2 || results[0]?.[0] || results[1]?.[0] ||
+        !Number.isSafeInteger(results[0]?.[1]) || ![0, 1].includes(results[1]?.[1] as number)) {
+      throw new Error('CACHE_INCREMENT_UNAVAILABLE');
+    }
+    return results[0]![1] as number;
   }
 }

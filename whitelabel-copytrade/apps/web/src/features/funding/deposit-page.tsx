@@ -1,14 +1,14 @@
 "use client";
 
 import type { JSX } from 'react';
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   fundingApi,
   isPositiveAmount,
   type FundingRequest,
 } from "@/api/funding-api";
-import { ApiError } from "@/api/api-errors";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import { PageContainer } from "@/layout/page-container";
 import { LoadingState } from "@/components/loading-state";
 import { ErrorState, InlineError } from "@/components/error-state";
@@ -31,13 +31,22 @@ export function DepositPage(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [created, setCreated] = useState<FundingRequest | null>(null);
+  // Retain uncertain requests for each draft until the server acknowledges it.
+  const intents = useRef(new Map<string, string>());
 
   const amountValid = isPositiveAmount(amount.trim());
   const currencyValid = /^[A-Z0-9]{2,10}$/.test(currency);
   const canSubmit =
-    Boolean(accountId) && amountValid && currencyValid && !loading;
+    Boolean(accountId) && amountValid && currencyValid && Boolean(reference.trim()) && !loading;
 
   const handleSubmit = async (): Promise<void> => {
+    if (!canSubmit) return;
+    const signature = JSON.stringify([accountId, amount.trim(), currency, reference.trim()]);
+    let key = intents.current.get(signature);
+    if (!key) {
+      key = newIdempotencyKey('deposit');
+      intents.current.set(signature, key);
+    }
     setLoading(true);
     setError("");
     try {
@@ -45,8 +54,10 @@ export function DepositPage(): JSX.Element {
         accountId,
         amount: amount.trim(),
         currency,
-        externalReference: reference.trim() || undefined,
+        externalReference: reference.trim(),
+        idempotencyKey: key,
       });
+      intents.current.delete(signature);
       setCreated(request);
       setAmount("");
       setReference("");
@@ -54,12 +65,8 @@ export function DepositPage(): JSX.Element {
       await queryClient.invalidateQueries({
         queryKey: ["dashboard", "funding"],
       });
-    } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.getUserMessage()
-          : "The deposit request could not be created.",
-      );
+    } catch {
+      setError("The deposit request could not be confirmed. Check your funding history before trying again.");
     } finally {
       setLoading(false);
     }
@@ -129,8 +136,9 @@ export function DepositPage(): JSX.Element {
             </p>
           )}
           <label className="block text-sm">
-            Transfer reference (optional)
+            Transfer reference (required)
             <input
+              required
               value={reference}
               onChange={(e) => setReference(e.target.value)}
               maxLength={120}

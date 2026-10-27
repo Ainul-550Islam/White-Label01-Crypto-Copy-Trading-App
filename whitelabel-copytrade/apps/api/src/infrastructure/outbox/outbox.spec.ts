@@ -395,18 +395,16 @@ describe('transactional outbox writer and domain integration', () => {
 
 describe('outbox relay recovery and ordering', () => {
   it('maps failed, rejected, and skipped copy executions to their typed terminal events', async () => {
-    // Each case starts from a status the lifecycle table allows the edge from:
-    // the harness default (ROUTED) reaches FAILED/REJECTED, while SKIPPED is a
-    // pre-route decision and is only reachable before routing.
     const cases = [
-      { from: CopyExecutionStatus.ROUTED, status: CopyExecutionStatus.FAILED, eventType: 'copy.execution.failed' },
-      { from: CopyExecutionStatus.ROUTED, status: CopyExecutionStatus.REJECTED, eventType: 'copy.execution.failed' },
-      { from: CopyExecutionStatus.PENDING, status: CopyExecutionStatus.SKIPPED, eventType: 'copy.execution.skipped' },
+      { status: CopyExecutionStatus.FAILED, eventType: 'copy.execution.failed' },
+      { status: CopyExecutionStatus.REJECTED, eventType: 'copy.execution.failed' },
+      { status: CopyExecutionStatus.SKIPPED, eventType: 'copy.execution.skipped' },
     ] as const;
 
     for (const item of cases) {
       const harness = makeTransactionalCopyExecutionPrisma();
-      harness.committed.execution.status = item.from;
+      // Skipping is legal before routing, not after an order is routed.
+      if (item.status === CopyExecutionStatus.SKIPPED) harness.committed.execution.status = CopyExecutionStatus.RISK_CHECKED;
       const repository = new CopyExecutionRepository(harness.prisma as never, new OutboxService());
       await repository.updateStatus('execution-1', TENANT_ID, item.status);
 
@@ -451,7 +449,7 @@ describe('outbox relay recovery and ordering', () => {
       },
     };
     const actualSubscriptions = new EventSubscriptionService(
-      subscriptionStore as never,
+      { withTenantRls: async (_tenantId: string, work: (tx: typeof subscriptionStore) => Promise<unknown>) => work(subscriptionStore) } as never,
       { enqueue: deliveryEnqueue } as never,
     );
     const harness = makeRelayHarness(catalogEvents, { subscriptions: actualSubscriptions });
@@ -600,9 +598,6 @@ describe('copy execution stop lifecycle identity', () => {
       {} as never,
       {} as never,
       new OutboxService(),
-      // Copy-budget evaluation sits on the order path; the transition helper
-      // under test never reaches it, so the stub only has to exist.
-      { evaluate: jest.fn() } as never,
     );
     const transition = (service as unknown as {
       transitionSubscriptionWithOutbox(input: {

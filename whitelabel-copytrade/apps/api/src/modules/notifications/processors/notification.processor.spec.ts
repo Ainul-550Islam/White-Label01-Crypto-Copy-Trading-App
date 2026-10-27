@@ -7,6 +7,7 @@ import type { PrismaService } from '../../../infrastructure/prisma/prisma.servic
 describe('NotificationProcessor', () => {
   it('honors an opted-out channel for non-critical notifications', async () => {
     const prisma = {
+      withTenantRls: jest.fn((_tenant: string, fn: (tx: unknown) => unknown) => fn(prisma)),
       notificationPreference: {
         findMany: jest
           .fn()
@@ -24,19 +25,21 @@ describe('NotificationProcessor', () => {
     const channels = await (
       processor as unknown as {
         filterByPreferences: (
+          tenant: string,
           user: string,
           category: string,
           channels: NotificationChannel[],
           critical: boolean,
         ) => Promise<NotificationChannel[]>;
       }
-    ).filterByPreferences('user-1', 'billing', [NotificationChannel.EMAIL], false);
+    ).filterByPreferences('tenant-1', 'user-1', 'billing', [NotificationChannel.EMAIL], false);
     expect(channels).toEqual([]);
   });
 
   it('records unsupported delivery failures instead of dropping the notification', async () => {
     const create = jest.fn().mockResolvedValue({ id: 'notification-1' });
     const prisma = {
+      withTenantRls: jest.fn((_tenant: string, fn: (tx: unknown) => unknown) => fn(prisma)),
       user: {
         findFirst: jest.fn().mockResolvedValue({
           id: 'user-1',

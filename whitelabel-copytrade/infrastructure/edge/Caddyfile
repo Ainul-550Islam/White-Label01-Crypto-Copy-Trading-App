@@ -32,6 +32,10 @@ api.{$DOMAIN} {
 
 app.{$DOMAIN} {
   import api_security
+  # Next normalizes dot segments before its route handlers run. Match in
+  # normalized space, but require the original request target to be canonical.
+  @noncanonicalPublicFee expression `path('/api/proxy/public/fee-schedule', '/api/proxy/*/public/fee-schedule') && !{http.request.orig_uri}.matches('^/api/proxy/(v[0-9]+/)?public/fee-schedule([?].*)?$')`
+  respond @noncanonicalPublicFee 400
   reverse_proxy web:3001
 }
 

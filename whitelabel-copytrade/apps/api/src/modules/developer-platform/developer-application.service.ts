@@ -9,7 +9,8 @@
  * no tokens, no credentials, no reactivation.
  */
 
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
@@ -29,6 +30,7 @@ import {
   type DeveloperPolicy,
 } from './developer-policy.service';
 import { DeveloperAuditService } from './developer-audit.service';
+import { claimMutationIntent } from './developer-mutation-intent';
 
 export interface DeveloperActor {
   tenantId: string;
@@ -74,10 +76,16 @@ export class DeveloperApplicationService {
       );
     }
     for (const uri of unique) {
-      if (!REDIRECT_URI_PATTERN.test(uri)) {
+      let validUrl = false;
+      try {
+        const parsed = new URL(uri);
+        validUrl = Boolean(parsed.hostname) && !parsed.username && !parsed.password && !parsed.search && !parsed.hash
+          && (parsed.protocol === 'https:' || (parsed.protocol === 'http:' && parsed.hostname === 'localhost'));
+      } catch { /* rejected below */ }
+      if (!REDIRECT_URI_PATTERN.test(uri) || !validUrl) {
         throw new DeveloperError(
           DEVELOPER_ERROR_CODES.REDIRECT_URI_MISMATCH,
-          `redirect URI '${uri}' is not a valid https (or localhost-development) URI`,
+          'redirect URI must be a valid https (or localhost-development) URI',
         );
       }
       if (environment === 'PRODUCTION' && uri.startsWith('http://')) {
@@ -95,7 +103,7 @@ export class DeveloperApplicationService {
    * derives both the idempotency key and the client id, so a retried
    * registration returns the SAME application instead of a duplicate.
    */
-  async create(input: CreateApplicationInput) {
+  async create(input: CreateApplicationInput, requestKey: string) {
     const plan = await this.policyData.planLimitViewForTenant(input.tenantId);
     const entitlements = await this.policyData.tenantEntitlementKeys(input.tenantId);
     const policy = this.policyService.resolve(input.tenantId, plan, entitlements);
@@ -130,50 +138,61 @@ export class DeveloperApplicationService {
     const naturalKey = input.naturalKey ?? input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48);
     const idem = idempotencyKey(input.tenantId, 'developer_application.create', naturalKey);
 
-    const existing = await this.prisma.developerApplication.findFirst({
-      where: { tenantId: input.tenantId, idempotencyKey: idem },
-    });
-    if (existing) {
-      return existing;
-    }
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      // The tenant row serializes the quota check and duplicate natural key.
+      await tx.$queryRaw`SELECT "id" FROM "tenants" WHERE "id" = ${input.tenantId}::uuid FOR UPDATE`;
+      await claimMutationIntent(tx, input.tenantId, requestKey, 'application.create', idem);
+      const existing = await tx.developerApplication.findFirst({
+        where: { tenantId: input.tenantId, idempotencyKey: idem },
+      });
+      if (existing) {
+        const sameRedirects = existing.redirectUris.length === redirectUris.length && redirectUris.every((uri) => existing.redirectUris.includes(uri));
+        const sameScopes = existing.scopes.length === scopes.length && scopes.every((scope) => existing.scopes.includes(scope));
+        if (existing.name !== input.name || existing.description !== input.description || existing.environment !== environment
+          || existing.partnerId !== (input.partnerId ?? null) || !sameRedirects || !sameScopes) {
+          throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'application natural key is already in use');
+        }
+        return existing;
+      }
 
-    const count = await this.prisma.developerApplication.count({
-      where: { tenantId: input.tenantId, state: { not: 'REVOKED' } },
-    });
-    if (count >= policy.maxApplications) {
-      throw new DeveloperError(
-        DEVELOPER_ERROR_CODES.POLICY_LIMIT,
-        `plan allows at most ${policy.maxApplications} active applications`,
-      );
-    }
+      const count = await tx.developerApplication.count({
+        where: { tenantId: input.tenantId, state: { not: 'REVOKED' } },
+      });
+      if (count >= policy.maxApplications) {
+        throw new DeveloperError(
+          DEVELOPER_ERROR_CODES.POLICY_LIMIT,
+          `plan allows at most ${policy.maxApplications} active applications`,
+        );
+      }
 
-    const application = await this.prisma.developerApplication.create({
-      data: {
+      const application = await tx.developerApplication.create({
+        data: {
+          tenantId: input.tenantId,
+          partnerId: input.partnerId ?? null,
+          name: input.name,
+          description: input.description,
+          clientId: deterministicClientId(input.tenantId, naturalKey),
+          state: 'PENDING',
+          environment,
+          redirectUris,
+          scopes,
+          homePageUrl: null,
+          idempotencyKey: idem,
+          naturalKey,
+          createdByActorId: input.actorId,
+        },
+      });
+      await this.audit.record({
         tenantId: input.tenantId,
-        partnerId: input.partnerId ?? null,
-        name: input.name,
-        description: input.description,
-        clientId: deterministicClientId(input.tenantId, naturalKey),
-        state: 'PENDING',
-        environment,
-        redirectUris,
-        scopes,
-        homePageUrl: null,
-        idempotencyKey: idem,
-        naturalKey,
-        createdByActorId: input.actorId,
-      },
+        applicationId: application.id,
+        actorType: input.actorType,
+        actorId: input.actorId,
+        correlationId: input.correlationId,
+        action: 'application.created',
+        detail: { name: application.name, clientId: application.clientId, environment },
+      }, tx);
+      return application;
     });
-    await this.audit.record({
-      tenantId: input.tenantId,
-      applicationId: application.id,
-      actorType: input.actorType,
-      actorId: input.actorId,
-      correlationId: input.correlationId,
-      action: 'application.created',
-      detail: { name: application.name, clientId: application.clientId, environment },
-    });
-    return application;
   }
 
   /** Portal listing scoped to the caller's tenant ONLY. */
@@ -182,22 +201,27 @@ export class DeveloperApplicationService {
     query: { state?: string; environment?: string; limit?: number; cursor?: string },
   ) {
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-    const rows = await this.prisma.developerApplication.findMany({
-      where: {
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const where = {
         tenantId,
         ...(query.state ? { state: query.state } : {}),
         ...(query.environment ? { environment: query.environment } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      };
+      if (query.cursor && (!isUUID(query.cursor) || !await tx.developerApplication.findFirst({
+        where: { ...where, id: query.cursor }, select: { id: true },
+      }))) throw new BadRequestException('invalid application cursor');
+      const rows = await tx.developerApplication.findMany({
+        where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      });
+      const page = rows.slice(0, limit);
+      return {
+        rows: page.map(({ idempotencyKey: _idem, createdByActorId: _actor, ...safe }) => {
+          void _idem; void _actor; return safe;
+        }),
+        nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+      };
     });
-    return {
-      rows: rows.map(({ idempotencyKey: _idem, createdByActorId: _actor, ...safe }: { idempotencyKey: string; createdByActorId: string } & Record<string, unknown>) => {
-        void _idem;
-        void _actor;
-        return safe;
-      }),
-    };
   }
 
   /** Owned read; cross-tenant ids are indistinguishable from unknown. */
@@ -214,9 +238,9 @@ export class DeveloperApplicationService {
   }
 
   private async loadOwned(tenantId: string, applicationId: string) {
-    const application = await this.prisma.developerApplication.findUnique({
+    const application = await this.prisma.withTenantRls(tenantId, (tx) => tx.developerApplication.findUnique({
       where: { id: applicationId },
-    });
+    }));
     if (!application || application.tenantId !== tenantId) {
       throw new NotFoundException('developer application not found');
     }
@@ -227,6 +251,7 @@ export class DeveloperApplicationService {
     actor: DeveloperActor,
     applicationId: string,
     patch: { name?: string; description?: string; redirectUris?: string[]; homePageUrl?: string },
+    requestKey: string,
   ) {
     const application = await this.loadOwned(actor.tenantId, applicationId);
     if (application.state === 'REVOKED') {
@@ -240,26 +265,34 @@ export class DeveloperApplicationService {
     const policy = this.policyService.resolve(actor.tenantId, plan, entitlements);
     const redirectUris = patch.redirectUris
       ? this.validateRedirectUris(patch.redirectUris, policy, application.environment)
-      : application.redirectUris;
-    const updated = await this.prisma.developerApplication.update({
-      where: { id: application.id },
-      data: {
-        name: patch.name ?? application.name,
-        description: patch.description ?? application.description,
-        homePageUrl: patch.homePageUrl ?? application.homePageUrl,
-        redirectUris,
-      },
+      : undefined;
+    return this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "developer_applications" WHERE "id" = ${application.id}::uuid AND "tenant_id" = ${actor.tenantId}::uuid FOR UPDATE`;
+      const current = await tx.developerApplication.findUnique({ where: { id: application.id } });
+      if (!current || current.tenantId !== actor.tenantId) throw new NotFoundException('developer application not found');
+      if (current.state === 'REVOKED') throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_REVOKED, 'revoked applications cannot be modified');
+      await claimMutationIntent(tx, actor.tenantId, requestKey, 'application.update', application.id);
+      const updated = await tx.developerApplication.update({
+        where: { id: application.id },
+        data: {
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.homePageUrl !== undefined ? { homePageUrl: patch.homePageUrl } : {}),
+          ...(redirectUris !== undefined ? { redirectUris } : {}),
+        },
+      });
+      await this.audit.record({
+        tenantId: actor.tenantId,
+        applicationId: application.id,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        correlationId: actor.correlationId,
+        action: 'application.updated',
+        detail: { fields: Object.keys(patch) },
+      }, tx);
+      const { idempotencyKey: _idem, createdByActorId: _actor, ...safe } = updated;
+      void _idem; void _actor; return safe;
     });
-    await this.audit.record({
-      tenantId: actor.tenantId,
-      applicationId: application.id,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      correlationId: actor.correlationId,
-      action: 'application.updated',
-      detail: { fields: Object.keys(patch) },
-    });
-    return updated;
   }
 
   private async transition(
@@ -267,31 +300,45 @@ export class DeveloperApplicationService {
     applicationId: string,
     target: ApplicationState,
     action: string,
+    requestKey: string,
     reason?: string,
+    requiredState?: ApplicationState,
   ): Promise<void> {
     const application = await this.loadOwned(actor.tenantId, applicationId);
-    transitionOrThrow(APPLICATION_TRANSITIONS, application.state, target, `application ${application.id}`);
-    await this.prisma.developerApplication.update({
-      where: { id: application.id },
-      data: { state: target },
-    });
-    await this.audit.record({
-      tenantId: actor.tenantId,
-      applicationId: application.id,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      correlationId: actor.correlationId,
-      action,
-      detail: { from: application.state, to: target, reason: reason ?? null },
+    if (requiredState && application.state !== requiredState) {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'application is not in the required state');
+    }
+    // Policy may explicitly allow reactivation without a review stage. All
+    // other transitions still follow the fixed lifecycle map.
+    if (!(action === 'application.reactivation_requested' && application.state === 'SUSPENDED' && target === 'ACTIVE')) {
+      transitionOrThrow(APPLICATION_TRANSITIONS, application.state, target, `application ${application.id}`);
+    }
+    await this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      await claimMutationIntent(tx, actor.tenantId, requestKey, 'application.transition', `${application.id}:${target}`);
+      const changed = await tx.developerApplication.updateMany({
+        where: { id: application.id, tenantId: actor.tenantId, state: application.state },
+        data: { state: target },
+      });
+      if (changed.count !== 1) throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'application state changed');
+      await this.audit.record({
+        tenantId: actor.tenantId,
+        applicationId: application.id,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        correlationId: actor.correlationId,
+        action,
+        detail: { from: application.state, to: target, reason: reason ?? null },
+      }, tx);
     });
   }
 
-  async activate(actor: DeveloperActor, applicationId: string): Promise<void> {
-    await this.transition(actor, applicationId, 'ACTIVE', 'application.activated');
+  async activate(actor: DeveloperActor, applicationId: string, requestKey: string): Promise<void> {
+    // Review approvals require a separate platform-only operation.
+    await this.transition(actor, applicationId, 'ACTIVE', 'application.activated', requestKey, undefined, 'PENDING');
   }
 
-  async suspend(actor: DeveloperActor, applicationId: string, reason?: string): Promise<void> {
-    await this.transition(actor, applicationId, 'SUSPENDED', 'application.suspended', reason);
+  async suspend(actor: DeveloperActor, applicationId: string, reason: string | undefined, requestKey: string): Promise<void> {
+    await this.transition(actor, applicationId, 'SUSPENDED', 'application.suspended', requestKey, reason);
   }
 
   /**
@@ -299,7 +346,7 @@ export class DeveloperApplicationService {
    * REVIEW state is itself audited so partner/tenant self-reactivation is
    * always visible to platform staff.
    */
-  async requestReactivation(actor: DeveloperActor, applicationId: string, reason?: string): Promise<ApplicationState> {
+  async requestReactivation(actor: DeveloperActor, applicationId: string, reason: string | undefined, requestKey: string): Promise<ApplicationState> {
     await this.loadOwned(actor.tenantId, applicationId);
     const plan = await this.policyData.planLimitViewForTenant(actor.tenantId);
     const entitlements = await this.policyData.tenantEntitlementKeys(actor.tenantId);
@@ -307,44 +354,49 @@ export class DeveloperApplicationService {
     const target: ApplicationState = policy.reactivationReviewRequired
       ? 'REACTIVATION_REVIEW'
       : 'ACTIVE';
-    await this.transition(actor, applicationId, target, 'application.reactivation_requested', reason);
+    await this.transition(actor, applicationId, target, 'application.reactivation_requested', requestKey, reason, 'SUSPENDED');
     return target;
   }
 
-  async approveReactivation(actor: DeveloperActor, applicationId: string): Promise<void> {
-    await this.transition(actor, applicationId, 'ACTIVE', 'application.reactivation_approved');
+  async approveReactivation(actor: DeveloperActor, applicationId: string, requestKey: string): Promise<void> {
+    await this.transition(actor, applicationId, 'ACTIVE', 'application.reactivation_approved', requestKey, undefined, 'REACTIVATION_REVIEW');
   }
 
-  async revoke(actor: DeveloperActor, applicationId: string, reason?: string): Promise<void> {
-    await this.transition(actor, applicationId, 'REVOKED', 'application.revoked', reason);
+  async revoke(actor: DeveloperActor, applicationId: string, reason: string | undefined, requestKey: string): Promise<void> {
+    await this.transition(actor, applicationId, 'REVOKED', 'application.revoked', requestKey, reason);
   }
 
-  async addRedirectUri(actor: DeveloperActor, applicationId: string, uri: string) {
+  async addRedirectUri(actor: DeveloperActor, applicationId: string, uri: string, requestKey: string) {
     const application = await this.loadOwned(actor.tenantId, applicationId);
     const plan = await this.policyData.planLimitViewForTenant(actor.tenantId);
     const entitlements = await this.policyData.tenantEntitlementKeys(actor.tenantId);
     const policy = this.policyService.resolve(actor.tenantId, plan, entitlements);
-    if (application.redirectUris.includes(uri)) {
-      return application;
-    }
-    const redirectUris = this.validateRedirectUris(
-      [...application.redirectUris, uri],
-      policy,
-      application.environment,
-    );
-    const updated = await this.prisma.developerApplication.update({
-      where: { id: application.id },
-      data: { redirectUris },
+    return this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "developer_applications" WHERE "id" = ${application.id}::uuid AND "tenant_id" = ${actor.tenantId}::uuid FOR UPDATE`;
+      const current = await tx.developerApplication.findUnique({ where: { id: application.id } });
+      if (!current || current.tenantId !== actor.tenantId) throw new NotFoundException('developer application not found');
+      if (current.state === 'REVOKED') throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_REVOKED, 'revoked applications cannot be modified');
+      await claimMutationIntent(tx, actor.tenantId, requestKey, 'application.redirect_add', application.id);
+      if (current.redirectUris.includes(uri)) {
+        const { idempotencyKey: _idem, createdByActorId: _actor, ...safe } = current;
+        void _idem; void _actor; return safe;
+      }
+      const redirectUris = this.validateRedirectUris([...current.redirectUris, uri], policy, current.environment);
+      const updated = await tx.developerApplication.update({
+        where: { id: application.id },
+        data: { redirectUris },
+      });
+      await this.audit.record({
+        tenantId: actor.tenantId,
+        applicationId: application.id,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        correlationId: actor.correlationId,
+        action: 'application.redirect_added',
+        detail: { uri },
+      }, tx);
+      const { idempotencyKey: _idem, createdByActorId: _actor, ...safe } = updated;
+      void _idem; void _actor; return safe;
     });
-    await this.audit.record({
-      tenantId: actor.tenantId,
-      applicationId: application.id,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      correlationId: actor.correlationId,
-      action: 'application.redirect_added',
-      detail: { uri },
-    });
-    return updated;
   }
 }

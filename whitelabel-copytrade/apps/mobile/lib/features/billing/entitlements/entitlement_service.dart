@@ -48,7 +48,7 @@ class EntitlementService {
     final uri = Uri.parse('$baseUrl/api/billing/entitlements/check/$featureKey');
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+      final data = json.decode(response.body) as Map<String, dynamic>;
       return data['allowed'] as bool;
     }
     return false;
@@ -59,7 +59,7 @@ class EntitlementService {
     final uri = Uri.parse('$baseUrl/api/billing/entitlements/limits/$limitKey/check');
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+      final data = json.decode(response.body) as Map<String, dynamic>;
       return data['allowed'] as bool;
     }
     return false;

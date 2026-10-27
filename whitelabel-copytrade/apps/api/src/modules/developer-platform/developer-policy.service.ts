@@ -8,6 +8,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 
 import { DEVELOPER_SCOPES, type ApiVersionContract } from './developer.types';
 
@@ -24,8 +25,8 @@ export const DEVELOPER_POLICY_SOURCE = Symbol('DEVELOPER_POLICY_SOURCE');
  * never touch plan tables directly (single source of limit truth).
  */
 export interface DeveloperPolicyDataPort {
-  planLimitViewForTenant(tenantId: string): Promise<PlanLimitView>;
-  tenantEntitlementKeys(tenantId: string): Promise<string[]>;
+  planLimitViewForTenant(tenantId: string, transaction?: Prisma.TransactionClient): Promise<PlanLimitView>;
+  tenantEntitlementKeys(tenantId: string, transaction?: Prisma.TransactionClient): Promise<string[]>;
 }
 
 export const DEVELOPER_POLICY_DATA_PORT = Symbol('DEVELOPER_POLICY_DATA_PORT');
@@ -120,9 +121,9 @@ export class DeveloperPolicyService {
     const sustained =
       planSustained === undefined ? platformSustained : Math.min(platformSustained, planSustained);
 
-    // Scopes: plan features grant categories; the union with entitlement-
-    // granted scopes forms the tenant's ceiling. Unknown scopes can never
-    // enter here because both inputs are produced by the platform.
+    // A tenant flag is not an independent platform entitlement: an enabled
+    // override can outlive a downgrade. The current plan's machine-readable
+    // grants are the hard ceiling, even when an old flag names a wider scope.
     const scopeByFeature: Record<string, string[]> = {
       developer_portfolio_read: ['profile:read', 'account:read', 'portfolio:read'],
       developer_trading: ['trading:read', 'trading:execute', 'portfolio:read'],
@@ -135,7 +136,8 @@ export class DeveloperPolicyService {
       developer_management: ['developer:manage'],
     };
     const allowedScopes = new Set<string>();
-    for (const feature of [...plan.features, ...entitlements]) {
+    const grantedFeatures = new Set(plan.features);
+    for (const feature of [...plan.features, ...entitlements.filter((key) => grantedFeatures.has(key))]) {
       for (const scope of scopeByFeature[feature] ?? []) {
         allowedScopes.add(scope);
       }
@@ -155,9 +157,9 @@ export class DeveloperPolicyService {
       planKey: plan.planKey,
       maxApplications,
       maxCredentialsPerApplication: maxCredentials,
-      maxRedirectUris: limit('developer_redirect_uris') ?? 5,
+      maxRedirectUris: limit('developer_redirect_uris') ?? 0,
       maxWebhookSubscriptions: maxWebhooks,
-      maxWebhookEndpointsPerApplication: limit('developer_webhook_endpoints_per_app') ?? 3,
+      maxWebhookEndpointsPerApplication: limit('developer_webhook_endpoints_per_app') ?? 0,
       webhookMaxAttempts: positiveInt(this.source, DEVELOPER_POLICY_ENV_KEYS.webhookMaxAttempts, 5),
       webhookTimestampToleranceSeconds: positiveInt(
         this.source,
@@ -166,7 +168,9 @@ export class DeveloperPolicyService {
       ),
       rateLimit: { burstPerMinute: burst, sustainedPerMinute: sustained },
       oauth: {
-        pkceRequired: limit('developer_pkce_required') === 1,
+        // Interactive OAuth enforces S256 for every application, even if a
+        // legacy plan omitted or disabled the historical toggle.
+        pkceRequired: true,
         requireConsent: true,
         authorizationCodeTtlSeconds: positiveInt(
           this.source,

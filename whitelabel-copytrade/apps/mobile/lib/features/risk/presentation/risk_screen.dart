@@ -7,11 +7,13 @@ import '../../../core/di/providers.dart';
 import '../../../l10n/app_localizations.dart';
 import '../domain/risk_models.dart';
 import 'risk_state.dart';
+import 'copy_budget_card.dart';
 
-/// Read-only risk viewer.
+/// Read-only risk posture with a separate, reduction-only copy-budget control.
 ///
-/// This screen answers two questions and stops: is anything halted, and is
-/// the engine looking at fresh state. There is no button here that engages
+/// The posture panel answers whether anything is halted and whether the engine
+/// is looking at fresh state. The separate budget card can only reduce the
+/// caller's copy-trading ceiling. There is no button here that engages
 /// or clears a switch - clearing especially not, because a triggered
 /// protection is exactly the thing that must NOT be dismissible from a
 /// device one careless thumb from a "looks fine". The admin console carries
@@ -53,14 +55,18 @@ class _RiskScreenState extends ConsumerState<RiskScreen> {
     );
   }
 
-  Widget _body(BuildContext context, AppLocalizations l10n, RiskViewState state) {
+  Widget _body(
+    BuildContext context,
+    AppLocalizations l10n,
+    RiskViewState state,
+  ) {
     if (state.status == RiskViewStatus.loading && !state.hasAnyData) {
       return const Center(child: CircularProgressIndicator());
     }
 
     if (state.status == RiskViewStatus.failed && !state.hasAnyData) {
       return _FailureView(
-        message: state.error?.message ?? l10n.genericError,
+        message: l10n.genericError,
         retryLabel: l10n.retry,
         onRetry: () => ref.read(riskControllerProvider.notifier).load(),
       );
@@ -71,26 +77,45 @@ class _RiskScreenState extends ConsumerState<RiskScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       children: <Widget>[
         if (state.isDegraded) _DegradedBanner(message: l10n.riskPanelsDegraded),
-        if (state.mirror != null) _PostureCard(status: state.mirror!, l10n: l10n),
+        if (!state.degradedPanels.contains('status') && state.mirror != null)
+          _PostureCard(status: state.mirror!, l10n: l10n),
         const SizedBox(height: 12),
-        if (state.mirror != null) _CountersCard(status: state.mirror!, l10n: l10n),
+        if (!state.degradedPanels.contains('status') && state.mirror != null)
+          _CountersCard(status: state.mirror!, l10n: l10n),
+        const SizedBox(height: 12),
+        const CopyBudgetCard(),
         const SizedBox(height: 12),
         _SectionHeading(title: l10n.riskMirrorSection),
-        if (state.mirror == null || state.mirror!.mirrors.isEmpty)
+        if (state.degradedPanels.contains('status'))
+          _EmptyCard(message: l10n.riskPanelUnavailable)
+        else if (state.mirror == null || state.mirror!.mirrors.isEmpty)
           _EmptyCard(message: l10n.riskNoMirror)
         else
           for (final RiskAccountMirror mirror in state.mirror!.mirrors)
             _MirrorCard(mirror: mirror, l10n: l10n),
         const SizedBox(height: 12),
         _SectionHeading(title: l10n.riskSwitchesSection),
-        if (state.engagedSwitches.isEmpty)
+        if (state.degradedPanels.contains('switches'))
+          _EmptyCard(message: l10n.riskPanelUnavailable)
+        else if (state.engagedSwitches.isEmpty &&
+            !state.degradedPanels.contains('status') &&
+            (state.mirror?.engagedSwitchCount ?? 0) > 0)
+          _EmptyCard(message: l10n.riskSwitchListIncomplete)
+        else if (state.engagedSwitches.isEmpty)
           _EmptyCard(message: l10n.riskNoSwitches)
-        else
+        else ...<Widget>[
           for (final RiskSwitchInfo row in state.engagedSwitches)
             _SwitchCard(switchInfo: row, l10n: l10n),
+          if (!state.degradedPanels.contains('status') &&
+              (state.mirror?.engagedSwitchCount ?? 0) !=
+                  state.engagedSwitches.length)
+            _EmptyCard(message: l10n.riskSwitchListIncomplete),
+        ],
         const SizedBox(height: 12),
         _SectionHeading(title: l10n.riskEventsSection),
-        if (state.events.isEmpty)
+        if (state.degradedPanels.contains('events'))
+          _EmptyCard(message: l10n.riskPanelUnavailable)
+        else if (state.events.isEmpty)
           _EmptyCard(message: l10n.riskNoEvents)
         else
           for (final RiskEventInfo event in state.events)
@@ -123,7 +148,9 @@ class _PostureCard extends StatelessWidget {
             Row(
               children: <Widget>[
                 Icon(
-                  status.engineEnabled ? Icons.shield_outlined : Icons.gps_off_outlined,
+                  status.engineEnabled
+                      ? Icons.shield_outlined
+                      : Icons.gps_off_outlined,
                   color: status.engineEnabled ? colors.primary : colors.error,
                 ),
                 const SizedBox(width: 10),
@@ -145,9 +172,13 @@ class _PostureCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: <Widget>[
-                _StatusChip(label: l10n.riskFailClosedLabel, on: status.failClosed),
                 _StatusChip(
-                  label: '${l10n.riskCadenceLabel}: ${status.snapshotRefreshMs}ms / '
+                  label: l10n.riskFailClosedLabel,
+                  on: status.failClosed,
+                ),
+                _StatusChip(
+                  label:
+                      '${l10n.riskCadenceLabel}: ${status.snapshotRefreshMs}ms / '
                       '${status.maxRiskStateAgeMs}ms',
                   on: status.refreshOutpacesStaleness,
                 ),
@@ -338,7 +369,9 @@ class _SwitchCard extends StatelessWidget {
             Row(
               children: <Widget>[
                 Icon(
-                  triggered ? Icons.gpp_bad_outlined : Icons.stop_circle_outlined,
+                  triggered
+                      ? Icons.gpp_bad_outlined
+                      : Icons.stop_circle_outlined,
                   color: triggered ? colors.error : colors.primary,
                   size: 20,
                 ),
@@ -501,7 +534,11 @@ class _StatusChip extends StatelessWidget {
 }
 
 class _Counter extends StatelessWidget {
-  const _Counter({required this.label, required this.value, this.emphasise = false});
+  const _Counter({
+    required this.label,
+    required this.value,
+    this.emphasise = false,
+  });
 
   final String label;
   final String value;
@@ -548,8 +585,10 @@ class _AccentBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme colors = Theme.of(context).colorScheme;
-    final Color background = danger ? colors.errorContainer : colors.tertiaryContainer;
-    final Color foreground = danger ? colors.onErrorContainer : colors.onTertiaryContainer;
+    final Color background =
+        danger ? colors.errorContainer : colors.tertiaryContainer;
+    final Color foreground =
+        danger ? colors.onErrorContainer : colors.onTertiaryContainer;
 
     return Container(
       margin: const EdgeInsets.only(left: 6),
@@ -580,8 +619,10 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(top: 8, bottom: 8),
       child: Text(
         title,
-        style:
-            Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        style: Theme.of(context)
+            .textTheme
+            .titleMedium
+            ?.copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -686,8 +727,10 @@ String _titleCase(String value) {
   return value
       .toLowerCase()
       .split('_')
-      .map((String word) =>
-          word.isEmpty ? word : word[0].toUpperCase() + word.substring(1),)
+      .map(
+        (String word) =>
+            word.isEmpty ? word : word[0].toUpperCase() + word.substring(1),
+      )
       .join(' ');
 }
 

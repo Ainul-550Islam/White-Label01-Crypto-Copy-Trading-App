@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
@@ -20,7 +21,10 @@ import {
 } from '@wlct/shared-types';
 
 import { PlansService } from './plans.service';
-import { CreatePlanDto, ListPlansDto, UpdatePlanDto } from './dto/plan.dto';
+import { CreatePlanDto, ListPlansDto, UpdatePlanDto, PlanGrantsDto } from './dto/plan.dto';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
+import { requireMutationKey } from '../developer-platform/developer-mutation-intent';
+import type { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TenantId } from '../../common/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -70,6 +74,7 @@ export class PlansController {
   }
 
   @Post()
+  @RequireStepUp('PLAN_CREATE')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermissions(Permission.PLAN_MANAGE)
   @Audited(AuditAction.PLAN_CREATED, 'SubscriptionPlan')
@@ -80,6 +85,7 @@ export class PlansController {
     @TenantId() tenantId: string,
     @CurrentUser() actor: AuthenticatedActor,
     @RequestMeta() meta: RequestMetadata,
+    @Req() request: Request,
   ): Promise<SubscriptionPlanDto> {
     return this.plans.create(
       dto,
@@ -89,11 +95,13 @@ export class PlansController {
         auditTenantId: tenantId,
         ipHash: meta.ipHash,
         requestId: meta.requestId,
+        idempotencyKey: requireMutationKey(request),
       },
     );
   }
 
   @Patch(':id')
+  @RequireStepUp('PLAN_UPDATE')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(Permission.PLAN_MANAGE)
   @Audited(AuditAction.PLAN_UPDATED, 'SubscriptionPlan')
@@ -105,6 +113,7 @@ export class PlansController {
     @TenantId() tenantId: string,
     @CurrentUser() actor: AuthenticatedActor,
     @RequestMeta() meta: RequestMetadata,
+    @Req() request: Request,
   ): Promise<SubscriptionPlanDto> {
     return this.plans.update(
       id,
@@ -115,11 +124,24 @@ export class PlansController {
         auditTenantId: tenantId,
         ipHash: meta.ipHash,
         requestId: meta.requestId,
+        idempotencyKey: requireMutationKey(request),
       },
     );
   }
 
+  @Patch(':id/grants')
+  @RequireStepUp('PLAN_GRANTS_UPDATE')
+  @RequirePermissions(Permission.PLAN_MANAGE)
+  @ApiOperation({ summary: 'Update platform plan developer and tenant-feature grants' })
+  async updateGrants(@Param('id', ParseUuidPipe) id: string, @Body() dto: PlanGrantsDto,
+    @TenantId() tenantId: string, @CurrentUser() actor: AuthenticatedActor,
+    @RequestMeta() meta: RequestMetadata, @Req() request: Request): Promise<SubscriptionPlanDto> {
+    return this.plans.updateGrants(id, dto, { isPlatformUser: actor.isPlatformUser },
+      { actorId: actor.userId, auditTenantId: tenantId, ipHash: meta.ipHash, requestId: meta.requestId, idempotencyKey: requireMutationKey(request) });
+  }
+
   @Delete(':id')
+  @RequireStepUp('PLAN_ARCHIVE')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(Permission.PLAN_MANAGE)
   @Audited(AuditAction.PLAN_UPDATED, 'SubscriptionPlan')
@@ -133,6 +155,7 @@ export class PlansController {
     @TenantId() tenantId: string,
     @CurrentUser() actor: AuthenticatedActor,
     @RequestMeta() meta: RequestMetadata,
+    @Req() request: Request,
   ): Promise<{ id: string; archived: true }> {
     return this.plans.archive(
       id,
@@ -142,6 +165,7 @@ export class PlansController {
         auditTenantId: tenantId,
         ipHash: meta.ipHash,
         requestId: meta.requestId,
+        idempotencyKey: requireMutationKey(request),
       },
     );
   }

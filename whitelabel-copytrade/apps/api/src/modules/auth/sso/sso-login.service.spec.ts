@@ -115,7 +115,7 @@ function fakeAuthService(prisma: InMemorySsoPrisma) {
         };
       },
     ),
-    revokeSsoSession: jest.fn(async (_userId: string, sessionId: string) => {
+    revokeSsoSession: jest.fn(async (_tenantId: string, _userId: string, sessionId: string) => {
       const s = sessions.find((x) => x.id === sessionId);
       if (s) s.revoked = true;
     }),

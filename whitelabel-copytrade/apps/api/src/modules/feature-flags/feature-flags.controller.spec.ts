@@ -26,12 +26,13 @@ describe('FeatureFlagsController', () => {
       'tenant-b',
       { userId: 'user-b' } as never,
       { ipHash: 'ip-b', requestId: 'request-b' } as never,
+      { headers: { 'idempotency-key': 'request-key-123' } } as never,
     );
     expect(featureFlags.setForTenant).toHaveBeenCalledWith('tenant-b', dto, {
       actorId: 'user-b',
       ipHash: 'ip-b',
       requestId: 'request-b',
-    });
+    }, 'request-key-123');
     expect(Permission.FEATURE_FLAG_MANAGE).toBeDefined();
   });
 });

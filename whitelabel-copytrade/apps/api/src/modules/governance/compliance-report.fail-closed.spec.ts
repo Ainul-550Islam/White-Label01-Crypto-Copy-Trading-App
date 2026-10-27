@@ -288,8 +288,9 @@ function auditRecord(overrides: Partial<GovernanceAudit> = {}): GovernanceAudit 
 }
 describe('Required native governance audit durability and recursive safe evidence', () => {
   let module: TestingModule;
-  const db = { governanceAudit: { create: jest.fn<(args: Prisma.GovernanceAuditCreateArgs) => Promise<GovernanceAudit>>(),
-    findMany: jest.fn<(args: Prisma.GovernanceAuditFindManyArgs) => Promise<GovernanceAudit[]>>() } };
+  const governanceAudit = { create: jest.fn<(args: Prisma.GovernanceAuditCreateArgs) => Promise<GovernanceAudit>>(),
+    findMany: jest.fn<(args: Prisma.GovernanceAuditFindManyArgs) => Promise<GovernanceAudit[]>>() };
+  const db = { governanceAudit, withTenantRls: async (_tenantId: string, work: (tx: { governanceAudit: typeof governanceAudit }) => Promise<unknown>) => work({ governanceAudit }) };
   const params = { tenantId: TENANT, actionType: GovernanceActionType.REPORT_GENERATE, state: 'DRAFT', result: 'DRAFT_INTENT_PERSISTED', correlationId: 'unit-correlation', createdBy: 'creator-1' };
   beforeEach(async () => {
     db.governanceAudit.create.mockReset().mockResolvedValue(auditRecord()); db.governanceAudit.findMany.mockReset().mockResolvedValue([]);

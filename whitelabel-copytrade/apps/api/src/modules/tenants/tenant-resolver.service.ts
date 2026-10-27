@@ -70,31 +70,22 @@ export class TenantResolverService {
   }
 
   async resolveByDomain(domain: string): Promise<ResolvedTenant | null> {
-    if (!domain) {
-      return null;
-    }
+    const hostname = domain.trim().toLowerCase();
+    if (!hostname || hostname.length > 253 || !hostname.includes('.') ||
+        !hostname.split('.').every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;
 
-    return this.cache.remember(
-      CACHE_KEY.tenantByDomain(domain),
-      CACHE_TTL.TENANT_RESOLUTION_SECONDS,
-      async () => {
-        const record = await this.prisma.tenantDomain.findFirst({
-          where: { domain, status: 'ACTIVE', tenant: { deletedAt: null } },
-          select: {
-            tenant: {
-              select: {
-                id: true,
-                slug: true,
-                status: true,
-                defaultLocale: true,
-                defaultCurrency: true,
-              },
-            },
-          },
-        });
-        return record?.tenant ? this.toContext(record.tenant) : null;
-      },
-    );
+    // Before authentication there is no tenant RLS context. The narrowly
+    // scoped security-definer lookup returns only public tenant identity for
+    // an active, verified domain with a current certificate. Do not cache this
+    // result: domain revocation or certificate expiry must take effect now.
+    const rows = await this.prisma.$queryRaw<Array<{
+      tenant_id: string; tenant_slug: string; tenant_status: string; tenant_locale: string; tenant_currency: string;
+    }>>`SELECT * FROM public.wlct_resolve_verified_tenant_domain(${hostname})`;
+    const row = rows[0];
+    return row ? {
+      tenantId: row.tenant_id, slug: row.tenant_slug, status: row.tenant_status,
+      defaultLocale: row.tenant_locale, defaultCurrency: row.tenant_currency,
+    } : null;
   }
 
   /** Drops every cache entry that can point at this tenant. */

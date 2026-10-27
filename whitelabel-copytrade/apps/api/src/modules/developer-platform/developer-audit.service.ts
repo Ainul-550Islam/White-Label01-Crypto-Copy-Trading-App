@@ -30,6 +30,17 @@ export interface AuditListPage<T> {
   nextCursor: string | null;
 }
 
+
+/** Canonicalize recursively after JSON normalization, including nested keys. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 @Injectable()
 export class DeveloperAuditService {
   constructor(private readonly prisma: PrismaService) {}
@@ -39,59 +50,58 @@ export class DeveloperAuditService {
    * (tenantId, previousHash, action, canonical detail, correlationId) so any
    * later tampering with content OR ordering breaks verification.
    */
-  async record(input: AuditRecordInput): Promise<{ id: string; chainHash: string }> {
-    const previous = await this.prisma.developerAudit.findFirst({
-      where: { tenantId: input.tenantId },
-      orderBy: { sequence: 'desc' },
-      select: { chainHash: true, sequence: true },
-    });
-    const safeDetail = redactRecord(input.detail);
-    const detailJson = JSON.stringify(safeDetail);
-    const sequence = (previous?.sequence ?? 0) + 1;
-    const chainHash = sha256Hex(
-      [
-        input.tenantId,
-        previous?.chainHash ?? 'GENESIS',
-        String(sequence),
-        input.action,
-        detailJson,
-        input.correlationId,
-      ].join('|'),
-    );
-    const row = await this.prisma.developerAudit.create({
-      data: {
-        tenantId: input.tenantId,
-        applicationId: input.applicationId ?? null,
-        actorType: input.actorType,
-        actorId: input.actorId,
-        correlationId: input.correlationId,
-        action: input.action,
-        detail: JSON.parse(detailJson) as Prisma.InputJsonValue,
-        sequence,
-        previousHash: previous?.chainHash ?? 'GENESIS',
-        chainHash,
-      },
-    });
-    return { id: row.id, chainHash: row.chainHash };
+  async record(input: AuditRecordInput, transaction?: Prisma.TransactionClient): Promise<{ id: string; chainHash: string }> {
+    const append = async (tx: Prisma.TransactionClient) => {
+      // One lock per tenant prevents independent writers from reading the same
+      // chain head. It is held through commit, including the caller's mutation.
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${`developer-audit:${input.tenantId}`}, 0))`;
+      const previous = await tx.developerAudit.findFirst({
+        where: { tenantId: input.tenantId },
+        orderBy: { sequence: 'desc' },
+        select: { chainHash: true, sequence: true },
+      });
+      const safeDetail = JSON.parse(JSON.stringify(redactRecord(input.detail))) as Prisma.InputJsonValue;
+      const detailJson = canonicalJson(safeDetail);
+      const sequence = (previous?.sequence ?? 0) + 1;
+      const chainHash = sha256Hex(
+        [input.tenantId, previous?.chainHash ?? 'GENESIS', String(sequence), input.action, detailJson, input.correlationId].join('|'),
+      );
+      const row = await tx.developerAudit.create({
+        data: {
+          tenantId: input.tenantId,
+          applicationId: input.applicationId ?? null,
+          actorType: input.actorType,
+          actorId: input.actorId,
+          correlationId: input.correlationId,
+          action: input.action,
+          detail: safeDetail,
+          sequence,
+          previousHash: previous?.chainHash ?? 'GENESIS',
+          chainHash,
+          hashVersion: 2,
+        },
+      });
+      return { id: row.id, chainHash: row.chainHash };
+    };
+    return transaction ? append(transaction) : this.prisma.withTenantRls(input.tenantId, append);
   }
 
   async verifyChain(tenantId: string): Promise<{ ok: boolean; brokenAtSequence?: number }> {
-    const rows = await this.prisma.developerAudit.findMany({
-      where: { tenantId },
-      orderBy: { sequence: 'asc' },
-    });
-    let previousHash = 'GENESIS';
-    for (const row of rows) {
-      const detailJson = JSON.stringify(row.detail);
-      const expected = sha256Hex(
-        [row.tenantId, previousHash, String(row.sequence), row.action, detailJson, row.correlationId].join('|'),
-      );
-      if (row.previousHash !== previousHash || row.chainHash !== expected) {
-        return { ok: false, brokenAtSequence: row.sequence };
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const rows = await tx.developerAudit.findMany({ where: { tenantId }, orderBy: { sequence: 'asc' } });
+      let previousHash = 'GENESIS';
+      for (const row of rows) {
+        const detailJson = row.hashVersion === 2 ? canonicalJson(row.detail) : JSON.stringify(row.detail);
+        const expected = sha256Hex(
+          [row.tenantId, previousHash, String(row.sequence), row.action, detailJson, row.correlationId].join('|'),
+        );
+        if (row.previousHash !== previousHash || row.chainHash !== expected) {
+          return { ok: false, brokenAtSequence: row.sequence };
+        }
+        previousHash = row.chainHash;
       }
-      previousHash = row.chainHash;
-    }
-    return { ok: true };
+      return { ok: true };
+    });
   }
 
   async list(
@@ -109,7 +119,7 @@ export class DeveloperAuditService {
     createdAt: Date;
   }>> {
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-    const rows = await this.prisma.developerAudit.findMany({
+    const rows = await this.prisma.withTenantRls(tenantId, (tx) => tx.developerAudit.findMany({
       where: {
         tenantId,
         ...(query.applicationId ? { applicationId: query.applicationId } : {}),
@@ -118,7 +128,7 @@ export class DeveloperAuditService {
       },
       orderBy: { sequence: 'desc' },
       take: limit + 1,
-    });
+    }));
     const page = rows.slice(0, limit);
     const nextCursor = rows.length > limit ? String(page[page.length - 1].sequence) : null;
     return {

@@ -1,479 +1,183 @@
-// # Responsibility: builds deterministic, hash-chained governance audit exports synchronously up to a size cap and on the durable audit queue beyond it, and answers tenant-scoped polls for queued jobs.
-import * as crypto from 'node:crypto';
-
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+// # Builds tenant-scoped, bounded, verifiable governance audit exports.
+import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { createHash, randomUUID } from 'node:crypto';
 import { QUEUE_NAMES } from '@wlct/config';
-
+import type { Prisma } from '@prisma/client';
+import { AuditExportIntentStore, type StoredQueuedIntent } from './audit-export-intent.store';
 import { QueueService } from '../queue/queue.service';
-import {
-  auditExportResultSchema,
-  type AuditExportEntityType,
-  type AuditExportFiltersDto,
-  type AuditExportJobStateDto,
-  type AuditExportJobStateName,
-  type AuditExportResultDto,
-} from './dto/audit-export-job-state.dto';
 import { GovernanceAuditService } from './governance-audit.service';
 import { GovernancePolicyService } from './governance-policy.service';
 import { GovernanceActionType, type GovernanceAuditEvent } from './governance.types';
 
-/**
- * Governance audit export.
- *
- * The export is evidence, so it is built like evidence:
- *
- * - Rows are deterministically ordered (createdAt, then id) and hash-chained:
- *   each row carries sha256(previousHash + "\n" + canonical row) and the
- *   manifest carries sha256 of the whole canonical document, so a one-byte
- *   edit anywhere in the downloaded file fails verification in the console.
- * - Raw actor and subject user ids never enter the file. They are replaced
- *   by one-way tenant-scoped SHA-256 references, which keeps rows joinable
- *   inside one export without making the export a user-id directory.
- * - The read is tenant-bound twice: the source query is tenant-filtered and
- *   any foreign-tenant row that still appears aborts the export, because a
- *   source that can hand back another tenant's row cannot be trusted to
- *   have filtered anything else either.
- * - Small exports are built on the request path. Anything beyond the
- *   synchronous cap is queued on the durable audit queue and the caller
- *   polls `GET audit/export/:jobId`; the queued job runs the SAME builder
- *   through `processQueuedExport`, so the two paths cannot drift.
- * - Every completed export writes its own AUDIT_EXPORT audit event: the
- *   act of exporting the audit trail is itself part of the audit trail.
- */
-
-export interface AuditExportFilters {
-  actorId?: string;
-  actionType?: GovernanceActionType;
-  subjectUserId?: string;
-  entityType?: AuditExportEntityType;
-  entityId?: string;
-  outcome?: string;
-}
-
-export interface AuditExportRow {
-  id: string;
-  tenantId: string;
-  actionType: GovernanceActionType;
-  state: string;
-  result: string;
-  reason: string | null;
-  correlationId: string;
-  createdAt: string;
-  actorReference: string;
-  subjectReference: string | null;
-  entityType: AuditExportEntityType | null;
-  entityId: string | null;
-  safeEvidence: Record<string, unknown>;
-  previousHash: string;
-  rowHash: string;
-}
-
-export interface AuditExportManifest {
-  format: string;
-  sha256: string;
-  rowCount: number;
-  chainTip: string;
-  tenantId: string;
-  periodStart: string;
-  periodEndExclusive: string;
-  filters: AuditExportFiltersDto;
-}
-
-export interface AuditExport {
-  id: string;
-  tenantId: string;
-  exportVersion: string;
-  periodStart: string;
-  periodEnd: string;
-  generatedAt: string;
-  dataAsOf: string;
-  recordCount: number;
-  sourceReferences: string[];
-  fileLocation: string;
-  fileHash: string;
-  fileContents: string;
-  rows: AuditExportRow[];
-  manifest: AuditExportManifest;
-  methodology: string;
-  policyVersion: string;
-  correlationId: string;
-  isDeterministic: boolean;
-  filtersApplied: AuditExportFiltersDto;
-}
-
-export interface AuditExportQueued {
-  id: string;
-  tenantId: string;
-  status: 'QUEUED';
-  statusPath: string;
-  submittedAt: string;
-}
-
-export interface AuditExportJobPayload {
-  tenantId: string;
-  periodStart: string;
-  periodEnd: string;
-  correlationId: string;
-  operatorId: string;
-  filters?: AuditExportFilters;
-}
-
-interface AuditExportParams extends AuditExportJobPayload {}
-
-/** Rows one request may build inline. Beyond this the export is queued. */
-const SYNC_ROW_CAP = 2_000;
-/** Rows one queued job may build. A larger ask must be narrowed, not streamed unbounded through one job. */
-const QUEUED_ROW_CAP = 100_000;
-const EXPORT_JOB_NAME = 'governance-audit-export';
-const EXPORT_FORMAT = 'wlct-governance-audit-export/v1';
-const GENESIS_HASH = '0'.repeat(64);
-const JOB_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-
-const ENTITY_FIELDS: ReadonlyArray<{
-  type: AuditExportEntityType;
-  field: 'requestId' | 'reportId' | 'evidencePackageId' | 'legalHoldId' | 'retentionCandidateId' | 'consentId';
-}> = [
-  { type: 'REQUEST', field: 'requestId' },
-  { type: 'REPORT', field: 'reportId' },
-  { type: 'EVIDENCE_PACKAGE', field: 'evidencePackageId' },
-  { type: 'LEGAL_HOLD', field: 'legalHoldId' },
-  { type: 'RETENTION_CANDIDATE', field: 'retentionCandidateId' },
-  { type: 'CONSENT', field: 'consentId' },
-];
-
-function sha256(text: string): string {
-  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+export type AuditEntityType = 'REQUEST' | 'REPORT' | 'EVIDENCE_PACKAGE' | 'LEGAL_HOLD' | 'RETENTION_CANDIDATE' | 'CONSENT';
+export interface AuditExportFilters { actorId?: string; actionType?: GovernanceActionType; subjectUserId?: string; entityType?: AuditEntityType; entityId?: string; outcome?: string; }
+export interface AuditExportJobPayload { tenantId: string; periodStart: string; periodEnd: string; correlationId: string; operatorId: string; filters?: AuditExportFilters; keyHash?: string; requestHash?: string; jobId?: string; }
+export interface AuditExportRow { id: string; actionType: GovernanceActionType; actorReference: string; subjectReference: string | null; state: string; result: string; correlationId: string; createdAt: string; safeEvidence: Record<string, unknown>; previousHash: string; rowHash: string; }
+export interface AuditExportManifest { format: string; sha256: string; rowCount: number; chainTip: string; tenantId: string; periodStart: string; periodEndExclusive: string; filters: AuditExportFilters; }
+export interface AuditExport { id: string; tenantId: string; fileHash: string; fileContents: string; recordCount: number; filtersApplied: AuditExportFilters; manifest: AuditExportManifest; rows: AuditExportRow[]; }
+export interface AuditExportQueued { id: string; tenantId: string; status: 'QUEUED'; statusPath: string; submittedAt: string; }
+const SYNC_LIMIT = 2_000;
+const HARD_LIMIT = 20_000;
+const ENTITIES: Record<AuditEntityType, keyof GovernanceAuditEvent> = { REQUEST: 'requestId', REPORT: 'reportId', EVIDENCE_PACKAGE: 'evidencePackageId', LEGAL_HOLD: 'legalHoldId', RETENTION_CANDIDATE: 'retentionCandidateId', CONSENT: 'consentId' };
+const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
+// JSONB does not preserve property order. Hash a fixed field order both before
+// persistence and after replay instead of depending on object insertion order.
+function requestDigest(input: AuditExportJobPayload): string {
+  const filters = input.filters ?? {};
+  return digest(JSON.stringify({ tenantId: input.tenantId, periodStart: input.periodStart, periodEnd: input.periodEnd,
+    correlationId: input.correlationId, operatorId: input.operatorId, filters: { actorId: filters.actorId, actionType: filters.actionType,
+      subjectUserId: filters.subjectUserId, entityType: filters.entityType, entityId: filters.entityId, outcome: filters.outcome } }));
 }
 
 @Injectable()
 export class GovernanceAuditExportService {
   private readonly logger = new Logger(GovernanceAuditExportService.name);
+  private relayRunning = false;
+  private tenantCursor: string | undefined;
+  constructor(private readonly audit: GovernanceAuditService, private readonly policyService: GovernancePolicyService, private readonly queues: QueueService, private readonly intents: AuditExportIntentStore) {}
 
-  constructor(
-    private readonly audit: GovernanceAuditService,
-    private readonly policyService: GovernancePolicyService,
-    private readonly queue: QueueService,
-  ) {}
-
-  async exportAuditTrail(params: AuditExportParams): Promise<AuditExport | AuditExportQueued> {
-    const { start, end } = this.validatedPeriod(params);
-    const events = await this.tenantBoundEvents(params.tenantId, params.filters, SYNC_ROW_CAP + 1);
-    const filtered = this.applyFilters(events, start, end, params.filters);
-
-    if (events.length > SYNC_ROW_CAP || filtered.length > SYNC_ROW_CAP) {
-      // The synchronous read is capped on purpose: at this size the honest
-      // answer is a durable job the operator can poll, not a request that
-      // holds a connection open while it hashes an unbounded trail. A full
-      // page also means rows may exist beyond what was read, and a silently
-      // truncated export would be worse than a queued one.
-      const payload: AuditExportJobPayload = {
-        tenantId: params.tenantId,
-        periodStart: params.periodStart,
-        periodEnd: params.periodEnd,
-        correlationId: params.correlationId,
-        operatorId: params.operatorId,
-        filters: params.filters,
-      };
-      const jobId = await this.queue.enqueueOrThrow(QUEUE_NAMES.AUDIT, EXPORT_JOB_NAME, payload, {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5_000 },
-        // Completed and failed jobs stay readable for a day: the poll route
-        // reads the result back out of the job, and a job deleted on
-        // completion would make a successful export unanswerable.
-        removeOnComplete: { age: 86_400, count: 1_000 },
-        removeOnFail: { age: 86_400, count: 1_000 },
-      });
-      this.logger.log(
-        `audit export queued job=${jobId} tenant=${params.tenantId} corr=${params.correlationId}`,
-      );
-      return {
-        id: jobId,
-        tenantId: params.tenantId,
-        status: 'QUEUED',
-        statusPath: `/v1/governance/audit/export/${encodeURIComponent(jobId)}`,
-        submittedAt: new Date().toISOString(),
-      };
+  async exportAuditTrail(input: AuditExportJobPayload, idempotencyKey: string): Promise<AuditExport | AuditExportQueued> {
+    const params = this.validate(input);
+    const requestHash = requestDigest(params);
+    const result = await this.intents.execute(params.tenantId, idempotencyKey, requestHash, async (tx, keyHash) => {
+      const events = await this.query(params, SYNC_LIMIT + 1, tx);
+      if (events.length > SYNC_LIMIT) {
+        // A fresh intent epoch gets a fresh job id, even if the same key is
+        // deliberately reused after expiry and an old Redis job still exists.
+        const id = `audit-${digest(`${params.tenantId}:${keyHash}:${randomUUID()}`)}`;
+        const payload: AuditExportJobPayload = { ...params, keyHash, requestHash, jobId: id };
+        await this.intents.stageQueued(tx, params.tenantId, keyHash, payload);
+        return { id, tenantId: params.tenantId, status: 'QUEUED', statusPath: `/v1/governance/audit/export/${encodeURIComponent(id)}`, submittedAt: new Date().toISOString() };
+      }
+      return this.render(params, events, tx);
+    });
+    if ('status' in result) {
+      // The SQL transaction is committed before enqueue, so a fast worker can
+      // never observe an uncommitted intent. The relay repairs a crash here.
+      const stored = await this.intents.findQueued(params.tenantId, result.id);
+      if (!stored) throw new ServiceUnavailableException('Audit export intent is unavailable');
+      if (!stored.queuedResult) {
+        try { await this.ensureQueued(params.tenantId, stored); }
+        catch { throw new ServiceUnavailableException('Audit export queue is unavailable; retry with the same request key'); }
+      }
     }
-
-    return this.buildExport(params, filtered, start, end);
+    return result;
   }
 
-  /** The queued path: identical builder, larger bounded read. */
-  async processQueuedExport(payload: AuditExportJobPayload): Promise<AuditExport> {
-    const { start, end } = this.validatedPeriod(payload);
-    const events = await this.tenantBoundEvents(payload.tenantId, payload.filters, QUEUED_ROW_CAP + 1);
-    const filtered = this.applyFilters(events, start, end, payload.filters);
-    if (events.length > QUEUED_ROW_CAP || filtered.length > QUEUED_ROW_CAP) {
-      throw new BadRequestException(
-        `Audit export exceeds the ${QUEUED_ROW_CAP} row ceiling for one job; narrow the period or filters and resubmit`,
-      );
-    }
-    return this.buildExport(payload, filtered, start, end);
+  async processQueuedExport(input: AuditExportJobPayload): Promise<AuditExport> {
+    const { keyHash, requestHash, jobId, ...original } = input;
+    const params = this.validate(original);
+    if (!keyHash || !requestHash || !jobId || requestDigest(params) !== requestHash) throw new BadRequestException('Invalid queued audit export');
+    return this.intents.executeQueued(params.tenantId, keyHash, requestHash, jobId, async (tx) => {
+      const events = await this.query(params, HARD_LIMIT + 1, tx);
+      if (events.length > HARD_LIMIT) throw new BadRequestException('Audit export exceeds the maximum size; choose a narrower period or filters.');
+      return this.render(params, events, tx);
+    });
   }
 
-  /**
-   * Poll one queued export. Tenant-scoped absolutely: a job that belongs to
-   * another tenant, a job of another name sharing the audit queue, and a job
-   * that does not exist are the same 404, so the route cannot be used to
-   * enumerate other tenants' export activity.
-   */
-  async getExportJob(tenantId: string, jobId: string): Promise<AuditExportJobStateDto> {
-    if (!tenantId || typeof jobId !== 'string' || !JOB_ID_PATTERN.test(jobId)) {
-      throw new NotFoundException('Audit export job not found');
+  async getJob(tenantId: string, id: string): Promise<{ id: string; tenantId: string; state: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'unknown'; result?: AuditExport; failureReason?: string }> {
+    if (!tenantId || !/^audit-[a-f0-9]{64}$/.test(id)) throw new NotFoundException('Audit export job not found');
+    const stored = await this.intents.findQueued(tenantId, id);
+    if (!stored || stored.response?.tenantId !== tenantId || stored.response.id !== id) throw new NotFoundException('Audit export job not found');
+    // PostgreSQL is authoritative for the whole seven-day intent lifetime,
+    // even if BullMQ has evicted its completed result or Redis is unavailable.
+    if (stored.queuedResult) {
+      const result = stored.queuedResult;
+      if (result.tenantId !== tenantId || typeof result.fileContents !== 'string') throw new Error('Invalid audit export result');
+      return { id, tenantId, state: 'completed', result };
     }
-    const job = await this.queue.getQueue(QUEUE_NAMES.AUDIT).getJob(jobId);
-    if (!job || job.name !== EXPORT_JOB_NAME) {
-      throw new NotFoundException('Audit export job not found');
-    }
-    const payload = (job.data ?? {}) as Partial<AuditExportJobPayload>;
-    if (payload.tenantId !== tenantId) {
-      throw new NotFoundException('Audit export job not found');
-    }
-
-    const rawState = await job.getState().catch(() => 'unknown');
-    const state = this.mapJobState(rawState);
-    const view: AuditExportJobStateDto = { id: String(job.id), tenantId, state };
-
+    const job = await this.queues.getQueue(QUEUE_NAMES.AUDIT).getJob(id);
+    if (!job) return { id, tenantId, state: 'unknown' }; // the durable relay will re-enqueue it
+    const payload = job.data as AuditExportJobPayload;
+    if (job.name !== 'governance-audit-export' || payload.tenantId !== tenantId || payload.jobId !== id || payload.keyHash !== stored.keyHash || payload.requestHash !== stored.requestHash) throw new NotFoundException('Audit export job not found');
+    const raw = await job.getState();
+    const state = (['waiting', 'active', 'completed', 'failed', 'delayed'] as const).find((v) => v === raw) ?? 'unknown';
     if (state === 'completed') {
-      const result = this.toResultDto(job.returnvalue as AuditExport | undefined);
-      if (result) {
-        view.result = result;
-      } else {
-        // A finished job whose result cannot be read back is not a success
-        // the console can verify; report it as failed rather than handing
-        // back "completed" with nothing to download.
-        view.state = 'failed';
-        view.failureReason = 'Audit export job completed without a readable result; resubmit the export.';
+      // The worker may have committed between the first SQL read and the Redis read.
+      const fresh = await this.intents.findQueued(tenantId, id);
+      if (!fresh?.queuedResult || fresh.queuedResult.tenantId !== tenantId || typeof fresh.queuedResult.fileContents !== 'string') throw new Error('Audit export result was not durably committed');
+      return { id, tenantId, state, result: fresh.queuedResult };
+    }
+    return { id, tenantId, state, ...(state === 'failed' ? { failureReason: 'Export failed. Try a narrower period or contact an administrator.' } : {}) };
+  }
+
+  /** Recover staged jobs after process/Redis failures; visits bounded tenant/job pages. */
+  async relayPendingExports(): Promise<void> {
+    if (this.relayRunning) return;
+    this.relayRunning = true;
+    try {
+      const tenants = await this.intents.tenantPage(this.tenantCursor, 16);
+      if (!tenants.length) { this.tenantCursor = undefined; return; }
+      this.tenantCursor = tenants[tenants.length - 1];
+      for (const tenantId of tenants) {
+        const pending = await this.intents.pending(tenantId, 20);
+        for (const intent of pending) {
+          try { await this.ensureQueued(tenantId, intent); }
+          catch (error) { this.logger.warn(`Audit export relay deferred (${error instanceof Error ? error.name : 'unknown'})`); }
+          finally { await this.intents.markQueueChecked(tenantId, intent.keyHash); }
+        }
       }
-    }
-    if (state === 'failed') {
-      const reason = typeof job.failedReason === 'string' ? job.failedReason.trim() : '';
-      view.failureReason = reason ? reason.slice(0, 500) : 'Audit export job failed.';
-    }
-    return view;
+    } catch (error) { this.logger.warn(`Audit export relay cycle failed (${error instanceof Error ? error.name : 'unknown'})`); }
+    finally { this.relayRunning = false; }
   }
 
-  private validatedPeriod(params: AuditExportParams): { start: Date; end: Date } {
-    if (!params.tenantId || !params.periodStart || !params.periodEnd) {
-      throw new BadRequestException('tenantId, periodStart, periodEnd required');
+  private async ensureQueued(tenantId: string, stored: StoredQueuedIntent): Promise<void> {
+    const payload = stored.jobPayload;
+    const id = stored.response?.id;
+    if (!payload || !id || !/^audit-[a-f0-9]{64}$/.test(id) || stored.response.tenantId !== tenantId ||
+        payload.tenantId !== tenantId || payload.jobId !== id || payload.keyHash !== stored.keyHash || payload.requestHash !== stored.requestHash) {
+      throw new Error('Invalid staged audit export');
     }
-    const start = new Date(params.periodStart);
-    const end = new Date(params.periodEnd);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) throw new BadRequestException('invalid period dates');
-    if (start >= end) throw new BadRequestException('periodStart must be before periodEnd');
-    return { start, end };
+    const { keyHash: _keyHash, requestHash: _requestHash, jobId: _jobId, ...original } = payload;
+    if (requestDigest(this.validate(original)) !== stored.requestHash) throw new Error('Invalid staged audit export');
+    const queue = this.queues.getQueue(QUEUE_NAMES.AUDIT);
+    let job = await queue.getJob(id);
+    if (!job) {
+      const accepted = await this.queues.enqueueOrThrow(QUEUE_NAMES.AUDIT, 'governance-audit-export', payload, {
+        jobId: id, attempts: 3, backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: { age: 7 * 86_400 }, removeOnFail: { age: 7 * 86_400 },
+      });
+      if (accepted !== id) throw new Error('Audit export queue returned an unexpected job');
+      job = await queue.getJob(id);
+    }
+    const data = job?.data as AuditExportJobPayload | undefined;
+    if (!job || job.name !== 'governance-audit-export' || data?.tenantId !== tenantId || data.jobId !== id ||
+        data.keyHash !== stored.keyHash || data.requestHash !== stored.requestHash) throw new Error('Audit export queue identity mismatch');
   }
 
-  private async tenantBoundEvents(
-    tenantId: string,
-    filters: AuditExportFilters | undefined,
-    take: number,
-  ): Promise<GovernanceAuditEvent[]> {
-    // Non-mutating: only reads, never modifies audit rows.
-    const events = await this.audit.listEvents(tenantId, {
-      actionType: filters?.actionType,
-      subjectUserId: filters?.subjectUserId,
-      take,
+  private validate(input: AuditExportJobPayload): AuditExportJobPayload {
+    if (!input.tenantId || !input.operatorId || !input.correlationId || input.correlationId.length > 255) throw new BadRequestException('Tenant, operator and correlation are required');
+    const start = new Date(input.periodStart), end = new Date(input.periodEnd);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) throw new BadRequestException('Invalid audit export period');
+    const filters = input.filters ?? {};
+    if (filters.entityId && !filters.entityType) throw new BadRequestException('Entity type is required when filtering by entity');
+    if (filters.entityType && !(filters.entityType in ENTITIES)) throw new BadRequestException('Invalid audit entity type');
+    return { ...input, periodStart: start.toISOString(), periodEnd: end.toISOString(), filters };
+  }
+
+  private async query(params: AuditExportJobPayload, take: number, transaction?: Prisma.TransactionClient): Promise<GovernanceAuditEvent[]> {
+    const filters = params.filters ?? {};
+    const events = await this.audit.listEvents(params.tenantId, { ...filters, periodStart: params.periodStart, periodEnd: params.periodEnd, take }, transaction);
+    if (events.some((event) => event.tenantId !== params.tenantId)) throw new Error('Audit source returned a row outside the authenticated tenant');
+    // Apply the same predicates defensively if an alternate implementation is injected.
+    return events.filter((event) => event.createdAt >= params.periodStart && event.createdAt < params.periodEnd && (!filters.actorId || event.createdBy === filters.actorId) && (!filters.actionType || event.actionType === filters.actionType) && (!filters.subjectUserId || event.subjectUserId === filters.subjectUserId) && (!filters.outcome || event.result === filters.outcome) && (!filters.entityType || (!!event[ENTITIES[filters.entityType]] && (!filters.entityId || event[ENTITIES[filters.entityType]] === filters.entityId))));
+  }
+
+  private async render(params: AuditExportJobPayload, events: GovernanceAuditEvent[], transaction?: Prisma.TransactionClient): Promise<AuditExport> {
+    events.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    let previous = '0'.repeat(64);
+    const rows: AuditExportRow[] = events.map((event) => {
+      const base = { id: event.id, actionType: event.actionType, actorReference: digest(`${params.tenantId}:actor:${event.createdBy}`), subjectReference: event.subjectUserId ? digest(`${params.tenantId}:subject:${event.subjectUserId}`) : null, state: event.state, result: event.result, correlationId: event.correlationId, createdAt: event.createdAt, safeEvidence: event.safeEvidence };
+      const rowHash = digest(`${previous}\n${JSON.stringify(base)}`);
+      const row = { ...base, previousHash: previous, rowHash }; previous = rowHash; return row;
     });
-    for (const event of events) {
-      if (event.tenantId !== tenantId) {
-        throw new ForbiddenException(
-          'Audit export refused: the source returned a row outside the authenticated tenant',
-        );
-      }
-    }
-    return events;
-  }
-
-  private applyFilters(
-    events: GovernanceAuditEvent[],
-    start: Date,
-    end: Date,
-    filters: AuditExportFilters | undefined,
-  ): GovernanceAuditEvent[] {
-    const filtered = events.filter((event) => {
-      const created = new Date(event.createdAt);
-      // Period end is exclusive: the console asks for [start, end) days, and
-      // the manifest names the bound periodEndExclusive so the file says so.
-      if (!(created >= start && created < end)) return false;
-      if (filters?.actorId !== undefined && event.createdBy !== filters.actorId) return false;
-      if (filters?.actionType !== undefined && event.actionType !== filters.actionType) return false;
-      if (filters?.subjectUserId !== undefined && event.subjectUserId !== filters.subjectUserId) return false;
-      if (filters?.outcome !== undefined && event.result !== filters.outcome) return false;
-      if (filters?.entityType !== undefined || filters?.entityId !== undefined) {
-        const wanted = ENTITY_FIELDS.filter(
-          (entry) => filters.entityType === undefined || entry.type === filters.entityType,
-        );
-        const matches = wanted.some((entry) => {
-          const value = event[entry.field];
-          if (value === null || value === undefined) return false;
-          return filters.entityId === undefined || value === filters.entityId;
-        });
-        if (!matches) return false;
-      }
-      return true;
-    });
-    // Deterministic sort: the hash chain and the manifest digest are only
-    // reproducible if the row order is a function of the rows, not of the
-    // order the store happened to return them in.
-    filtered.sort((a, b) => {
-      if (a.createdAt !== b.createdAt) return a.createdAt.localeCompare(b.createdAt);
-      return a.id.localeCompare(b.id);
-    });
-    return filtered;
-  }
-
-  private reference(tenantId: string, kind: 'actor' | 'subject', rawId: string): string {
-    return sha256(`${kind}:${tenantId}:${rawId}`);
-  }
-
-  /** Filters as the operator supplied them (the API echo; never enters the file verbatim when it names a user). */
-  private filtersApplied(filters: AuditExportFilters | undefined): AuditExportFiltersDto {
-    const out: AuditExportFiltersDto = {};
-    if (filters?.actorId !== undefined) out.actorId = filters.actorId;
-    if (filters?.actionType !== undefined) out.actionType = filters.actionType;
-    if (filters?.subjectUserId !== undefined) out.subjectUserId = filters.subjectUserId;
-    if (filters?.entityType !== undefined) out.entityType = filters.entityType;
-    if (filters?.entityId !== undefined) out.entityId = filters.entityId;
-    if (filters?.outcome !== undefined) out.outcome = filters.outcome;
-    return out;
-  }
-
-  /** Filters as recorded inside the exported file: user ids replaced by their one-way references. */
-  private manifestFilters(tenantId: string, filters: AuditExportFilters | undefined): AuditExportFiltersDto {
-    const out = this.filtersApplied(filters);
-    if (out.actorId !== undefined) out.actorId = `sha256:${this.reference(tenantId, 'actor', out.actorId)}`;
-    if (out.subjectUserId !== undefined) {
-      out.subjectUserId = `sha256:${this.reference(tenantId, 'subject', out.subjectUserId)}`;
-    }
-    return out;
-  }
-
-  private async buildExport(
-    params: AuditExportParams,
-    filtered: GovernanceAuditEvent[],
-    start: Date,
-    end: Date,
-  ): Promise<AuditExport> {
-    const rows: AuditExportRow[] = [];
-    let previousHash = GENESIS_HASH;
-    for (const event of filtered) {
-      const entity = ENTITY_FIELDS.find((entry) => event[entry.field] !== null && event[entry.field] !== undefined);
-      const base = {
-        id: event.id,
-        tenantId: event.tenantId,
-        actionType: event.actionType,
-        state: event.state,
-        result: event.result,
-        reason: event.reason ?? null,
-        correlationId: event.correlationId,
-        createdAt: event.createdAt,
-        actorReference: this.reference(params.tenantId, 'actor', event.createdBy),
-        subjectReference: event.subjectUserId
-          ? this.reference(params.tenantId, 'subject', event.subjectUserId)
-          : null,
-        entityType: entity ? entity.type : null,
-        entityId: entity ? String(event[entity.field]) : null,
-        safeEvidence: event.safeEvidence,
-      };
-      const rowHash = sha256(`${previousHash}\n${JSON.stringify(base)}`);
-      rows.push({ ...base, previousHash, rowHash });
-      previousHash = rowHash;
-    }
-
-    const manifestFilters = this.manifestFilters(params.tenantId, params.filters);
-    const canonical = JSON.stringify({
-      tenantId: params.tenantId,
-      periodStart: start.toISOString(),
-      periodEndExclusive: end.toISOString(),
-      filters: manifestFilters,
-      rows,
-    });
-    const fileHash = sha256(canonical);
-    const manifest: AuditExportManifest = {
-      format: EXPORT_FORMAT,
-      sha256: fileHash,
-      rowCount: rows.length,
-      chainTip: previousHash,
-      tenantId: params.tenantId,
-      periodStart: start.toISOString(),
-      periodEndExclusive: end.toISOString(),
-      filters: manifestFilters,
-    };
-    const fileContents = JSON.stringify({ manifest, rows });
-    const exportedAt = new Date();
-    const policyVersion = this.policyService.getPolicyVersion();
-
-    const exportRecord: AuditExport = {
-      id: `aexp_${exportedAt.getTime()}_${crypto.randomBytes(4).toString('hex')}`,
-      tenantId: params.tenantId,
-      exportVersion: `v${policyVersion}_${exportedAt.toISOString().slice(0, 10)}`,
-      periodStart: start.toISOString(),
-      periodEnd: end.toISOString(),
-      generatedAt: exportedAt.toISOString(),
-      dataAsOf: exportedAt.toISOString(),
-      recordCount: rows.length,
-      sourceReferences: [...new Set(filtered.map((e) => `${e.actionType}:${e.correlationId}`))].sort(),
-      fileLocation: `governance/audit-exports/${params.tenantId}/${exportedAt.getTime()}.json`,
-      fileHash,
-      fileContents,
-      rows,
-      manifest,
-      methodology: `NON_MUTATING_AUDIT_EXPORT_DETERMINISTIC_SORTED_POLICY_${policyVersion}`,
-      policyVersion,
-      correlationId: params.correlationId,
-      isDeterministic: true,
-      filtersApplied: this.filtersApplied(params.filters),
-    };
-
-    await this.audit.recordEvent({
-      tenantId: params.tenantId,
-      actionType: GovernanceActionType.AUDIT_EXPORT,
-      state: 'EXPORTED',
-      result: 'SUCCESS',
-      correlationId: params.correlationId,
-      createdBy: params.operatorId,
-      safeEvidence: { exportId: exportRecord.id, recordCount: exportRecord.recordCount, fileHash },
-    });
-
-    this.logger.log(
-      `audit export generated id=${exportRecord.id} tenant=${params.tenantId} records=${exportRecord.recordCount} corr=${params.correlationId}`,
-    );
-    return exportRecord;
-  }
-
-  private toResultDto(record: AuditExport | undefined): AuditExportResultDto | null {
-    if (!record || typeof record !== 'object') return null;
-    const candidate: AuditExportResultDto = {
-      id: record.id,
-      tenantId: record.tenantId,
-      fileHash: record.fileHash,
-      fileContents: record.fileContents,
-      recordCount: record.recordCount,
-      filtersApplied: record.filtersApplied ?? {},
-      manifest: record.manifest,
-    };
-    const parsed = auditExportResultSchema.safeParse(candidate);
-    return parsed.success ? candidate : null;
-  }
-
-  private mapJobState(rawState: string): AuditExportJobStateName {
-    switch (rawState) {
-      case 'waiting':
-      case 'prioritized':
-      case 'paused':
-      case 'waiting-children':
-        return 'waiting';
-      case 'active':
-        return 'active';
-      case 'completed':
-        return 'completed';
-      case 'failed':
-        return 'failed';
-      case 'delayed':
-        return 'delayed';
-      default:
-        return 'unknown';
-    }
+    const filters = params.filters ?? {};
+    const canonical = JSON.stringify({ tenantId: params.tenantId, periodStart: params.periodStart, periodEndExclusive: params.periodEnd, filters, rows });
+    const sha256 = digest(canonical);
+    const manifest: AuditExportManifest = { format: 'wlct.audit.v1', sha256, rowCount: rows.length, chainTip: previous, tenantId: params.tenantId, periodStart: params.periodStart, periodEndExclusive: params.periodEnd, filters };
+    const id = randomUUID();
+    const result: AuditExport = { id, tenantId: params.tenantId, fileHash: sha256, fileContents: JSON.stringify({ manifest, rows }), recordCount: rows.length, filtersApplied: filters, manifest, rows };
+    await this.audit.recordEvent({ tenantId: params.tenantId, actionType: GovernanceActionType.AUDIT_EXPORT, state: 'EXPORTED', result: 'SUCCESS', correlationId: params.correlationId, createdBy: params.operatorId, safeEvidence: { exportId: id, recordCount: rows.length, fileHash: sha256, policyVersion: this.policyService.getPolicyVersion() } }, transaction);
+    return result;
   }
 }

@@ -7,6 +7,7 @@ import '../../core/router/route_paths.dart';
 import '../../l10n/app_localizations.dart';
 import '../auth/domain/auth_models.dart';
 import '../auth/presentation/auth_state.dart';
+import 'preferences_form.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -33,10 +34,31 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.push(RoutePaths.security),
           ),
+          if (state.isAuthenticated)
+            ref.watch(userPreferencesProvider).when(
+                  data: (preferences) => preferences == null
+                      ? const SizedBox.shrink()
+                      : PreferencesForm(
+                          key:
+                              ValueKey<String>(preferences.toJson().toString()),
+                          initial: preferences,
+                        ),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (_, __) => ListTile(
+                    title: Text(l10n.genericError),
+                    trailing: IconButton(
+                      tooltip: l10n.retry,
+                      icon: const Icon(Icons.refresh),
+                      onPressed: () => ref.invalidate(userPreferencesProvider),
+                    ),
+                  ),
+                ),
           const Divider(),
           ListTile(
             title: Text(l10n.signOut),
-            leading: Icon(Icons.logout, color: Theme.of(context).colorScheme.error),
+            leading:
+                Icon(Icons.logout, color: Theme.of(context).colorScheme.error),
             onTap: state.isSubmitting
                 ? null
                 : () => ref.read(authControllerProvider.notifier).signOut(),

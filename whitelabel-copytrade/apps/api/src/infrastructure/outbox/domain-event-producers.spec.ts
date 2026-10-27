@@ -493,7 +493,7 @@ describe('catalog domain producers persist schema-valid events with the real Out
 
   it('persists funding.requested with the authoritative request amount', async () => {
     const harness = makeOutboxHarness();
-    const account = { id: 'account-one', tenantId: TENANT_ID, clientProfileId: 'client-one', state: 'ACTIVE' };
+    const account = { id: 'account-one', tenantId: TENANT_ID, clientProfileId: 'client-one', state: 'ACTIVE', isFundingEnabled: true, deletedAt: null };
     const created = {
       id: 'funding-one',
       tenantId: TENANT_ID,
@@ -505,6 +505,8 @@ describe('catalog domain producers persist schema-valid events with the real Out
       requestedAt: FIXED_TIME,
     };
     Object.assign(harness.tx, {
+      institutionalAccount: { findFirst: jest.fn(async () => account) },
+      clientLifecycleAudit: { create: jest.fn(async () => ({})) },
       fundingRequest: {
         findFirst: jest.fn(async () => null),
         create: jest.fn(async () => created),
@@ -547,6 +549,7 @@ describe('catalog domain producers persist schema-valid events with the real Out
       status: FundingRequestState.REQUESTED,
     });
     expect(harness.tx.outboxEvent.upsert).toHaveBeenCalledTimes(1);
+    expect((harness.tx.clientLifecycleAudit as { create: jest.Mock }).create).toHaveBeenCalledTimes(1);
   });
 
   it('persists funding.confirmed only after the submitted request has external settlement evidence', async () => {
@@ -613,9 +616,12 @@ describe('catalog domain producers persist schema-valid events with the real Out
       tenantId: TENANT_ID,
       clientProfileId: 'client-one',
       state: 'ACTIVE',
-      complianceStatus: null,
-      riskStatus: null,
+      isWithdrawalEnabled: true,
+      deletedAt: null,
+      complianceStatus: 'CLEAR',
+      riskStatus: 'CLEAR',
     };
+    const wallet = { id: 'wallet-one', assetId: 'USD-ethereum', networkId: 'ethereum', asset: { decimals: 6, networkId: 'ethereum' } };
     const created = {
       id: 'withdrawal-one',
       tenantId: TENANT_ID,
@@ -626,9 +632,19 @@ describe('catalog domain producers persist schema-valid events with the real Out
       state: WithdrawalRequestState.REQUESTED,
       requestedAt: FIXED_TIME,
     };
+    harness.tx.$queryRaw.mockImplementation(async (sql: TemplateStringsArray) =>
+      sql.join('').includes('withdrawal_destinations') ? [{ id: 'destination-one' }] : []);
     Object.assign(harness.tx, {
+      institutionalAccount: { findFirst: jest.fn(async () => account) },
+      accountOwnership: { findFirst: jest.fn(async () => ({ id: 'ownership-one' })) },
+      custodyWallet: { findMany: jest.fn(async () => [wallet]), findFirst: jest.fn(async () => wallet) },
+      accountRestriction: { count: jest.fn(async () => 0) },
+      operationalMaintenanceWindow: { findFirst: jest.fn(async () => null) },
+      custodyNetwork: { findFirst: jest.fn(async () => ({ id: 'network-one' })) },
+      clientLifecycleAudit: { create: jest.fn(async () => ({})) },
       withdrawalRequest: {
         findFirst: jest.fn(async () => null),
+        findMany: jest.fn(async () => []),
         create: jest.fn(async () => created),
       },
     });
@@ -648,12 +664,17 @@ describe('catalog domain producers persist schema-valid events with the real Out
     };
     const restrictionService = { hasRestriction: jest.fn(async () => false) };
     const auditService = { log: jest.fn(async () => undefined) };
+    const balances = { getWalletBalance: jest.fn(async () => ({ walletId: wallet.id, assetId: wallet.assetId, networkId: wallet.networkId,
+      dataCompleteness: 'PROVIDER_DERIVED', available: '20', sourceReference: 'provider-observation', observationTimestamp: new Date().toISOString() })) };
+    const reserves = { evaluateReserveSufficiency: jest.fn(async () => ({ dataCompleteness: 'PROVIDER_DERIVED', sufficient: true, availableAfterReserve: '20' })) };
     const service = new WithdrawalRequestService(
       prisma as never,
       policyService as never,
       auditService as never,
       restrictionService as never,
       harness.service,
+      balances as never,
+      reserves as never,
     );
 
     await service.createWithdrawalRequest({
@@ -661,6 +682,11 @@ describe('catalog domain producers persist schema-valid events with the real Out
       accountId: 'account-one',
       requestedAmount: '8.25',
       currency: 'USD',
+      requestedBy: '33333333-3333-4333-8333-333333333333',
+      stepUpVerified: true,
+      idempotencyKey: 'withdrawal-key',
+      destinationType: 'ETHEREUM',
+      destinationAddress: '0x1111111111111111111111111111111111111111',
       correlationId: 'withdrawal-create-request',
     });
 
@@ -672,6 +698,9 @@ describe('catalog domain producers persist schema-valid events with the real Out
       status: WithdrawalRequestState.REQUESTED,
     });
     expect(harness.tx.outboxEvent.upsert).toHaveBeenCalledTimes(1);
+    expect(balances.getWalletBalance).toHaveBeenCalledTimes(1);
+    expect(reserves.evaluateReserveSufficiency).toHaveBeenCalledTimes(1);
+    expect((harness.tx.clientLifecycleAudit as { create: jest.Mock }).create).toHaveBeenCalledTimes(1);
   });
 
   it('persists withdrawal.confirmed only after external settlement evidence', async () => {

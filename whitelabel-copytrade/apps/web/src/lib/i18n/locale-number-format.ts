@@ -1,6 +1,8 @@
 // # Responsibility: implements a Batch 04 commercial interface component or supporting utility.
 // # Formats decimal money strings without binary floating-point conversion, including half-even rounding and Bengali grouping.
-export type SupportedNumberLocale = 'en' | 'bn' | 'bn-BD';
+import { decimalErrorMessage } from './number-messages';
+
+export type SupportedNumberLocale = 'en' | 'bn' | 'bn-BD' | 'ar' | 'es' | 'tr';
 
 export interface DecimalFormatOptions {
   locale: SupportedNumberLocale;
@@ -9,6 +11,7 @@ export interface DecimalFormatOptions {
 }
 
 const BN_DIGITS = '০১২৩৪৫৬৭৮৯';
+const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
 const CURRENCY_FRACTIONS: Readonly<Record<string, number>> = Object.freeze({
   BDT: 2,
   USD: 2,
@@ -34,9 +37,9 @@ function assertScale(value: number, label: string): void {
   }
 }
 
-function parseDecimal(value: string): { negative: boolean; integer: string; fraction: string } {
+function parseDecimal(value: string, locale: SupportedNumberLocale): { negative: boolean; integer: string; fraction: string } {
   if (typeof value !== 'string' || !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) {
-    throw new TypeError('A canonical decimal string is required');
+    throw new TypeError(decimalErrorMessage(locale));
   }
   const negative = value.startsWith('-');
   const unsigned = negative ? value.slice(1) : value;
@@ -69,12 +72,13 @@ function groupInteger(integer: string, locale: SupportedNumberLocale): string {
     }
     return `${groups.join(',')},${lastThree}`;
   }
-  return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const separator = locale === 'ar' ? '٬' : locale === 'es' || locale === 'tr' ? '.' : ',';
+  return integer.replace(/\B(?=(\d{3})+(?!\d))/g, separator);
 }
 
 function localizeDigits(value: string, locale: SupportedNumberLocale): string {
-  if (locale === 'en') return value;
-  return value.replace(/[0-9]/g, (digit) => BN_DIGITS[Number(digit)] ?? digit);
+  const digits = locale === 'bn' || locale === 'bn-BD' ? BN_DIGITS : locale === 'ar' ? AR_DIGITS : null;
+  return digits ? value.replace(/[0-9]/g, (digit) => digits[Number(digit)] ?? digit) : value;
 }
 
 export function formatDecimalString(value: string, options: DecimalFormatOptions): string {
@@ -83,13 +87,14 @@ export function formatDecimalString(value: string, options: DecimalFormatOptions
   assertScale(maxFraction, 'maxFraction');
   assertScale(minFraction, 'minFraction');
   if (minFraction > maxFraction) throw new RangeError('minFraction cannot exceed maxFraction');
-  const parsed = parseDecimal(value);
+  const parsed = parseDecimal(value, options.locale);
   const rounded = roundHalfEven(parsed.integer, parsed.fraction, maxFraction);
   let fraction = rounded.fraction;
   while (fraction.length > minFraction && fraction.endsWith('0')) fraction = fraction.slice(0, -1);
   const sign = parsed.negative && (BigInt(rounded.integer) !== 0n || /[1-9]/.test(fraction)) ? '-' : '';
   const grouped = groupInteger(rounded.integer, options.locale);
-  const decimalMark = options.locale === 'en' ? '.' : '٫';
+  const decimalMark = options.locale === 'bn' || options.locale === 'bn-BD' || options.locale === 'ar'
+    ? '٫' : options.locale === 'es' || options.locale === 'tr' ? ',' : '.';
   const output = `${sign}${grouped}${fraction.length > 0 ? `${decimalMark}${fraction}` : ''}`;
   return localizeDigits(output, options.locale);
 }

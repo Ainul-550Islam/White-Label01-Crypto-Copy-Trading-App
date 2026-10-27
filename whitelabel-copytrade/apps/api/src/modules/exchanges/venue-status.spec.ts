@@ -43,33 +43,42 @@ interface Harness {
   feed: VenueStatusFeed | undefined;
 }
 
-function harness(options: { accounts?: Account[]; feed?: VenueStatusFeed | 'absent'; store?: Map<string, string> } = {}): Harness {
+function harness(options: { accounts?: Account[]; feed?: VenueStatusFeed | 'absent'; store?: Map<string, string>; storeFailure?: Error; accountFailure?: Error } = {}): Harness {
   const accounts = options.accounts ?? [account()];
   const store = options.store ?? new Map<string, string>();
   const audit = { recordImmediate: jest.fn<Promise<void>, unknown[]>().mockResolvedValue(undefined) };
 
   const repository = {
     listByTenant: jest.fn(async (_tenantId: string, filters?: { page?: number; limit?: number }) => {
+      if (options.accountFailure) throw options.accountFailure;
       const page = filters?.page ?? 1;
       const limit = filters?.limit ?? 20;
       const start = (page - 1) * limit;
       return { data: accounts.slice(start, start + limit), total: accounts.length };
     }),
   };
-  const cache = {
-    get: jest.fn(async (key: string) => store.get(key) ?? null),
-    set: jest.fn(async (key: string, value: unknown) => {
-      store.set(key, String(value));
-    }),
-    delete: jest.fn(async (key: string) => {
-      store.delete(key);
-    }),
+  const redis = {
+    client: {
+      get: jest.fn(async (key: string) => {
+        if (options.storeFailure) throw options.storeFailure;
+        return store.get(key) ?? null;
+      }),
+      set: jest.fn(async (key: string, value: string) => {
+        if (options.storeFailure) throw options.storeFailure;
+        store.set(key, value);
+        return 'OK';
+      }),
+      del: jest.fn(async (key: string) => {
+        if (options.storeFailure) throw options.storeFailure;
+        return store.delete(key) ? 1 : 0;
+      }),
+    },
   };
 
   const feed = options.feed === 'absent' ? undefined : (options.feed as VenueStatusFeed | undefined);
   const service = new VenueStatusService(
     repository as never,
-    cache as never,
+    redis as never,
     audit as never,
     feed as never,
   );
@@ -220,6 +229,16 @@ describe('VenueStatusService', () => {
       expect(view.source).toBe('ACCOUNT_HEALTH');
     });
 
+    it('a broken tenant connection downgrades an operational venue feed', async () => {
+      const { service } = harness({
+        feed: feedOf(sample('operational')),
+        accounts: [account({ healthState: 'UNAVAILABLE', connectionState: 'DISCONNECTED' })],
+      });
+      const view = await service.statusFor(TENANT, ExchangeVenue.BINANCE);
+      expect(view.state).toBe('DEGRADED');
+      expect(view.reason).toBe('ACCOUNT_HEALTH_DEGRADED');
+    });
+
     it('a healthy account does not upgrade a failed feed to OPERATIONAL', async () => {
       const { service } = harness({
         accounts: [account({ healthState: 'HEALTHY' })],
@@ -268,6 +287,12 @@ describe('VenueStatusService', () => {
       const views = await service.listForTenant(TENANT);
 
       expect(views.map((view) => view.venue).sort()).toEqual([ExchangeVenue.BINANCE, ExchangeVenue.OKX]);
+    });
+
+    it('never reports no venues or healthy account evidence when the account read fails', async () => {
+      const { service } = harness({ feed: feedOf(sample('operational')), accountFailure: new Error('database offline') });
+      await expect(service.listForTenant(TENANT)).rejects.toThrow('database offline');
+      await expect(service.statusFor(TENANT, ExchangeVenue.BINANCE)).rejects.toMatchObject({ status: 503 });
     });
 
     it('reports nothing at all for a tenant with no accounts', async () => {
@@ -388,17 +413,23 @@ describe('VenueStatusService', () => {
       );
     });
 
-    it('an unreadable store is no override, never an invented one', async () => {
+    it('does not turn unreadable override evidence into an operational feed verdict', async () => {
       const { service, store } = harness({ feed: feedOf(sample('operational')) });
       store.set(`venue:status:override:${ExchangeVenue.BINANCE}`, 'not json at all');
 
-      const view = await service.statusFor(TENANT, ExchangeVenue.BINANCE);
-
-      expect(view.source).toBe('FEED');
-      expect(view.override).toBeNull();
+      await expect(service.statusFor(TENANT, ExchangeVenue.BINANCE)).rejects.toMatchObject({ status: 503 });
     });
 
-    it('an override stored for another venue is ignored', async () => {
+    it('propagates override store failure on reads and writes', async () => {
+      const { service } = harness({ feed: feedOf(sample('operational')), storeFailure: new Error('redis offline') });
+      await expect(service.statusFor(TENANT, ExchangeVenue.BINANCE)).rejects.toMatchObject({ status: 503 });
+      await expect(service.setOverride(ACTOR, {
+        venue: ExchangeVenue.BINANCE, state: 'OUTAGE', reason: 'operator reported an outage',
+      })).rejects.toThrow('redis offline');
+      await expect(service.clearOverride(ACTOR, ExchangeVenue.BINANCE)).rejects.toMatchObject({ status: 503 });
+    });
+
+    it('an override stored under the wrong venue key is unavailable, not ignored', async () => {
       const { service, store } = harness({ feed: feedOf(sample('operational')) });
       overrideInStore(store, {
         venue: ExchangeVenue.OKX,
@@ -410,9 +441,7 @@ describe('VenueStatusService', () => {
         revokedAt: null,
       });
 
-      const view = await service.statusFor(TENANT, ExchangeVenue.BINANCE);
-
-      expect(view.source).toBe('FEED');
+      await expect(service.statusFor(TENANT, ExchangeVenue.BINANCE)).rejects.toMatchObject({ status: 503 });
     });
   });
 

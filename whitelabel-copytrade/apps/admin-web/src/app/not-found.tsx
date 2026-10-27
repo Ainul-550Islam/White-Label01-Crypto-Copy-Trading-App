@@ -4,6 +4,8 @@ import Link from 'next/link';
 export default function NotFound(): JSX.Element {
   return (
     <main
+      id="main-content"
+      tabIndex={-1}
       style={{
         minHeight: '100vh',
         display: 'grid',

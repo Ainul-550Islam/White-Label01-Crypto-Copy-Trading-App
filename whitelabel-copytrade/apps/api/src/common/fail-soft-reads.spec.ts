@@ -67,7 +67,8 @@ describe('isRecordNotFound', () => {
 
 describe('fail-open checks now fail closed (the error propagates)', () => {
   it('AccountRestrictionService.hasRestriction: a failed read is not "no restriction"', async () => {
-    const prisma = { accountRestriction: { findFirst: asyncMock().mockRejectedValue(STORAGE_DOWN) } };
+    const prisma = { accountRestriction: { findFirst: asyncMock().mockRejectedValue(STORAGE_DOWN) },
+      withTenantRls: async (_tenant: string, work: (tx: any) => unknown) => work(prisma) };
     const service = new AccountRestrictionService(prisma as any, {} as any);
     await expect(
       service.hasRestriction({ tenantId: 't1', accountId: 'a1', restrictionType: 'TRADING_BLOCK' as any }),
@@ -76,7 +77,8 @@ describe('fail-open checks now fail closed (the error propagates)', () => {
 
   it('AccountRestrictionService.hasRestriction still answers true/false from a successful read', async () => {
     const findFirst = asyncMock().mockResolvedValueOnce({ id: 'r1' }).mockResolvedValueOnce(null);
-    const service = new AccountRestrictionService({ accountRestriction: { findFirst } } as any, {} as any);
+    const prisma = { accountRestriction: { findFirst }, withTenantRls: async (_tenant: string, work: (tx: any) => unknown) => work(prisma) };
+    const service = new AccountRestrictionService(prisma as any, {} as any);
     const params = { tenantId: 't1', accountId: 'a1', restrictionType: 'TRADING_BLOCK' as any };
     await expect(service.hasRestriction(params)).resolves.toBe(true);
     await expect(service.hasRestriction(params)).resolves.toBe(false);
@@ -231,6 +233,7 @@ const MODULES_ROOT = join(__dirname, '..', 'modules');
  * the list (so the list cannot drift from the code).
  */
 const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
+  'auth/step-up/step-up.service.ts': { count: 1, reason: 'unreadable proof or session means not fresh and denies the protected action' },
   'billing/analytics/analytics-cache.service.ts': { count: 4, reason: 'cache get/invalidate; a cache miss or failure falls back to computing the value' },
   'billing/analytics/revenue-cohort.service.ts': { count: 1, reason: 'cohort key derivation from a date (pure computation)' },
   'billing/entitlements/entitlement.resolver.ts': { count: 3, reason: 'EntitlementResolver is exported but not registered in any Nest module (no route reaches it)' },
@@ -246,16 +249,17 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
   'oms/order-submission-result.service.ts': { count: 1, reason: 'JSON.parse of a queue return value' },
   'compliance/compliance-case.repository.ts': { count: 1, reason: 'reviewer assignment write flow that logs its failure (write side)' },
   'compliance/transaction-monitoring.service.ts': { count: 1, reason: 'signal acknowledgement updateMany that logs its failure (write side)' },
-  'copy-trading/copy-budget.service.ts': { count: 1, reason: 'decimal-string validation (pure computation); an unparseable amount is refused, never read as zero' },
+  'copy-trading/copy-budget.service.ts': { count: 1, reason: 'decimal syntax validation rejects invalid inputs; malformed stored ceilings block evaluation' },
   'copy-trading/copy-execution.service.ts': { count: 5, reason: 'fail-closed pre-trade guards: a failed lookup BLOCKS the leader event and logs it' },
+  'copy-trading/public-share.service.ts': { count: 1, reason: 'an unavailable indexing permission denies indexing rather than publishing private data' },
   'copy-trading/performance-calculation.service.ts': { count: 1, reason: 'invalid exact-decimal compounding input returns unavailable performance evidence' },
-  'copy-trading/public-share.service.ts': { count: 1, reason: 'indexability probe for public share pages; an adapter failure means do-not-index (fail closed)' },
   'custody/custody-audit.service.ts': { count: 1, reason: 'audit record create that logs its failure (write side)' },
+  'developer-platform/webhook-http-client.ts': { count: 1, reason: 'an invalid webhook URL is rejected before any outbound request' },
+  'exchanges/exchange-user-stream.service.ts': { count: 1, reason: 'invalid event timestamp yields UNKNOWN rather than connected stream health' },
+  'exchanges/venue-status.service.ts': { count: 1, reason: 'failed venue feed becomes UNKNOWN or degraded, never an operational feed' },
   'exchanges/exchange-rate-limit.service.ts': { count: 1, reason: 'rate-limit state from the cache (status read, not storage)' },
   'exchanges/exchange-symbol.service.ts': { count: 1, reason: 'symbol string parsing' },
-  'exchanges/exchange-user-stream.service.ts': { count: 1, reason: 'microsecond-string to ISO conversion (pure computation); unconvertible is no timestamp' },
   'exchanges/secret-store.ts': { count: 1, reason: 'reading VAULT_TOKEN_FILE; a missing token then fails closed with NOT_CONFIGURED' },
-  'exchanges/venue-status.service.ts': { count: 1, reason: 'unreadable override store reads as no override (a store failure must not create one); a failed status feed lands on UNKNOWN' },
   'governance/compliance-report-template.service.ts': { count: 1, reason: 'in-memory template lookup' },
   'health/trading-readiness.service.ts': { count: 1, reason: 'queue-depth samples from Redis for a metrics sampler' },
   'mobile-release/mobile-artifact-verification.service.ts': { count: 1, reason: 'timingSafeEqual on hex digests of different length' },
@@ -280,14 +284,12 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
  * None of them swallows a read the caller then treats as data.
  */
 const ALLOWED_PROMISE_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
-  'auth/account-recovery.service.ts': { count: 1, reason: 'recovery-token lookup; a failed read refuses the recovery (fail closed), the user retries' },
   'billing/finance/vies-vat.client.ts': { count: 1, reason: 'parsing a provider response body' },
   'billing/notifications/email-notification.provider.ts': { count: 1, reason: 'optional nodemailer module import' },
   'billing/notifications/twilio-sms.provider.ts': { count: 1, reason: 'parsing a provider response body' },
   'billing/payments/checkout.service.ts': { count: 1, reason: 'secondary mark-failed write inside an error path that then reports the failure' },
   'billing/saas-admin/tenant-feature-access.service.ts': { count: 1, reason: 'best-effort audit of a read-only feature check' },
   'datasets/dataset-ingestion.service.ts': { count: 2, reason: 'secondary writes inside an error path that then throws ServiceUnavailable' },
-  'developer-platform/developer.module.ts': { count: 1, reason: 'draining a webhook test response body' },
   'exchanges/secret-store.ts': { count: 2, reason: 'parsing a Vault response body' },
   'oms/fill-management.service.ts': { count: 1, reason: 'canonical-order fallback path (round 7 item B), not the primary read' },
   'oms/order-submission-result.service.ts': { count: 3, reason: 'queue-events close on shutdown and BullMQ job lookups (a removed job is absent)' },

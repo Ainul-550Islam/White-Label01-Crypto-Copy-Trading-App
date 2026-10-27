@@ -27,9 +27,17 @@ function fixture(events: GovernanceAuditEvent[]) {
   const recordEvent = jest.fn().mockResolvedValue(event({ id: 'export-audit-row', actionType: GovernanceActionType.AUDIT_EXPORT }));
   const audit = { listEvents, recordEvent };
   const policy = { getPolicyVersion: () => 'policy-v1' };
-  const enqueueOrThrow = jest.fn().mockResolvedValue('audit-job-1');
-  const queue = { enqueueOrThrow, getQueue: jest.fn() };
-  return { service: new GovernanceAuditExportService(audit as never, policy as never, queue as never), listEvents, recordEvent, enqueueOrThrow };
+  let payload: any, response: any, job: any;
+  const enqueueOrThrow = jest.fn().mockImplementation(async (_queue, name, data, options) => {
+    job = { name, data }; return options.jobId;
+  });
+  const queue = { enqueueOrThrow, getQueue: () => ({ getJob: async () => job }) };
+  const intents = {
+    execute: async (_t: string, _k: string, _h: string, callback: (tx: undefined, keyHash: string) => unknown) => { response = await callback(undefined, 'a'.repeat(64)); return response; },
+    stageQueued: async (_tx: unknown, _t: string, _key: string, value: unknown) => { payload = value; },
+    findQueued: async () => ({ keyHash: 'a'.repeat(64), requestHash: payload.requestHash, response, jobPayload: payload, queuedResult: null }),
+  };
+  return { service: new GovernanceAuditExportService(audit as never, policy as never, queue as never, intents as never), listEvents, recordEvent, enqueueOrThrow };
 }
 
 function ready(result: AuditExport | AuditExportQueued): asserts result is AuditExport {
@@ -53,7 +61,7 @@ describe('governance audit export', () => {
       tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z',
       operatorId: actorId, correlationId: 'export-correlation',
       filters: { actorId, actionType: GovernanceActionType.PRIVACY_REQUEST_CREATE, entityType: 'REQUEST', entityId: 'request-1', outcome: 'SUCCESS' },
-    });
+    }, 'audit-test-key');
     ready(result);
     expect(result.rows.map((row) => row.id)).toEqual(['event-1']);
     expect(result.manifest.rowCount).toBe(1);
@@ -61,7 +69,7 @@ describe('governance audit export', () => {
 
   it('emits a hash-chain manifest that detects a one-byte content change', async () => {
     const { service } = fixture([event(), event({ id: 'event-2', createdAt: '2026-10-20T12:01:00.000Z' })]);
-    const result = await service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'manifest-correlation' });
+    const result = await service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'manifest-correlation' }, 'audit-test-key');
     ready(result);
     const { manifest, rows } = JSON.parse(result.fileContents) as { manifest: { sha256: string; chainTip: string; tenantId: string; periodStart: string; periodEndExclusive: string; filters: unknown }; rows: Array<Record<string, unknown> & { previousHash: string; rowHash: string }> };
     let previous = '0'.repeat(64);
@@ -85,7 +93,7 @@ describe('governance audit export', () => {
 
   it('redacts raw actor and subject identifiers but retains safe evidence', async () => {
     const { service } = fixture([event()]);
-    const result = await service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'redaction-correlation' });
+    const result = await service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'redaction-correlation' }, 'audit-test-key');
     ready(result);
     const row = result.rows[0];
     expect(row?.actorReference).not.toBe(actorId);
@@ -97,21 +105,21 @@ describe('governance audit export', () => {
 
   it('requests a tenant-filtered source and refuses any foreign tenant row', async () => {
     const { service, listEvents } = fixture([event({ tenantId: '22222222-2222-4222-8222-222222222222' })]);
-    await expect(service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'tenant-correlation' })).rejects.toThrow('outside the authenticated tenant');
-    expect(listEvents).toHaveBeenCalledWith(tenantId, expect.objectContaining({ take: 2_001 }));
+    await expect(service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'tenant-correlation' }, 'audit-test-key')).rejects.toThrow('outside the authenticated tenant');
+    expect(listEvents).toHaveBeenCalledWith(tenantId, expect.objectContaining({ take: 2_001 }), undefined);
   });
 
   it('writes a durable audit event about every successful export', async () => {
     const { service, recordEvent } = fixture([event()]);
-    await service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'audited-export-correlation' });
-    expect(recordEvent).toHaveBeenCalledWith(expect.objectContaining({ tenantId, actionType: GovernanceActionType.AUDIT_EXPORT, createdBy: actorId, state: 'EXPORTED', result: 'SUCCESS' }));
+    await service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'audited-export-correlation' }, 'audit-test-key');
+    expect(recordEvent).toHaveBeenCalledWith(expect.objectContaining({ tenantId, actionType: GovernanceActionType.AUDIT_EXPORT, createdBy: actorId, state: 'EXPORTED', result: 'SUCCESS' }), undefined);
   });
 
   it('queues an asynchronous durable job when the synchronous size cap is exceeded', async () => {
     const rows = Array.from({ length: 2_001 }, (_, index) => event({ id: `large-${index}`, createdAt: new Date(now.getTime() + index).toISOString() }));
     const { service, enqueueOrThrow } = fixture(rows);
-    const result = await service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'large-export-correlation' });
-    expect(result).toMatchObject({ id: 'audit-job-1', tenantId, status: 'QUEUED' });
+    const result = await service.exportAuditTrail({ tenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z', operatorId: actorId, correlationId: 'large-export-correlation' }, 'audit-test-key');
+    expect(result).toMatchObject({ id: expect.stringMatching(/^audit-[a-f0-9]{64}$/), tenantId, status: 'QUEUED' });
     expect(enqueueOrThrow).toHaveBeenCalledWith(expect.any(String), 'governance-audit-export', expect.objectContaining({ tenantId }), expect.objectContaining({ attempts: 3 }));
   });
 

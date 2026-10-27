@@ -18,14 +18,16 @@ import { ComplianceReportCertificationService } from './compliance-report-certif
 import { ComplianceReportDeliveryService } from './compliance-report-delivery.service';
 import { EvidencePackageService } from './evidence-package.service';
 import { GovernanceAuditService } from './governance-audit.service';
+import { AuditExportIntentStore } from './audit-export-intent.store';
+import { AuditExportRelayService } from './audit-export-relay.service';
 import { GovernanceAuditExportService } from './governance-audit-export.service';
 import { GovernanceReconciliationService } from './governance-reconciliation.service';
 import { GovernanceMetricsService } from './governance-metrics.service';
 import { GovernanceActionService } from './governance-action.service';
 import { GovernanceReportQueryService } from './governance-report-query.service';
 import { GovernanceController } from './governance.controller';
-import { GovernanceAuditExportProcessor } from '../audit/governance-audit-export.processor';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { GovernanceAuditExportProcessor } from '../audit/governance-audit-export.processor';
 
 @Module({
   imports: [ConfigModule],
@@ -53,9 +55,8 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
     ComplianceReportDeliveryService,
     EvidencePackageService,
     GovernanceAuditExportService,
-    // Consumes the queued half of the audit-export pair: exports beyond the
-    // synchronous cap are enqueued by GovernanceAuditExportService onto the
-    // audit queue, and without this provider those jobs would never run.
+    AuditExportIntentStore,
+    AuditExportRelayService,
     GovernanceAuditExportProcessor,
     GovernanceMetricsService,
     GovernanceReportQueryService,

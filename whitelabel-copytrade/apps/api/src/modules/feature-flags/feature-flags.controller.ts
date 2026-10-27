@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Put, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   AuditAction,
@@ -9,13 +10,14 @@ import {
 } from '@wlct/shared-types';
 
 import { FeatureFlagsService } from './feature-flags.service';
+import { requireMutationKey } from '../developer-platform/developer-mutation-intent';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 import { SetTenantFlagDto, UpsertFeatureFlagDto } from './dto/feature-flag.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TenantId } from '../../common/decorators/current-tenant.decorator';
 import { PlatformOnly, RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { RequestMeta, type RequestMetadata } from '../../common/decorators/request-context.decorator';
 import { Audited } from '../../common/decorators/audit.decorator';
-import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 import { ApiStandardResponses } from '../../common/decorators/api-standard-responses.decorator';
 
 @ApiTags('Feature flags')
@@ -44,6 +46,8 @@ export class FeatureFlagsController {
     return this.featureFlags.listForTenant(tenantId);
   }
 
+  // All tenant flag changes are conservatively treated as live-sensitive.
+  @RequireStepUp('FEATURE_FLAG_LIVE_TOGGLE')
   @Put()
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(Permission.FEATURE_FLAG_MANAGE)
@@ -55,44 +59,13 @@ export class FeatureFlagsController {
     @TenantId() tenantId: string,
     @CurrentUser() actor: AuthenticatedActor,
     @RequestMeta() meta: RequestMetadata,
+    @Req() request: Request,
   ): Promise<TenantFeatureFlagDto> {
     return this.featureFlags.setForTenant(tenantId, dto, {
       actorId: actor.userId,
       ipHash: meta.ipHash,
       requestId: meta.requestId,
-    });
-  }
-
-  @Put('live')
-  @HttpCode(HttpStatus.OK)
-  @RequirePermissions(Permission.FEATURE_FLAG_MANAGE)
-  @RequireStepUp('FEATURE_FLAG_LIVE_TOGGLE')
-  @Audited(AuditAction.FEATURE_FLAG_UPDATED, 'TenantFeatureFlag')
-  @ApiOperation({
-    summary: 'Enable or disable a live-trading feature for the current organisation',
-    description:
-      'Live/mainnet switches only. Requires a fresh single-use step-up proof for FEATURE_FLAG_LIVE_TOGGLE plus plan entitlement to enable.',
-  })
-  @ApiOkResponse({ description: 'The stored override.' })
-  async setLiveForTenant(
-    @Body() dto: SetTenantFlagDto,
-    @TenantId() tenantId: string,
-    @CurrentUser() actor: AuthenticatedActor,
-    @RequestMeta() meta: RequestMetadata,
-  ): Promise<TenantFeatureFlagDto> {
-    // The StepUpGuard has consumed the proof by the time this runs; `true`
-    // is the service-layer echo of that fact, and it is the only call site
-    // allowed to pass it.
-    return this.featureFlags.setForTenant(
-      tenantId,
-      dto,
-      {
-        actorId: actor.userId,
-        ipHash: meta.ipHash,
-        requestId: meta.requestId,
-      },
-      true,
-    );
+    }, requireMutationKey(request));
   }
 
   @Get('definitions')
@@ -105,6 +78,7 @@ export class FeatureFlagsController {
     return this.featureFlags.listDefinitions();
   }
 
+  @RequireStepUp('FEATURE_FLAG_LIVE_TOGGLE')
   @Post('definitions')
   @HttpCode(HttpStatus.OK)
   @PlatformOnly()
@@ -117,12 +91,13 @@ export class FeatureFlagsController {
     @TenantId() tenantId: string,
     @CurrentUser() actor: AuthenticatedActor,
     @RequestMeta() meta: RequestMetadata,
+    @Req() request: Request,
   ): Promise<FeatureFlagDto> {
     return this.featureFlags.upsertDefinition(dto, {
       actorId: actor.userId,
       tenantId,
       ipHash: meta.ipHash,
       requestId: meta.requestId,
-    });
+    }, requireMutationKey(request));
   }
 }

@@ -73,6 +73,11 @@ function build(store: Store) {
           data,
         ),
       ),
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        const rows = store.sessions.filter((session) => matches(session, where));
+        rows.forEach((session) => Object.assign(session, data));
+        return { count: rows.length };
+      }),
     },
     refreshToken: {
       updateMany: jest.fn(async ({ where, data }: any) => {
@@ -88,6 +93,9 @@ function build(store: Store) {
       ),
     },
     $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+    $queryRaw: jest.fn(async (_parts: TemplateStringsArray, userId: string, tenantId: string) =>
+      store.users.filter((row) => row.id === userId && row.tenantId === tenantId && !row.deletedAt).map((row) => ({ id: row.id }))),
+    withTenantRls: jest.fn(async (_tenantId: string, work: (tx: any) => Promise<unknown>) => work(prisma)),
   };
   const config: any = {
     jwtAccessVerificationKey: 'test-access-key',
@@ -110,8 +118,8 @@ function build(store: Store) {
       store.sessions.push(s);
       return { id: s.id, isNewDevice: false };
     }),
-    revoke: jest.fn((userId: string, sessionId: string, reason: string) =>
-      realSessions.revoke(userId, sessionId, reason),
+    revoke: jest.fn((tenantId: string, userId: string, sessionId: string, reason: string) =>
+      realSessions.revoke(tenantId, userId, sessionId, reason),
     ),
   };
   const tokens = {
@@ -119,6 +127,7 @@ function build(store: Store) {
       store.refreshTokens.push({
         sessionId: input.sessionId,
         userId: input.userId,
+        tenantId: input.tenantId,
         status: 'ACTIVE',
         tokenHash: 'sha512-of-refresh',
       });
@@ -135,6 +144,7 @@ function build(store: Store) {
       tid: TENANT,
       did: device.deviceId,
       jti: 'challenge-jti',
+      sv: 3,
     })),
     consumeTwoFactorChallenge: jest.fn(async () => undefined),
     revokeSessionTokens: jest.fn(async (sessionId: string, reason: string) => {
@@ -148,6 +158,10 @@ function build(store: Store) {
   const crypto: any = { blindIndex: (v: string) => `bi:${v}` };
   const permissions: any = {
     getEffectiveAccess: jest.fn(async () => ({
+      roleKeys: ['FOLLOWER'],
+      permissionKeys: ['strategy:read'],
+    })),
+    getEffectiveAccessForTenant: jest.fn(async () => ({
       roleKeys: ['FOLLOWER'],
       permissionKeys: ['strategy:read'],
     })),
@@ -273,7 +287,7 @@ describe('AuthService SSO completion (Part 11)', () => {
     // The user lookup is tenant-scoped and never reads the password hash.
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
       where: { id: USER, tenantId: TENANT, deletedAt: null },
-      select: { id: true, email: true, status: true, twoFactorEnabled: true },
+      select: { id: true, email: true, status: true, twoFactorEnabled: true, sessionVersion: true },
     });
   });
 
@@ -333,7 +347,7 @@ describe('AuthService SSO completion (Part 11)', () => {
     const { auth, sessions, tokens } = build(store);
     const result = await auth.completeSsoLogin(USER, tenant, device, context);
     expect(result).toMatchObject({ twoFactorRequired: true, challengeToken: 'challenge-token' });
-    expect(tokens.issueTwoFactorChallenge).toHaveBeenCalledWith(USER, TENANT, device.deviceId);
+    expect(tokens.issueTwoFactorChallenge).toHaveBeenCalledWith(USER, TENANT, device.deviceId, { sessionVersion: 3 });
     expect(sessions.createOrReuse).not.toHaveBeenCalled();
     expect(store.loginAttempts).toEqual([
       expect.objectContaining({ successful: false, reason: 'sso_two_factor_required' }),
@@ -362,7 +376,7 @@ describe('AuthService SSO completion (Part 11)', () => {
       sessionId: result.sessionId,
     });
 
-    await auth.revokeSsoSession(USER, result.sessionId);
+    await auth.revokeSsoSession(TENANT, USER, result.sessionId);
     expect(store.sessions[0].revokedAt).toBeInstanceOf(Date);
     expect(store.sessions[0].revokeReason).toBe('sso_audit_failed');
     expect(store.refreshTokens.every((t) => t.status === 'REVOKED')).toBe(true);
@@ -375,7 +389,7 @@ describe('AuthService SSO completion (Part 11)', () => {
     const result = (await auth.completeSsoLogin(USER, tenant, device, context)) as {
       sessionId: string;
     };
-    await expect(auth.revokeSsoSession('someone-else', result.sessionId)).rejects.toBeDefined();
+    await expect(auth.revokeSsoSession(TENANT, 'someone-else', result.sessionId)).rejects.toBeDefined();
     expect(store.sessions[0].revokedAt).toBeNull();
   });
 });
@@ -451,10 +465,10 @@ describe('AuthService SSO session origin (round 8: SAML Single Logout, SSO + 2FA
     const { auth, sessions, tokens, twoFactor } = build(store);
     const challenge = await auth.completeSsoLogin(USER, tenant, device, context, samlBinding);
     expect(challenge).toMatchObject({ twoFactorRequired: true });
-    expect(tokens.issueTwoFactorChallenge).toHaveBeenCalledWith(USER, TENANT, device.deviceId, { sso: TX });
+    expect(tokens.issueTwoFactorChallenge).toHaveBeenCalledWith(USER, TENANT, device.deviceId, { sessionVersion: 3, sso: TX });
     expect(sessions.createOrReuse).not.toHaveBeenCalled();
 
-    tokens.verifyTwoFactorChallenge.mockResolvedValueOnce({ sub: USER, tid: TENANT, did: device.deviceId, jti: 'challenge-jti', sso: TX } as never);
+    tokens.verifyTwoFactorChallenge.mockResolvedValueOnce({ sub: USER, tid: TENANT, did: device.deviceId, jti: 'challenge-jti', sv: 3, sso: TX } as never);
     await auth.verifyTwoFactor(tenant, twoFactorDto, context);
     expect(twoFactor.verify).toHaveBeenCalledTimes(1);
     expect(tokens.consumeTwoFactorChallenge).toHaveBeenCalledWith('challenge-jti');
@@ -476,11 +490,20 @@ describe('AuthService SSO session origin (round 8: SAML Single Logout, SSO + 2FA
     );
   });
 
+  it('rejects a two-factor challenge minted before a credential reset', async () => {
+    const store = freshStore({ twoFactorEnabled: true, sessionVersion: 4 });
+    const { auth, sessions, tokens, twoFactor } = build(store);
+    expect(await errorCode(auth.verifyTwoFactor(tenant, twoFactorDto, context))).toBe(ErrorCode.TOKEN_REVOKED);
+    expect(twoFactor.verify).not.toHaveBeenCalled();
+    expect(tokens.issueTokenPair).not.toHaveBeenCalled();
+    expect(sessions.createOrReuse).not.toHaveBeenCalled();
+  });
+
   it('an unresolvable SSO reference in the challenge refuses the session before the second factor is checked', async () => {
     const store = freshStore({ twoFactorEnabled: true });
     store.transactions.push(samlTx({ tenantId: OTHER }));
     const { auth, sessions, tokens, twoFactor } = build(store);
-    tokens.verifyTwoFactorChallenge.mockResolvedValueOnce({ sub: USER, tid: TENANT, did: device.deviceId, jti: 'challenge-jti', sso: TX } as never);
+    tokens.verifyTwoFactorChallenge.mockResolvedValueOnce({ sub: USER, tid: TENANT, did: device.deviceId, jti: 'challenge-jti', sv: 3, sso: TX } as never);
     expect(await errorCode(auth.verifyTwoFactor(tenant, twoFactorDto, context))).toBe(ErrorCode.TOKEN_INVALID);
     expect(twoFactor.verify).not.toHaveBeenCalled();
     expect(tokens.consumeTwoFactorChallenge).not.toHaveBeenCalled();

@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getPlanComparison, changePlan, createCheckoutSession } from './billing-portal-api';
+import { displayPlanLimit } from './plan-limit-labels';
+import { checkoutDestination, isAcknowledgedPlanChange } from './plan-change-outcome';
 
 /**
  * Dynamic plan comparison UI - fetches canonical plan/features/limits from backend.
@@ -13,13 +15,14 @@ export default function PlanComparisonPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const checkoutIntents = useRef(new Map<string, string>());
 
   const fetchComparison = async () => {
     try {
       const data = await getPlanComparison();
       setComparison(data);
-    } catch (e: any) {
-      setError(e.message || 'Failed to load plans');
+    } catch {
+      setError('Could not load plans. Check your access and try again.');
     } finally {
       setLoading(false);
     }
@@ -41,23 +44,26 @@ export default function PlanComparisonPage() {
     setMessage(null);
     try {
       const result = await changePlan({ planId, atPeriodEnd: false });
+      if (!result || result.action !== 'CHANGE_PLAN' || typeof result.requiresCheckout !== 'boolean') throw new Error('Invalid plan change response');
       if (result.requiresCheckout) {
-        // Need checkout for upgrade
-        setMessage(`Upgrade requires payment. Price delta: ${result.priceDelta}. Proceeding to checkout...`);
+        setMessage('Payment is required. Preparing checkout; the plan has not changed yet.');
+        const idempotencyKey = checkoutIntents.current.get(planId) ?? crypto.randomUUID();
+        checkoutIntents.current.set(planId, idempotencyKey);
         const checkout = await createCheckoutSession({
           planId,
           successUrl: window.location.origin + '/billing?checkout_success=true',
           cancelUrl: window.location.origin + '/billing/plans',
+          idempotencyKey,
         });
-        if (checkout.checkoutUrl) {
-          window.location.assign(checkout.checkoutUrl);
-          return;
-        }
+        window.location.assign(checkoutDestination(checkout, planId));
+        return;
       }
-      setMessage(result.message || 'Plan change successful');
+      if (!isAcknowledgedPlanChange(result)) throw new Error('Invalid plan change response');
+      checkoutIntents.current.delete(planId);
+      setMessage('Plan change accepted. Review the current plan below.');
       await refreshComparison();
-    } catch (e: any) {
-      setMessage(`Error: ${e.message}`);
+    } catch {
+      setMessage('The plan change could not be confirmed. Check the current plan before trying again.');
     } finally {
       setActionLoading(null);
     }
@@ -122,13 +128,13 @@ export default function PlanComparisonPage() {
 
             <div className="mt-4 space-y-2">
               <p className="text-sm font-medium">Limits:</p>
-              {Object.entries(plan.limits || {}).map(([key, value]: any) => {
-                if (value === null || value === undefined) return null;
-                if (typeof value === 'boolean') return null;
+              {Object.entries(plan.limits || {}).map(([key, value]) => {
+                const item = displayPlanLimit(key, value);
+                if (!item) return null;
                 return (
                   <div key={key} className="flex justify-between text-xs">
-                    <span className="text-gray-600">{key.replace(/([A-Z])/g, ' $1')}</span>
-                    <span className="font-medium">{value === null ? 'Unlimited' : String(value)}</span>
+                    <span className="text-gray-600">{item.label}</span>
+                    <span className="font-medium">{item.value}</span>
                   </div>
                 );
               })}

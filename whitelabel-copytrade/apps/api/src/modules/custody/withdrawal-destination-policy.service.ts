@@ -105,6 +105,7 @@ export interface WithdrawalDestinationRepository {
     id: string;
     status: DestinationStatus;
     revokedAt: Date | null;
+    dueAt?: Date;
   }): Promise<WithdrawalDestinationRecord | null>;
   listDue(input: { tenantId: string; userId: string; now: Date }): Promise<WithdrawalDestinationRecord[]>;
   /**
@@ -403,6 +404,7 @@ export class WithdrawalDestinationPolicyService {
         id: row.id,
         status: 'ACTIVE',
         revokedAt: null,
+        dueAt: now,
       });
       if (updated && updated.status === 'ACTIVE') activated += 1;
     }
@@ -462,7 +464,7 @@ export class WithdrawalDestinationPolicyService {
         activatesAt: null,
       };
     }
-    if (match.status === 'REVOKED') {
+    if (match.status === 'REVOKED' || match.revokedAt !== null) {
       return {
         decision: 'DENY',
         code: 'DESTINATION_REVOKED',
@@ -471,7 +473,10 @@ export class WithdrawalDestinationPolicyService {
         activatesAt: null,
       };
     }
-    if (match.status === 'PENDING') {
+    if (!Number.isFinite(match.activatesAt.getTime())) {
+      return { decision: 'DENY', code: 'DESTINATION_NOT_ALLOWLISTED', message: 'Destination status is unavailable.', destinationId: null, activatesAt: null };
+    }
+    if (match.status === 'PENDING' || match.activatesAt.getTime() > this.now().getTime()) {
       return {
         decision: 'DENY',
         code: 'DESTINATION_PENDING_ACTIVATION',
@@ -541,96 +546,66 @@ export class PrismaWithdrawalDestinationRepository implements WithdrawalDestinat
   constructor(private readonly prisma: PrismaService) {}
 
   async findById(input: { tenantId: string; userId: string; id: string }): Promise<WithdrawalDestinationRecord | null> {
-    const row = await this.prisma.withdrawalDestination.findFirst({
-      where: { id: input.id, tenantId: input.tenantId, userId: input.userId },
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<WithdrawalDestinationRecord[]>`SELECT id, tenant_id AS "tenantId", user_id AS "userId", network, address, label, status::text AS status, activates_at AS "activatesAt", revoked_at AS "revokedAt", created_at AS "createdAt" FROM withdrawal_destinations WHERE tenant_id=${input.tenantId}::uuid AND user_id=${input.userId}::uuid AND id=${input.id}::uuid`;
+      return rows[0] ? toRecord(rows[0]) : null;
     });
-    return row ? toRecord(row) : null;
   }
 
-  async findExact(input: {
-    tenantId: string;
-    userId: string;
-    network: string;
-    address: string;
-  }): Promise<WithdrawalDestinationRecord | null> {
-    const row = await this.prisma.withdrawalDestination.findFirst({
-      where: {
-        tenantId: input.tenantId,
-        userId: input.userId,
-        network: input.network,
-        address: input.address,
-      },
+  async findExact(input: { tenantId: string; userId: string; network: string; address: string }): Promise<WithdrawalDestinationRecord | null> {
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<WithdrawalDestinationRecord[]>`SELECT id, tenant_id AS "tenantId", user_id AS "userId", network, address, label, status::text AS status, activates_at AS "activatesAt", revoked_at AS "revokedAt", created_at AS "createdAt" FROM withdrawal_destinations WHERE tenant_id=${input.tenantId}::uuid AND user_id=${input.userId}::uuid AND network=${input.network} AND address=${input.address}`;
+      return rows[0] ? toRecord(rows[0]) : null;
     });
-    return row ? toRecord(row) : null;
   }
 
   async list(input: { tenantId: string; userId: string }): Promise<WithdrawalDestinationRecord[]> {
-    const rows = await this.prisma.withdrawalDestination.findMany({
-      where: { tenantId: input.tenantId, userId: input.userId },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<WithdrawalDestinationRecord[]>`SELECT id, tenant_id AS "tenantId", user_id AS "userId", network, address, label, status::text AS status, activates_at AS "activatesAt", revoked_at AS "revokedAt", created_at AS "createdAt" FROM withdrawal_destinations WHERE tenant_id=${input.tenantId}::uuid AND user_id=${input.userId}::uuid ORDER BY created_at DESC, id DESC LIMIT 200`;
+      return rows.map(toRecord);
     });
-    return rows.map(toRecord);
   }
 
-  async create(input: {
-    tenantId: string;
-    userId: string;
-    network: string;
-    address: string;
-    label: string;
-    activatesAt: Date;
-  }): Promise<WithdrawalDestinationRecord> {
-    const row = await this.prisma.withdrawalDestination.create({
-      data: {
-        tenantId: input.tenantId,
-        userId: input.userId,
-        network: input.network,
-        address: input.address,
-        label: input.label,
-        status: 'PENDING',
-        activatesAt: input.activatesAt,
-      },
+  async create(input: { tenantId: string; userId: string; network: string; address: string; label: string; activatesAt: Date }): Promise<WithdrawalDestinationRecord> {
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<WithdrawalDestinationRecord[]>`INSERT INTO withdrawal_destinations (tenant_id,user_id,network,address,label,status,activates_at) VALUES (${input.tenantId}::uuid,${input.userId}::uuid,${input.network},${input.address},${input.label},'PENDING',${input.activatesAt}) RETURNING id, tenant_id AS "tenantId", user_id AS "userId", network, address, label, status::text AS status, activates_at AS "activatesAt", revoked_at AS "revokedAt", created_at AS "createdAt"`;
+      const row = rows[0];
+      if (!row) throw new Error('Destination was not persisted');
+      await tx.clientLifecycleAudit.create({ data: { tenantId: input.tenantId, actorId: input.userId, actorType: 'USER',
+        action: 'WITHDRAWAL_DESTINATION_ADDED', entityType: 'WITHDRAWAL_DESTINATION', entityId: row.id, toState: 'PENDING',
+        evidence: { network: input.network, activatesAt: input.activatesAt.toISOString() } } });
+      return toRecord(row);
     });
-    return toRecord(row);
   }
 
-  async setStatus(input: {
-    tenantId: string;
-    userId: string;
-    id: string;
-    status: DestinationStatus;
-    revokedAt: Date | null;
-  }): Promise<WithdrawalDestinationRecord | null> {
-    // updateMany keeps the tenant/user predicate in the WHERE clause: a wrong id
-    // updates nothing rather than throwing and revealing that it exists.
-    const result = await this.prisma.withdrawalDestination.updateMany({
-      where: { id: input.id, tenantId: input.tenantId, userId: input.userId },
-      data: { status: input.status, revokedAt: input.revokedAt },
+  async setStatus(input: { tenantId: string; userId: string; id: string; status: DestinationStatus; revokedAt: Date | null; dueAt?: Date }): Promise<WithdrawalDestinationRecord | null> {
+    if (input.status === 'ACTIVE' && !input.dueAt) return null;
+    if (input.status !== 'ACTIVE' && input.status !== 'REVOKED') return null;
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      // A stale sweeper can only change a due PENDING row; it cannot revive a revoked one.
+      const rows = input.status === 'ACTIVE'
+        ? await tx.$queryRaw<WithdrawalDestinationRecord[]>`UPDATE withdrawal_destinations SET status='ACTIVE', revoked_at=NULL, updated_at=NOW() WHERE id=${input.id}::uuid AND tenant_id=${input.tenantId}::uuid AND user_id=${input.userId}::uuid AND status='PENDING' AND activates_at<=${input.dueAt!} RETURNING id, tenant_id AS "tenantId", user_id AS "userId", network, address, label, status::text AS status, activates_at AS "activatesAt", revoked_at AS "revokedAt", created_at AS "createdAt"`
+        : await tx.$queryRaw<WithdrawalDestinationRecord[]>`UPDATE withdrawal_destinations SET status='REVOKED', revoked_at=${input.revokedAt}, updated_at=NOW() WHERE id=${input.id}::uuid AND tenant_id=${input.tenantId}::uuid AND user_id=${input.userId}::uuid AND status IN ('PENDING','ACTIVE') RETURNING id, tenant_id AS "tenantId", user_id AS "userId", network, address, label, status::text AS status, activates_at AS "activatesAt", revoked_at AS "revokedAt", created_at AS "createdAt"`;
+      const row = rows[0];
+      if (!row) return null;
+      await tx.clientLifecycleAudit.create({ data: { tenantId: input.tenantId, actorId: input.userId, actorType: 'USER',
+        action: input.status === 'REVOKED' ? 'WITHDRAWAL_DESTINATION_REVOKED' : 'WITHDRAWAL_DESTINATION_ACTIVATED',
+        entityType: 'WITHDRAWAL_DESTINATION', entityId: row.id, toState: input.status, evidence: { network: row.network } } });
+      return toRecord(row);
     });
-    if (result.count === 0) return null;
-    return this.findById({ tenantId: input.tenantId, userId: input.userId, id: input.id });
   }
 
   async listForTenant(input: { tenantId: string; limit: number }): Promise<WithdrawalDestinationRecord[]> {
-    const rows = await this.prisma.withdrawalDestination.findMany({
-      where: { tenantId: input.tenantId },
-      orderBy: { createdAt: 'desc' },
-      take: input.limit,
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<WithdrawalDestinationRecord[]>`SELECT id, tenant_id AS "tenantId", user_id AS "userId", network, address, label, status::text AS status, activates_at AS "activatesAt", revoked_at AS "revokedAt", created_at AS "createdAt" FROM withdrawal_destinations WHERE tenant_id=${input.tenantId}::uuid ORDER BY created_at DESC,id DESC LIMIT ${input.limit}`;
+      return rows.map(toRecord);
     });
-    return rows.map(toRecord);
   }
 
   async listDue(input: { tenantId: string; userId: string; now: Date }): Promise<WithdrawalDestinationRecord[]> {
-    const rows = await this.prisma.withdrawalDestination.findMany({
-      where: {
-        tenantId: input.tenantId,
-        userId: input.userId,
-        status: 'PENDING',
-        activatesAt: { lte: input.now },
-      },
-      take: 200,
+    return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<WithdrawalDestinationRecord[]>`SELECT id, tenant_id AS "tenantId", user_id AS "userId", network, address, label, status::text AS status, activates_at AS "activatesAt", revoked_at AS "revokedAt", created_at AS "createdAt" FROM withdrawal_destinations WHERE tenant_id=${input.tenantId}::uuid AND user_id=${input.userId}::uuid AND status='PENDING' AND activates_at<=${input.now} LIMIT 200`;
+      return rows.map(toRecord);
     });
-    return rows.map(toRecord);
   }
 }

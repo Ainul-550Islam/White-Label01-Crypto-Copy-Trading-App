@@ -804,8 +804,16 @@ export class CopyExecutionService {
         await this.executionRepo.updateStatus(blocked.id, tenantId, CopyExecutionStatus.BLOCKED, { failureReason: 'Follower blocked by compliance' });
         return { ...blocked, status: CopyExecutionStatus.BLOCKED };
       }
-    } catch (e: any) {
-      if (e.message?.includes('blocked by compliance')) throw e;
+    } catch (error) {
+      // Failure to read the follower's restriction is not permission to trade.
+      // Do not leak a database error into the customer-visible execution result.
+      this.logger.warn(`Follower compliance lookup failed for subscription ${subscription.id}`);
+      return {
+        subscriptionId: subscription.id,
+        followerId: subscription.followerId,
+        status: CopyExecutionStatus.BLOCKED,
+        failureReason: 'Follower compliance status is unavailable; copy refused.',
+      };
     }
 
     // Testnet/live mismatch must prevent copy
@@ -846,16 +854,12 @@ export class CopyExecutionService {
       }
     }
 
-    // GAP-61: the follower's GLOBAL active-copy budget, evaluated before the intent
-    // exists. Per-subscription `maxAllocation` caps each subscription; this is the
-    // only place that caps their SUM, and it runs immediately before the row that
-    // becomes an order is created, so nothing downstream can spend budget the
-    // follower does not have.
-    //
-    // BLOCK  -> record the refusal with the reason code and stop.
-    // REDUCE -> shrink the intent to exactly the remaining budget (the service
-    //           floors the quantity; rounding up is how a cap is exceeded).
-    // ALLOW  -> continue, and record the budget decision on the intent for audit.
+    // Evaluate before creating an intent. The budget service currently blocks
+    // configured budgets: allocation estimates do not verify live exposure and
+    // there is no atomic reservation shared with order routing. An unconfigured
+    // budget is not a risk guarantee; all other risk gates still apply.
+    // BLOCK records the refusal. Future verified REDUCE/ALLOW decisions remain
+    // attached to the execution for audit.
     let budgetDecision: CopyBudgetDecision;
     try {
       budgetDecision = await this.copyBudgetService.evaluate({
@@ -877,9 +881,9 @@ export class CopyExecutionService {
         message: 'Copy budget evaluation failed; the copy was refused rather than guessed at',
         currency: quoteAssetOf(followerIntent.symbol),
         effectiveCap: null,
-        committed: '0',
-        remaining: '0',
-        requestedNotional: followerIntent.notional ?? '0',
+        committed: null,
+        remaining: null,
+        requestedNotional: followerIntent.notional ?? null,
         allowedNotional: '0',
         reducedQuantity: null,
         equityAgeMs: null,

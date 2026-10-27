@@ -6,22 +6,9 @@
 // allow-list with a stated reason ("account recovery must work without a session"),
 // and it renders inside no authenticated shell.
 //
-// The token can arrive two ways: in the link (`?token=…`) or pasted by hand. Both
-// are accepted because recovery mail is often opened on a different device from the
-// one being recovered. The token is read from the query string, never logged, and
-// handed straight to the API.
-//
-// WHY THIS FILE IS A SERVER COMPONENT AND THE FORM IS NOT
-// ------------------------------------------------------
-// Reading `?token=` requires `useSearchParams`, which Next only allows inside a
-// Suspense boundary: a page that calls it while being prerendered aborts the build
-// with "useSearchParams() should be wrapped in a suspense boundary". Exporting
-// `dynamic = 'force-dynamic'` is not available here either - route segment config is
-// ignored in a `use client` module. So the route stays a server component that owns
-// the layout and the Suspense boundary, and the hook lives one file down, in
-// `RecoveryEntry`. The fallback is deliberately the outline of the real form rather
-// than a spinner: this screen is reached from an email link by someone who has just
-// lost access, and a blank flash reads as a broken link.
+// A bearer token is accepted only in a URL fragment (`#token=...`) or by paste,
+// never from a query string. Fragments are not sent in the HTTP request. The
+// client entry removes a fragment from browser history as soon as it is read.
 import type { JSX } from 'react';
 
 import { Suspense } from 'react';
@@ -42,12 +29,12 @@ function RecoveryFallback(): JSX.Element {
 
 export default function RecoveryRoute(): JSX.Element {
   return (
-    <main className="min-h-screen bg-background px-4 py-10">
+    <div className="min-h-screen bg-background px-4 py-10">
       <div className="mx-auto max-w-md">
         <Suspense fallback={<RecoveryFallback />}>
           <RecoveryEntry />
         </Suspense>
       </div>
-    </main>
+    </div>
   );
 }

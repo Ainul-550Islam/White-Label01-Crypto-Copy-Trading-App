@@ -10,13 +10,15 @@ spec:
     matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: web }
   template:
     metadata:
+      annotations:
+        checksum/raw-target-config: {{ include (print $.Template.BasePath "/web-raw-target-config.yaml") . | sha256sum }}
       labels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: web }
     spec:
-      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: web
           image: {{ include "wlct.image" .Values.services.web | quote }}
-          ports: [{ name: http, containerPort: 3001 }]
+          ports: [{ name: web-http, containerPort: 3001 }]
           env:
             - name: NODE_ENV
               value: production
@@ -25,8 +27,27 @@ spec:
             - name: API_BASE_URL
               value: http://{{ .Release.Name }}-api:4000/api
           envFrom: [{ secretRef: { name: {{ .Values.services.web.secretRef | quote }} } }]
-          startupProbe: { httpGet: { path: /login, port: http }, failureThreshold: 30, periodSeconds: 10 }
-          readinessProbe: { httpGet: { path: /login, port: http }, periodSeconds: 10 }
-          livenessProbe: { httpGet: { path: /login, port: http }, periodSeconds: 20 }
+          startupProbe: { httpGet: { path: /login, port: web-http }, failureThreshold: 30, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /login, port: web-http }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /login, port: web-http }, periodSeconds: 20 }
           resources: {{- toYaml .Values.services.web.resources | nindent 12 }}
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 10001, capabilities: { drop: [ALL] } }
+
+        - name: raw-target-guard
+          image: {{ .Values.ingress.webRawTargetGuardImage | quote }}
+          command: ["nginx", "-g", "daemon off;"]
+          ports: [{ name: edge-http, containerPort: 8080 }]
+          readinessProbe: { httpGet: { path: /login, port: edge-http }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /login, port: edge-http }, periodSeconds: 20 }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 10001, capabilities: { drop: [ALL] } }
+          volumeMounts:
+            - { name: raw-target-config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
+            - { name: raw-target-tmp, mountPath: /tmp }
+      volumes:
+        - name: raw-target-config
+          configMap: { name: {{ .Release.Name }}-web-raw-target }
+        - name: raw-target-tmp
+          emptyDir: { sizeLimit: 32Mi }

@@ -107,7 +107,7 @@ export class PushNotificationService implements INotificationProvider {
           failureReason: 'No device token supplied for push delivery',
         };
       }
-      if (token.includes('invalid') || token.length < 10) {
+      if (token.length < 10) {
         return {
           accepted: false,
           providerReference: null,
@@ -152,7 +152,6 @@ export class PushNotificationService implements INotificationProvider {
         const isInvalidToken =
           code.includes('registration-token-not-registered') ||
           code.includes('invalid-registration-token') ||
-          code.includes('invalid-argument') ||
           message.toLowerCase().includes('not registered');
         if (isInvalidToken) {
           return {
@@ -161,7 +160,7 @@ export class PushNotificationService implements INotificationProvider {
             resultType: ProviderDeliveryResultType.PERMANENT_FAILURE,
             retryable: false,
             errorCode: 'INVALID_DEVICE_TOKEN',
-            failureReason: message.slice(0, 500),
+            failureReason: 'Push provider rejected the device registration.',
           };
         }
         return {
@@ -170,18 +169,18 @@ export class PushNotificationService implements INotificationProvider {
           resultType: ProviderDeliveryResultType.TEMPORARY_FAILURE,
           retryable: true,
           errorCode: 'PUSH_TEMPORARY_FAILURE',
-          failureReason: message.slice(0, 500),
+          failureReason: 'Push provider temporarily unavailable.',
         };
       }
     } catch (error: any) {
-      this.logger.error(`Push notification failed: ${error.message}`, error.stack);
+      this.logger.error('Push provider error');
       return {
         accepted: false,
         providerReference: null,
         resultType: ProviderDeliveryResultType.TEMPORARY_FAILURE,
         retryable: true,
         errorCode: 'PUSH_PROVIDER_ERROR',
-        failureReason: error.message,
+        failureReason: 'Push provider error.',
       };
     }
   }
@@ -208,7 +207,7 @@ export class PushNotificationService implements INotificationProvider {
       }
       return admin.messaging();
     } catch (e) {
-      this.logger.warn(`firebase-admin unavailable: ${(e as Error).message}`);
+      this.logger.warn('firebase-admin unavailable');
       return null;
     }
   }

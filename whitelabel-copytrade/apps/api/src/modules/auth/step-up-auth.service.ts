@@ -333,14 +333,19 @@ export class StepUpAuthService {
       return false;
     }
     const result = await this.consume(actor, action);
+    // Payouts and withdrawal destinations require a second factor, not merely
+    // a repeated password. A consumed password proof is denied and cannot be reused.
+    const mfaRequired = action === 'PAYOUT_CREATE';
+    const allowed = result.consumed && (!mfaRequired || result.proof?.method === 'TOTP' || result.proof?.method === 'RECOVERY_CODE');
+    const denialReason = result.consumed && !allowed ? 'MFA_REQUIRED' : result.reasonCode;
     await this.audit.recordImmediate({
       tenantId: actor.tenantId,
       actorType: AuditActorType.USER,
       actorId: actor.userId,
-      action: result.consumed ? 'STEP_UP_ROUTE_ALLOWED' : 'STEP_UP_ROUTE_DENIED',
-      outcome: result.consumed ? AuditOutcome.SUCCESS : AuditOutcome.FAILURE,
+      action: allowed ? 'STEP_UP_ROUTE_ALLOWED' : 'STEP_UP_ROUTE_DENIED',
+      outcome: allowed ? AuditOutcome.SUCCESS : AuditOutcome.FAILURE,
       resourceType: 'SensitiveOperation',
-      description: result.consumed
+      description: allowed
         ? 'Single-use step-up proof consumed for this action.'
         : 'Sensitive operation refused: no usable single-use proof for this action.',
       ipHash: context.ipHash ?? null,
@@ -350,11 +355,11 @@ export class StepUpAuthService {
         action,
         path: context.path ?? null,
         method: context.method ?? null,
-        reason: result.reasonCode,
+        reason: denialReason,
         proofId: result.proof?.proofId ?? null,
       },
     });
-    return result.consumed;
+    return allowed;
   }
 
   private key(actor: AuthenticatedActor): string {

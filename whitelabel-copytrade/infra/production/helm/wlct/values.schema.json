@@ -71,6 +71,10 @@
         "tlsSecretName": {
           "type": "string",
           "minLength": 1
+        },
+        "webRawTargetGuardImage": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

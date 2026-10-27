@@ -11,7 +11,8 @@
  * - Exhaustion is tracked and observable (CHECK 40).
  */
 
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -30,6 +31,7 @@ import {
 import { DEVELOPER_SECRET_CIPHER, WebhookSigningService, type DeveloperSecretCipher } from './webhook-signing.service';
 import { DeveloperPolicyService, type DeveloperPolicy } from './developer-policy.service';
 import { DeveloperAuditService, type DeveloperAuditActor } from './developer-audit.service';
+import { developerEventPayloadSchema, validateDeveloperEventPayload } from './event-schemas/developer-event-schemas';
 
 /** HTTP port for outbound deliveries — adapter injected by the module. */
 export interface WebhookHttpClient {
@@ -80,7 +82,7 @@ export class WebhookDeliveryService {
     envelope: DeveloperEventEnvelope;
     idempotencyKey: string;
     environment: string;
-  }): Promise<DeliveryRecord> {
+  }, transaction?: Prisma.TransactionClient): Promise<DeliveryRecord> {
     // Take an immutable JSON snapshot before the first await. The outbox path
     // validates event schemas, while enqueue remains independently usable by
     // replay; either way, later caller mutation cannot rewrite a queued body.
@@ -89,13 +91,18 @@ export class WebhookDeliveryService {
       throw new Error('webhook event payload must be a JSON-serializable object');
     }
     const payload = JSON.parse(payloadJson) as Prisma.InputJsonValue;
-    const existing = await this.prisma.developerWebhookDelivery.findFirst({
+    if (!transaction) {
+      const snapshot = { ...input, envelope: { ...input.envelope, payload: JSON.parse(payloadJson) as Record<string, unknown> } };
+      return this.prisma.withTenantRls(input.tenantId, (tx) => this.enqueue(snapshot, tx));
+    }
+    const database = transaction;
+    const existing = await database.developerWebhookDelivery.findFirst({
       where: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey },
     });
     if (existing) {
       return existing as DeliveryRecord;
     }
-    const created = await this.prisma.developerWebhookDelivery.create({
+    const created = await database.developerWebhookDelivery.create({
       data: {
         tenantId: input.tenantId,
         subscriptionId: input.subscriptionId,
@@ -121,8 +128,29 @@ export class WebhookDeliveryService {
    * signed fresh with the subscription's current secret; the body is the
    * canonical JSON of the envelope.
    */
-  async attempt(actor: DeveloperAuditActor, deliveryId: string, policy: DeveloperPolicy): Promise<DeliveryRecord> {
-    const delivery = await this.prisma.developerWebhookDelivery.findUnique({
+  async attempt(
+    actor: DeveloperAuditActor,
+    deliveryId: string,
+    policy: DeveloperPolicy,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<DeliveryRecord> {
+    if (!transaction) {
+      if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(actor.tenantId)) {
+        throw new Error('delivery attempt requires a canonical tenant UUID');
+      }
+      return this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.tenant_id', ${actor.tenantId}, true)`;
+        return this.attempt(actor, deliveryId, policy, tx);
+      }, { timeout: 20_000, maxWait: 5_000 });
+    }
+    // The dispatcher already holds this lock. Direct callers take it too so
+    // two processes can never run simultaneous attempts for the same row.
+    await transaction.$queryRaw`
+      SELECT "id" FROM "developer_webhook_deliveries"
+      WHERE "id" = ${deliveryId}::uuid AND "tenant_id" = ${actor.tenantId}::uuid
+      FOR UPDATE
+    `;
+    const delivery = await transaction.developerWebhookDelivery.findUnique({
       where: { id: deliveryId },
     });
     if (!delivery || delivery.tenantId !== actor.tenantId) {
@@ -131,7 +159,14 @@ export class WebhookDeliveryService {
     if (isTerminalDeliveryState(delivery.state as DeliveryState)) {
       return delivery as DeliveryRecord;
     }
-    const subscription = await this.prisma.developerWebhookSubscription.findUnique({
+    // Serialize the start of an outbound request with pause/revoke/rotation.
+    // A completed pause therefore cannot leave a newly-started send behind.
+    await transaction.$queryRaw`
+      SELECT "id" FROM "developer_webhook_subscriptions"
+      WHERE "id" = ${delivery.subscriptionId}::uuid AND "tenant_id" = ${actor.tenantId}::uuid
+      FOR SHARE
+    `;
+    const subscription = await transaction.developerWebhookSubscription.findUnique({
       where: { id: delivery.subscriptionId },
     });
     if (!subscription || subscription.tenantId !== actor.tenantId || subscription.revokedAt) {
@@ -141,16 +176,41 @@ export class WebhookDeliveryService {
         'CANCELLED',
         `delivery ${delivery.id}`,
       );
-      const cancelled = await this.prisma.developerWebhookDelivery.update({
+      const cancelled = await transaction.developerWebhookDelivery.update({
         where: { id: delivery.id },
-        data: { state: 'CANCELLED' },
+        data: { state: 'CANCELLED', nextRetryAt: null },
       });
+      await this.audit.record({
+        ...actor,
+        applicationId: delivery.applicationId,
+        action: 'webhook.delivery_cancelled',
+        detail: { deliveryId: delivery.id, state: 'CANCELLED' },
+      }, transaction);
       return cancelled as DeliveryRecord;
+    }
+    // Pause or a downgraded plan is a hold, not an invitation to send queued events.
+    if (subscription.state !== 'ACTIVE' || !policy.allowedScopes?.includes('webhooks:manage') ||
+        !subscription.eventTypes.includes(delivery.eventType) || subscription.eventVersion !== delivery.eventVersion) {
+      return delivery as DeliveryRecord;
+    }
+    // Serialize the start of a send with application suspension, revocation,
+    // and scope changes. Recheck after acquiring the lock, not only when the
+    // delivery was selected, and never trust a mismatched legacy relation.
+    await transaction.$queryRaw`
+      SELECT "id" FROM "developer_applications"
+      WHERE "id" = ${delivery.applicationId}::uuid AND "tenant_id" = ${actor.tenantId}::uuid
+      FOR SHARE
+    `;
+    const application = await transaction.developerApplication.findUnique({ where: { id: delivery.applicationId } });
+    if (!application || application.tenantId !== actor.tenantId || application.id !== subscription.applicationId ||
+        application.state !== 'ACTIVE' || !application.scopes.includes('webhooks:manage') ||
+        application.environment !== subscription.environment || delivery.environment !== subscription.environment) {
+      return delivery as DeliveryRecord;
     }
 
     transitionOrThrow(DELIVERY_TRANSITIONS, delivery.state as DeliveryState, 'DELIVERING', `delivery ${delivery.id}`);
     const attemptNo = delivery.attempt + 1;
-    await this.prisma.developerWebhookDelivery.update({
+    await transaction.developerWebhookDelivery.update({
       where: { id: delivery.id },
       data: { state: 'DELIVERING', attempt: attemptNo },
     });
@@ -168,6 +228,12 @@ export class WebhookDeliveryService {
     let observation: Awaited<ReturnType<WebhookHttpClient['post']>> = {};
     let outcomeClass: DeliveryOutcomeClass;
     try {
+      // Fail closed for legacy/corrupt rows. Never send an unknown version or
+      // an arbitrary stored body which did not pass the event's schema.
+      if (delivery.eventVersion !== 'v1' ||
+          !validateDeveloperEventPayload(delivery.eventType, delivery.payload).valid) {
+        throw new InvalidDeliveryPayload();
+      }
       // The secret is decrypted only inside the signing call and never
       // logged, serialized, or included in any persisted detail.
       const secret = this.cipher.decrypt(subscription.secretEncrypted);
@@ -185,8 +251,8 @@ export class WebhookDeliveryService {
         10_000,
       );
       outcomeClass = classifyAttempt(observation);
-    } catch {
-      outcomeClass = 'SIGNATURE_CONFIGURATION_FAILURE';
+    } catch (error) {
+      outcomeClass = error instanceof InvalidDeliveryPayload ? 'PERMANENT_FAILURE' : 'SIGNATURE_CONFIGURATION_FAILURE';
     }
 
     const maxAttempts = policy.webhookMaxAttempts || DEFAULT_MAX_ATTEMPTS;
@@ -195,7 +261,7 @@ export class WebhookDeliveryService {
     let nextRetryAt: Date | null = null;
     if (outcomeClass === 'SUCCESS') {
       nextState = 'DELIVERED';
-    } else if (outcomeClass === 'CLIENT_4XX_NO_RETRY' || outcomeClass === 'PERMANENT_FAILURE') {
+    } else if (outcomeClass === 'CLIENT_4XX_NO_RETRY' || outcomeClass === 'PERMANENT_FAILURE' || outcomeClass === 'SIGNATURE_CONFIGURATION_FAILURE') {
       nextState = 'FAILED';
     } else if (RETRYABLE_OUTCOMES.has(outcomeClass)) {
       if (exhausted) {
@@ -212,7 +278,7 @@ export class WebhookDeliveryService {
     }
 
     transitionOrThrow(DELIVERY_TRANSITIONS, 'DELIVERING', nextState, `delivery ${delivery.id}`);
-    const updated = await this.prisma.developerWebhookDelivery.update({
+    const updated = await transaction.developerWebhookDelivery.update({
       where: { id: delivery.id },
       data: {
         state: nextState,
@@ -233,45 +299,84 @@ export class WebhookDeliveryService {
         state: nextState,
         responseStatus: observation.status ?? null,
       },
-    });
+    }, transaction);
     return updated as DeliveryRecord;
   }
 
-  /** Lists deliveries for an owned subscription with optional state filter. */
+  /** Lists one stable, tenant- and filter-scoped page of redacted deliveries. */
   async list(
     tenantId: string,
     query: { subscriptionId: string; state?: string; eventId?: string; limit?: number; cursor?: string },
   ) {
-    const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-    const owned = await this.prisma.developerWebhookSubscription.findUnique({
-      where: { id: query.subscriptionId },
-    });
-    if (!owned || owned.tenantId !== tenantId) {
-      throw new NotFoundException('webhook subscription not found');
-    }
-    const rows = await this.prisma.developerWebhookDelivery.findMany({
-      where: {
+    return this.prisma.withTenantRls(tenantId, async (transaction) => {
+      const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+      const owned = await transaction.developerWebhookSubscription.findUnique({
+        where: { id: query.subscriptionId },
+      });
+      if (!owned || owned.tenantId !== tenantId) {
+        throw new NotFoundException('webhook subscription not found');
+      }
+      const where = {
         tenantId,
         subscriptionId: query.subscriptionId,
         ...(query.state ? { state: query.state } : {}),
         ...(query.eventId ? { eventId: query.eventId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      };
+      if (query.cursor) {
+        // A foreign, malformed, deleted or differently filtered cursor is never
+        // used to select the starting point of this tenant's page.
+        if (!isUUID(query.cursor) || !await transaction.developerWebhookDelivery.findFirst({
+          where: { ...where, id: query.cursor }, select: { id: true },
+        })) {
+          throw new BadRequestException('invalid delivery cursor');
+        }
+      }
+      const rows = await transaction.developerWebhookDelivery.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit + 1,
+        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      });
+      const page = rows.slice(0, limit);
+      return {
+        rows: page.map((row) => ({
+          id: row.id,
+          eventId: row.eventId,
+          eventType: row.eventType,
+          attempt: row.attempt,
+          state: row.state,
+          outcomeClass: row.outcomeClass,
+          responseStatus: row.responseStatus,
+          nextRetryAt: row.nextRetryAt,
+          correlationId: row.correlationId,
+          createdAt: row.createdAt,
+          payload: redactedPayload(row.eventType, row.eventVersion, row.payload),
+        })),
+        nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+      };
     });
-    return {
-      rows: rows.map((row: { id: string; eventId: string; eventType: string; attempt: number; state: string; outcomeClass: string | null; responseStatus: number | null; nextRetryAt: Date | null; correlationId: string; createdAt: Date }) => ({
-        id: row.id,
-        eventId: row.eventId,
-        eventType: row.eventType,
-        attempt: row.attempt,
-        state: row.state,
-        outcomeClass: row.outcomeClass,
-        responseStatus: row.responseStatus,
-        nextRetryAt: row.nextRetryAt,
-        correlationId: row.correlationId,
-        createdAt: row.createdAt,
-      })),
-    };
   }
+}
+
+class InvalidDeliveryPayload extends Error {}
+
+/**
+ * Never pass arbitrary stored payload data through to the portal. Recognized,
+ * valid v1 schemas may reveal a constrained enum; every other value is
+ * masked. Unknown versions, unknown event types and invalid payloads are not
+ * displayed at all. This also prevents a secret hidden in an identifier or
+ * free-form string from leaking even if its field name looked innocuous.
+ */
+function redactedPayload(eventType: string, eventVersion: string, payload: unknown): Record<string, unknown> | null {
+  const schema = developerEventPayloadSchema(eventType);
+  if (eventVersion !== 'v1' || !schema || !validateDeveloperEventPayload(eventType, payload).valid ||
+      payload === null || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const result: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(payload)) {
+    const field = schema.properties[name];
+    if (!field) return null;
+    // Enums are defined by platform code, never by the request or stored row.
+    result[name] = field?.enum?.some((allowed) => allowed === value) ? value : '[REDACTED]';
+  }
+  return result;
 }

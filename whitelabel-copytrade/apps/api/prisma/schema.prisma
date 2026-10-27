@@ -198,6 +198,7 @@ model Tenant {
   settings       TenantSetting[]
   domains        TenantDomain[]
   users          User[]
+  userPreferences UserPreferences[]
   roles          Role[]
   subscriptions  TenantSubscription[]
   plans          SubscriptionPlan[]
@@ -364,19 +365,10 @@ custodyWallets CustodyWallet[]
   executionEngineIncidents   ExecutionEngineIncident[]
 
   developerApplications DeveloperApplication[]
+  developerMutationIntents DeveloperMutationIntent[]
   leadTraderApplications LeadTraderApplication[]
   leaderFeePolicies      LeaderFeePolicy[]
   userPositionLimits     UserPositionLimit[]
-
-  feeScheduleVersions    FeeScheduleVersion[]
-  profitShareStatements  ProfitShareStatement[]
-  userPreferences        UserPreferences[]
-  policyAcceptances      PolicyAcceptance[]
-  copyBudgets            CopyBudget[]
-  withdrawalDestinations WithdrawalDestination[]
-  loginDevices           LoginDevice[]
-  accountRecoveryTokens  AccountRecoveryToken[]
-  publicShareLinks       PublicShareLink[]
   @@index([status])
   @@index([deletedAt])
   @@index([createdAt])
@@ -511,6 +503,7 @@ model User {
 
   tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   profile            UserProfile?
+  preferences        UserPreferences[]
   roles              UserRole[]
   refreshTokens      RefreshToken[]
   sessions           UserSession[]
@@ -556,18 +549,6 @@ model User {
   /// Verified IdP subjects linked to this account (SSO login key).
   ssoIdentities SsoIdentity[]
 
-  publishedFeeScheduleVersions  FeeScheduleVersion[]      @relation("FeeScheduleVersionPublisher")
-  profitShareStatementsAsFollower ProfitShareStatement[]  @relation("ProfitShareStatementFollower")
-  profitShareStatementsAsTrader   ProfitShareStatement[]  @relation("ProfitShareStatementTrader")
-  profitShareStatementLines     ProfitShareStatementLine[]
-  userPreferences               UserPreferences[]
-  policyAcceptances             PolicyAcceptance[]
-  copyBudgets                   CopyBudget[]
-  withdrawalDestinations        WithdrawalDestination[]
-  loginDevices                  LoginDevice[]
-  accountRecoveryTokens         AccountRecoveryToken[]
-  publicShareLinks              PublicShareLink[]
-
   @@unique([tenantId, email])
   @@unique([tenantId, emailIndex])
   @@index([tenantId, status])
@@ -575,6 +556,60 @@ model User {
   @@index([tenantId, deletedAt])
   @@index([emailIndex])
   @@map("users")
+}
+
+// The table and tenant/user foreign keys were created in the Batch 04 migration.
+// A list relation reflects the composite tenant/user unique key, not a separate
+// uniqueness constraint on user_id.
+model UserPreferences {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  locale          String   @default("en") @db.VarChar(8)
+  displayCurrency String   @default("USD") @map("display_currency") @db.VarChar(3)
+  timezone        String   @default("UTC") @db.VarChar(64)
+  dateFormat      String   @default("ISO") @map("date_format") @db.VarChar(8)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_preferences_tenant_fk")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_preferences_user_fk")
+
+  @@unique([tenantId, userId], map: "user_preferences_tenant_user_key")
+  @@index([tenantId, userId], map: "user_preferences_tenant_user_idx")
+  @@map("user_preferences")
+}
+
+// Existing Batch 03 table; the database owns the tenant/user foreign keys.
+model CopyBudget {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  maxActiveExposure Decimal  @map("max_active_exposure") @db.Decimal(28, 12)
+  perTraderCap      Decimal? @map("per_trader_cap") @db.Decimal(28, 12)
+  currency          String   @default("USDT") @db.VarChar(12)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, userId], map: "copy_budgets_tenant_id_user_id_key")
+  @@index([tenantId, userId, updatedAt], map: "copy_budgets_tenant_id_user_id_updated_at_idx")
+  @@map("copy_budgets")
+}
+
+// Immutable idempotency and audit history for self-service budget reductions.
+model CopyBudgetReductionIntent {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  keyHash           String   @map("key_hash") @db.Char(64)
+  requestedExposure Decimal  @map("requested_exposure") @db.Decimal(28, 12)
+  previousExposure  Decimal? @map("previous_exposure") @db.Decimal(28, 12)
+  currency          String   @db.VarChar(12)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, userId, keyHash], map: "copy_budget_reduction_intents_unique_key")
+  @@index([tenantId, userId, createdAt], map: "copy_budget_reduction_intents_history_idx")
+  @@map("copy_budget_reduction_intents")
 }
 
 model UserProfile {
@@ -11113,6 +11148,7 @@ model DeveloperApplication {
   clientId      String   @unique @map("client_id") @db.VarChar(48)
   state         String   @db.VarChar(32)
   environment   String   @db.VarChar(16)
+  pinnedApiVersion String @default("v1") @map("pinned_api_version") @db.VarChar(16)
   redirectUris  String[] @map("redirect_uris")
   scopes        String[]
   homePageUrl   String?  @map("home_page_url") @db.VarChar(255)
@@ -11284,6 +11320,18 @@ model DeveloperEventSubscription {
   @@map("developer_event_subscriptions")
 }
 
+model DeveloperMutationIntent {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  keyHash   String   @map("key_hash") @db.VarChar(64)
+  operation String   @db.VarChar(64)
+  resource  String   @db.VarChar(128)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, keyHash])
+  @@map("developer_mutation_intents")
+}
+
 model DeveloperAudit {
   id            String   @id @default(uuid()) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -11296,6 +11344,7 @@ model DeveloperAudit {
   sequence      Int
   previousHash  String   @map("previous_hash") @db.VarChar(64)
   chainHash     String   @map("chain_hash") @db.VarChar(64)
+  hashVersion   Int      @default(1) @map("hash_version")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@unique([tenantId, sequence])
@@ -11387,8 +11436,6 @@ model BillingLedgerEntry {
   createdBy       String?  @map("created_by") @db.VarChar(64)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  profitShareStatementLines ProfitShareStatementLine[]
 
   @@index([tenantId, effectiveAt])
   @@index([tenantId, sourceType, sourceId])
@@ -12014,11 +12061,10 @@ model PartnerAttribution {
   policyVersion          String   @map("policy_version") @db.VarChar(32)
   state                  String   @db.VarChar(32)
   isPrimary              Boolean  @default(false) @map("is_primary")
-  idempotencyKey         String   @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey         String   @unique @map("idempotency_key") @db.VarChar(255)
   createdAt              DateTime @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime @map("updated_at") @db.Timestamptz(6)
 
-  @@unique([tenantId, idempotencyKey])
   @@index([tenantId, isPrimary, state])
   @@index([partnerId])
   @@map("partner_attributions")
@@ -12044,7 +12090,7 @@ model PartnerReferralAbuseReview {
   resolutionNote     String?   @map("resolution_note") @db.VarChar(1000)
   reviewedAt         DateTime? @map("reviewed_at") @db.Timestamptz(6)
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, state, riskScore, createdAt])
@@ -12262,250 +12308,70 @@ model OutboxEvent {
   @@map("outbox_events")
 }
 
-// ---------------------------------------------------------------------------
-// Batch 04 commercial tables (migration 20261215000000_batch04_tables).
-//
-// These models mirror tables that already exist in the database; the schema
-// had drifted behind the migration, which left four production services
-// (fee schedule, profit-share statements, policy acceptance, user
-// preferences) calling Prisma delegates the generated client did not have.
-// Column types, constraint names and index names below reproduce the
-// migration DDL exactly, so `prisma migrate diff` stays empty: this block
-// changes the client surface, not the database.
-// ---------------------------------------------------------------------------
-
-enum ProfitShareStatementStatus {
-  DRAFT
-  FINALIZED
-  SUPERSEDED
-}
-
-model FeeScheduleVersion {
-  id                String    @id @default(uuid()) @db.Uuid
-  tenantId          String?   @map("tenant_id") @db.Uuid
-  version           Int
-  effectiveFrom     DateTime  @map("effective_from") @db.Timestamptz(6)
-  effectiveUntil    DateTime? @map("effective_until") @db.Timestamptz(6)
-  managementFeeRate String    @map("management_fee_rate") @db.VarChar(64)
-  profitShareRate   String    @map("profit_share_rate") @db.VarChar(64)
-  currency          String    @db.VarChar(3)
-  publishedBy       String    @map("published_by") @db.Uuid
-  publishedAt       DateTime  @default(now()) @map("published_at") @db.Timestamptz(6)
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  tenant    Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fee_schedule_versions_tenant_fk")
-  publisher User    @relation("FeeScheduleVersionPublisher", fields: [publishedBy], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "fee_schedule_versions_publisher_fk")
-
-  @@unique([tenantId, version], map: "fee_schedule_versions_tenant_version_key")
-  @@index([tenantId, effectiveFrom, effectiveUntil], map: "fee_schedule_versions_tenant_effective_idx")
-  @@map("fee_schedule_versions")
-}
-
-model ProfitShareStatement {
-  id                String                     @id @default(uuid()) @db.Uuid
-  tenantId          String                     @map("tenant_id") @db.Uuid
-  followerUserId    String                     @map("follower_user_id") @db.Uuid
-  traderUserId      String                     @map("trader_user_id") @db.Uuid
-  periodStart       DateTime                   @map("period_start") @db.Timestamptz(6)
-  periodEnd         DateTime                   @map("period_end") @db.Timestamptz(6)
-  version           Int                        @default(1)
-  status            ProfitShareStatementStatus @default(DRAFT)
-  currency          String                     @db.VarChar(3)
-  grossProfit       String                     @map("gross_profit") @db.VarChar(128)
-  profitShareAmount String                     @map("profit_share_amount") @db.VarChar(128)
-  highWaterMark     String                     @map("high_water_mark") @db.VarChar(128)
-  roundingRule      String                     @map("rounding_rule") @db.VarChar(64)
-  supersedesId      String?                    @map("supersedes_id") @db.Uuid
-  finalizedAt       DateTime?                  @map("finalized_at") @db.Timestamptz(6)
-  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "profit_share_statements_tenant_fk")
-  follower     User                   @relation("ProfitShareStatementFollower", fields: [followerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "profit_share_statements_follower_fk")
-  trader       User                   @relation("ProfitShareStatementTrader", fields: [traderUserId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "profit_share_statements_trader_fk")
-  supersedes   ProfitShareStatement?  @relation("ProfitShareStatementSupersedes", fields: [supersedesId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "profit_share_statements_supersedes_fk")
-  supersededBy ProfitShareStatement[] @relation("ProfitShareStatementSupersedes")
-  lines        ProfitShareStatementLine[]
-
-  @@unique([tenantId, followerUserId, traderUserId, periodStart, periodEnd, currency, version], map: "profit_share_statement_period_currency_version_key")
-  @@index([tenantId, followerUserId, periodStart, periodEnd, status], map: "profit_share_statements_follower_period_idx")
-  @@map("profit_share_statements")
-}
-
-model ProfitShareStatementLine {
-  id             String   @id @default(uuid()) @db.Uuid
-  statementId    String   @map("statement_id") @db.Uuid
-  sourceLedgerId String   @map("source_ledger_id") @db.VarChar(64)
-  sourceUserId   String   @map("source_user_id") @db.Uuid
-  currency       String   @db.VarChar(3)
-  profitAmount   String   @map("profit_amount") @db.VarChar(128)
-  feeAmount      String   @map("fee_amount") @db.VarChar(128)
-  postedAt       DateTime @map("posted_at") @db.Timestamptz(6)
-
-  statement    ProfitShareStatement @relation(fields: [statementId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "profit_share_statement_lines_statement_fk")
-  sourceLedger BillingLedgerEntry   @relation(fields: [sourceLedgerId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "profit_share_statement_lines_ledger_fk")
-  sourceUser   User                 @relation(fields: [sourceUserId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "profit_share_statement_lines_user_fk")
-
-  @@unique([statementId, sourceLedgerId], map: "profit_share_statement_lines_statement_ledger_key")
-  @@index([sourceUserId, postedAt], map: "profit_share_statement_lines_source_posted_idx")
-  @@map("profit_share_statement_lines")
-}
-
-model UserPreferences {
-  id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  userId          String   @map("user_id") @db.Uuid
-  locale          String   @default("en") @db.VarChar(8)
-  displayCurrency String   @default("USD") @map("display_currency") @db.VarChar(3)
-  timezone        String   @default("UTC") @db.VarChar(64)
-  dateFormat      String   @default("ISO") @map("date_format") @db.VarChar(8)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_preferences_tenant_fk")
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_preferences_user_fk")
-
-  @@unique([tenantId, userId], map: "user_preferences_tenant_user_key")
-  @@index([tenantId, userId], map: "user_preferences_tenant_user_idx")
-  @@map("user_preferences")
-}
-
-model PolicyAcceptance {
-  id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
-  userId      String    @map("user_id") @db.Uuid
-  document    String    @db.VarChar(64)
-  version     String    @db.VarChar(64)
-  contentHash String    @map("content_hash") @db.Char(64)
-  acceptedAt  DateTime  @default(now()) @map("accepted_at") @db.Timestamptz(6)
-  withdrawnAt DateTime? @map("withdrawn_at") @db.Timestamptz(6)
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "policy_acceptances_tenant_fk")
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "policy_acceptances_user_fk")
-
-  @@unique([tenantId, userId, document, version, contentHash], map: "policy_acceptances_version_hash_key")
-  @@index([tenantId, userId, document, acceptedAt], map: "policy_acceptances_tenant_user_document_idx")
-  @@map("policy_acceptances")
-}
-
-// ---------------------------------------------------------------------------
-// Batch 03 tables (migration 20261201000000_batch03_tables).
-//
-// Same drift as the Batch 04 block above: the migration created these five
-// tables and two enums, five production repositories/services call the
-// delegates, and the schema never gained the models. Per that migration's
-// own header, these models at first carried NO @relation, with the foreign
-// keys existing only in the database. The CI zero-drift law (migrations and
-// schema.prisma must agree exactly) settles the question the other way: the
-// relations are declared here, with the constraint names and CASCADE actions
-// the migration created, so the declared schema and a freshly migrated
-// database are the same object. Column types, defaults and index names
-// reproduce the migration DDL; this changes the client surface, not the DB.
-// ---------------------------------------------------------------------------
-
+// Existing Batch 03 table (migration 20261201000000_batch03_tables).
+// Foreign keys are defined in the historical SQL; no back-relations are needed here.
 enum WithdrawalDestinationStatus {
   PENDING
   ACTIVE
   REVOKED
 }
 
-enum PublicShareSubjectType {
-  TRADER
-  STRATEGY
-}
-
-model CopyBudget {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String   @map("tenant_id") @db.Uuid
-  userId            String   @map("user_id") @db.Uuid
-  maxActiveExposure Decimal  @map("max_active_exposure") @db.Decimal(28, 12)
-  perTraderCap      Decimal? @map("per_trader_cap") @db.Decimal(28, 12)
-  currency          String   @default("USDT") @db.VarChar(12)
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "copy_budgets_tenant_id_fkey")
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "copy_budgets_user_id_fkey")
-
-  @@unique([tenantId, userId], map: "copy_budgets_tenant_id_user_id_key")
-  @@index([tenantId, userId, updatedAt], map: "copy_budgets_tenant_id_user_id_updated_at_idx")
-  @@map("copy_budgets")
-}
-
 model WithdrawalDestination {
-  id          String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String                      @map("tenant_id") @db.Uuid
-  userId      String                      @map("user_id") @db.Uuid
-  network     String                      @db.VarChar(32)
-  address     String                      @db.VarChar(128)
-  label       String                      @db.VarChar(80)
+  id          String @id @default(uuid()) @db.Uuid
+  tenantId    String @map("tenant_id") @db.Uuid
+  userId      String @map("user_id") @db.Uuid
+  network     String @db.VarChar(32)
+  address     String @db.VarChar(128)
+  label       String @db.VarChar(80)
   status      WithdrawalDestinationStatus @default(PENDING)
-  activatesAt DateTime                    @map("activates_at") @db.Timestamptz(6)
-  revokedAt   DateTime?                   @map("revoked_at") @db.Timestamptz(6)
-  createdAt   DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  activatesAt DateTime @map("activates_at") @db.Timestamptz(6)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant      Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "withdrawal_destinations_tenant_id_fkey")
-  user        User                        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "withdrawal_destinations_user_id_fkey")
-
-  @@unique([tenantId, userId, network, address], map: "withdrawal_destinations_tenant_id_user_id_network_address_key")
-  @@index([tenantId, userId, status], map: "withdrawal_destinations_tenant_id_user_id_status_idx")
+  @@unique([tenantId, userId, network, address])
+  @@index([tenantId, userId, status])
   @@map("withdrawal_destinations")
 }
 
-model LoginDevice {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  userId          String   @map("user_id") @db.Uuid
-  fingerprintHash String   @map("fingerprint_hash") @db.VarChar(64)
-  countryCode     String?  @map("country_code") @db.Char(2)
-  lastLatitude    Decimal? @map("last_latitude") @db.Decimal(9, 6)
-  lastLongitude   Decimal? @map("last_longitude") @db.Decimal(9, 6)
-  lastSeenAt      DateTime @map("last_seen_at") @db.Timestamptz(6)
-  firstSeenAt     DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
-  trusted         Boolean  @default(false)
-
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "login_devices_tenant_id_fkey")
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "login_devices_user_id_fkey")
-
-  @@unique([tenantId, userId, fingerprintHash], map: "login_devices_tenant_id_user_id_fingerprint_hash_key")
-  @@index([tenantId, userId, lastSeenAt], map: "login_devices_tenant_id_user_id_last_seen_at_idx")
-  @@map("login_devices")
+// Encrypted provider registration, bound to the authenticated session.
+model MobilePushDevice {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  sessionId   String   @map("session_id") @db.Uuid
+  platform    String   @db.VarChar(8)
+  tokenHash   String   @map("token_hash") @db.VarChar(128)
+  tokenSealed Json     @map("token_sealed")
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@unique([tenantId, userId, sessionId], map: "mobile_push_device_session_key")
+  @@index([tenantId, userId, revokedAt], map: "mobile_push_device_recipient_idx")
+  @@map("mobile_push_devices")
 }
 
-model AccountRecoveryToken {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String    @map("tenant_id") @db.Uuid
-  userId        String    @map("user_id") @db.Uuid
-  tokenHash     String    @map("token_hash") @db.VarChar(64)
-  method        String    @default("EMAIL") @db.VarChar(24)
-  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
-  usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
-  requestIpHash String?   @map("request_ip_hash") @db.VarChar(64)
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "account_recovery_tokens_tenant_id_fkey")
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "account_recovery_tokens_user_id_fkey")
-
-  @@unique([tenantId, tokenHash], map: "account_recovery_tokens_tenant_id_token_hash_key")
-  @@index([tenantId, userId, expiresAt], map: "account_recovery_tokens_tenant_id_user_id_expires_at_idx")
-  @@map("account_recovery_tokens")
+model MobilePushAttempt {
+  tenantId  String @map("tenant_id") @db.Uuid
+  jobId     String @map("job_id") @db.VarChar(128)
+  deviceId  String @map("device_id") @db.Uuid
+  state     String @db.VarChar(16)
+  errorCode String? @map("error_code") @db.VarChar(64)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@id([tenantId, jobId, deviceId])
+  @@map("mobile_push_attempts")
 }
 
-model PublicShareLink {
-  id          String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String                 @map("tenant_id") @db.Uuid
-  ownerUserId String                 @map("owner_user_id") @db.Uuid
-  subjectType PublicShareSubjectType @map("subject_type")
-  subjectId   String                 @map("subject_id") @db.Uuid
-  tokenId     String                 @unique(map: "public_share_links_token_id_key") @map("token_id") @db.Uuid
-  expiresAt   DateTime               @map("expires_at") @db.Timestamptz(6)
-  revokedAt   DateTime?              @map("revoked_at") @db.Timestamptz(6)
-  fieldsJson  Json                   @map("fields_json")
-  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "public_share_links_tenant_id_fkey")
-  owner       User                   @relation(fields: [ownerUserId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "public_share_links_owner_user_id_fkey")
-
-  @@index([tenantId, ownerUserId, subjectType, subjectId], map: "public_share_links_tenant_id_owner_user_id_subject_type_subject")
-  @@map("public_share_links")
+model GovernanceAuditExportIntent {
+  tenantId     String   @map("tenant_id") @db.Uuid
+  keyHash      String   @map("key_hash") @db.VarChar(64)
+  requestHash  String   @map("request_hash") @db.VarChar(64)
+  response     Json?
+  queuedResult Json?    @map("queued_result")
+  jobPayload   Json?    @map("job_payload")
+  queueCheckedAt DateTime? @map("queue_checked_at") @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt    DateTime @default(dbgenerated("(CURRENT_TIMESTAMP + '7 days'::interval)")) @map("expires_at") @db.Timestamptz(6)
+  @@id([tenantId, keyHash])
+  @@index([expiresAt], map: "governance_audit_export_intent_expiry_idx")
+  @@map("governance_audit_export_intents")
 }

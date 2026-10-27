@@ -36,20 +36,24 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtAccessPayload): Promise<AuthenticatedActor> {
-    if (payload.typ !== 'access') {
+    if (payload.typ !== 'access' || typeof payload.tid !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.tid)) {
       throw new AppException({ code: ErrorCode.TOKEN_INVALID });
     }
 
-    const [user, session] = await Promise.all([
-      this.prisma.user.findFirst({
+    // The tenant claim has already been signature-verified by Passport. Set it
+    // transaction-locally so validation works under FORCE ROW LEVEL SECURITY;
+    // never derive this scope from an incoming header or query parameter.
+    const [user, session] = await this.prisma.withTenantRls(payload.tid, (tx) => Promise.all([
+      tx.user.findFirst({
         where: { id: payload.sub, tenantId: payload.tid, deletedAt: null },
         select: { id: true, status: true, isPlatformUser: true, sessionVersion: true },
       }),
-      this.prisma.userSession.findFirst({
-        where: { id: payload.sid, userId: payload.sub, revokedAt: null },
+      tx.userSession.findFirst({
+        where: { id: payload.sid, tenantId: payload.tid, userId: payload.sub, revokedAt: null },
         select: { id: true, expiresAt: true },
       }),
-    ]);
+    ]));
 
     if (!user) {
       throw new AppException({

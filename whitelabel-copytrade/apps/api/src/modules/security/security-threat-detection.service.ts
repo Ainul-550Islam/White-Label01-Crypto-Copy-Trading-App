@@ -278,12 +278,12 @@ export class SecurityThreatDetectionService {
     const since = new Date(Date.now() - 24 * 3_600_000);
 
     try {
-      const [knownDevice, knownIp, recentFailureCount, distinctIps] = await Promise.all([
-        (this.prisma as any).userSession?.findFirst({ where: { userId: signals.userId, deviceId: signals.deviceId }, select: { id: true } }) || null,
-        (this.prisma as any).loginAttempt?.findFirst({ where: { userId: signals.userId, ipHash: signals.ipHash, successful: true }, select: { id: true } }) || null,
-        (this.prisma as any).loginAttempt?.count({ where: { tenantId: signals.tenantId, emailIndex: signals.emailIndex, successful: false, createdAt: { gte: since } } }) || 0,
-        (this.prisma as any).loginAttempt?.findMany({ where: { userId: signals.userId, createdAt: { gte: since } }, select: { ipHash: true }, distinct: ['ipHash'] }) || [],
-      ]);
+      const [knownDevice, knownIp, recentFailureCount, distinctIps] = await this.prisma.withTenantRls(signals.tenantId, (tx) => Promise.all([
+        tx.userSession.findFirst({ where: { tenantId: signals.tenantId, userId: signals.userId, deviceId: signals.deviceId }, select: { id: true } }),
+        tx.loginAttempt.findFirst({ where: { tenantId: signals.tenantId, userId: signals.userId, ipHash: signals.ipHash, successful: true }, select: { id: true } }),
+        tx.loginAttempt.count({ where: { tenantId: signals.tenantId, emailIndex: signals.emailIndex, successful: false, createdAt: { gte: since } } }),
+        tx.loginAttempt.findMany({ where: { tenantId: signals.tenantId, userId: signals.userId, createdAt: { gte: since } }, select: { ipHash: true }, distinct: ['ipHash'] }),
+      ]));
 
       const isNewDevice = knownDevice === null;
       const isNewIp = knownIp === null;

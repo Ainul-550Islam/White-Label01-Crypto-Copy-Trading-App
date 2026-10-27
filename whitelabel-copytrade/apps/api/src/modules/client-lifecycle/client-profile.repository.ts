@@ -68,9 +68,9 @@ export class ClientProfileRepository {
   }
 
   async getProfile(params: { tenantId: string; profileId: string }): Promise<ClientProfile | null> {
-    return await this.prisma.clientProfile.findFirst({
+    return this.prisma.withTenantRls(params.tenantId, (tx) => tx.clientProfile.findFirst({
       where: { id: params.profileId, tenantId: params.tenantId },
-    });
+    }));
   }
 
   async getProfileByExternalRef(params: { tenantId: string; externalIdentityRef: string }): Promise<ClientProfile | null> {

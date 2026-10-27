@@ -15,6 +15,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -22,7 +23,6 @@ import {
   MinLength,
 } from 'class-validator';
 
-import { DELIVERY_TRANSITIONS, OAUTH_GRANT_TRANSITIONS } from '../developer.types';
 
 // --- Credentials -----------------------------------------------------------
 
@@ -41,7 +41,7 @@ export class CreateCredentialDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(16)
-  @IsString()
+  @IsString({ each: true })
   scopes?: string[];
 }
 
@@ -73,7 +73,7 @@ export class UpdateApplicationScopesDto {
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(16)
-  @IsString()
+  @IsString({ each: true })
   @Matches(/^[a-z]+:(read|write|execute|manage|request)$/, { each: true })
   scopes!: string[];
 
@@ -81,6 +81,13 @@ export class UpdateApplicationScopesDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
+}
+
+// --- Integration API version ------------------------------------------------
+
+export class PinApiVersionDto {
+  @IsIn(['v1', 'v2'])
+  version!: string;
 }
 
 // --- OAuth -------------------------------------------------------------------
@@ -103,7 +110,7 @@ export class OAuthAuthorizeDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(16)
-  @IsString()
+  @IsString({ each: true })
   requestedScopes?: string[];
 
   @IsOptional()
@@ -127,7 +134,7 @@ export class OAuthConsentDto {
   @MaxLength(128)
   grantId!: string;
 
-  @IsIn(Object.keys(OAUTH_GRANT_TRANSITIONS))
+  @IsIn(['GRANTED', 'DENIED'])
   decision!: 'GRANTED' | 'DENIED';
 }
 
@@ -158,6 +165,11 @@ export class OAuthTokenExchangeDto {
   clientSecret?: string;
 }
 
+export class OAuthIssueCodeDto {
+  @IsUUID()
+  grantId!: string;
+}
+
 export class OAuthRevokeDto {
   @IsString()
   @MinLength(32)
@@ -168,7 +180,11 @@ export class OAuthRevokeDto {
 // --- Webhooks -----------------------------------------------------------------
 
 export class CreateWebhookSubscriptionDto {
+  @IsUUID()
+  applicationId!: string;
+
   @IsString()
+  @MaxLength(512)
   @Matches(/^https:\/\/[A-Za-z0-9.\-_:]+[A-Za-z0-9\/\-._~%]*$/, {
     message: 'webhook endpoints must be https',
   })
@@ -177,7 +193,7 @@ export class CreateWebhookSubscriptionDto {
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(32)
-  @IsString()
+  @IsString({ each: true })
   eventTypes!: string[];
 
   @IsOptional()
@@ -197,6 +213,7 @@ export class CreateWebhookSubscriptionDto {
 export class UpdateWebhookSubscriptionDto {
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   @Matches(/^https:\/\/[A-Za-z0-9.\-_:]+[A-Za-z0-9\/\-._~%]*$/)
   endpointUrl?: string;
 
@@ -204,7 +221,7 @@ export class UpdateWebhookSubscriptionDto {
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(32)
-  @IsString()
+  @IsString({ each: true })
   eventTypes?: string[];
 
   @IsOptional()
@@ -214,8 +231,20 @@ export class UpdateWebhookSubscriptionDto {
 }
 
 export class WebhookSubscriptionActionDto {
-  @IsIn(Object.keys(DELIVERY_TRANSITIONS))
+  @IsIn(['pause', 'resume', 'revoke'])
   action!: 'pause' | 'resume' | 'revoke';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class WebhookReasonDto {
+  /** Accepted only for the legacy 307 action alias. */
+  @IsOptional()
+  @IsIn(['pause', 'resume', 'revoke'])
+  action?: 'pause' | 'resume' | 'revoke';
 
   @IsOptional()
   @IsString()

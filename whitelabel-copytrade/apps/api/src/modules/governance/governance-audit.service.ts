@@ -4,6 +4,7 @@ import { type GovernanceAudit, type Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { type GovernanceAuditEvent, GovernanceActionType } from './governance.types';
 import { GovernancePolicyService } from './governance-policy.service';
+import type { AuditExportFilters } from './governance-audit-export.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -20,28 +21,35 @@ export class GovernanceAuditService {
     reportId?: string | null; evidencePackageId?: string | null; legalHoldId?: string | null; retentionCandidateId?: string | null;
     consentId?: string | null; state: string; result: string; reason?: string | null; correlationId: string;
     createdBy: string; safeEvidence?: Record<string, unknown>;
-  }): Promise<GovernanceAuditEvent> {
+  }, transaction?: Prisma.TransactionClient): Promise<GovernanceAuditEvent> {
     if (!params.tenantId || !params.actionType || !params.correlationId || !params.createdBy) throw new BadRequestException('tenantId, actionType, correlationId, createdBy required');
     const safeEvidence = this.evidenceObject(params.safeEvidence ?? {}, new WeakSet());
-    const row = await this.prisma.governanceAudit.create({ data: { id: randomUUID(), tenantId: params.tenantId, actionType: params.actionType,
+    const create = (tx: Prisma.TransactionClient) => tx.governanceAudit.create({ data: { id: randomUUID(), tenantId: params.tenantId, actionType: params.actionType,
       subjectUserId: params.subjectUserId ?? null, requestId: params.requestId ?? null, reportId: params.reportId ?? null,
       evidencePackageId: params.evidencePackageId ?? null, legalHoldId: params.legalHoldId ?? null, retentionCandidateId: params.retentionCandidateId ?? null,
       consentId: params.consentId ?? null, state: params.state, result: params.result, reason: params.reason ?? null,
       correlationId: params.correlationId, createdBy: params.createdBy, createdAt: new Date(), safeEvidence } });
+    const row = transaction ? await create(transaction) : await this.prisma.withTenantRls(params.tenantId, create);
     this.policyService.assertTenantIsolation(params.tenantId, row.tenantId);
     const event = this.mapRow(row);
     this.logger.log(`audit tenant=${params.tenantId} action=${params.actionType} state=${params.state} corr=${params.correlationId}`);
     return event;
   }
 
-  async listEvents(tenantId: string, filters?: { actionType?: GovernanceActionType; correlationId?: string; subjectUserId?: string; take?: number }): Promise<GovernanceAuditEvent[]> {
+  async listEvents(tenantId: string, filters?: AuditExportFilters & { correlationId?: string; periodStart?: string; periodEnd?: string; take?: number }, transaction?: Prisma.TransactionClient): Promise<GovernanceAuditEvent[]> {
     if (!tenantId) throw new BadRequestException('tenantId required');
     if (filters?.take !== undefined && (!Number.isSafeInteger(filters.take) || filters.take < 1)) throw new BadRequestException('Positive integer audit take required');
     const where: Prisma.GovernanceAuditWhereInput = { tenantId };
     if (filters?.actionType) where.actionType = filters.actionType;
     if (filters?.correlationId) where.correlationId = filters.correlationId;
     if (filters?.subjectUserId) where.subjectUserId = filters.subjectUserId;
-    const rows = await this.prisma.governanceAudit.findMany({ where, ...(filters?.take !== undefined ? { take: filters.take } : {}), orderBy: { createdAt: 'desc' } });
+    if (filters?.actorId) where.createdBy = filters.actorId;
+    if (filters?.outcome) where.result = filters.outcome;
+    if (filters?.periodStart || filters?.periodEnd) where.createdAt = { ...(filters.periodStart ? { gte: new Date(filters.periodStart) } : {}), ...(filters.periodEnd ? { lt: new Date(filters.periodEnd) } : {}) };
+    const fields = { REQUEST: 'requestId', REPORT: 'reportId', EVIDENCE_PACKAGE: 'evidencePackageId', LEGAL_HOLD: 'legalHoldId', RETENTION_CANDIDATE: 'retentionCandidateId', CONSENT: 'consentId' } as const;
+    if (filters?.entityType) where[fields[filters.entityType]] = filters.entityId ?? { not: null };
+    const find = (tx: Prisma.TransactionClient) => tx.governanceAudit.findMany({ where, ...(filters?.take !== undefined ? { take: filters.take } : {}), orderBy: filters?.periodStart ? [{ createdAt: 'asc' }, { id: 'asc' }] : { createdAt: 'desc' } });
+    const rows = transaction ? await find(transaction) : await this.prisma.withTenantRls(tenantId, find);
     return rows.map((row) => { this.policyService.assertTenantIsolation(tenantId, row.tenantId); return this.mapRow(row); });
   }
 

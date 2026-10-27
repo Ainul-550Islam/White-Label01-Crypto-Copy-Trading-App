@@ -5,6 +5,10 @@ import { Global, Module } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationProcessor } from './processors/notification.processor';
+import { PushDeviceController } from './push/push-device.controller';
+import { PushDeviceService } from './push/push-device.service';
+import { ApnsPushService } from './push/apns-push.service';
+import { PushNotificationService } from '../billing/notifications/push-notification.service';
 import {
   CopyTradingNotificationProcessor,
   type CopyTradingNotificationEventType,
@@ -43,10 +47,13 @@ export {
  */
 @Global()
 @Module({
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, PushDeviceController],
   providers: [
     NotificationsService,
     NotificationProcessor,
+    PushDeviceService,
+    ApnsPushService,
+    PushNotificationService,
     CopyTradingNotificationProcessor,
     // GAP-65: liquidation/margin-health alerts. Exported because the risk monitor and the
     // execution engine's post-trade hook both dispatch through this one processor, so the

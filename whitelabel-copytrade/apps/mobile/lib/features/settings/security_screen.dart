@@ -8,9 +8,8 @@ import '../auth/presentation/auth_state.dart';
 
 /// Security overview.
 ///
-/// Read-only in Part 1: it reports the account's security posture and the
-/// device-management surface the API already exposes. Enrolment and session
-/// revocation UI arrive with the security work in Part 2.
+/// Reports the authenticated user's security posture. Session and password
+/// management are available through the web security settings.
 class SecurityScreen extends ConsumerWidget {
   const SecurityScreen({super.key});
 
@@ -29,20 +28,16 @@ class SecurityScreen extends ConsumerWidget {
               user?.twoFactorEnabled ?? false ? Icons.verified_user : Icons.gpp_maybe,
             ),
             title: Text(
-              (user?.twoFactorEnabled ?? false)
-                  ? l10n.twoFactorEnabled
-                  : l10n.twoFactorDisabled,
+              user == null
+                  ? l10n.loading
+                  : user.twoFactorEnabled
+                      ? l10n.twoFactorEnabled
+                      : l10n.twoFactorDisabled,
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.devices_outlined),
-            title: Text(l10n.activeSessions),
-            subtitle: const Text('GET /v1/auth/sessions'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.password_outlined),
-            title: Text(l10n.changePassword),
-            subtitle: const Text('POST /v1/auth/change-password'),
+            leading: const Icon(Icons.info_outline),
+            title: Text(l10n.securityWebManagement),
           ),
         ],
       ),

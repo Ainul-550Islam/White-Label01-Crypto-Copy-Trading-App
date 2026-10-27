@@ -64,6 +64,9 @@ export class WalletAddressService {
       }
     } catch (e) {
       if (e instanceof BadRequestException || e instanceof ForbiddenException) throw e;
+      // A failed ownership/ambiguity read is not evidence that this address is
+      // unassigned. Never proceed with a custody mutation after such a failure.
+      failClosedMoneyOperation(e, { code: 'CUSTODY_ADDRESS_AMBIGUITY_CHECK_FAILED', tenantId, entityId: accountId });
     }
 
     const idempotencyKey = deterministicIdempotencyKey({

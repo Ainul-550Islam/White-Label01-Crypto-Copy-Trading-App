@@ -2,6 +2,7 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { APP_GUARD } from '@nestjs/core';
 
 import { AuthController } from './auth.controller';
 import { TwoFactorController } from './two-factor.controller';
@@ -26,16 +27,9 @@ import { StepUpAuthService } from './step-up-auth.service';
 import { StepUpAuthController } from './step-up-auth.controller';
 import { StepUpGuard } from './step-up/step-up.guard';
 import { LoginAnomalyService } from './login-anomaly.service';
-import { AccountRecoveryService } from './account-recovery.service';
 import { AccountRecoveryController } from './account-recovery.controller';
-import {
-  PrismaAccountLookup,
-  PrismaAccountRecoveryRepository,
-  RedisSessionRevocationAdapter,
-} from './account-recovery.adapters';
+import { AccountRecoveryRuntimeModule } from './account-recovery-runtime.module';
 import { PrismaLoginAnomalyRepository } from './login-anomaly.repository';
-import { AuditService } from '../audit/audit.service';
-import { AuditActorType, AuditOutcome } from '@wlct/shared-types';
 import { CryptoService } from '../../infrastructure/crypto/crypto.service';
 
 /**
@@ -73,6 +67,7 @@ import { CryptoService } from '../../infrastructure/crypto/crypto.service';
     UsersModule,
     TenantsModule,
     ObservabilityModule,
+    AccountRecoveryRuntimeModule,
   ],
   controllers: [
     AuthController,
@@ -96,63 +91,9 @@ import { CryptoService } from '../../infrastructure/crypto/crypto.service';
     SsoIdentityService,
     SsoAuditService,
     StepUpAuthService,
-    // The guard is PROVIDED here (its dependencies live in this module) but
-    // registered as a global guard exactly once, in AppModule, where the
-    // guard order (auth -> permissions -> step-up) is decided. Registering
-    // it here as well consumed each single-use proof twice.
     StepUpGuard,
-    // Ports first, then the services that are built from them. The recovery
-    // service takes its store, account lookup, session revocation and audit trail
-    // as constructor PORTS, so its single-use and enumeration rules are testable
-    // without a database and the production wiring lives in one place - here.
-    PrismaAccountRecoveryRepository,
-    PrismaAccountLookup,
-    RedisSessionRevocationAdapter,
+    { provide: APP_GUARD, useExisting: StepUpGuard },
     PrismaLoginAnomalyRepository,
-    {
-      provide: AccountRecoveryService,
-      useFactory: (
-        repository: PrismaAccountRecoveryRepository,
-        accounts: PrismaAccountLookup,
-        sessions: RedisSessionRevocationAdapter,
-        audit: AuditService,
-        crypto: CryptoService,
-      ) =>
-        new AccountRecoveryService(
-          repository,
-          accounts,
-          sessions,
-          {
-            record: async (entry) => {
-              await audit.recordImmediate({
-                tenantId: entry.tenantId,
-                actorType: entry.userId ? AuditActorType.USER : AuditActorType.SYSTEM,
-                actorId: entry.userId,
-                action: entry.event,
-                outcome: entry.result === 'SUCCESS' ? AuditOutcome.SUCCESS : AuditOutcome.FAILURE,
-                resourceType: 'AccountRecovery',
-                description: `Account recovery step ${entry.event.toLowerCase().replace(/_/g, ' ')} (${entry.reasonCode}).`,
-                ipHash: entry.ipHash,
-                requestId: entry.requestId,
-              });
-            },
-          },
-          {
-            // Derived from the deployment's blind-index key rather than a new
-            // environment variable: the token HMAC only needs to be secret and
-            // stable per deployment, and a missing new env var would otherwise be
-            // a startup failure on every existing install.
-            keyProvider: () => crypto.blindIndex('account-recovery-token-hmac'),
-          },
-        ),
-      inject: [
-        PrismaAccountRecoveryRepository,
-        PrismaAccountLookup,
-        RedisSessionRevocationAdapter,
-        AuditService,
-        CryptoService,
-      ],
-    },
     {
       provide: LoginAnomalyService,
       useFactory: (repository: PrismaLoginAnomalyRepository, crypto: CryptoService) =>
@@ -170,7 +111,6 @@ import { CryptoService } from '../../infrastructure/crypto/crypto.service';
     AccountLockoutService,
     StepUpAuthService,
     StepUpGuard,
-    AccountRecoveryService,
     LoginAnomalyService,
   ],
 })

@@ -5,6 +5,9 @@ const nextConfig = {
   output: 'standalone',
   transpilePackages: ['@wlct/shared-types', '@wlct/validation'],
   typedRoutes: false,
+  // API proxy authentication depends on the original trailing slash, not a
+  // framework redirect that would silently canonicalise it.
+  skipTrailingSlashRedirect: true,
   async headers() {
     return [
       {

@@ -24,7 +24,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: [...PUBLIC_ROUTES],
+        allow: PUBLIC_ROUTES.map((route) => `${route}$`),
         disallow: ['/', ...PRIVATE_ROUTE_PREFIXES],
       },
     ],

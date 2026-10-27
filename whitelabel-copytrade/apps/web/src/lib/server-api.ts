@@ -16,6 +16,7 @@ export interface ServerFetchOptions {
   signal?: AbortSignal;
   tenantId?: string;
   host?: string;
+  idempotencyKey?: string;
 }
 
 function buildUrl(path: string, searchParams?: ServerFetchOptions['searchParams']): string {
@@ -42,6 +43,10 @@ export async function serverFetch<T>(path: string, options: ServerFetchOptions =
 
   if (options.host) {
     headers['x-forwarded-host'] = options.host;
+  }
+
+  if (options.idempotencyKey) {
+    headers['idempotency-key'] = options.idempotencyKey;
   }
 
   if (body !== undefined) {

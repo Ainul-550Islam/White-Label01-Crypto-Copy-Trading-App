@@ -16,5 +16,5 @@ export const metadata: Metadata = { title: 'Plan catalogue' };
  */
 export default async function PlansPage(): Promise<JSX.Element> {
   const claims = await getConsoleClaims();
-  return <PlanCatalogManagement canManage={hasPermission(claims, 'plan:manage')} />;
+  return <PlanCatalogManagement canManage={hasPermission(claims, 'plan:manage')} isPlatformUser={Boolean(claims?.isPlatformUser)} />;
 }

@@ -156,6 +156,20 @@ describe('ExchangeUserStreamService', () => {
     expect(classified.lastEventAgeMs).toBeNull();
   });
 
+  it('does not classify malformed, future or absent old evidence as connected', () => {
+    const report = { subscribed: true, lastEventAtMicros: micros(NOW), listenKeyAgeMs: 1_000, reconnectCount: 0 };
+    for (const invalid of ['not-micros', '9999999999999999999999999999999999', micros(new Date(NOW.getTime() + 1_000))]) {
+      expect(classifyUserStream({ report: { ...report, lastEventAtMicros: invalid }, persistedStatus: null, now: NOW }))
+        .toMatchObject({ state: 'UNKNOWN', reasonCode: 'INVALID_EVENT_TIMESTAMP' });
+    }
+    expect(classifyUserStream({ report: { ...report, reconnectCount: -1 }, persistedStatus: null, now: NOW }))
+      .toMatchObject({ state: 'UNKNOWN', reasonCode: 'MALFORMED_ENGINE_REPORT' });
+    expect(classifyUserStream({ report: { ...report, lastEventAtMicros: null, listenKeyAgeMs: null }, persistedStatus: null, now: NOW }))
+      .toMatchObject({ state: 'UNKNOWN', reasonCode: 'NO_RECENT_EVENT_EVIDENCE' });
+    expect(classifyUserStream({ report: { ...report, lastEventAtMicros: null, listenKeyAgeMs: USER_STREAM_EVENT_STALE_MS + 1 }, persistedStatus: null, now: NOW }))
+      .toMatchObject({ state: 'DEGRADED', reasonCode: 'NO_RECENT_EVENTS' });
+  });
+
   it('lists every account of the tenant with the same rules', async () => {
     const service = build({
       session,

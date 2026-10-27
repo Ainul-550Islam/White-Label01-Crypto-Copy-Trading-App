@@ -5,6 +5,7 @@
  * `readonly` server-resolved outputs that are ignored on input.
  */
 
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -43,16 +44,17 @@ export class CreateDeveloperApplicationDto {
 
   @IsArray()
   @ArrayMaxSize(16)
-  @IsString()
+  @IsString({ each: true })
   @Matches(/^https:\/\/[A-Za-z0-9.\-_:]+[A-Za-z0-9\/\-._~%]*$|^http:\/\/localhost(:\d+)?[A-Za-z0-9\/\-._~%]*$/, {
     message: 'redirect URIs must be https (localhost http allowed only in development)',
+    each: true,
   })
   redirectUris!: string[];
 
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(16)
-  @IsString()
+  @IsString({ each: true })
   requestedScopes?: string[];
 
   @IsOptional()
@@ -81,8 +83,8 @@ export class UpdateDeveloperApplicationDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(16)
-  @IsString()
-  @Matches(/^https:\/\/[A-Za-z0-9.\-_:]+[A-Za-z0-9\/\-._~%]*$|^http:\/\/localhost(:\d+)?[A-Za-z0-9\/\-._~%]*$/)
+  @IsString({ each: true })
+  @Matches(/^https:\/\/[A-Za-z0-9.\-_:]+[A-Za-z0-9\/\-._~%]*$|^http:\/\/localhost(:\d+)?[A-Za-z0-9\/\-._~%]*$/, { each: true })
   redirectUris?: string[];
 
   @IsOptional()
@@ -102,6 +104,7 @@ export class ApplicationTransitionDto {
 }
 
 export class AddRedirectUriDto {
+  @Type(() => RedirectUriDto)
   @ValidateNested()
   redirect!: RedirectUriDto;
 }

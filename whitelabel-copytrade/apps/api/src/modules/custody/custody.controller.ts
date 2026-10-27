@@ -7,6 +7,7 @@ import {
   Query,
   Param,
   Request,
+  BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
 import { WalletService } from './wallet.service';
@@ -190,7 +191,12 @@ export class CustodyController {
   @Post('addresses')
   async createAddress(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.walletAddressService.createAddress({ tenantId, ...body });
+    // This marker belongs exclusively to the provider issuance path. A manually
+    // entered address must never masquerade as a provider-issued deposit address.
+    if (body.creationSource === 'DEPOSIT_ADDRESS_SERVICE') {
+      throw new BadRequestException('Provider issuance source is reserved');
+    }
+    return await this.walletAddressService.createAddress({ ...body, tenantId });
   }
 
   @RequireAnyPermission(...CUSTODY_READ)
@@ -209,7 +215,7 @@ export class CustodyController {
   @Post('deposit-addresses/get-or-create')
   async getOrCreateDepositAddress(@Request() req: any, @Body() body: any) {
     const tenantId = this.getTenantId(req, body.tenantId);
-    return await this.depositAddressService.getOrCreateDepositAddress({ tenantId, ...body });
+    return await this.depositAddressService.getOrCreateDepositAddress({ ...body, tenantId });
   }
 
   // Deposit monitoring

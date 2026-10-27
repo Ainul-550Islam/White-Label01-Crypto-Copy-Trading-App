@@ -145,13 +145,13 @@ describe('Account recovery', () => {
   it('throttles a burst without saying so to the caller', async () => {
     for (let index = 0; index < 5; index += 1) {
       const result = await service.request({ email: 'customer@example.com', ipHash: 'ip-1' });
-      expect(result.deliveryQueued).toBe(true);
+      expect(result.deliveryQueued).toBe(false); // Token creation is not delivery evidence.
     }
 
     const throttled = await service.request({ email: 'customer@example.com', ipHash: 'ip-1' });
 
     expect(throttled.accepted).toBe(true);
-    expect(throttled.message).toBe('If an account matches that address, we have sent a recovery link. It expires in 30 minutes.');
+    expect(throttled.message).toBe('If an eligible account matches and delivery is available, recovery instructions may be sent.');
     expect(throttled.deliveryQueued).toBe(false);
     expect(throttled.tokenForDelivery).toBeNull();
     expect(repository.rows).toHaveLength(5);
@@ -164,6 +164,17 @@ describe('Account recovery', () => {
     expect(await service.verify({ token })).toMatchObject({ valid: true, reason: null });
     expect(await service.verify({ token: 'not-a-token' })).toMatchObject({ valid: false, reason: 'INVALID_TOKEN' });
     expect(await service.verify({ token: '' })).toMatchObject({ valid: false, reason: 'INVALID_TOKEN' });
+  });
+
+  it('does not describe an unreadable token store as an invalid link', async () => {
+    const token = await issueToken();
+    const failure = new Error('token storage unavailable');
+    jest.spyOn(repository, 'findByHash').mockRejectedValue(failure);
+
+    await expect(service.verify({ token })).rejects.toBe(failure);
+    await expect(service.resolveAccountForToken(token)).rejects.toBe(failure);
+    await expect(service.complete({ token, ipHash: 'ip-1' })).rejects.toBe(failure);
+    expect(sessions.revokeAllSessions).not.toHaveBeenCalled();
   });
 
   it('treats the token as live right up to its expiry instant and expired at it', async () => {

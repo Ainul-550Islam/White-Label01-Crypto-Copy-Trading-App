@@ -14,6 +14,7 @@ import {
   MaxLength,
   Min,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import { BillingInterval, PlanAudience } from '@wlct/shared-types';
 
@@ -25,64 +26,64 @@ export class PlanLimitsDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  maxUsers: number | null = null;
+  maxUsers?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  maxTraders: number | null = null;
+  maxTraders?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  maxFollowersPerTrader: number | null = null;
+  maxFollowersPerTrader?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  maxExchangeAccountsPerUser: number | null = null;
+  maxExchangeAccountsPerUser?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  maxCopySubscriptionsPerFollower: number | null = null;
+  maxCopySubscriptionsPerFollower?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  maxApiRequestsPerMinute: number | null = null;
+  maxApiRequestsPerMinute?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  websocketConnections: number | null = null;
+  websocketConnections?: number | null;
 
   @ApiPropertyOptional({ default: false })
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsBoolean()
-  customDomain: boolean = false;
+  customDomain?: boolean;
 
   @ApiPropertyOptional({ default: false })
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsBoolean()
-  whiteLabelMobileApp: boolean = false;
+  whiteLabelMobileApp?: boolean;
 
   @ApiPropertyOptional({ default: false })
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsBoolean()
-  prioritySupport: boolean = false;
+  prioritySupport?: boolean;
 }
 
 export class CreatePlanDto {
@@ -274,4 +275,64 @@ export class ListPlansDto extends PaginationQueryDto {
   @Transform(({ value }) => (typeof value === 'string' ? value === 'true' : Boolean(value)))
   @IsBoolean()
   includeInactive: boolean = false;
+}
+
+/** Complete platform-owned grant set; missing or null values are never inferred. */
+export class PlanGrantsDto {
+  @IsInt() @Min(0) @Max(100000)
+  developer_applications!: number;
+  @IsInt() @Min(0) @Max(100000)
+  developer_credentials_per_app!: number;
+  @IsInt() @Min(0) @Max(100000)
+  developer_redirect_uris!: number;
+  @IsInt() @Min(0) @Max(100000)
+  developer_webhook_subscriptions!: number;
+  @IsInt() @Min(0) @Max(100000)
+  developer_webhook_endpoints_per_app!: number;
+  @IsInt() @Min(0) @Max(100000)
+  developer_rate_burst_per_minute!: number;
+  @IsInt() @Min(0) @Max(100000)
+  developer_rate_sustained_per_minute!: number;
+  @IsInt() @Min(0) @Max(1)
+  developer_reactivation_review!: number;
+  @IsBoolean()
+  developer_feature_portfolio_read!: boolean;
+  @IsBoolean()
+  developer_feature_webhooks!: boolean;
+  @IsBoolean()
+  developer_feature_reporting!: boolean;
+  @IsBoolean()
+  developer_feature_billing!: boolean;
+  @IsBoolean()
+  developer_feature_trading!: boolean;
+  @IsBoolean()
+  developer_feature_copy_trading!: boolean;
+  @IsBoolean()
+  developer_feature_billing_manage!: boolean;
+  @IsBoolean()
+  developer_feature_funding!: boolean;
+  @IsBoolean()
+  developer_feature_management!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_copy_trading!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_spot_trading!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_paper_trading!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_referral_program!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_kyc_required!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_two_factor_mandatory!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_public_registration!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_mobile_app!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_withdrawal_notifications!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_custom_domain!: boolean;
+  @IsBoolean()
+  tenant_flag_grant_advanced_analytics!: boolean;
 }

@@ -1,3 +1,4 @@
+import '../../../core/error/app_exception.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
@@ -31,30 +32,67 @@ class RiskRepository {
   Future<RiskMirrorStatus> fetchStatus() async {
     final RiskMirrorStatus status = await _apiClient.get<RiskMirrorStatus>(
       ApiEndpoints.riskStatus,
-      parser: (Object? data) => RiskMirrorStatus.fromJson(_asMap(data)),
+      parser: (Object? data) {
+        final Map<String, Object?> row = _requiredMap(data);
+        if (row['engineEnabled'] is! bool ||
+            row['failClosed'] is! bool ||
+            row['refreshOutpacesStaleness'] is! bool ||
+            !_nonNegativeInt(row['maxRiskStateAgeMs']) ||
+            !_nonNegativeInt(row['snapshotRefreshMs']) ||
+            !_nonNegativeInt(row['engagedSwitchCount']) ||
+            !_nonNegativeInt(row['triggeredProtectionCount']) ||
+            !_stringList(row['staleAccounts']) ||
+            row['latestSnapshotPerAccount'] is! List ||
+            row['eventsLast24hBySeverity'] is! Map) {
+          throw _unexpected;
+        }
+        final List<Object?> snapshots =
+            row['latestSnapshotPerAccount'] as List<Object?>;
+        for (final Object? item in snapshots) {
+          final Map<String, Object?> snapshot = _requiredMap(item);
+          if (!_nonEmptyString(snapshot['accountId']) ||
+              !_nonEmptyString(snapshot['snapshotVersion']) ||
+              !_nonEmptyString(snapshot['capturedAt']) ||
+              snapshot['isSimulated'] is! bool ||
+              !_nonNegativeInt(snapshot['openOrderCount']) ||
+              !_stringList(snapshot['staleSources'])) {
+            throw _unexpected;
+          }
+        }
+        final Map<String, Object?> severity =
+            _requiredMap(row['eventsLast24hBySeverity']);
+        if (severity.values.any((Object? value) => !_nonNegativeInt(value))) {
+          throw _unexpected;
+        }
+        return RiskMirrorStatus.fromJson(row);
+      },
     );
 
     _logger.debug('risk.status_loaded');
     return status;
   }
 
-  /// All kill switches visible to the organisation. The endpoint answers
-  /// with a bare array (bounded server-side); a malformed payload degrades
-  /// to empty rather than throwing - a viewer screen that shows "nothing"
-  /// beats one that crashes, and the admin console is where truth is chased.
+  /// Engaged kill switches visible to the organisation. The API bounds the
+  /// list at 100; the status count exposes possible truncation. A malformed
+  /// response is unavailable evidence, never an empty/healthy result.
   Future<List<RiskSwitchInfo>> fetchSwitches() async {
     final List<RiskSwitchInfo> switches =
         await _apiClient.get<List<RiskSwitchInfo>>(
       ApiEndpoints.riskKillSwitches,
+      queryParameters: <String, Object?>{'engagedOnly': true},
       parser: (Object? data) {
-        if (data is! List) {
-          return const <RiskSwitchInfo>[];
-        }
-        return data
-            .whereType<Map<Object?, Object?>>()
-            .map((Map<Object?, Object?> row) =>
-                RiskSwitchInfo.fromJson(_asMap(row)),)
-            .toList(growable: false);
+        if (data is! List) throw _unexpected;
+        return data.map((Object? value) {
+          final Map<String, Object?> row = _requiredMap(value);
+          if (!_nonEmptyString(row['id']) ||
+              !_nonEmptyString(row['scope']) ||
+              row['isEngaged'] != true ||
+              !_nonEmptyString(row['status']) ||
+              row['requiresExplicitClear'] is! bool) {
+            throw _unexpected;
+          }
+          return RiskSwitchInfo.fromJson(row);
+        }).toList(growable: false);
       },
     );
 
@@ -69,26 +107,41 @@ class RiskRepository {
       ApiEndpoints.riskEvents,
       queryParameters: <String, Object?>{'page': 1, 'limit': limit},
       parser: (Object? data) {
-        final Map<String, Object?> map = _asMap(data);
+        final Map<String, Object?> map = _requiredMap(data);
         final Object? items = map['items'];
-        if (items is! List) {
-          return const <RiskEventInfo>[];
-        }
-        return items
-            .whereType<Map<Object?, Object?>>()
-            .map((Map<Object?, Object?> row) =>
-                RiskEventInfo.fromJson(_asMap(row)),)
-            .toList(growable: false);
+        if (items is! List) throw _unexpected;
+        return items.map((Object? value) {
+          final Map<String, Object?> row = _requiredMap(value);
+          if (!_nonEmptyString(row['id']) ||
+              !_nonEmptyString(row['eventType']) ||
+              !_nonEmptyString(row['severity']) ||
+              row['message'] is! String ||
+              row['isSimulated'] != false ||
+              !_nonEmptyString(row['createdAt'])) {
+            throw _unexpected;
+          }
+          return RiskEventInfo.fromJson(row);
+        }).toList(growable: false);
       },
     );
   }
 
-  static Map<String, Object?> _asMap(Object? value) {
-    if (value is Map) {
-      return value.map<String, Object?>(
-        (Object? key, Object? item) => MapEntry<String, Object?>(key.toString(), item),
-      );
-    }
-    return const <String, Object?>{};
+  static const AppException _unexpected = AppException(
+    code: AppErrorCode.unknown,
+    message: 'The server returned an unexpected response.',
+  );
+
+  static bool _nonEmptyString(Object? value) =>
+      value is String && value.isNotEmpty;
+  static bool _nonNegativeInt(Object? value) => value is int && value >= 0;
+  static bool _stringList(Object? value) =>
+      value is List && value.every((Object? item) => item is String);
+
+  static Map<String, Object?> _requiredMap(Object? value) {
+    if (value is! Map) throw _unexpected;
+    return value.map<String, Object?>(
+      (Object? key, Object? item) =>
+          MapEntry<String, Object?>(key.toString(), item),
+    );
   }
 }

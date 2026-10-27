@@ -7,8 +7,9 @@
 //    `request` returns the same shape, the same message and the same amount of
 //    work whether the account exists or not; the token is created only when it
 //    does, and is never returned in the response - it goes to the delivery
-//    channel, which is the mailbox. The result carries `deliveryQueued` for the
-//    caller's own logging, and the controller must not forward it.
+//    channel, which must be the mailbox. Token creation does not establish that
+//    a delivery was queued. The public controller currently fails closed until
+//    a tenant-scoped delivery and atomic reset are implemented.
 //
 // 2. IT MUST NOT BE A PERSISTENT BACKDOOR. The token is 256 bits of randomness,
 //    stored only as an HMAC, valid for 30 minutes, single use, and bound to the
@@ -149,7 +150,7 @@ const DEFAULTS = { tokenTtlMinutes: 30, maxRequestsPerWindow: 5, windowMinutes: 
 
 /** The one message every request returns, whatever the truth is. */
 const GENERIC_MESSAGE =
-  'If an account matches that address, we have sent a recovery link. It expires in 30 minutes.';
+  'If an eligible account matches and delivery is available, recovery instructions may be sent.';
 
 @Injectable()
 export class AccountRecoveryService {
@@ -268,7 +269,8 @@ export class AccountRecoveryService {
     return {
       accepted: true,
       message: GENERIC_MESSAGE,
-      deliveryQueued: true,
+      // Token creation is not evidence of queueing or provider acceptance.
+      deliveryQueued: false,
       tokenForDelivery: token,
       expiresAt: expiresAt.toISOString(),
     };
@@ -407,7 +409,9 @@ export class AccountRecoveryService {
     // A malformed token is the same refusal as a wrong one, with the same work:
     // no early return that would let a caller distinguish "bad shape" cheaply.
     const tokenHash = this.hashToken(trimmed);
-    const record = trimmed ? await this.repository.findByHash({ tokenHash }).catch(() => null) : null;
+    // A failed store is not an invalid token; propagate the failure so a user
+    // is not directed to discard a valid recovery link during an outage.
+    const record = trimmed ? await this.repository.findByHash({ tokenHash }) : null;
 
     const matched = record && this.constantTimeEquals(record.tokenHash, tokenHash) ? record : null;
     if (!matched) {

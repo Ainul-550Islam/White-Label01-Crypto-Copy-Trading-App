@@ -1,6 +1,10 @@
 // # Regresses global kill-switch precedence over tenant overrides and cache behavior.
 import { FeatureFlagsService } from './feature-flags.service';
 
+function tenantRls<T extends object>(prisma: T): T {
+  return Object.assign(prisma, { withTenantRls: async (_tenant: string, fn: (tx: T) => unknown) => fn(prisma) });
+}
+
 describe('FeatureFlagsService kill switch', () => {
   it('forces all platform features off when globally engaged regardless of tenant overrides', async () => {
     const prisma = {
@@ -24,9 +28,8 @@ describe('FeatureFlagsService kill switch', () => {
       ),
     };
     const service = new FeatureFlagsService(
-      prisma as never,
+      tenantRls(prisma) as never,
       cache as never,
-      {} as never,
       { warn: jest.fn(), info: jest.fn() } as never,
     );
     await expect(service.getAllForTenant('tenant-a')).resolves.toEqual({
@@ -43,7 +46,7 @@ describe('FeatureFlagsService kill switch', () => {
       ),
     };
     const service = new FeatureFlagsService(
-      {
+      tenantRls({
         featureFlag: {
           findMany: jest.fn().mockResolvedValue([{ key: 'copy_trading', isGlobalDefault: true }]),
         },
@@ -52,9 +55,8 @@ describe('FeatureFlagsService kill switch', () => {
             .fn()
             .mockResolvedValue([{ enabled: false, featureFlag: { key: 'copy_trading' } }]),
         },
-      } as never,
+      }) as never,
       cache as never,
-      {} as never,
       { warn: jest.fn(), info: jest.fn() } as never,
     );
     await expect(service.getAllForTenant('tenant-a')).resolves.toMatchObject({
@@ -71,12 +73,11 @@ describe('FeatureFlagsService kill switch', () => {
     };
     const tenantFindMany = jest.fn().mockResolvedValue([]);
     const service = new FeatureFlagsService(
-      {
+      tenantRls({
         featureFlag: { findMany: jest.fn().mockResolvedValue([]) },
         tenantFeatureFlag: { findMany: tenantFindMany },
-      } as never,
+      }) as never,
       cache as never,
-      {} as never,
       { warn: jest.fn(), info: jest.fn() } as never,
     );
     await service.getAllForTenant('tenant-b');

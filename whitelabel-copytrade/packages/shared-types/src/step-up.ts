@@ -5,18 +5,37 @@ export const STEP_UP_ACTIONS = [
   "EXCHANGE_ACCOUNT_DISABLE",
   "TWO_FACTOR_DISABLE",
   "RECOVERY_CODES_REGENERATE",
+  "DEVELOPER_APPLICATION_CREATE",
+  "DEVELOPER_APPLICATION_UPDATE",
+  "DEVELOPER_APPLICATION_SCOPE_CHANGE",
+  "DEVELOPER_APPLICATION_VERSION_PIN",
+  "DEVELOPER_APPLICATION_ACTIVATE",
+  "DEVELOPER_APPLICATION_SUSPEND",
+  "DEVELOPER_APPLICATION_REACTIVATE",
+  "DEVELOPER_APPLICATION_REVOKE",
+  "DEVELOPER_APPLICATION_APPROVE",
   "API_KEY_CREATE",
   "API_KEY_REVOKE",
+  "WEBHOOK_CREATE",
+  "WEBHOOK_UPDATE",
+  "WEBHOOK_PAUSE",
+  "WEBHOOK_RESUME",
+  "WEBHOOK_REVOKE",
+  "WEBHOOK_SECRET_ROTATE",
+  "WEBHOOK_REPLAY",
+  "PLAN_CREATE",
+  "PLAN_UPDATE",
+  "PLAN_ARCHIVE",
+  "PLAN_GRANTS_UPDATE",
   "PAYOUT_CREATE",
   "PAYOUT_APPROVE",
   "CUSTODY_ADDRESS_ISSUE",
   "CUSTODY_SWEEP",
   "VENUE_STATUS_OVERRIDE",
   "ORDER_RECOVERY",
-  // Both branches must agree on the union or one of them can issue a proof the
-  // other refuses. Every action below is required by at least one route; an
-  // action predeclared ahead of its route must be listed as
-  // RESERVED_FOR_BATCH_04 in scripts/check-step-up-paths.mjs until it is.
+  // Declared now, used by Batch 04's routes: both branches must agree on the union
+  // or one of them can issue a proof the other refuses. An action that no route
+  // uses yet is listed as RESERVED_FOR_BATCH_04 in scripts/check-step-up-paths.mjs.
   "AUDIT_EXPORT",
   "DATA_DELETION_REQUEST",
   "FEE_SCHEDULE_PUBLISH",

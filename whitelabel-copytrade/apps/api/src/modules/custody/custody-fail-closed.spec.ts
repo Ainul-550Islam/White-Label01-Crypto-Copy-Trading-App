@@ -126,6 +126,17 @@ describe('BlockchainProviderFactory', () => {
     expect(provider.generateDepositAddress).toBeUndefined();
     await expect(provider.isHealthy?.()).resolves.toMatchObject({ healthy: false });
   });
+  it('never reports an unknown or ledger-only balance as a measured zero', async () => {
+    delete process.env.CUSTODY_BLOCKCHAIN_PROVIDER;
+    const findMany = jest.fn<() => Promise<Array<{ amount: string }>>>().mockResolvedValue([]);
+    const instance = new BlockchainProviderFactory({ custodyDeposit: { findMany } } as never,
+      { isAssetSupported: async () => true } as never, { isNetworkSupported: async () => true } as never, {} as never);
+    const provider = await instance.getProviderForNetwork({ networkId: 'ethereum', assetId: 'ETH-ethereum' });
+    const params = { assetId: 'ETH-ethereum', networkId: 'ethereum', address: 'address' };
+    await expect(provider.getBalance(params)).resolves.toMatchObject({ available: null, dataCompleteness: 'UNKNOWN_NO_PROVIDER_OBSERVATION' });
+    findMany.mockResolvedValue([{ amount: '1' }]);
+    await expect(provider.getBalance(params)).resolves.toMatchObject({ available: null, dataCompleteness: 'UNKNOWN_LEDGER_ONLY_NOT_CHAIN_TRUTH' });
+  });
   it('refuses a named external provider that has no adapter', async () => {
     process.env.CUSTODY_BLOCKCHAIN_PROVIDER = 'fireblocks';
     await expect(factory().getProviderForNetwork({ networkId: 'ethereum', assetId: 'ETH-ethereum' })).rejects.toThrow(/fail closed/);
@@ -142,8 +153,12 @@ describe('DepositAddressService', () => {
   async function build(provider: BlockchainProvider) {
     const prisma = { custodyWalletAddress: { findFirst: jest.fn<(args: Prisma.CustodyWalletAddressFindFirstArgs) => Promise<null>>().mockResolvedValue(null) },
       custodyWallet: { findFirst: jest.fn<(args: Prisma.CustodyWalletFindFirstArgs) => Promise<CustodyWallet>>().mockResolvedValue(walletRecord()) } };
-    const walletAddressService = { createAddress: jest.fn<(input: Parameters<WalletAddressService['createAddress']>[0]) => Promise<{ id: string; address: string }>>()
-      .mockImplementation(async (input) => ({ id: 'addr-1', address: input.address })) };
+    const walletAddressService = { createAddress: jest.fn<(input: Parameters<WalletAddressService['createAddress']>[0]) => Promise<CustodyWalletAddress>>()
+      .mockImplementation(async (input) => addressRecord({ id: 'addr-1', tenantId: input.tenantId, walletId: input.walletId,
+        assetId: input.assetId, networkId: input.networkId, address: input.address,
+        providerReference: input.providerReference ?? null, creationSource: input.creationSource ?? null,
+        isDepositAddress: input.isDepositAddress ?? false, accountId: input.accountId ?? null,
+        clientProfileId: input.clientProfileId ?? null, metadata: input.metadata })) };
     const module = await Test.createTestingModule({ providers: [DepositAddressService,
       { provide: PrismaService, useValue: prisma }, { provide: WalletAddressService, useValue: walletAddressService },
       { provide: BlockchainProviderFactory, useValue: { getProviderForNetwork: jest.fn<BlockchainProviderFactory['getProviderForNetwork']>().mockResolvedValue(provider) } },
@@ -171,6 +186,20 @@ describe('DepositAddressService', () => {
     const { svc } = await build(unitProvider({ getCapabilities: async () => capabilities({ canGenerateAddress: true }),
       generateDepositAddress: async () => ({ address: ' ', providerReference: 'x' }) }));
     await expect(svc.getOrCreateDepositAddress(params)).rejects.toThrow('Provider did not return a deposit address');
+  });
+});
+
+describe('WalletAddressService ambiguity checks', () => {
+  it.each([0, 1])('does not create an address when ownership check %i fails', async (failedCheck) => {
+    const findFirst = jest.fn<() => Promise<null>>().mockResolvedValue(null);
+    if (failedCheck === 0) findFirst.mockRejectedValueOnce(new Error('database unavailable'));
+    else findFirst.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('database unavailable'));
+    const create = jest.fn();
+    const db = { custodyWallet: { findFirst: async () => walletRecord() }, custodyWalletAddress: { findFirst, create } };
+    const service = new WalletAddressService(db as never, { log: async () => undefined } as never);
+    await expect(service.createAddress({ tenantId: TENANT, walletId: 'wallet-source', assetId: 'ETH-ethereum',
+      networkId: 'ethereum', address: '0xAddress' })).rejects.toMatchObject({ code: 'CUSTODY_ADDRESS_AMBIGUITY_CHECK_FAILED' });
+    expect(create).not.toHaveBeenCalled();
   });
 });
 
@@ -204,6 +233,11 @@ describe('CustodyController tenant/scope resolution', () => {
     await expect(controller.listWallets({ user: { tenantId: TENANT } }, { tenantId: OTHER_TENANT })).rejects.toThrow('Cross-tenant custody access refused');
     await expect(controller.getWallet({ user: { tenantId: TENANT } }, 'wallet-source', { tenantId: OTHER_TENANT })).rejects.toThrow('Cross-tenant custody access refused');
     await expect(controller.listWallets({ headers: { 'x-tenant-id': OTHER_TENANT } }, {})).rejects.toThrow('Tenant context required');
+  });
+  it('refuses to label a manually entered address as provider-issued', async () => {
+    await expect(controller.createAddress({ user: { tenantId: TENANT } }, {
+      creationSource: 'DEPOSIT_ADDRESS_SERVICE', metadata: { noMemoRequired: true },
+    })).rejects.toThrow('Provider issuance source is reserved');
   });
   it('ignores a client-supplied scope header and defaults to CLIENT', async () => {
     expect(await scope({ headers: { 'x-custody-scope': 'PLATFORM_ADMIN' } })).toBe('CLIENT');
@@ -357,6 +391,7 @@ describe('Authoritative reserve sufficiency', () => {
   let reserves: CustodyReserve[];
   let policy: CustodyPolicy;
   const db = {
+    withTenantRls: async (_tenant: string, work: (tx: any) => Promise<any>) => work(db),
     custodyWallet: { findMany: jest.fn<(args: Prisma.CustodyWalletFindManyArgs) => Promise<CustodyWallet[]>>() },
     custodyReserve: { findMany: jest.fn<(args: Prisma.CustodyReserveFindManyArgs) => Promise<CustodyReserve[]>>() },
   };
@@ -367,7 +402,7 @@ describe('Authoritative reserve sufficiency', () => {
     wallets = [walletRecord()]; reserves = [reserveRecord()]; policy = policyRecord();
     db.custodyWallet.findMany.mockReset().mockImplementation(async (args) => wallets.filter((row) => rowMatches(row, args.where)));
     db.custodyReserve.findMany.mockReset().mockImplementation(async (args) => reserves.filter((row) => rowMatches(row, args.where)));
-    balance.getWalletBalance.mockReset().mockResolvedValue(balanceRecord());
+    balance.getWalletBalance.mockReset().mockResolvedValue(balanceRecord({ observationTimestamp: new Date().toISOString() }));
     policyService.resolvePolicy.mockReset().mockImplementation(async () => policy);
     module = await Test.createTestingModule({ providers: [ReserveManagementService,
       { provide: PrismaService, useValue: db }, { provide: CustodyPolicyService, useValue: policyService },
@@ -520,7 +555,7 @@ function institutionalRecord(overrides: Partial<InstitutionalAccount> = {}): Ins
 
 describe('Complete Part6 treasury observations', () => {
   let module: TestingModule; let wallets: CustodyWallet[]; let addresses: CustodyWalletAddress[];
-  const db = { custodyWallet: {
+  const db = { withTenantRls: async (_tenant: string, work: (tx: any) => Promise<any>) => work(db), custodyWallet: {
     findFirst: jest.fn<(args: Prisma.CustodyWalletFindFirstArgs) => Promise<CustodyWallet | null>>(),
     findMany: jest.fn<(args: Prisma.CustodyWalletFindManyArgs) => Promise<CustodyWallet[]>>(),
     count: jest.fn<(args: Prisma.CustodyWalletCountArgs) => Promise<number>>(),

@@ -1,10 +1,12 @@
 // # Responsibility: preserve permission/tenant guards while binding audit/reviewer identity to the verified actor, validating query membership, and checking report/delivery route coherence.
-import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Permission, type AuthenticatedActor } from '@wlct/shared-types';
+import type { Request } from 'express';
+import { TenantId } from '../../common/decorators/current-tenant.decorator';
+import { requireMutationKey } from '../developer-platform/developer-mutation-intent';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PrivacyRequestState, RetentionState, LegalHoldState, ReportState, GovernanceActionType, type GovernanceReconciliationMismatch } from './governance.types';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 import { BindTenantParamsGuard } from '../../common/guards/bind-tenant-params.guard';
 import { PrivacyRequestService } from './privacy-request.service';
 import { PrivacyDiscoveryService } from './privacy-discovery.service';
@@ -21,7 +23,7 @@ import { ComplianceReportCertificationService } from './compliance-report-certif
 import { ComplianceReportDeliveryService } from './compliance-report-delivery.service';
 import { EvidencePackageService } from './evidence-package.service';
 import { GovernanceAuditExportService, type AuditExportFilters } from './governance-audit-export.service';
-import { AUDIT_EXPORT_ENTITY_TYPES, type AuditExportJobStateDto } from './dto/audit-export-job-state.dto';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 import { GovernanceReconciliationService } from './governance-reconciliation.service';
 import { GovernanceMetricsService } from './governance-metrics.service';
 import { GovernanceReportQueryService } from './governance-report-query.service';
@@ -542,9 +544,9 @@ export class GovernanceController {
   }
 
   @Post('audit/export')
-  @RequirePermissions(Permission.COMPLIANCE_READ, Permission.AUDIT_LOG_READ)
   @RequireStepUp('AUDIT_EXPORT')
-  async exportAudit(@Body() dto: AuditExportDto, @CurrentUser() actor: AuthenticatedActor) {
+  @RequirePermissions(Permission.COMPLIANCE_READ, Permission.AUDIT_LOG_READ)
+  async exportAudit(@Body() dto: AuditExportDto, @CurrentUser() actor: AuthenticatedActor, @Req() request: Request) {
     const actorId = this.boundIdentity(dto.tenantId, actor, dto.operatorId);
     return this.auditExport.exportAuditTrail({
       tenantId: dto.tenantId,
@@ -553,24 +555,14 @@ export class GovernanceController {
       correlationId: dto.correlationId,
       operatorId: actorId,
       filters: this.auditFilters(dto.filters),
-    });
+    }, requireMutationKey(request));
   }
 
-  // Poll for a queued export. Same authorisation as creating one, but no
-  // step-up: the proof was consumed by the POST, and a consumed proof on a
-  // read would burn the operator's verification on every poll. The tenant
-  // comes from the authenticated context (BindTenantParamsGuard fills or
-  // pins query tenantId), never from the job id, and the service answers
-  // the same 404 for another tenant's job as for a missing one.
   @Get('audit/export/:jobId')
   @RequirePermissions(Permission.COMPLIANCE_READ, Permission.AUDIT_LOG_READ)
-  async getAuditExportJob(
-    @Param('jobId') jobId: string,
-    @Query('tenantId') tenantId: string,
-    @CurrentUser() actor: AuthenticatedActor,
-  ): Promise<AuditExportJobStateDto> {
-    this.boundIdentity(tenantId, actor, undefined);
-    return this.auditExport.getExportJob(tenantId, jobId);
+  async getAuditExportJob(@Param('jobId') jobId: string, @TenantId() tenantId: string) {
+    if (!tenantId) throw new ForbiddenException('Tenant context required');
+    return this.auditExport.getJob(tenantId, jobId);
   }
 
   // --- Reconciliation ---
@@ -658,25 +650,11 @@ export class GovernanceController {
 
   private auditFilters(filters: AuditExportDto['filters']): AuditExportFilters | undefined {
     if (filters === undefined) return undefined;
-    const allowedKeys = ['actorId', 'actionType', 'subjectUserId', 'entityType', 'entityId', 'outcome'];
-    const stringField = (value: unknown): value is string =>
-      value === undefined || (typeof value === 'string' && value.length <= 128);
     if (filters === null || typeof filters !== 'object' || Array.isArray(filters)
-      || Object.keys(filters).some((key) => !allowedKeys.includes(key))
-      || !stringField(filters.actorId) || !stringField(filters.subjectUserId)
-      || !stringField(filters.entityId) || !stringField(filters.outcome)
-      || (filters.actionType !== undefined && typeof filters.actionType !== 'string')
-      || (filters.entityType !== undefined && typeof filters.entityType !== 'string')) {
-      throw new BadRequestException('Invalid audit export filters');
-    }
-    return {
-      actorId: filters.actorId,
-      actionType: this.enumOption(filters.actionType, Object.values(GovernanceActionType), 'audit action type'),
-      subjectUserId: filters.subjectUserId,
-      entityType: this.enumOption(filters.entityType, AUDIT_EXPORT_ENTITY_TYPES, 'audit entity type'),
-      entityId: filters.entityId,
-      outcome: filters.outcome,
-    };
+      || Object.keys(filters).some((key) => !['actorId', 'actionType', 'subjectUserId', 'entityType', 'entityId', 'outcome'].includes(key))
+      || Object.values(filters).some((value) => value !== undefined && (typeof value !== 'string' || value.length > 255))) throw new BadRequestException('Invalid audit export filters');
+    const entityTypes = ['REQUEST', 'REPORT', 'EVIDENCE_PACKAGE', 'LEGAL_HOLD', 'RETENTION_CANDIDATE', 'CONSENT'] as const;
+    return { actorId: filters.actorId, actionType: this.enumOption(filters.actionType, Object.values(GovernanceActionType), 'audit action type'), subjectUserId: filters.subjectUserId, entityType: this.enumOption(filters.entityType, entityTypes, 'audit entity type'), entityId: filters.entityId, outcome: filters.outcome };
   }
 
 }

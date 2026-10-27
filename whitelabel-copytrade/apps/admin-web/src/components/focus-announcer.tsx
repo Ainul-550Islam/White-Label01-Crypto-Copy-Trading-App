@@ -19,5 +19,5 @@ export default function AdminFocusAnnouncer(): JSX.Element {
     }
     if (live.current) live.current.textContent = heading?.textContent?.trim() ? `Page changed: ${heading.textContent.trim()}` : 'Page changed';
   }, [pathname]);
-  return <span ref={live} className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="admin-focus-announcer" />;
+  return <span ref={live} className="wlct-visually-hidden" role="status" aria-live="polite" aria-atomic="true" data-testid="admin-focus-announcer" />;
 }

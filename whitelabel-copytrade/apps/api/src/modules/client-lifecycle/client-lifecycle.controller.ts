@@ -75,6 +75,9 @@ import {
 import { redactPiiAndSecrets, InstitutionalAccountState } from './client-lifecycle.types';
 import { authTenantId, authUserIdOrNull, isPlatformPrincipal } from '../../common/guards/request-principal';
 import { Permission, hasAnyPermission, hasPermission } from '@wlct/shared-types';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { requireMutationKey } from '../developer-platform/developer-mutation-intent';
 
 /**
  * Tenant-safe and platform-safe API surface exposing client profiles, onboarding, accounts,
@@ -158,20 +161,18 @@ export class ClientLifecycleController {
       const visible = await this.visibilityService.resolveVisibleClientProfiles({ tenantId, userId, role, isPlatformUser: false });
       for (const entry of visible) profileIds.add(entry.clientProfileId);
     }
-    try {
-      const ownerships = await (this.prisma as any).accountOwnership.findMany({
+    await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const ownerships = await tx.accountOwnership.findMany({
         where: { tenantId, ownerId: userId, status: 'ACTIVE' },
         select: { accountId: true },
       });
       for (const ownership of ownerships) accountIds.add(ownership.accountId);
-      const accounts = await (this.prisma as any).institutionalAccount.findMany({
+      const accounts = await tx.institutionalAccount.findMany({
         where: { tenantId, OR: [{ ownerId: userId }, ...(profileIds.size > 0 ? [{ clientProfileId: { in: [...profileIds] } }] : [])] },
         select: { id: true },
       });
       for (const account of accounts) accountIds.add(account.id);
-    } catch {
-      // Without ownership data the caller keeps only the profile scope.
-    }
+    });
     return { userId, profileIds, accountIds };
   }
 
@@ -846,6 +847,7 @@ export class ClientLifecycleController {
       externalReference: dto.externalReference ?? null,
       sourceType: dto.sourceType ?? null,
       requestedBy: this.getUserId(req),
+      idempotencyKey: requireMutationKey(req),
       correlationId: req.headers['x-correlation-id'] ?? null,
       metadata: dto.metadata,
     });
@@ -947,6 +949,8 @@ export class ClientLifecycleController {
 
   // Withdrawals
   @Post('withdrawals')
+  @RequirePermissions(Permission.PAYOUT_MANAGE)
+  @RequireStepUp('PAYOUT_CREATE')
   async createWithdrawal(@Req() req: any, @Body() dto: CreateWithdrawalRequestDto) {
     const tenantId = this.getTenantId(req);
     await this.assertAccountAccess(req, tenantId, dto.accountId);
@@ -963,7 +967,8 @@ export class ClientLifecycleController {
       externalReference: dto.externalReference ?? null,
       requestedBy: this.getUserId(req),
       correlationId: req.headers['x-correlation-id'] ?? null,
-      metadata: dto.metadata,
+      idempotencyKey: requireMutationKey(req),
+      stepUpVerified: true, // the global guard consumed an MFA-bound PAYOUT_CREATE proof
     });
 
     await this.notificationService.notifyWithdrawalRequested({

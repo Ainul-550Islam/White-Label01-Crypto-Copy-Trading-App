@@ -69,7 +69,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         </div>
       </aside>
 
-      <main style={{ padding: theme.space(8), maxWidth: 1280 }}>{children}</main>
+      <main id="main-content" tabIndex={-1} style={{ padding: theme.space(8), maxWidth: 1280 }}>{children}</main>
     </div>
   );
 }

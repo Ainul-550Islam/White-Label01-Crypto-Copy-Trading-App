@@ -1,6 +1,7 @@
 // # Covers authenticated verification/status behavior, per-user throttling, and every sensitive controller decorator.
 import { StepUpController } from './step-up.controller';
 import { StepUpGuard } from './step-up.guard';
+import { StepUpAuthService } from '../step-up-auth.service';
 import { REQUIRE_STEP_UP_KEY } from './require-step-up.decorator';
 import { THROTTLER_LIMIT, THROTTLER_TTL } from '@nestjs/throttler/dist/throttler.constants';
 import { ExchangesController } from '../../exchanges/exchanges.controller';
@@ -79,11 +80,12 @@ describe('StepUpController and protected routes', () => {
           Reflect.getMetadata(REQUIRE_STEP_UP_KEY, targets[0] as object),
       };
       const recordImmediate = jest.fn().mockResolvedValue(undefined);
-      const guard = new StepUpGuard(
-        reflector as never,
-        { isFresh: jest.fn().mockResolvedValue(false) } as never,
-        { recordImmediate } as never,
-      );
+      const evalProof = jest.fn().mockResolvedValue('NO_PROOF');
+      // Exercise the real consumer and denial audit; only the empty Redis store
+      // is faked. The guard no longer checks a reusable freshness grant.
+      const stepUp = new StepUpAuthService({} as never, { client: { eval: evalProof } } as never,
+        {} as never, {} as never, {} as never, {} as never, { recordImmediate } as never);
+      const guard = new StepUpGuard(reflector as never, stepUp);
       const context = {
         getHandler: () => route.handler,
         getClass: () => route.controller,
@@ -93,8 +95,9 @@ describe('StepUpController and protected routes', () => {
         response: expect.objectContaining({ code: 'STEP_UP_REQUIRED', action: route.action }),
         status: 403,
       });
+      expect(evalProof).toHaveBeenCalledTimes(1);
       expect(recordImmediate).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'STEP_UP_ROUTE_DENIED' }),
+        expect.objectContaining({ action: 'STEP_UP_ROUTE_DENIED', metadata: expect.objectContaining({ action: route.action, reason: 'NO_PROOF' }) }),
       );
     }
   });

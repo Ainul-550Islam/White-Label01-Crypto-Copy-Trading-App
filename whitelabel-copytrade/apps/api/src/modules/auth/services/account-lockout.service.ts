@@ -64,14 +64,14 @@ export class AccountLockoutService {
       await this.cache.delete(counterKey);
 
       if (userId) {
-        await this.prisma.user.update({
-          where: { id: userId },
+        await this.prisma.withTenantRls(tenantId, (tx) => tx.user.updateMany({
+          where: { id: userId, tenantId, status: { in: ['ACTIVE', 'LOCKED'] } },
           data: {
             failedLoginAttempts: attempts,
             lockedUntil: new Date(lockedUntil),
             status: 'LOCKED',
           },
-        });
+        }));
       }
 
       this.logger.warn(
@@ -90,10 +90,10 @@ export class AccountLockoutService {
         metadata: { attempts, lockSeconds: this.config.accountLockoutSeconds },
       });
     } else if (userId) {
-      await this.prisma.user.update({
-        where: { id: userId },
+      await this.prisma.withTenantRls(tenantId, (tx) => tx.user.updateMany({
+        where: { id: userId, tenantId },
         data: { failedLoginAttempts: attempts },
-      });
+      }));
     }
 
     return attempts;
@@ -106,15 +106,11 @@ export class AccountLockoutService {
       CACHE_KEY.accountLock(tenantId, email),
     );
 
-    const restoreActive = await this.shouldRestoreActive(userId);
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        ...(restoreActive ? { status: 'ACTIVE' as const } : {}),
-      },
+    await this.prisma.withTenantRls(tenantId, async (tx) => {
+      await tx.user.updateMany({ where: { id: userId, tenantId }, data: { failedLoginAttempts: 0, lockedUntil: null } });
+      // The conditional write cannot revive an account concurrently suspended
+      // or deactivated by an administrator.
+      await tx.user.updateMany({ where: { id: userId, tenantId, status: 'LOCKED' }, data: { status: 'ACTIVE' } });
     });
   }
 
@@ -124,18 +120,9 @@ export class AccountLockoutService {
       CACHE_KEY.loginFailures(tenantId, email),
       CACHE_KEY.accountLock(tenantId, email),
     );
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { failedLoginAttempts: 0, lockedUntil: null, status: 'ACTIVE' },
+    await this.prisma.withTenantRls(tenantId, async (tx) => {
+      await tx.user.updateMany({ where: { id: userId, tenantId }, data: { failedLoginAttempts: 0, lockedUntil: null } });
+      await tx.user.updateMany({ where: { id: userId, tenantId, status: 'LOCKED' }, data: { status: 'ACTIVE' } });
     });
-  }
-
-  /** Only a LOCKED account returns to ACTIVE; SUSPENDED stays suspended. */
-  private async shouldRestoreActive(userId: string): Promise<boolean> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { status: true },
-    });
-    return user?.status === 'LOCKED';
   }
 }

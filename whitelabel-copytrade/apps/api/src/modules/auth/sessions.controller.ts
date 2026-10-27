@@ -4,7 +4,6 @@ import { AuditAction, AuditActorType, AuditOutcome } from '@wlct/shared-types';
 import type { AuthenticatedActor, UserSessionDto } from '@wlct/shared-types';
 
 import { SessionService } from './services/session.service';
-import { TokenService } from './services/token.service';
 import { AuditService } from '../audit/audit.service';
 import { RevokeSessionDto } from './dto/two-factor.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -19,7 +18,6 @@ import { ParseUuidPipe } from '../../common/pipes/parse-uuid.pipe';
 export class SessionsController {
   constructor(
     private readonly sessionService: SessionService,
-    private readonly tokenService: TokenService,
     private readonly audit: AuditService,
   ) {}
 
@@ -28,7 +26,7 @@ export class SessionsController {
   @ApiOperation({ summary: 'List active sessions (signed-in devices)' })
   @ApiOkResponse({ description: 'Active sessions, with the current one flagged.' })
   async list(@CurrentUser() actor: AuthenticatedActor): Promise<UserSessionDto[]> {
-    return this.sessionService.listForUser(actor.userId, actor.sessionId);
+    return this.sessionService.listForUser(actor.tenantId, actor.userId, actor.sessionId);
   }
 
   @Delete(':id')
@@ -41,8 +39,7 @@ export class SessionsController {
     @CurrentUser() actor: AuthenticatedActor,
     @RequestMeta() meta: RequestMetadata,
   ): Promise<{ id: string; revoked: true }> {
-    await this.sessionService.revoke(actor.userId, id, dto.reason ?? 'user_revoked');
-    await this.tokenService.revokeSessionTokens(id, dto.reason ?? 'user_revoked');
+    await this.sessionService.revoke(actor.tenantId, actor.userId, id, dto.reason ?? 'user_revoked', actor.sessionId);
 
     await this.audit.record({
       tenantId: actor.tenantId,
@@ -68,6 +65,7 @@ export class SessionsController {
     @RequestMeta() meta: RequestMetadata,
   ): Promise<{ sessionsRevoked: number }> {
     const sessionsRevoked = await this.sessionService.revokeAll(
+      actor.tenantId,
       actor.userId,
       actor.sessionId,
       'user_revoked_others',

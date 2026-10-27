@@ -14,7 +14,7 @@ spec:
   ports:
     - name: http
       port: {{ $service.port }}
-      targetPort: http
+      targetPort: {{ if eq $name "web" }}edge-http{{ else }}http{{ end }}
       protocol: TCP
 {{- end }}
 {{- end }}

@@ -29,7 +29,7 @@ const audit = new DeveloperAuditService(prisma as never);
 const policyData = {
   planLimitViewForTenant: async () => ({
     planKey: 'enterprise',
-    limits: { developer_webhook_subscriptions: 16, developer_pkce_required: 0 },
+    limits: { developer_webhook_subscriptions: 16, developer_webhook_endpoints_per_app: 16, developer_pkce_required: 0 },
     features: ['developer_webhooks'],
   }),
   tenantEntitlementKeys: async () => [] as string[],
@@ -272,7 +272,7 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
 
     lastResponse = { status: 503 };
     lastHttpBody = null;
-    await deliveries.attempt(actor, queued.id, { webhookMaxAttempts: 3 } as never);
+    await deliveries.attempt(actor, queued.id, { webhookMaxAttempts: 3, allowedScopes: ['webhooks:manage'] } as never);
     const firstAttemptBody = lastHttpBody;
     expect(firstAttemptBody).not.toBeNull();
     expect(JSON.parse(String(firstAttemptBody))).toEqual({
@@ -287,7 +287,7 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
 
     lastResponse = { status: 204 };
     lastHttpBody = null;
-    await deliveries.attempt(actor, queued.id, { webhookMaxAttempts: 3 } as never);
+    await deliveries.attempt(actor, queued.id, { webhookMaxAttempts: 3, allowedScopes: ['webhooks:manage'] } as never);
     expect(lastHttpBody).toBe(firstAttemptBody);
 
     const replayed = await replay.replay(actor, subscription.id, envelope.eventId);
@@ -467,6 +467,7 @@ describe('webhook contract: lifecycle, signing, delivery, replay, reconciliation
   });
 
   it('58. reconciliation detects orphan records', async () => {
+    await prisma.tenant.create({ data: { id: TENANT_A } });
     await seedActiveApplication('app-wh-rc');
     const { subscription } = await createSubscriptionFor('app-wh-rc');
     void subscription;

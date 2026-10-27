@@ -11,7 +11,7 @@
  * the (immutable) event id.
  */
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -32,10 +32,11 @@ export class WebhookReplayService {
     actor: DeveloperAuditActor,
     subscriptionId: string,
     eventId: string,
+    requestKey?: string,
   ): Promise<{ deliveryId: string; eventId: string }> {
-    const subscription = await this.prisma.developerWebhookSubscription.findUnique({
+    const subscription = await this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerWebhookSubscription.findUnique({
       where: { id: subscriptionId },
-    });
+    }));
     if (!subscription || subscription.tenantId !== actor.tenantId) {
       throw new NotFoundException('webhook subscription not found');
     }
@@ -44,26 +45,32 @@ export class WebhookReplayService {
     }
     // The event must exist in the subscription's delivery history (the
     // persisted event record is the replay source — no synthesized events).
-    const original = await this.prisma.developerWebhookDelivery.findFirst({
+    const original = await this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerWebhookDelivery.findFirst({
       where: { tenantId: actor.tenantId, subscriptionId, eventId },
       orderBy: { createdAt: 'asc' },
-    });
+    }));
     if (!original) {
       throw new NotFoundException('event has no delivery history for this subscription');
     }
 
-    const replayKey = idempotencyKey(
-      actor.tenantId,
-      'webhook.delivery.replay',
-      `${subscriptionId}|${eventId}|${new Date().toISOString().slice(0, 13)}`, // hourly bucket
-    );
-    const existingReplay = await this.prisma.developerWebhookDelivery.findFirst({
+    // The public controller requires a caller-supplied intent key. A dedicated
+    // partial unique index provides atomic, tenant-scoped deduplication even
+    // if two servers receive the same request concurrently. The fallback is
+    // retained only for pre-existing internal callers without a request key.
+    const replayKey = requestKey
+      ? `replay2:${idempotencyKey(actor.tenantId, 'webhook.delivery.replay.request', requestKey)}`
+      : idempotencyKey(actor.tenantId, 'webhook.delivery.replay', `${subscriptionId}|${eventId}|${new Date().toISOString().slice(0, 13)}`);
+    const findReplay = () => this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerWebhookDelivery.findFirst({
       where: { tenantId: actor.tenantId, idempotencyKey: replayKey },
-    });
-    if (existingReplay) {
-      // Same-hour duplicate replay request is idempotent, not a new delivery.
-      return { deliveryId: existingReplay.id, eventId };
-    }
+    }));
+    const resolveReplay = (row: { id: string; subscriptionId: string; eventId: string }) => {
+      if (row.subscriptionId !== subscriptionId || row.eventId !== eventId) {
+        throw new ConflictException('idempotency key already used for a different replay');
+      }
+      return { deliveryId: row.id, eventId: row.eventId };
+    };
+    const existingReplay = await findReplay();
+    if (existingReplay) return resolveReplay(existingReplay);
 
     if (original.payload === null || typeof original.payload !== 'object' || Array.isArray(original.payload)) {
       throw new Error('Persisted webhook payload is not a JSON object; refusing replay');
@@ -78,31 +85,50 @@ export class WebhookReplayService {
       throw new Error('Persisted webhook payload no longer matches its versioned schema; refusing replay');
     }
 
-    const delivery = await this.prisma.developerWebhookDelivery.create({
-      data: {
-        tenantId: actor.tenantId,
-        subscriptionId,
-        applicationId: subscription.applicationId,
-        eventId, // ORIGINAL id preserved (consumer dedupe contract)
-        eventType: original.eventType,
-        eventVersion: original.eventVersion,
-        source: original.source,
-        occurredAt: original.occurredAt,
-        payload,
-        attempt: 0,
-        state: 'QUEUED',
-        correlationId: original.correlationId,
-        idempotencyKey: replayKey,
-        environment: subscription.environment,
-        replayOfDeliveryId: original.id,
-      },
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: subscription.applicationId,
-      action: 'webhook.replay',
-      detail: { subscriptionId, eventId, deliveryId: delivery.id, originalDeliveryId: original.id },
-    });
+    let delivery: { id: string };
+    try {
+      delivery = await this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+        // Serialize with pause/revoke so replay cannot race a state change.
+        await tx.$queryRaw`SELECT "id" FROM "developer_webhook_subscriptions"
+          WHERE "tenant_id" = ${actor.tenantId}::uuid AND "id" = ${subscriptionId}::uuid FOR UPDATE`;
+        const current = await tx.developerWebhookSubscription.findUnique({ where: { id: subscriptionId } });
+        if (!current || current.tenantId !== actor.tenantId || current.revokedAt || current.state !== 'ACTIVE') {
+          throw new NotFoundException('webhook subscription is not active');
+        }
+        const row = await tx.developerWebhookDelivery.create({
+          data: {
+            tenantId: actor.tenantId,
+            subscriptionId,
+            applicationId: current.applicationId,
+            eventId, // ORIGINAL id preserved (consumer dedupe contract)
+            eventType: original.eventType,
+            eventVersion: original.eventVersion,
+            source: original.source,
+            occurredAt: original.occurredAt,
+            payload,
+            attempt: 0,
+            state: 'QUEUED',
+            correlationId: original.correlationId,
+            idempotencyKey: replayKey,
+            environment: current.environment,
+            replayOfDeliveryId: original.id,
+          },
+        });
+        await this.audit.record({
+          ...actor,
+          applicationId: current.applicationId,
+          action: 'webhook.replay',
+          detail: { subscriptionId, eventId, deliveryId: row.id, originalDeliveryId: original.id },
+        }, tx);
+        return row;
+      });
+    } catch (error) {
+      // A concurrent insertion may have won the unique-index race.
+      if ((error as { code?: string }).code !== 'P2002') throw error;
+      const winner = await findReplay();
+      if (!winner) throw error;
+      return resolveReplay(winner);
+    }
     return { deliveryId: delivery.id, eventId };
   }
 }

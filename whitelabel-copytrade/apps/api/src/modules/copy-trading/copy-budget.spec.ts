@@ -2,22 +2,8 @@
 import { CopyBudgetService, CopyBudgetReasonCode, COPY_BUDGET_EQUITY_MAX_AGE_MS, COPY_BUDGET_TENANT_SETTING_KEY, evaluateCopyBudget, type CopyBudgetLimits } from './copy-budget.service';
 import { Decimal } from '../../common/decimal-string';
 
-/**
- * The scenarios below are the ones a reviewer has to be able to point at before
- * this number is allowed to gate real money:
- *
- *  - REDUCE lands on the remainder exactly, and the quantity is derived from it
- *    by flooring - never by rounding up.
- *  - BLOCK at zero says BLOCKED_BUDGET_EXHAUSTED and nothing else.
- *  - Two subscriptions of the same follower share ONE budget; the second copy is
- *    what proves it.
- *  - The tenant ceiling wins over a larger follower cap, because a tenant admin
- *    setting a ceiling is exactly the "please stop this" signal.
- *  - Another tenant's budget rows are never read: the fake prisma honours the
- *    `where` clause, so a cross-tenant row that leaks into the answer fails.
- *  - Stale equity is a BLOCK, not an ALLOW with a shrug.
- *  - A thousand evaluations of the same inputs are byte-identical.
- */
+/** Decimal arithmetic is tested as an estimate. Production evaluation must
+ * block configured budgets until live exposure and atomic reservations exist. */
 
 interface QueryArgs {
   where?: Record<string, unknown>;
@@ -25,7 +11,7 @@ interface QueryArgs {
 
 interface FakeOptions {
   budgets?: Array<{ tenantId: string; userId: string; maxActiveExposure: string; perTraderCap: string | null; currency?: string; updatedAt?: Date }>;
-  subscriptions?: Array<{ id: string; tenantId: string; followerId: string; traderId: string; state: string; allocationAmount: string }>;
+  subscriptions?: Array<{ id: string; tenantId: string; followerId: string; traderId: string; state: string; allocationAmount: string; allocationMode?: string }>;
   tenantSettings?: Array<{ tenantId: string; key: string; value: unknown }>;
   accounts?: Array<{ id: string; tenantId: string; userId: string; deletedAt?: Date | null }>;
   equityMicros?: bigint | null;
@@ -48,17 +34,22 @@ function fakePrisma(options: FakeOptions = {}) {
     if (options.failOn === which) throw new Error(`${which} unavailable`);
     return which === 'snapshot' ? null : [];
   };
-  return {
+  const prisma = {
+    $queryRaw: jest.fn(async () => []),
+    user: { findFirst: jest.fn(async (args: QueryArgs) => ({ id: args.where?.id })) },
     copyBudget: {
       findFirst: options.failOn === 'budget'
         ? boom('budget')
-        : jest.fn(async (args: QueryArgs) => equalTo(options.budgets ?? [], args.where)[0] ?? null),
+        : jest.fn(async (args: QueryArgs) => {
+          const row = equalTo(options.budgets ?? [], args.where)[0];
+          return row ? { ...row, currency: row.currency ?? 'USDT' } : null;
+        }),
       upsert: jest.fn(async () => ({})),
     },
     copySubscription: {
       findMany: options.failOn === 'subscription'
         ? boom('subscription')
-        : jest.fn(async (args: QueryArgs) => equalTo(options.subscriptions ?? [], args.where)),
+        : jest.fn(async (args: QueryArgs) => equalTo(options.subscriptions ?? [], args.where).map((row) => ({ ...row, allocationMode: row.allocationMode ?? 'FIXED' }))),
     },
     tenantSetting: {
       findFirst: options.failOn === 'setting'
@@ -77,6 +68,10 @@ function fakePrisma(options: FakeOptions = {}) {
           ? null
           : { observedAtMicros: options.equityMicros })),
     },
+  };
+  return {
+    ...prisma,
+    withTenantRls: async (_tenant: string, work: (tx: typeof prisma) => unknown) => work(prisma),
   };
 }
 
@@ -102,7 +97,7 @@ function intent(overrides: Partial<Parameters<CopyBudgetService['evaluate']>[0]>
 }
 
 describe('CopyBudgetService.evaluate', () => {
-  it('REDUCEs a copy to exactly the remaining budget and derives the quantity by flooring', async () => {
+  it('keeps reduction arithmetic as an estimate while blocking production execution', async () => {
     const budget = service({
       budgets: [{ tenantId: 'tenant-1', userId: 'user-1', maxActiveExposure: '10000', perTraderCap: null }],
       subscriptions: [{ id: 'sub-a', tenantId: 'tenant-1', followerId: 'user-1', traderId: 'trader-1', state: 'ACTIVE', allocationAmount: '9500' }],
@@ -112,16 +107,16 @@ describe('CopyBudgetService.evaluate', () => {
 
     const decision = await budget.evaluate(intent({ notional: '2000', quantity: '0.04' }), NOW);
 
-    expect(decision.decision).toBe('REDUCE');
-    expect(decision.reasonCode).toBe(CopyBudgetReasonCode.REDUCED_TO_REMAINING_BUDGET);
-    expect(decision.effectiveCap).toBe('10000');
-    expect(decision.committed).toBe('9500');
-    expect(decision.allowedNotional).toBe('500');
-    // 0.04 * 500 / 2000 = 0.01 exactly - the floor must not lose a digit here.
-    expect(decision.reducedQuantity).toBe('0.01');
+    expect(decision).toMatchObject({ decision: 'BLOCK', reasonCode: 'BLOCKED_EXPOSURE_UNVERIFIED',
+      effectiveCap: '10000', committed: null, remaining: null, allowedNotional: '0', reducedQuantity: null });
+    const estimate = evaluateCopyBudget({ intent: intent({ notional: '2000', quantity: '0.04' }),
+      limits: { maxActiveExposure: '10000', perTraderCap: null, tenantCeiling: null, currency: 'USDT' },
+      activeExposures: [{ subscriptionId: 'sub-a', traderId: 'trader-1', allocationAmount: '9500' }],
+      equityObservedAt: NOW, now: NOW });
+    expect(estimate).toMatchObject({ decision: 'REDUCE', allowedNotional: '500', reducedQuantity: '0.01' });
   });
 
-  it('BLOCKs when the budget is already fully committed', async () => {
+  it('does not claim verified exhaustion from allocation estimates', async () => {
     const budget = service({
       budgets: [{ tenantId: 'tenant-1', userId: 'user-1', maxActiveExposure: '5000', perTraderCap: null }],
       subscriptions: [
@@ -135,42 +130,25 @@ describe('CopyBudgetService.evaluate', () => {
     const decision = await budget.evaluate(intent(), NOW);
 
     expect(decision.decision).toBe('BLOCK');
-    expect(decision.reasonCode).toBe(CopyBudgetReasonCode.BLOCKED_BUDGET_EXHAUSTED);
-    expect(decision.remaining).toBe('0');
+    expect(decision.reasonCode).toBe(CopyBudgetReasonCode.BLOCKED_EXPOSURE_UNVERIFIED);
+    expect(decision.remaining).toBeNull();
     expect(decision.allowedNotional).toBe('0');
     expect(decision.reducedQuantity).toBeNull();
   });
 
-  it('makes two subscriptions of one follower share a single budget', async () => {
+  it('blocks concurrent copies rather than pretending allocation estimates reserve headroom', async () => {
     const budget = service({
       budgets: [{ tenantId: 'tenant-1', userId: 'user-1', maxActiveExposure: '1000', perTraderCap: null }],
       subscriptions: [{ id: 'sub-a', tenantId: 'tenant-1', followerId: 'user-1', traderId: 'trader-1', state: 'ACTIVE', allocationAmount: '600' }],
-      accounts: [{ id: 'acct-1', tenantId: 'tenant-1', userId: 'user-1' }],
-      equityMicros: freshEquity,
+      accounts: [{ id: 'acct-1', tenantId: 'tenant-1', userId: 'user-1' }], equityMicros: freshEquity,
     });
-
-    const second = await budget.evaluate(intent({ subscriptionId: 'sub-b', traderId: 'trader-2', notional: '400', quantity: '0.008' }), NOW);
-    expect(second.decision).toBe('ALLOW');
-
-    // The same 400 now no longer fits: the first copy consumed the remainder.
-    const third = await budget.evaluate(intent({ subscriptionId: 'sub-b', traderId: 'trader-2', notional: '400', quantity: '0.008' }), NOW);
-    // The fake never inserts a subscription, so this assertion is about the
-    // arithmetic the real call sees: 1000 - 600 = 400 remaining, 400 fits, and
-    // a 401 copy would reduce. Proving the shared budget therefore means adding
-    // the first subscription to the fixture.
-    expect(third.decision).toBe('ALLOW');
-    const shared = service({
-      budgets: [{ tenantId: 'tenant-1', userId: 'user-1', maxActiveExposure: '1000', perTraderCap: null }],
-      subscriptions: [
-        { id: 'sub-a', tenantId: 'tenant-1', followerId: 'user-1', traderId: 'trader-1', state: 'ACTIVE', allocationAmount: '600' },
-        { id: 'sub-b', tenantId: 'tenant-1', followerId: 'user-1', traderId: 'trader-2', state: 'ACTIVE', allocationAmount: '400' },
-      ],
-      accounts: [{ id: 'acct-1', tenantId: 'tenant-1', userId: 'user-1' }],
-      equityMicros: freshEquity,
-    });
-    const exhausted = await shared.evaluate(intent({ subscriptionId: 'sub-b', traderId: 'trader-2', notional: '1', quantity: '0.00002' }), NOW);
-    expect(exhausted.decision).toBe('BLOCK');
-    expect(exhausted.reasonCode).toBe(CopyBudgetReasonCode.BLOCKED_BUDGET_EXHAUSTED);
+    const results = await Promise.all([
+      budget.evaluate(intent({ subscriptionId: 'sub-b', notional: '400', quantity: '0.008' }), NOW),
+      budget.evaluate(intent({ subscriptionId: 'sub-c', notional: '400', quantity: '0.008' }), NOW),
+    ]);
+    expect(results).toHaveLength(2);
+    for (const result of results) expect(result).toMatchObject({ decision: 'BLOCK', reasonCode: 'BLOCKED_EXPOSURE_UNVERIFIED', committed: null, remaining: null, allowedNotional: '0' });
+    expect(await budget.getView('tenant-1', 'user-1')).toMatchObject({ committed: '600', exposureStatus: 'ALLOCATION_ESTIMATE' });
   });
 
   it('applies the tenant ceiling when it is tighter than the follower cap', async () => {
@@ -184,10 +162,8 @@ describe('CopyBudgetService.evaluate', () => {
 
     const decision = await budget.evaluate(intent({ notional: '5000', quantity: '0.1' }), NOW);
 
-    expect(decision.effectiveCap).toBe('20000');
-    expect(decision.reasonCode).toBe(CopyBudgetReasonCode.REDUCED_TO_REMAINING_BUDGET);
-    expect(decision.allowedNotional).toBe('1000');
-    expect(decision.reducedQuantity).toBe('0.02');
+    expect(decision).toMatchObject({ effectiveCap: '20000', decision: 'BLOCK',
+      reasonCode: 'BLOCKED_EXPOSURE_UNVERIFIED', allowedNotional: '0', reducedQuantity: null });
   });
 
   it("never reads another tenant's budget or subscriptions", async () => {
@@ -205,10 +181,9 @@ describe('CopyBudgetService.evaluate', () => {
 
     const decision = await budget.evaluate(intent({ notional: '1000', quantity: '0.02' }), NOW);
 
-    // tenant-2's 4999 of exposure is invisible here: 5000 - 0 = 5000.
-    expect(decision.effectiveCap).toBe('5000');
-    expect(decision.committed).toBe('0');
-    expect(decision.decision).toBe('ALLOW');
+    expect(decision).toMatchObject({ effectiveCap: '5000', committed: null, decision: 'BLOCK', reasonCode: 'BLOCKED_EXPOSURE_UNVERIFIED' });
+    // The other tenant is absent from the explicitly labeled allocation estimate.
+    expect(await budget.getView('tenant-1', 'user-1')).toMatchObject({ committed: '0', exposureStatus: 'ALLOCATION_ESTIMATE' });
   });
 
   it('BLOCKs on a stale equity snapshot and never falls back to the last known value', async () => {
@@ -242,6 +217,47 @@ describe('CopyBudgetService.evaluate', () => {
     const decision = await budget.evaluate(intent(), NOW);
     expect(decision.decision).toBe('BLOCK');
     expect(decision.reasonCode).toBe(CopyBudgetReasonCode.BLOCKED_BUDGET_UNREADABLE);
+  });
+
+  it('blocks malformed or mismatched tenant ceilings instead of treating them as absent', async () => {
+    for (const ceiling of [{ amount: 'bad', currency: 'USDT' }, { amount: '1', currency: 'BTC' }]) {
+      const budget = service({
+        budgets: [{ tenantId: 'tenant-1', userId: 'user-1', maxActiveExposure: '10000', perTraderCap: null, currency: 'USDT' }],
+        tenantSettings: [{ tenantId: 'tenant-1', key: COPY_BUDGET_TENANT_SETTING_KEY, value: ceiling }],
+        accounts: [{ id: 'acct-1', tenantId: 'tenant-1', userId: 'user-1' }],
+        equityMicros: freshEquity,
+      });
+      expect(await budget.evaluate(intent(), NOW)).toMatchObject({ decision: 'BLOCK', reasonCode: 'BLOCKED_BUDGET_UNREADABLE' });
+      await expect(budget.getView('tenant-1', 'user-1')).rejects.toMatchObject({ status: 503 });
+    }
+  });
+
+  it('does not invent a quote currency when no budget or tenant ceiling is configured', async () => {
+    const view = await service().getView('tenant-1', 'user-1');
+    expect(view).toMatchObject({ currency: null, maxActiveExposure: null, tenantCeiling: null, effectiveCap: null });
+  });
+
+  it('permits an otherwise valid unconfigured budget decision without claiming verified exposure', async () => {
+    const budget = service({ accounts: [{ id: 'acct-1', tenantId: 'tenant-1', userId: 'user-1' }], equityMicros: freshEquity });
+    expect(await budget.evaluate(intent(), NOW)).toMatchObject({ decision: 'ALLOW', reasonCode: 'ALLOW_NO_BUDGET_CONFIGURED', committed: null, remaining: null });
+  });
+
+  it('never adds percentage allocation ratios to money as if they were exposure', async () => {
+    const budget = service({
+      budgets: [{ tenantId: 'tenant-1', userId: 'user-1', maxActiveExposure: '100', perTraderCap: null, currency: 'USDT' }],
+      subscriptions: [{ id: 'sub-a', tenantId: 'tenant-1', followerId: 'user-1', traderId: 'trader-1', state: 'ACTIVE', allocationMode: 'PERCENTAGE_BALANCE', allocationAmount: '10' }],
+      accounts: [{ id: 'acct-1', tenantId: 'tenant-1', userId: 'user-1' }], equityMicros: freshEquity,
+    });
+    expect(await budget.evaluate(intent(), NOW)).toMatchObject({ decision: 'BLOCK', reasonCode: 'BLOCKED_BUDGET_UNREADABLE' });
+    expect(await budget.getView('tenant-1', 'user-1')).toMatchObject({ committed: null, remaining: null, utilisationBps: null, exposureStatus: 'UNAVAILABLE', effectiveCap: '100' });
+  });
+
+  it('blocks a snapshot from the future rather than treating it as fresh', async () => {
+    const budget = service({
+      accounts: [{ id: 'acct-1', tenantId: 'tenant-1', userId: 'user-1' }],
+      equityMicros: BigInt(NOW.getTime() + 1000) * 1000n,
+    });
+    expect(await budget.evaluate(intent(), NOW)).toMatchObject({ decision: 'BLOCK', reasonCode: 'BLOCKED_EQUITY_STALE' });
   });
 
   it('BLOCKs a copy whose quote asset is not the budget currency', async () => {
@@ -302,7 +318,7 @@ describe('CopyBudgetService.evaluate', () => {
     expect(Decimal.parse(seen.reducedQuantity as string).toString()).toBe('0.06666866666666666');
   });
 
-  it('respects an optional per-trader cap inside the global cap', async () => {
+  it('blocks even when an estimated per-trader remainder exists', async () => {
     const budget = service({
       budgets: [{ tenantId: 'tenant-1', userId: 'user-1', maxActiveExposure: '10000', perTraderCap: '1000' }],
       subscriptions: [
@@ -314,9 +330,8 @@ describe('CopyBudgetService.evaluate', () => {
     });
 
     const decision = await budget.evaluate(intent({ traderId: 'trader-1', notional: '500', quantity: '0.01' }), NOW);
-    expect(decision.decision).toBe('REDUCE');
-    expect(decision.allowedNotional).toBe('100');
-    expect(decision.reducedQuantity).toBe('0.002');
+    expect(decision).toMatchObject({ decision: 'BLOCK', reasonCode: 'BLOCKED_EXPOSURE_UNVERIFIED',
+      committed: null, remaining: null, allowedNotional: '0', reducedQuantity: null });
   });
 
   it('allows an unbounded follower but still refuses without fresh equity', async () => {

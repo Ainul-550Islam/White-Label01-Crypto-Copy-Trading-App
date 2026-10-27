@@ -5,8 +5,11 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
+import 'app_localizations_ar.dart';
 import 'app_localizations_bn.dart';
 import 'app_localizations_en.dart';
+import 'app_localizations_es.dart';
+import 'app_localizations_tr.dart';
 
 // ignore_for_file: type=lint
 
@@ -94,8 +97,11 @@ abstract class AppLocalizations {
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
+    Locale('ar'),
     Locale('bn'),
-    Locale('en')
+    Locale('en'),
+    Locale('es'),
+    Locale('tr')
   ];
 
   /// No description provided for @appTitle.
@@ -283,6 +289,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Change password'**
   String get changePassword;
+
+  /// No description provided for @securityWebManagement.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage your active devices and password in the web security settings.'**
+  String get securityWebManagement;
 
   /// No description provided for @executionDisabledNotice.
   ///
@@ -635,7 +647,7 @@ abstract class AppLocalizations {
   /// No description provided for @riskReadOnlyNotice.
   ///
   /// In en, this message translates to:
-  /// **'Read-only by design. Engaging or clearing a switch lives in the admin console, behind reasons and typed confirmations.'**
+  /// **'Risk halts are read-only here. The admin console requires a reason and typed confirmation to engage or clear a switch.'**
   String get riskReadOnlyNotice;
 
   /// No description provided for @riskPanelsDegraded.
@@ -971,7 +983,7 @@ abstract class AppLocalizations {
   /// No description provided for @fundingSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Wallets, deposit addresses and transfers.'**
+  /// **'Accounts, deposit requests and transfer history.'**
   String get fundingSubtitle;
 
   /// No description provided for @fundingTitle.
@@ -1178,6 +1190,54 @@ abstract class AppLocalizations {
   /// **'Preferences'**
   String get preferencesTab;
 
+  /// No description provided for @displayPreferences.
+  ///
+  /// In en, this message translates to:
+  /// **'Display preferences'**
+  String get displayPreferences;
+
+  /// No description provided for @languageLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get languageLabel;
+
+  /// No description provided for @displayCurrencyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Display currency'**
+  String get displayCurrencyLabel;
+
+  /// No description provided for @timeZoneLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Time zone (IANA)'**
+  String get timeZoneLabel;
+
+  /// No description provided for @timeZoneRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a time zone'**
+  String get timeZoneRequired;
+
+  /// No description provided for @dateFormatLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Date format'**
+  String get dateFormatLabel;
+
+  /// No description provided for @preferencesSupportNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Preferences are saved to your account. Currency, time zone and date format support varies by screen.'**
+  String get preferencesSupportNotice;
+
+  /// No description provided for @savePreferences.
+  ///
+  /// In en, this message translates to:
+  /// **'Save preferences'**
+  String get savePreferences;
+
   /// No description provided for @resume.
   ///
   /// In en, this message translates to:
@@ -1265,7 +1325,7 @@ abstract class AppLocalizations {
   /// No description provided for @withdrawOnWebNotice.
   ///
   /// In en, this message translates to:
-  /// **'Withdrawals require policy checks and approval and are available in the web console.'**
+  /// **'Withdrawals are unavailable in this app. Contact your provider about approved withdrawal channels.'**
   String get withdrawOnWebNotice;
 
   /// No description provided for @accountsTab.
@@ -1292,6 +1352,12 @@ abstract class AppLocalizations {
   /// **'Deposit request submitted'**
   String get depositRequested;
 
+  /// No description provided for @depositUnconfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'The deposit request could not be confirmed. Check your funding history before trying again.'**
+  String get depositUnconfirmed;
+
   /// No description provided for @amountLabel.
   ///
   /// In en, this message translates to:
@@ -1307,8 +1373,14 @@ abstract class AppLocalizations {
   /// No description provided for @transferReferenceLabel.
   ///
   /// In en, this message translates to:
-  /// **'Transfer reference (optional)'**
+  /// **'Transfer reference (required)'**
   String get transferReferenceLabel;
+
+  /// No description provided for @transferReferenceRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your transfer reference.'**
+  String get transferReferenceRequired;
 
   /// No description provided for @depositRequestNotice.
   ///
@@ -1357,6 +1429,264 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Pending requests are not completed transfers.'**
   String get pendingNotCompleted;
+
+  /// No description provided for @deviceNotificationsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Device notification permission'**
+  String get deviceNotificationsTitle;
+
+  /// No description provided for @deviceNotificationsExplanation.
+  ///
+  /// In en, this message translates to:
+  /// **'This controls permission on this device only. Push delivery also requires a configured push service.'**
+  String get deviceNotificationsExplanation;
+
+  /// No description provided for @deviceNotificationsUndetermined.
+  ///
+  /// In en, this message translates to:
+  /// **'Not requested yet'**
+  String get deviceNotificationsUndetermined;
+
+  /// No description provided for @deviceNotificationsAllowed.
+  ///
+  /// In en, this message translates to:
+  /// **'Allowed'**
+  String get deviceNotificationsAllowed;
+
+  /// No description provided for @deviceNotificationsLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Allowed with limited delivery'**
+  String get deviceNotificationsLimited;
+
+  /// No description provided for @deviceNotificationsDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Denied in device settings'**
+  String get deviceNotificationsDenied;
+
+  /// No description provided for @deviceNotificationsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Permission status is unavailable on this device'**
+  String get deviceNotificationsUnavailable;
+
+  /// No description provided for @deviceNotificationsRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Request device permission'**
+  String get deviceNotificationsRequest;
+
+  /// No description provided for @deviceNotificationsSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Open device settings'**
+  String get deviceNotificationsSettings;
+
+  /// No description provided for @deviceNotificationsSettingsError.
+  ///
+  /// In en, this message translates to:
+  /// **'Device settings could not be opened.'**
+  String get deviceNotificationsSettingsError;
+
+  /// No description provided for @devicePushRegistered.
+  ///
+  /// In en, this message translates to:
+  /// **'Device registered. Provider delivery is not guaranteed.'**
+  String get devicePushRegistered;
+
+  /// No description provided for @devicePushUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Device registration is unavailable. Check the connection and try again.'**
+  String get devicePushUnavailable;
+
+  /// No description provided for @devicePushRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry device registration'**
+  String get devicePushRetry;
+
+  /// No description provided for @destinationCheckTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Check withdrawal destination'**
+  String get destinationCheckTitle;
+
+  /// No description provided for @destinationCheckNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Check whether an address is on your allowlist now. This does not create a withdrawal or guarantee a future transfer.'**
+  String get destinationCheckNotice;
+
+  /// No description provided for @destinationNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Network'**
+  String get destinationNetwork;
+
+  /// No description provided for @destinationAddress.
+  ///
+  /// In en, this message translates to:
+  /// **'Destination address'**
+  String get destinationAddress;
+
+  /// No description provided for @destinationAddressInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter an address between 16 and 128 characters.'**
+  String get destinationAddressInvalid;
+
+  /// No description provided for @destinationCheckAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Check allowlist'**
+  String get destinationCheckAction;
+
+  /// No description provided for @destinationCheckAllowed.
+  ///
+  /// In en, this message translates to:
+  /// **'On your allowlist at the time of this check. Other withdrawal conditions still apply.'**
+  String get destinationCheckAllowed;
+
+  /// No description provided for @destinationCheckPending.
+  ///
+  /// In en, this message translates to:
+  /// **'This destination is awaiting activation and cannot currently be used.'**
+  String get destinationCheckPending;
+
+  /// No description provided for @destinationCheckDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'This is not an active approved destination for this network.'**
+  String get destinationCheckDenied;
+
+  /// No description provided for @destinationCheckError.
+  ///
+  /// In en, this message translates to:
+  /// **'The destination could not be checked. Check your connection and try again.'**
+  String get destinationCheckError;
+
+  /// No description provided for @riskPanelUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This risk panel is unavailable. Pull down to try again.'**
+  String get riskPanelUnavailable;
+
+  /// No description provided for @riskSwitchListIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'The halt count and list may be incomplete or out of sync. Refresh to check.'**
+  String get riskSwitchListIncomplete;
+
+  /// No description provided for @copyBudgetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy-trading budget'**
+  String get copyBudgetTitle;
+
+  /// No description provided for @copyBudgetAbout.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce the copy-trading budget configuration. This is not an account-wide risk limit and does not close existing positions.'**
+  String get copyBudgetAbout;
+
+  /// No description provided for @copyBudgetEffective.
+  ///
+  /// In en, this message translates to:
+  /// **'Current effective limit'**
+  String get copyBudgetEffective;
+
+  /// No description provided for @copyBudgetUnlimited.
+  ///
+  /// In en, this message translates to:
+  /// **'No limit set'**
+  String get copyBudgetUnlimited;
+
+  /// No description provided for @copyBudgetCommitted.
+  ///
+  /// In en, this message translates to:
+  /// **'Sum of active allocation values'**
+  String get copyBudgetCommitted;
+
+  /// No description provided for @copyBudgetNewLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'New maximum'**
+  String get copyBudgetNewLimit;
+
+  /// No description provided for @copyBudgetHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'You can only lower the limit here. Use a dot for decimals, without grouping; up to 16 whole and 12 decimal digits.'**
+  String get copyBudgetHelp;
+
+  /// No description provided for @copyBudgetInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a non-negative amount with up to 12 decimal places.'**
+  String get copyBudgetInvalid;
+
+  /// No description provided for @copyBudgetTooHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'The new limit cannot exceed the current effective limit.'**
+  String get copyBudgetTooHigh;
+
+  /// No description provided for @copyBudgetReduce.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce limit'**
+  String get copyBudgetReduce;
+
+  /// No description provided for @copyBudgetSaving.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving…'**
+  String get copyBudgetSaving;
+
+  /// No description provided for @copyBudgetSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'The reduction is recorded. The current limit is shown above.'**
+  String get copyBudgetSaved;
+
+  /// No description provided for @copyBudgetUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The copy budget is unavailable. Try again.'**
+  String get copyBudgetUnavailable;
+
+  /// No description provided for @copyBudgetFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The reduction could not be confirmed. Refresh and try again.'**
+  String get copyBudgetFailed;
+
+  /// No description provided for @copyBudgetEstimateWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Allocation values may use different units and are not verified live exposure or a guarantee against losses.'**
+  String get copyBudgetEstimateWarning;
+
+  /// No description provided for @copyBudgetMetricUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Allocation estimate unavailable.'**
+  String get copyBudgetMetricUnavailable;
+
+  /// No description provided for @copyBudgetCurrencyUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'No budget currency is configured. Contact your operator.'**
+  String get copyBudgetCurrencyUnavailable;
+
+  /// No description provided for @copyBudgetEnforcementUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy orders with a configured budget are blocked until live exposure and order reservations can be verified.'**
+  String get copyBudgetEnforcementUnavailable;
 }
 
 class _AppLocalizationsDelegate
@@ -1370,7 +1700,7 @@ class _AppLocalizationsDelegate
 
   @override
   bool isSupported(Locale locale) =>
-      <String>['bn', 'en'].contains(locale.languageCode);
+      <String>['ar', 'bn', 'en', 'es', 'tr'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
@@ -1379,10 +1709,16 @@ class _AppLocalizationsDelegate
 AppLocalizations lookupAppLocalizations(Locale locale) {
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
+    case 'ar':
+      return AppLocalizationsAr();
     case 'bn':
       return AppLocalizationsBn();
     case 'en':
       return AppLocalizationsEn();
+    case 'es':
+      return AppLocalizationsEs();
+    case 'tr':
+      return AppLocalizationsTr();
   }
 
   throw FlutterError(

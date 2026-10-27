@@ -43,6 +43,10 @@ export interface DeveloperApiRequestContext {
   endpointClass: string;
   nowIso: string;
   nowSeconds: number;
+  /** Tenant context resolved by trusted server middleware, never a caller header. */
+  resolvedTenantId: string;
+  /** Environment of the server-mounted integration route. */
+  expectedEnvironment: 'SANDBOX' | 'PRODUCTION';
   /** Client-supplied tenant hints are captured ONLY to be ignored. */
   clientTenantHint?: string;
 }
@@ -52,7 +56,10 @@ export interface DeveloperAccessDecision {
   applicationId: string;
   identityId: string;
   identityType: 'API_KEY' | 'OAUTH_TOKEN';
+  /** Only an OAuth authorization carries an end-user subject. */
+  userId: string | null;
   apiVersion: string;
+  versionHeaders: Record<string, string>;
   effectiveScopes: string[];
   grantedScopes: string[];
   policy: DeveloperPolicy;
@@ -109,10 +116,11 @@ export class ApiAccessService {
     let grantedScopes: string[];
     let identityId: string;
     let identityType: DeveloperAccessDecision['identityType'];
+    let userId: string | null = null;
     let expiresAt: Date | null = null;
 
     if (parsed.kind === 'BEARER') {
-      const token = await this.oauth.resolveAccessToken(parsed.token);
+      const token = await this.oauth.resolveAccessToken(context.resolvedTenantId, parsed.token);
       if (!token) throw new NotFoundException('token not recognized');
       if (token.revokedAt) {
         throw new DeveloperError(DEVELOPER_ERROR_CODES.TOKEN_REVOKED, 'token has been revoked');
@@ -123,14 +131,15 @@ export class ApiAccessService {
       tenantId = token.tenantId;
       applicationId = token.applicationId;
       grantedScopes = token.scopes;
-      identityId = `token:${token.applicationId}`;
+      identityId = `token:${token.id}`;
       identityType = 'OAUTH_TOKEN';
+      userId = token.userId;
       expiresAt = token.expiresAt;
     } else {
-      const credential = await this.prisma.developerCredential.findUnique({
+      const credential = await this.prisma.withTenantRls(context.resolvedTenantId, (tx) => tx.developerCredential.findUnique({
         where: { keyId: parsed.keyId ?? '' },
-      });
-      if (!credential || credential.revokedAt) {
+      }));
+      if (!credential || credential.tenantId !== context.resolvedTenantId || credential.revokedAt) {
         throw new NotFoundException('credential not recognized');
       }
       if (credential.expiresAt && credential.expiresAt.getTime() < Date.now()) {
@@ -154,8 +163,12 @@ export class ApiAccessService {
 
     // Application state gates (CHECKS 13/14): revoked and suspended apps are
     // denied before any scope or business logic runs.
-    const application = await this.prisma.developerApplication.findUnique({
-      where: { id: applicationId },
+    const { application, pinnedVersion } = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const application = await tx.developerApplication.findUnique({ where: { id: applicationId } });
+      const pins = await tx.$queryRaw<Array<{ version: string }>>`
+        SELECT pinned_api_version AS version FROM developer_applications
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${applicationId}::uuid`;
+      return { application, pinnedVersion: pins[0]?.version };
     });
     if (!application || application.tenantId !== tenantId) {
       throw new NotFoundException('application not found');
@@ -163,8 +176,11 @@ export class ApiAccessService {
     if (application.state === 'REVOKED') {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_REVOKED, 'application is revoked');
     }
-    if (application.state === 'SUSPENDED' || application.state === 'REACTIVATION_REVIEW') {
+    if (application.state !== 'ACTIVE') {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_SUSPENDED, 'application is not active');
+    }
+    if (application.environment !== context.expectedEnvironment) {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.ENVIRONMENT_MISMATCH, 'application environment does not match the route');
     }
 
     // Version gate (CHECKS 22/23/24).
@@ -176,6 +192,9 @@ export class ApiAccessService {
       nowIso: context.nowIso,
     });
     this.versionService.assertVersionAllowed(resolution.contract.version, policy.allowedApiVersions);
+    if (!pinnedVersion || resolution.contract.version !== pinnedVersion) {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.VERSION_UNSUPPORTED, 'requested API version does not match the application pin');
+    }
 
     // Scope gate: intersection of application, policy and credential scopes
     // must cover the endpoint's required scope (CHECKS 25/26/53).
@@ -203,6 +222,7 @@ export class ApiAccessService {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.RATE_LIMITED, 'rate limit exceeded', {
         retryAfterSeconds: rateLimit.retryAfterSeconds,
         tier: rateLimit.tier,
+        tenantId, applicationId, apiVersion: resolution.contract.version,
       });
     }
 
@@ -211,7 +231,9 @@ export class ApiAccessService {
       applicationId,
       identityId,
       identityType,
+      userId,
       apiVersion: resolution.contract.version,
+      versionHeaders: resolution.headers,
       effectiveScopes: effective,
       grantedScopes: scopesIntersect(grantedScopes, parseScopeList(application.scopes)),
       policy,

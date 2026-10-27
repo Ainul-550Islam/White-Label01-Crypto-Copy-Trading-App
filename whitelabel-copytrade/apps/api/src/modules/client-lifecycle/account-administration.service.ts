@@ -87,9 +87,9 @@ export class AccountAdministrationService {
   }
 
   async getAccount(params: { tenantId: string; accountId: string }): Promise<InstitutionalAccount | null> {
-    return await this.prisma.institutionalAccount.findFirst({
+    return this.prisma.withTenantRls(params.tenantId, (tx) => tx.institutionalAccount.findFirst({
       where: { id: params.accountId, tenantId: params.tenantId },
-    });
+    }));
   }
 
   async listAccounts(params: {
@@ -108,15 +108,15 @@ export class AccountAdministrationService {
     if (accountType) where.accountType = accountType;
     if (ownerId) where.ownerId = ownerId;
 
-    const [data, total] = await Promise.all([
-      this.prisma.institutionalAccount.findMany({
+    const [data, total] = await this.prisma.withTenantRls(tenantId, (tx) => Promise.all([
+      tx.institutionalAccount.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      this.prisma.institutionalAccount.count({ where }),
-    ]);
+      tx.institutionalAccount.count({ where }),
+    ]));
     return { data, total, page, limit };
   }
 

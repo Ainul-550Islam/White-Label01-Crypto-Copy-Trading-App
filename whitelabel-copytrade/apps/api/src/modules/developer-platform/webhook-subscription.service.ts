@@ -4,10 +4,12 @@
  *
  * A subscription belongs to exactly one (tenant, application). Endpoints
  * must be https in PRODUCTION. The signing secret is shown ONCE at creation
- * and stored only as an HMAC digest. Every mutation is audited.
+ * and stored encrypted for signing plus an HMAC digest. Every mutation is audited.
  */
 
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { isUUID } from 'class-validator';
+import type { DeveloperWebhookSubscription, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { constantTimeEqual, credentialDigest, DEVELOPER_ERROR_CODES, DeveloperError, idempotencyKey, isKnownEventType, validateScopes } from './developer.types';
@@ -19,8 +21,16 @@ import {
 } from './developer-policy.service';
 import { DEVELOPER_SECRET_CIPHER, WebhookSigningService, type DeveloperSecretCipher } from './webhook-signing.service';
 import { DEVELOPER_SECRET_HMAC_KEY } from './developer-credential.service';
+import { claimMutationIntent } from './developer-mutation-intent';
+import { parseWebhookTarget } from './webhook-http-client';
 
-const HTTPS_ENDPOINT_PATTERN = /^https:\/\/[A-Za-z0-9.\-_:]+[A-Za-z0-9/\-._~%]*$/;
+// Only the one-time plaintext secret is returned to the caller. Internal
+// ciphertext and digests must never cross the service's portal boundary.
+function publicSubscription(subscription: DeveloperWebhookSubscription) {
+  const { secretHash, secretEncrypted, idempotencyKey: _key, createdByActorId: _actor, ...safe } = subscription;
+  void secretHash; void secretEncrypted; void _key; void _actor;
+  return safe;
+}
 
 export interface CreateSubscriptionInput {
   applicationId: string;
@@ -43,17 +53,11 @@ export class WebhookSubscriptionService {
     @Inject(DEVELOPER_SECRET_CIPHER) private readonly cipher: DeveloperSecretCipher,
   ) {}
 
-  private validateEndpoint(url: string, environment: string): string {
-    if (!HTTPS_ENDPOINT_PATTERN.test(url)) {
+  private validateEndpoint(url: string, _environment: string): string {
+    if (!parseWebhookTarget(url)) {
       throw new DeveloperError(
         DEVELOPER_ERROR_CODES.WEBHOOK_ENDPOINT_INVALID,
-        'webhook endpoint must be a valid https URL',
-      );
-    }
-    if (environment === 'PRODUCTION' && /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(url)) {
-      throw new DeveloperError(
-        DEVELOPER_ERROR_CODES.WEBHOOK_ENDPOINT_INVALID,
-        'production endpoints cannot target loopback hosts',
+        'webhook endpoint must be a public HTTPS URL on port 443',
       );
     }
     return url;
@@ -76,32 +80,37 @@ export class WebhookSubscriptionService {
   }
 
   private async loadOwnedApplication(tenantId: string, applicationId: string) {
-    const application = await this.prisma.developerApplication.findUnique({
+    const application = await this.prisma.withTenantRls(tenantId, (tx) => tx.developerApplication.findUnique({
       where: { id: applicationId },
-    });
+    }));
     if (!application || application.tenantId !== tenantId) {
       throw new NotFoundException('developer application not found');
     }
     return application;
   }
 
-  async create(actor: DeveloperAuditActor, input: CreateSubscriptionInput) {
+  async create(actor: DeveloperAuditActor, input: CreateSubscriptionInput, requestKey?: string) {
     const application = await this.loadOwnedApplication(actor.tenantId, input.applicationId);
-    if (application.state === 'REVOKED') {
-      throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_REVOKED, 'application is revoked');
+    if (application.state !== 'ACTIVE') {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_REVOKED, 'application is not active');
     }
     const plan = await this.policyData.planLimitViewForTenant(actor.tenantId);
     const entitlements = await this.policyData.tenantEntitlementKeys(actor.tenantId);
     const policy = this.policyService.resolve(actor.tenantId, plan, entitlements);
+    if (!Number.isSafeInteger(policy.maxWebhookSubscriptions) || policy.maxWebhookSubscriptions < 0 ||
+        !Number.isSafeInteger(policy.maxWebhookEndpointsPerApplication) || policy.maxWebhookEndpointsPerApplication < 0) {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.POLICY_LIMIT, 'webhook quota evidence is unavailable');
+    }
+    if (!policy.allowedScopes.includes('webhooks:manage')) {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.SCOPE_NOT_ALLOWED, 'the current plan does not grant webhooks');
+    }
 
-    const activeCount = await this.prisma.developerWebhookSubscription.count({
-      where: { tenantId: actor.tenantId, revokedAt: null },
-    });
-    if (activeCount >= policy.maxWebhookSubscriptions) {
-      throw new DeveloperError(
-        DEVELOPER_ERROR_CODES.POLICY_LIMIT,
-        `plan allows at most ${policy.maxWebhookSubscriptions} webhook subscriptions`,
-      );
+    const [activeCount, applicationCount] = await this.prisma.withTenantRls(actor.tenantId, (tx) => Promise.all([
+      tx.developerWebhookSubscription.count({ where: { tenantId: actor.tenantId, revokedAt: null } }),
+      tx.developerWebhookSubscription.count({ where: { tenantId: actor.tenantId, applicationId: application.id, revokedAt: null } }),
+    ]));
+    if (activeCount >= policy.maxWebhookSubscriptions || applicationCount >= policy.maxWebhookEndpointsPerApplication) {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.POLICY_LIMIT, 'plan webhook subscription or application endpoint limit reached');
     }
     // webhooks:manage must be inside the application's declared scopes.
     validateScopes(['webhooks:manage']);
@@ -113,57 +122,101 @@ export class WebhookSubscriptionService {
     }
 
     const environment = input.environment ?? application.environment;
+    if (environment !== application.environment) {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.ENVIRONMENT_MISMATCH, 'webhook environment must match its application');
+    }
     const endpointUrl = this.validateEndpoint(input.endpointUrl, environment);
     const eventTypes = this.validateEventTypes(input.eventTypes);
     const eventVersion = input.eventVersion ?? 'v1';
 
     const secret = this.signing.newSecret();
-    const subscription = await this.prisma.developerWebhookSubscription.create({
-      data: {
-        tenantId: actor.tenantId,
+    const create = async (tx: Prisma.TransactionClient) => {
+      if (requestKey) {
+        await claimMutationIntent(tx, actor.tenantId, requestKey, 'webhook.create', application.id);
+        // The tenant row serializes quota checks for concurrent creations.
+        await tx.$queryRaw`SELECT "id" FROM "tenants" WHERE "id" = ${actor.tenantId}::uuid FOR UPDATE`;
+        const locked = await tx.$queryRaw<Array<{ state: string; scopes: string[]; environment: string }>>`
+          SELECT "state", "scopes", "environment" FROM "developer_applications"
+          WHERE "tenant_id" = ${actor.tenantId}::uuid AND "id" = ${application.id}::uuid FOR UPDATE
+        `;
+        if (!locked[0] || locked[0].state !== 'ACTIVE' ||
+            !locked[0].scopes.includes('webhooks:manage') || locked[0].environment !== environment) {
+          throw new DeveloperError(DEVELOPER_ERROR_CODES.SCOPE_NOT_ALLOWED, 'application no longer permits this webhook');
+        }
+        const [count, perApplication] = await Promise.all([
+          tx.developerWebhookSubscription.count({ where: { tenantId: actor.tenantId, revokedAt: null } }),
+          tx.developerWebhookSubscription.count({ where: { tenantId: actor.tenantId, applicationId: application.id, revokedAt: null } }),
+        ]);
+        if (count >= policy.maxWebhookSubscriptions || perApplication >= policy.maxWebhookEndpointsPerApplication) {
+          throw new DeveloperError(DEVELOPER_ERROR_CODES.POLICY_LIMIT, 'plan webhook subscription or application endpoint limit reached');
+        }
+      }
+      const subscription = await tx.developerWebhookSubscription.create({
+        data: {
+          tenantId: actor.tenantId,
+          applicationId: application.id,
+          endpointUrl,
+          eventTypes,
+          eventVersion,
+          environment,
+          description: input.description ?? null,
+          state: 'ACTIVE',
+          secretHash: credentialDigest(secret, this.hmacKey),
+          // Retrievable ONLY through the platform crypto infrastructure so the
+          // delivery pipeline can sign; never rendered outside signing.
+          secretEncrypted: this.cipher.encrypt(secret),
+          idempotencyKey: idempotencyKey(
+            actor.tenantId,
+            'webhook.subscription',
+            `${application.id}|${endpointUrl}|${eventTypes.join(',')}`,
+          ),
+          createdByActorId: actor.actorId,
+        },
+      });
+      await this.audit.record({
+        ...actor,
         applicationId: application.id,
-        endpointUrl,
-        eventTypes,
-        eventVersion,
-        environment,
-        description: input.description ?? null,
-        state: 'ACTIVE',
-        secretHash: credentialDigest(secret, this.hmacKey),
-        // Retrievable ONLY through the platform crypto infrastructure so the
-        // delivery pipeline can sign; never rendered outside signing.
-        secretEncrypted: this.cipher.encrypt(secret),
-        idempotencyKey: idempotencyKey(
-          actor.tenantId,
-          'webhook.subscription',
-          `${application.id}|${endpointUrl}|${eventTypes.join(',')}`,
-        ),
-        createdByActorId: actor.actorId,
-      },
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: application.id,
-      action: 'webhook.created',
-      detail: { subscriptionId: subscription.id, endpointUrl, eventTypes, eventVersion },
-    });
+        action: 'webhook.created',
+        detail: { subscriptionId: subscription.id, endpointUrl, eventTypes, eventVersion },
+      }, tx);
+      return subscription;
+    };
+    const subscription = await this.prisma.withTenantRls(actor.tenantId, create);
     // One-time presentation of the endpoint secret.
-    return { subscription, secret };
+    return { subscription: publicSubscription(subscription), secret };
   }
 
   private async loadOwnedSubscription(tenantId: string, subscriptionId: string) {
-    const subscription = await this.prisma.developerWebhookSubscription.findUnique({
+    const subscription = await this.prisma.withTenantRls(tenantId, (tx) => tx.developerWebhookSubscription.findUnique({
       where: { id: subscriptionId },
-    });
+    }));
     if (!subscription || subscription.tenantId !== tenantId) {
       throw new NotFoundException('webhook subscription not found');
     }
     return subscription;
   }
 
+  private async mutate<T>(
+    actor: DeveloperAuditActor,
+    requestKey: string | undefined,
+    operation: string,
+    subscriptionId: string,
+    work: (tx: Prisma.TransactionClient) => Promise<T>,
+    audit: { applicationId: string; action: string; detail: Record<string, unknown> },
+  ): Promise<T> {
+    return this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      if (requestKey) await claimMutationIntent(tx, actor.tenantId, requestKey, operation, subscriptionId);
+      const result = await work(tx);
+      await this.audit.record({ ...actor, ...audit }, tx);
+      return result;
+    });
+  }
+
   async update(
     actor: DeveloperAuditActor,
     subscriptionId: string,
     patch: { endpointUrl?: string; eventTypes?: string[]; description?: string },
+    requestKey?: string,
   ) {
     const subscription = await this.loadOwnedSubscription(actor.tenantId, subscriptionId);
     if (subscription.revokedAt) {
@@ -175,95 +228,79 @@ export class WebhookSubscriptionService {
     const eventTypes = patch.eventTypes
       ? this.validateEventTypes(patch.eventTypes)
       : subscription.eventTypes;
-    const updated = await this.prisma.developerWebhookSubscription.update({
-      where: { id: subscription.id },
-      data: {
-        endpointUrl,
-        eventTypes,
-        description: patch.description ?? subscription.description,
-      },
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: subscription.applicationId,
-      action: 'webhook.changed',
-      detail: { subscriptionId, fields: Object.keys(patch) },
-    });
-    return updated;
+    const updated = await this.mutate(actor, requestKey, 'webhook.update', subscriptionId, async (tx) => {
+      const changed = await tx.developerWebhookSubscription.updateMany({
+        where: { id: subscription.id, tenantId: actor.tenantId, revokedAt: null },
+        data: {
+          ...(patch.endpointUrl !== undefined ? { endpointUrl } : {}),
+          ...(patch.eventTypes !== undefined ? { eventTypes } : {}),
+          ...(patch.description !== undefined ? { description: patch.description } : {}),
+        },
+      });
+      if (changed.count !== 1) throw new DeveloperError(DEVELOPER_ERROR_CODES.VALIDATION, 'subscription changed');
+      return tx.developerWebhookSubscription.findUniqueOrThrow({ where: { id: subscription.id } });
+    }, { applicationId: subscription.applicationId, action: 'webhook.changed', detail: { subscriptionId, fields: Object.keys(patch) } });
+    return publicSubscription(updated);
   }
 
-  async pause(actor: DeveloperAuditActor, subscriptionId: string, reason?: string) {
+  async pause(actor: DeveloperAuditActor, subscriptionId: string, reason?: string, requestKey?: string) {
     const subscription = await this.loadOwnedSubscription(actor.tenantId, subscriptionId);
     if (subscription.state !== 'ACTIVE') {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'only ACTIVE subscriptions can pause');
     }
-    const updated = await this.prisma.developerWebhookSubscription.update({
-      where: { id: subscription.id },
-      data: { state: 'PAUSED' },
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: subscription.applicationId,
-      action: 'webhook.paused',
-      detail: { subscriptionId, reason: reason ?? null },
-    });
-    return updated;
+    const updated = await this.mutate(actor, requestKey, 'webhook.pause', subscriptionId, async (tx) => {
+      const changed = await tx.developerWebhookSubscription.updateMany({
+        where: { id: subscription.id, tenantId: actor.tenantId, state: 'ACTIVE', revokedAt: null },
+        data: { state: 'PAUSED' },
+      });
+      if (changed.count !== 1) throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'subscription changed');
+      return tx.developerWebhookSubscription.findUniqueOrThrow({ where: { id: subscription.id } });
+    }, { applicationId: subscription.applicationId, action: 'webhook.paused', detail: { subscriptionId, reason: reason ?? null } });
+    return publicSubscription(updated);
   }
 
-  async resume(actor: DeveloperAuditActor, subscriptionId: string, reason?: string) {
+  async resume(actor: DeveloperAuditActor, subscriptionId: string, reason?: string, requestKey?: string) {
     const subscription = await this.loadOwnedSubscription(actor.tenantId, subscriptionId);
     if (subscription.state !== 'PAUSED') {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'only PAUSED subscriptions can resume');
     }
-    const updated = await this.prisma.developerWebhookSubscription.update({
-      where: { id: subscription.id },
-      data: { state: 'ACTIVE' },
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: subscription.applicationId,
-      action: 'webhook.resumed',
-      detail: { subscriptionId, reason: reason ?? null },
-    });
-    return updated;
+    const updated = await this.mutate(actor, requestKey, 'webhook.resume', subscriptionId, async (tx) => {
+      const changed = await tx.developerWebhookSubscription.updateMany({
+        where: { id: subscription.id, tenantId: actor.tenantId, state: 'PAUSED', revokedAt: null },
+        data: { state: 'ACTIVE' },
+      });
+      if (changed.count !== 1) throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'subscription changed');
+      return tx.developerWebhookSubscription.findUniqueOrThrow({ where: { id: subscription.id } });
+    }, { applicationId: subscription.applicationId, action: 'webhook.resumed', detail: { subscriptionId, reason: reason ?? null } });
+    return publicSubscription(updated);
   }
 
-  async revoke(actor: DeveloperAuditActor, subscriptionId: string, reason?: string) {
+  async revoke(actor: DeveloperAuditActor, subscriptionId: string, reason?: string, requestKey?: string) {
     const subscription = await this.loadOwnedSubscription(actor.tenantId, subscriptionId);
-    if (!subscription.revokedAt) {
-      await this.prisma.developerWebhookSubscription.update({
-        where: { id: subscription.id },
+    await this.mutate(actor, requestKey, 'webhook.revoke', subscriptionId, async (tx) => {
+      await tx.developerWebhookSubscription.updateMany({
+        where: { id: subscription.id, tenantId: actor.tenantId, revokedAt: null },
         data: { state: 'REVOKED', revokedAt: new Date() },
       });
-    }
-    await this.audit.record({
-      ...actor,
-      applicationId: subscription.applicationId,
-      action: 'webhook.revoked',
-      detail: { subscriptionId, reason: reason ?? null },
-    });
+    }, { applicationId: subscription.applicationId, action: 'webhook.revoked', detail: { subscriptionId, reason: reason ?? null } });
   }
 
   /** Rotates the endpoint secret; new secret shown once. */
-  async rotateSecret(actor: DeveloperAuditActor, subscriptionId: string): Promise<{ secret: string }> {
+  async rotateSecret(actor: DeveloperAuditActor, subscriptionId: string, requestKey?: string): Promise<{ secret: string }> {
     const subscription = await this.loadOwnedSubscription(actor.tenantId, subscriptionId);
     if (subscription.revokedAt) {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.VALIDATION, 'revoked subscriptions cannot rotate secrets');
     }
     const secret = this.signing.newSecret();
-    await this.prisma.developerWebhookSubscription.update({
-      where: { id: subscription.id },
-      data: {
-        secretHash: credentialDigest(secret, this.hmacKey),
-        secretEncrypted: this.cipher.encrypt(secret),
-      },
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: subscription.applicationId,
-      action: 'webhook.secret_rotated',
-      detail: { subscriptionId },
-    });
+    await this.mutate(actor, requestKey, 'webhook.rotate_secret', subscriptionId, async (tx) => {
+      // Compare-and-set prevents two concurrent rotations from showing two
+      // secrets when only the last one would still work.
+      const changed = await tx.developerWebhookSubscription.updateMany({
+        where: { id: subscription.id, tenantId: actor.tenantId, revokedAt: null, secretHash: subscription.secretHash },
+        data: { secretHash: credentialDigest(secret, this.hmacKey), secretEncrypted: this.cipher.encrypt(secret) },
+      });
+      if (changed.count !== 1) throw new DeveloperError(DEVELOPER_ERROR_CODES.VALIDATION, 'subscription changed');
+    }, { applicationId: subscription.applicationId, action: 'webhook.secret_rotated', detail: { subscriptionId } });
     return { secret };
   }
 
@@ -290,20 +327,21 @@ export class WebhookSubscriptionService {
 
   async list(tenantId: string, query: { applicationId?: string; status?: string; limit?: number; cursor?: string }) {
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-    const rows = await this.prisma.developerWebhookSubscription.findMany({
-      where: {
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const where = {
         tenantId,
         ...(query.applicationId ? { applicationId: query.applicationId } : {}),
         ...(query.status ? { state: query.status } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      };
+      if (query.cursor && (!isUUID(query.cursor) || !await tx.developerWebhookSubscription.findFirst({
+        where: { ...where, id: query.cursor }, select: { id: true },
+      }))) throw new BadRequestException('invalid webhook cursor');
+      const rows = await tx.developerWebhookSubscription.findMany({
+        where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      });
+      const page = rows.slice(0, limit);
+      return { rows: page.map(publicSubscription), nextCursor: rows.length > limit ? page[page.length - 1].id : null };
     });
-    return {
-      rows: rows.map(({ secretHash, ...safe }: { secretHash?: string } & Record<string, unknown>) => {
-        void secretHash;
-        return safe;
-      }),
-    };
   }
 }

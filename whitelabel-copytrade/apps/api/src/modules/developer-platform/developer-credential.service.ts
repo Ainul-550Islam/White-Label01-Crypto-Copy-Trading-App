@@ -5,7 +5,8 @@
  * stored secret; rotation issues a NEW secret and revokes the old material.
  */
 
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -26,6 +27,7 @@ import {
   DeveloperPolicyService,
 } from './developer-policy.service';
 import { DeveloperScopeService } from './developer-scope.service';
+import { claimMutationIntent } from './developer-mutation-intent';
 
 /** Platform secret infrastructure key used to HMAC credentials at rest. */
 export const DEVELOPER_SECRET_HMAC_KEY = Symbol('DEVELOPER_SECRET_HMAC_KEY');
@@ -50,9 +52,9 @@ export class DeveloperCredentialService {
   ) {}
 
   private async loadOwnedApplication(tenantId: string, applicationId: string) {
-    const application = await this.prisma.developerApplication.findUnique({
+    const application = await this.prisma.withTenantRls(tenantId, (tx) => tx.developerApplication.findUnique({
       where: { id: applicationId },
-    });
+    }));
     if (!application || application.tenantId !== tenantId) {
       throw new NotFoundException('developer application not found');
     }
@@ -69,15 +71,16 @@ export class DeveloperCredentialService {
     actor: DeveloperAuditActor,
     applicationId: string,
     input: { label: string; expiresInDays?: number; scopes?: string[] },
+    requestKey?: string,
   ): Promise<IssuedSecret> {
     const application = await this.loadOwnedApplication(actor.tenantId, applicationId);
     const plan = await this.policyData.planLimitViewForTenant(actor.tenantId);
     const entitlements = await this.policyData.tenantEntitlementKeys(actor.tenantId);
     const policy = this.policyService.resolve(actor.tenantId, plan, entitlements);
 
-    const activeCount = await this.prisma.developerCredential.count({
-      where: { applicationId: application.id, revokedAt: null },
-    });
+    const activeCount = await this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerCredential.count({
+      where: { tenantId: actor.tenantId, applicationId: application.id, revokedAt: null },
+    }));
     if (activeCount >= policy.maxCredentialsPerApplication) {
       throw new DeveloperError(
         DEVELOPER_ERROR_CODES.POLICY_LIMIT,
@@ -104,43 +107,68 @@ export class DeveloperCredentialService {
       ? new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000)
       : null;
 
-    await this.prisma.developerCredential.create({
-      data: {
-        tenantId: actor.tenantId,
+    const create = async (tx: Prisma.TransactionClient) => {
+      if (requestKey) {
+        await claimMutationIntent(tx, actor.tenantId, requestKey, 'credential.create', application.id);
+        // Serialize quota checks with other public creations for this app.
+        const locked = await tx.$queryRaw<Array<{ state: string }>>`
+          SELECT "state" FROM "developer_applications"
+          WHERE "tenant_id" = ${actor.tenantId}::uuid AND "id" = ${application.id}::uuid
+          FOR UPDATE
+        `;
+        if (!locked[0] || locked[0].state === 'REVOKED') {
+          throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_REVOKED, 'application is revoked');
+        }
+        const count = await tx.developerCredential.count({ where: { applicationId: application.id, revokedAt: null } });
+        if (count >= policy.maxCredentialsPerApplication) {
+          throw new DeveloperError(DEVELOPER_ERROR_CODES.POLICY_LIMIT, 'credential limit reached');
+        }
+      }
+      await tx.developerCredential.create({
+        data: {
+          tenantId: actor.tenantId,
+          applicationId: application.id,
+          label: input.label,
+          kind: 'API_KEY',
+          keyId,
+          secretHash: credentialDigest(secret, this.hmacKey),
+          scopes: bounded,
+          expiresAt,
+          createdByActorId: actor.actorId,
+        },
+      });
+      await this.audit.record({
+        ...actor,
         applicationId: application.id,
-        label: input.label,
-        kind: 'API_KEY',
-        keyId,
-        secretHash: credentialDigest(secret, this.hmacKey),
-        scopes: bounded,
-        expiresAt,
-        createdByActorId: actor.actorId,
-      },
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: application.id,
-      action: 'credential.created',
-      detail: { keyId, kind: 'API_KEY', scopes: bounded, expiresInDays: input.expiresInDays ?? null },
-    });
+        action: 'credential.created',
+        detail: { keyId, kind: 'API_KEY', scopes: bounded, expiresInDays: input.expiresInDays ?? null },
+      }, tx);
+    };
+    await this.prisma.withTenantRls(actor.tenantId, create);
     // One-time presentation: the plaintext secret exists only in this return.
     return { keyId, secret, scopes: bounded, expiresAt };
   }
 
-  async rotate(actor: DeveloperAuditActor, applicationId: string, keyId: string, reason?: string): Promise<IssuedSecret> {
+  async rotate(actor: DeveloperAuditActor, applicationId: string, keyId: string, reason?: string, requestKey?: string): Promise<IssuedSecret> {
     const application = await this.loadOwnedApplication(actor.tenantId, applicationId);
-    const existing = await this.prisma.developerCredential.findUnique({ where: { keyId } });
+    const existing = await this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerCredential.findUnique({ where: { keyId } }));
     if (!existing || existing.tenantId !== actor.tenantId || existing.applicationId !== application.id) {
       throw new NotFoundException('credential not found');
     }
     if (existing.revokedAt) {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.VALIDATION, 'revoked credentials cannot be rotated');
     }
-    const rotated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.developerCredential.update({
-        where: { id: existing.id },
+    const rotate = async (tx: Prisma.TransactionClient) => {
+      if (requestKey) await claimMutationIntent(tx, actor.tenantId, requestKey, 'credential.rotate', keyId);
+      // Claim the old key atomically. Two concurrent rotations of the same
+      // credential must never mint two replacements.
+      const claimed = await tx.developerCredential.updateMany({
+        where: { id: existing.id, tenantId: actor.tenantId, applicationId: application.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      if (claimed.count !== 1) {
+        throw new DeveloperError(DEVELOPER_ERROR_CODES.VALIDATION, 'credential was already revoked or rotated');
+      }
       const keyIdNew = deterministicKeyPrefix();
       const secret = generateClientSecret();
       await tx.developerCredential.create({
@@ -157,14 +185,15 @@ export class DeveloperCredentialService {
           createdByActorId: actor.actorId,
         },
       });
+      await this.audit.record({
+        ...actor,
+        applicationId: application.id,
+        action: 'credential.rotated',
+        detail: { fromKeyId: keyId, toKeyId: keyIdNew, reason: reason ?? null },
+      }, tx);
       return { keyId: keyIdNew, secret };
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: application.id,
-      action: 'credential.rotated',
-      detail: { fromKeyId: keyId, toKeyId: rotated.keyId, reason: reason ?? null },
-    });
+    };
+    const rotated = await this.prisma.withTenantRls(actor.tenantId, rotate);
     return {
       keyId: rotated.keyId,
       secret: rotated.secret,
@@ -173,49 +202,59 @@ export class DeveloperCredentialService {
     };
   }
 
-  async revoke(actor: DeveloperAuditActor, applicationId: string, keyId: string, reason?: string): Promise<void> {
+  async revoke(actor: DeveloperAuditActor, applicationId: string, keyId: string, reason?: string, requestKey?: string): Promise<void> {
     const application = await this.loadOwnedApplication(actor.tenantId, applicationId);
-    const existing = await this.prisma.developerCredential.findUnique({ where: { keyId } });
+    const existing = await this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerCredential.findUnique({ where: { keyId } }));
     if (!existing || existing.tenantId !== actor.tenantId || existing.applicationId !== application.id) {
       throw new NotFoundException('credential not found');
     }
-    if (!existing.revokedAt) {
-      await this.prisma.developerCredential.update({
-        where: { id: existing.id },
+    const revoke = async (tx: Prisma.TransactionClient) => {
+      if (requestKey) await claimMutationIntent(tx, actor.tenantId, requestKey, 'credential.revoke', keyId);
+      await tx.developerCredential.updateMany({
+        where: { id: existing.id, tenantId: actor.tenantId, applicationId: application.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-    }
-    await this.audit.record({
-      ...actor,
-      applicationId: application.id,
-      action: 'credential.revoked',
-      detail: { keyId, reason: reason ?? null },
-    });
+      await this.audit.record({
+        ...actor,
+        applicationId: application.id,
+        action: 'credential.revoked',
+        detail: { keyId, reason: reason ?? null },
+      }, tx);
+    };
+    await this.prisma.withTenantRls(actor.tenantId, revoke);
   }
 
   /** Portal listing; secret hashes never leave the service. */
   async listForTenant(
     tenantId: string,
-    query: { applicationId?: string; status?: string; limit?: number; cursor?: string },
+    query: { applicationId?: string; status?: string; kind?: string; limit?: number; cursor?: string },
   ) {
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-    const rows = await this.prisma.developerCredential.findMany({
-      where: {
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const now = new Date();
+      const where = {
         tenantId,
         ...(query.applicationId ? { applicationId: query.applicationId } : {}),
+        ...(query.kind ? { kind: query.kind } : {}),
         ...(query.status === 'REVOKED' ? { revokedAt: { not: null } } : {}),
-        ...(query.status === 'ACTIVE' ? { revokedAt: null } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+        ...(query.status === 'ACTIVE' ? { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } : {}),
+        ...(query.status === 'EXPIRED' ? { revokedAt: null, expiresAt: { lte: now } } : {}),
+      };
+      if (query.cursor && (!isUUID(query.cursor) || !await tx.developerCredential.findFirst({
+        where: { ...where, id: query.cursor }, select: { id: true },
+      }))) throw new BadRequestException('invalid credential cursor');
+      const rows = await tx.developerCredential.findMany({
+        where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      });
+      const page = rows.slice(0, limit);
+      return {
+        rows: page.map(({ secretHash: _hash, rotatedFromKeyId: _rot, createdByActorId: _actor, ...safe }) => {
+          void _hash; void _rot; void _actor; return safe;
+        }),
+        nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+      };
     });
-    return {
-      rows: rows.map(({ secretHash: _hash, rotatedFromKeyId: _rot, ...safe }: { secretHash?: string; rotatedFromKeyId?: string | null } & Record<string, unknown>) => {
-        void _hash;
-        void _rot;
-        return safe;
-      }),
-    };
   }
 
   /** Scope change on an application, bounded by tenant policy, audited. */
@@ -223,6 +262,7 @@ export class DeveloperCredentialService {
     actor: DeveloperAuditActor,
     applicationId: string,
     dto: { scopes: string[]; reason?: string },
+    requestKey: string,
   ) {
     const application = await this.loadOwnedApplication(actor.tenantId, applicationId);
     if (application.state === 'REVOKED') {
@@ -232,19 +272,27 @@ export class DeveloperCredentialService {
     const entitlements = await this.policyData.tenantEntitlementKeys(actor.tenantId);
     const policy = this.policyService.resolve(actor.tenantId, plan, entitlements);
     const normalized = this.scopes.assertApplicationScopeChange(dto.scopes, policy.allowedScopes);
-    const updated = await this.prisma.developerApplication.update({
-      where: { id: application.id },
-      data: { scopes: normalized },
+    return this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "developer_applications" WHERE "id" = ${application.id}::uuid AND "tenant_id" = ${actor.tenantId}::uuid FOR UPDATE`;
+      const current = await tx.developerApplication.findUnique({ where: { id: application.id } });
+      if (!current || current.tenantId !== actor.tenantId) throw new NotFoundException('developer application not found');
+      if (current.state === 'REVOKED') throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_REVOKED, 'application is revoked');
+      await claimMutationIntent(tx, actor.tenantId, requestKey, 'application.scopes', application.id);
+      const updated = await tx.developerApplication.update({
+        where: { id: application.id },
+        data: { scopes: normalized },
+      });
+      const added = normalized.filter((scope: string) => !current.scopes.includes(scope));
+      const removed = current.scopes.filter((scope) => !normalized.includes(scope));
+      await this.audit.record({
+        ...actor,
+        applicationId: application.id,
+        action: 'application.scopes_changed',
+        detail: { added, removed, reason: dto.reason ?? null },
+      }, tx);
+      const { idempotencyKey: _idem, createdByActorId: _actor, ...safe } = updated;
+      void _idem; void _actor; return safe;
     });
-    const added = normalized.filter((scope: string) => !application.scopes.includes(scope));
-    const removed = application.scopes.filter((scope) => !normalized.includes(scope));
-    await this.audit.record({
-      ...actor,
-      applicationId: application.id,
-      action: 'application.scopes_changed',
-      detail: { added, removed, reason: dto.reason ?? null },
-    });
-    return updated;
   }
 
   /** Constant-time digest comparison used by api-access (never returns the hash). */

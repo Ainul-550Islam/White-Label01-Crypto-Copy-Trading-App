@@ -22,6 +22,14 @@ describe('formatDecimalString', () => {
     expect(formatDecimalString('100000000', { locale: 'bn', maxFraction: 0 })).toBe('১০,০০,০০,০০০');
   });
 
+  it.each([
+    ['ar', '٩٬٠٠٧٬١٩٩٬٢٥٤٬٧٤٠٬٩٩٣٫٠١'],
+    ['es', '9.007.199.254.740.993,01'],
+    ['tr', '9.007.199.254.740.993,01'],
+  ] as const)('formats exact large decimals with %s separators and digits', (locale, expected) => {
+    expect(formatDecimalString('9007199254740993.01', { locale, minFraction: 2, maxFraction: 2 })).toBe(expected);
+  });
+
   it('rejects malformed decimals and invalid scales', () => {
     expect(() => formatDecimalString('1e3', { locale: 'en' })).toThrow();
     expect(() => formatDecimalString('01', { locale: 'en' })).toThrow();

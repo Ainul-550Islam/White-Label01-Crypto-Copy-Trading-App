@@ -1,6 +1,8 @@
 import type { JSX } from 'react';
 import type { Metadata, Viewport } from 'next';
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
+import FocusAnnouncer from '@/components/ui/focus-announcer';
+import { SkipLink } from '@/components/ui/skip-link';
 import '@/styles/globals.css';
 import '@/styles/branding.css';
 import { Providers } from './providers';
@@ -24,8 +26,10 @@ export default function RootLayout({ children }: { children: ReactNode }): JSX.E
   return (
     <html lang="en">
       <body>
+        <SkipLink>Skip to main content</SkipLink>
+        <Suspense fallback={null}><FocusAnnouncer /></Suspense>
         <ErrorBoundary>
-          <Providers>{children}</Providers>
+          <Providers><main id="main-content" tabIndex={-1}>{children}</main></Providers>
         </ErrorBoundary>
       </body>
     </html>

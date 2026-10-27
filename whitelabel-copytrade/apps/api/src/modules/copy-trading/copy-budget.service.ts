@@ -1,42 +1,16 @@
-// # Evaluates every copy intent against the follower's global active-copy budget and the tenant ceiling, returning ALLOW, REDUCE or BLOCK with a stable reason code and exact decimals.
-import { Injectable, Logger } from '@nestjs/common';
+// # Reads the configured copy budget and fails closed when live exposure or atomic reservations cannot be verified.
+import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { Decimal, DecimalError, maxDecimal } from '../../common/decimal-string';
 
 /**
- * The global active-copy budget.
- *
- * Until now a follower's exposure cap lived per subscription (`maxAllocation`
- * on one `CopySubscription`), so ten subscriptions of 10 000 each were ten
- * separate "max 10 000" decisions and 100 000 of exposure. Nothing in the
- * platform could say "this person may have at most 25 000 of live copy
- * exposure in total", which is the number a follower actually cares about and
- * the only number a risk officer can reason about.
- *
- * This service owns that number. Every copy order is evaluated BEFORE its
- * intent is created, and the answer is one of three things:
- *
- *   ALLOW   - the full notional fits under the remaining budget.
- *   REDUCE  - the order is cut down to exactly the remaining budget, with the
- *             follower quantity floored (never rounded up: rounding a size up
- *             is how a budget is exceeded by a rounding error).
- *   BLOCK   - nothing is left, or the inputs the decision depends on are not
- *             trustworthy (stale equity, unknown FX, unreadable budget).
- *
- * FAIL-CLOSED, IN ORDER OF HOW THE ANSWER IS USED
- * ----------------------------------------------
- * The engine cannot tell the difference between "no cap configured" and "the
- * cap could not be read", so it must not guess. Every read that fails, every
- * equity snapshot that is older than the freshness window, and every currency
- * that is not the budget currency produces BLOCK with a reason code that names
- * which of those it was. A wrong ALLOW spends real money; a wrong BLOCK costs
- * one copy and tells support exactly why.
- *
- * Exact decimals only: `Decimal` (Layer 2 of common/decimal-string) parses
- * strings into unscaled bigints, addition and multiplication are exact, and the
- * only lossy operation - the REDUCE division - states its scale and rounds
- * DOWN. A thousand evaluations of the same inputs produce byte-identical
- * output, which is what `copy-budget.spec.ts` pins.
+ * Subscription allocation values are not verified live exposure: they can use
+ * different units and omit positions or pending orders. There is also no atomic
+ * reservation with the downstream order intent. Consequently configured budgets
+ * must not issue a production ALLOW or REDUCE until those sources and a shared
+ * reservation lifecycle are available. The pure decimal calculation below is an
+ * estimate only; evaluate() enforces this safety gate for the execution path.
  */
 
 /** Why a copy was allowed, reduced or blocked. Stable: support quotes these. */
@@ -50,6 +24,7 @@ export enum CopyBudgetReasonCode {
   BLOCKED_CURRENCY_MISMATCH = 'BLOCKED_CURRENCY_MISMATCH',
   BLOCKED_INTENT_INVALID = 'BLOCKED_INTENT_INVALID',
   BLOCKED_BUDGET_UNREADABLE = 'BLOCKED_BUDGET_UNREADABLE',
+  BLOCKED_EXPOSURE_UNVERIFIED = 'BLOCKED_EXPOSURE_UNVERIFIED',
 }
 
 export type CopyBudgetDecisionKind = 'ALLOW' | 'REDUCE' | 'BLOCK';
@@ -90,8 +65,8 @@ export interface CopyBudgetLimits {
   perTraderCap: string | null;
   /** Optional tenant ceiling; the effective cap is the tighter of the two. */
   tenantCeiling: string | null;
-  /** Budget currency (quote asset). */
-  currency: string;
+  /** Explicitly configured quote asset; null when no currency is configured. */
+  currency: string | null;
 }
 
 /** One active subscription's committed capital. */
@@ -109,9 +84,10 @@ export interface CopyBudgetDecision {
   currency: string;
   /** The limit actually applied (min of user cap and tenant ceiling), or null. */
   effectiveCap: string | null;
-  committed: string;
-  remaining: string;
-  requestedNotional: string;
+  /** Null when live exposure and remaining budget have not been verified. */
+  committed: string | null;
+  remaining: string | null;
+  requestedNotional: string | null;
   /** Notional the copy may use: the request on ALLOW, `remaining` on REDUCE. */
   allowedNotional: string;
   /** Quantity to use instead of the requested one on REDUCE, else null. */
@@ -124,16 +100,21 @@ export interface CopyBudgetDecision {
 export interface CopyBudgetView {
   tenantId: string;
   userId: string;
-  currency: string;
+  currency: string | null;
   maxActiveExposure: string | null;
   perTraderCap: string | null;
   tenantCeiling: string | null;
   effectiveCap: string | null;
-  committed: string;
+  /** Allocation values, not a live position or verified exposure measure. */
+  committed: string | null;
+  exposureStatus: 'ALLOCATION_ESTIMATE' | 'UNAVAILABLE';
   remaining: string | null;
   utilisationBps: number | null;
   updatedAt: string | null;
 }
+
+/** Percentage allocations are ratios, not amounts; adding them to money is unsafe. */
+class UnverifiedAllocationUnitsError extends Error {}
 
 /** Inputs of the pure evaluation, separated from I/O so the spec can drive it. */
 export interface CopyBudgetEvaluationInput {
@@ -204,7 +185,9 @@ export function evaluateCopyBudget(input: CopyBudgetEvaluationInput): CopyBudget
   const { intent, limits } = input;
   const now = input.now;
   const maxAge = input.equityMaxAgeMs ?? COPY_BUDGET_EQUITY_MAX_AGE_MS;
-  const currency = limits.currency;
+  // With no configured budget, use the intent's quote only for this decision;
+  // it is not evidence of a configured account currency.
+  const currency = limits.currency ?? intent.currency;
 
   const base = (decision: CopyBudgetDecisionKind, reasonCode: CopyBudgetReasonCode, message: string, extra: Partial<CopyBudgetDecision> = {}): CopyBudgetDecision => ({
     decision,
@@ -212,9 +195,9 @@ export function evaluateCopyBudget(input: CopyBudgetEvaluationInput): CopyBudget
     message,
     currency,
     effectiveCap: null,
-    committed: '0',
-    remaining: '0',
-    requestedNotional: intent?.notional ?? '0',
+    committed: null,
+    remaining: null,
+    requestedNotional: intent?.notional ?? null,
     allowedNotional: '0',
     reducedQuantity: null,
     equityAgeMs: input.equityObservedAt === null ? null : Math.max(0, now.getTime() - input.equityObservedAt.getTime()),
@@ -222,7 +205,7 @@ export function evaluateCopyBudget(input: CopyBudgetEvaluationInput): CopyBudget
     ...extra,
   });
 
-  if (!isNonNegativeDecimal(intent?.notional) || !isNonNegativeDecimal(intent?.quantity)) {
+  if (!readBudgetCurrency(currency) || !isNonNegativeDecimal(intent?.notional) || !isNonNegativeDecimal(intent?.quantity)) {
     return base('BLOCK', CopyBudgetReasonCode.BLOCKED_INTENT_INVALID, 'Copy notional or quantity is not an exact decimal string');
   }
   const requestedNotional = Decimal.parse(intent.notional.trim());
@@ -241,8 +224,8 @@ export function evaluateCopyBudget(input: CopyBudgetEvaluationInput): CopyBudget
   if (input.equityObservedAt === null || equityAgeMs === null) {
     return base('BLOCK', CopyBudgetReasonCode.BLOCKED_EQUITY_UNKNOWN, 'No equity snapshot is available for this follower');
   }
-  if (!Number.isFinite(equityAgeMs) || equityAgeMs > maxAge) {
-    return base('BLOCK', CopyBudgetReasonCode.BLOCKED_EQUITY_STALE, `Equity snapshot is ${Math.round((equityAgeMs ?? 0) / 1000)}s old; the budget cannot be evaluated on stale equity`);
+  if (!Number.isFinite(equityAgeMs) || equityAgeMs < 0 || equityAgeMs > maxAge) {
+    return base('BLOCK', CopyBudgetReasonCode.BLOCKED_EQUITY_STALE, 'Equity snapshot timing is outside the allowed freshness window; the budget cannot be evaluated');
   }
 
   let effectiveCap: Decimal | null;
@@ -351,44 +334,67 @@ export class CopyBudgetService {
 
   /** Read the configured limits. A read failure throws; the caller blocks. */
   async loadLimits(tenantId: string, userId: string): Promise<CopyBudgetLimits> {
-    const budget = await this.prisma.copyBudget.findFirst({ where: { tenantId, userId } });
-    const ceilingSetting = await this.prisma.tenantSetting.findFirst({
-      where: { tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY },
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const user = await tx.user.findFirst({ where: { tenantId, id: userId, deletedAt: null }, select: { id: true } });
+      if (!user) throw new NotFoundException('Copy budget user not found.');
+      const budget = await tx.copyBudget.findFirst({ where: { tenantId, userId } });
+      const ceilingSetting = await tx.tenantSetting.findFirst({
+        where: { tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY },
+      });
+      const ceiling = readCeiling(ceilingSetting?.value);
+      if (ceilingSetting && !ceiling) {
+        throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      }
+      const budgetCurrency = readBudgetCurrency(budget?.currency);
+      if (budget && !budgetCurrency) {
+        throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      }
+      if (ceiling && budgetCurrency && ceiling.currency !== budgetCurrency) {
+        throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      }
+      return {
+        maxActiveExposure: budget ? String(budget.maxActiveExposure) : null,
+        perTraderCap: budget?.perTraderCap === null || budget?.perTraderCap === undefined ? null : String(budget.perTraderCap),
+        tenantCeiling: ceiling?.amount ?? null,
+        currency: ceiling?.currency ?? budgetCurrency ?? null,
+      };
     });
-    const ceiling = readCeiling(ceilingSetting?.value);
-    return {
-      maxActiveExposure: budget ? String(budget.maxActiveExposure) : null,
-      perTraderCap: budget?.perTraderCap === null || budget?.perTraderCap === undefined ? null : String(budget.perTraderCap),
-      tenantCeiling: ceiling?.amount ?? null,
-      currency: ceiling?.currency ?? readBudgetCurrency(budget?.currency) ?? 'USDT',
-    };
   }
 
   /** Every ACTIVE subscription's committed capital for one follower, tenant-scoped. */
   async loadActiveExposure(tenantId: string, userId: string): Promise<CopyBudgetExposureRow[]> {
-    const rows = await this.prisma.copySubscription.findMany({
-      where: { tenantId, followerId: userId, state: 'ACTIVE' },
-      select: { id: true, traderId: true, allocationAmount: true },
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const rows = await tx.copySubscription.findMany({
+        where: { tenantId, followerId: userId, state: 'ACTIVE' },
+        select: { id: true, traderId: true, allocationAmount: true, allocationMode: true },
+      });
+      // PERCENTAGE_BALANCE is a percentage, not quote-asset capital. Mixing it
+      // with fixed amounts silently understates/overstates budget consumption.
+      if (rows.some((row) => row.allocationMode !== 'FIXED' && row.allocationMode !== 'PROPORTIONAL')) {
+        throw new UnverifiedAllocationUnitsError('Active allocation units cannot be compared safely');
+      }
+      return rows.map((row) => ({ subscriptionId: row.id, traderId: row.traderId, allocationAmount: String(row.allocationAmount) }));
     });
-    return rows.map((row) => ({ subscriptionId: row.id, traderId: row.traderId, allocationAmount: String(row.allocationAmount) }));
   }
 
   /** Timestamp of the newest balance snapshot across the follower's accounts. */
   async loadEquityObservedAt(tenantId: string, userId: string): Promise<Date | null> {
-    const accounts = await this.prisma.tradingAccount.findMany({
-      where: { tenantId, userId, deletedAt: null },
-      select: { id: true },
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const accounts = await tx.tradingAccount.findMany({
+        where: { tenantId, userId, deletedAt: null },
+        select: { id: true },
+      });
+      if (accounts.length === 0) return null;
+      const snapshot = await tx.accountBalanceSnapshot.findFirst({
+        where: { tenantId, accountId: { in: accounts.map((account) => account.id) } },
+        orderBy: { observedAtMicros: 'desc' },
+        select: { observedAtMicros: true },
+      });
+      if (!snapshot || snapshot.observedAtMicros === null || snapshot.observedAtMicros === undefined) return null;
+      // The observation is an integer microsecond timestamp; never use floating
+      // point arithmetic for account balances.
+      return new Date(Number(BigInt(snapshot.observedAtMicros) / 1000n));
     });
-    if (accounts.length === 0) return null;
-    const snapshot = await this.prisma.accountBalanceSnapshot.findFirst({
-      where: { tenantId, accountId: { in: accounts.map((account) => account.id) } },
-      orderBy: { observedAtMicros: 'desc' },
-      select: { observedAtMicros: true },
-    });
-    if (!snapshot || snapshot.observedAtMicros === null || snapshot.observedAtMicros === undefined) return null;
-    // The snapshot carries the venue observation time as integer microseconds -
-    // no float, no locale, no timezone. Convert once, at the boundary.
-    return new Date(Number(BigInt(snapshot.observedAtMicros) / 1000n));
   }
 
   /**
@@ -415,33 +421,52 @@ export class CopyBudgetService {
         decision: 'BLOCK',
         reasonCode: CopyBudgetReasonCode.BLOCKED_BUDGET_UNREADABLE,
         message: 'The copy budget could not be read; the copy was refused rather than guessed at',
-        currency: 'USDT',
+        currency: readBudgetCurrency(intent.currency) ?? 'UNKNOWN',
         effectiveCap: null,
-        committed: '0',
-        remaining: '0',
-        requestedNotional: intent.notional ?? '0',
+        committed: null,
+        remaining: null,
+        requestedNotional: intent.notional ?? null,
         allowedNotional: '0',
         reducedQuantity: null,
         equityAgeMs: null,
         evaluatedAt: now.toISOString(),
       };
     }
-    return evaluateCopyBudget({ intent, limits, activeExposures, equityObservedAt, now });
+    const estimate = evaluateCopyBudget({ intent, limits, activeExposures, equityObservedAt, now });
+    const hasConfiguredLimit = limits.maxActiveExposure !== null || limits.tenantCeiling !== null || limits.perTraderCap !== null;
+    if (hasConfiguredLimit && (estimate.decision !== 'BLOCK' || estimate.reasonCode === CopyBudgetReasonCode.BLOCKED_BUDGET_EXHAUSTED)) {
+      // A sum of allocations cannot prove the currency or amount of current
+      // positions, nor reserve headroom against a concurrent copy. Never let an
+      // estimate authorise a real order or imply a verified zero balance.
+      return { ...estimate, decision: 'BLOCK', reasonCode: CopyBudgetReasonCode.BLOCKED_EXPOSURE_UNVERIFIED,
+        message: 'Copy orders with a configured budget are blocked because live exposure and order reservations are not verified.',
+        committed: null, remaining: null, allowedNotional: '0', reducedQuantity: null };
+    }
+    // Even an unbounded decision does not verify the displayed allocation sum.
+    if (!hasConfiguredLimit) return { ...estimate, committed: null, remaining: null };
+    return estimate;
   }
 
   /** The customer-facing view: the cap, what is committed and what is left. */
   async getView(tenantId: string, userId: string): Promise<CopyBudgetView> {
-    const [limits, activeExposures] = await Promise.all([
-      this.loadLimits(tenantId, userId),
-      this.loadActiveExposure(tenantId, userId),
-    ]);
+    const limits = await this.loadLimits(tenantId, userId);
+    let activeExposures: CopyBudgetExposureRow[] | null;
+    try {
+      activeExposures = await this.loadActiveExposure(tenantId, userId);
+    } catch (error) {
+      if (!(error instanceof UnverifiedAllocationUnitsError)) throw error;
+      activeExposures = null;
+    }
     const effectiveCap = resolveEffectiveCap(limits);
-    const committed = sumActiveExposure(activeExposures);
-    const remaining = effectiveCap === null ? null : maxDecimal(effectiveCap.sub(committed), Decimal.ZERO);
-    const utilisationBps = effectiveCap === null || effectiveCap.isZero()
+    const committed = activeExposures === null ? null : sumActiveExposure(activeExposures);
+    const remaining = effectiveCap === null || committed === null ? null : maxDecimal(effectiveCap.sub(committed), Decimal.ZERO);
+    const rawBps = effectiveCap === null || effectiveCap.isZero() || committed === null
       ? null
       : Number(committed.mul(10_000).div(effectiveCap, 0, 'FLOOR').toString());
-    const budget = await this.prisma.copyBudget.findFirst({ where: { tenantId, userId }, select: { updatedAt: true } });
+    const utilisationBps = rawBps !== null && Number.isSafeInteger(rawBps) ? rawBps : null;
+    const budget = await this.prisma.withTenantRls(tenantId, (tx) =>
+      tx.copyBudget.findFirst({ where: { tenantId, userId }, select: { updatedAt: true } }),
+    );
     return {
       tenantId,
       userId,
@@ -450,7 +475,8 @@ export class CopyBudgetService {
       perTraderCap: limits.perTraderCap,
       tenantCeiling: limits.tenantCeiling,
       effectiveCap: effectiveCap === null ? null : effectiveCap.toString(),
-      committed: committed.toString(),
+      committed: committed === null ? null : committed.toString(),
+      exposureStatus: committed === null ? 'UNAVAILABLE' : 'ALLOCATION_ESTIMATE',
       remaining: remaining === null ? null : remaining.toString(),
       utilisationBps,
       updatedAt: budget?.updatedAt ? budget.updatedAt.toISOString() : null,
@@ -465,24 +491,88 @@ export class CopyBudgetService {
     perTraderCap?: string | null;
     currency: string;
   }): Promise<CopyBudgetView> {
-    const [tenantCeilingRow] = await Promise.all([
-      this.prisma.tenantSetting.findFirst({ where: { tenantId: input.tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY } }),
-    ]);
-    const ceiling = readCeiling(tenantCeilingRow?.value);
-    if (ceiling !== null && Decimal.parse(input.maxActiveExposure).gt(Decimal.parse(ceiling.amount))) {
-      // A follower cap above the ceiling is not harmful (the ceiling wins), but
-      // storing it invites the customer to believe they can raise it themselves.
-      throw new Error(`maxActiveExposure exceeds the tenant ceiling of ${ceiling.amount} ${ceiling.currency}`);
+    await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const lockName = `copy-budget:${input.tenantId}:${input.userId}`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockName}, 0))::text`;
+      const user = await tx.user.findFirst({ where: { tenantId: input.tenantId, id: input.userId, deletedAt: null }, select: { id: true } });
+      if (!user) throw new NotFoundException('Copy budget user not found.');
+      const tenantCeilingRow = await tx.tenantSetting.findFirst({
+        where: { tenantId: input.tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY },
+      });
+      const ceiling = readCeiling(tenantCeilingRow?.value);
+      if (tenantCeilingRow && !ceiling) {
+        throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      }
+      if (ceiling && input.currency !== ceiling.currency) {
+        throw new UnprocessableEntityException('Budget currency must match the tenant ceiling currency.');
+      }
+      if (ceiling !== null && Decimal.parse(input.maxActiveExposure).gt(Decimal.parse(ceiling.amount))) {
+        // A follower cap above the ceiling would mislead the customer even
+        // though the effective ceiling would remain the tighter limit.
+        throw new UnprocessableEntityException(`maxActiveExposure exceeds the tenant ceiling of ${ceiling.amount} ${ceiling.currency}`);
+      }
+      const data = {
+        maxActiveExposure: input.maxActiveExposure,
+        perTraderCap: input.perTraderCap ?? null,
+        currency: input.currency,
+      };
+      await tx.copyBudget.upsert({
+        where: { tenantId_userId: { tenantId: input.tenantId, userId: input.userId } },
+        create: { tenantId: input.tenantId, userId: input.userId, ...data },
+        update: data,
+      });
+    });
+    return this.getView(input.tenantId, input.userId);
+  }
+
+  /**
+   * A phone may make its owner's ceiling stricter, never wider or clear it.
+   * Competing reductions serialize with the existing writer, and an old retry
+   * never overwrites a newer decision. The intent and cap commit together.
+   */
+  async reduceLimit(input: { tenantId: string; userId: string; maxActiveExposure: string; currency: string; idempotencyKey: string }): Promise<CopyBudgetView> {
+    if (!/^\d{1,16}(?:\.\d{1,12})?$/.test(input.maxActiveExposure) ||
+        !readBudgetCurrency(input.currency) ||
+        !/^[A-Za-z0-9._:-]{8,128}$/.test(input.idempotencyKey)) {
+      throw new UnprocessableEntityException('Invalid budget reduction.');
     }
-    const data = {
-      maxActiveExposure: input.maxActiveExposure,
-      perTraderCap: input.perTraderCap ?? null,
-      currency: input.currency,
-    };
-    await this.prisma.copyBudget.upsert({
-      where: { tenantId_userId: { tenantId: input.tenantId, userId: input.userId } },
-      create: { tenantId: input.tenantId, userId: input.userId, ...data },
-      update: data,
+    const requested = Decimal.parse(input.maxActiveExposure).toString();
+    const keyHash = createHash('sha256').update(input.idempotencyKey).digest('hex');
+    await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const lockName = `copy-budget:${input.tenantId}:${input.userId}`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockName}, 0))::text`;
+      const user = await tx.user.findFirst({ where: { tenantId: input.tenantId, id: input.userId, deletedAt: null }, select: { id: true } });
+      if (!user) throw new NotFoundException('Copy budget user not found.');
+      const previousIntent = await tx.copyBudgetReductionIntent.findUnique({
+        where: { tenantId_userId_keyHash: { tenantId: input.tenantId, userId: input.userId, keyHash } },
+      });
+      if (previousIntent) {
+        if (previousIntent.requestedExposure.toString() !== requested || previousIntent.currency !== input.currency) throw new ConflictException('Request key was used for a different budget reduction.');
+        return;
+      }
+      const current = await tx.copyBudget.findUnique({ where: { tenantId_userId: { tenantId: input.tenantId, userId: input.userId } } });
+      const setting = await tx.tenantSetting.findFirst({ where: { tenantId: input.tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY } });
+      const ceiling = readCeiling(setting?.value);
+      if (setting && !ceiling) throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      const currency = current?.currency ?? ceiling?.currency ?? null;
+      if (!currency || !readBudgetCurrency(currency) || (ceiling && ceiling.currency !== currency)) {
+        throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      }
+      if (currency !== input.currency) throw new ConflictException('The budget currency changed; refresh before reducing it.');
+      const next = Decimal.parse(requested);
+      if ((current && next.gt(Decimal.parse(current.maxActiveExposure.toString()))) ||
+          (ceiling && next.gt(Decimal.parse(ceiling.amount)))) {
+        throw new ConflictException('A reduction cannot raise the current budget or tenant ceiling.');
+      }
+      await tx.copyBudget.upsert({
+        where: { tenantId_userId: { tenantId: input.tenantId, userId: input.userId } },
+        create: { tenantId: input.tenantId, userId: input.userId, maxActiveExposure: requested, currency },
+        update: { maxActiveExposure: requested },
+      });
+      await tx.copyBudgetReductionIntent.create({ data: {
+        tenantId: input.tenantId, userId: input.userId, keyHash, requestedExposure: requested,
+        previousExposure: current?.maxActiveExposure ?? null, currency,
+      } });
     });
     return this.getView(input.tenantId, input.userId);
   }

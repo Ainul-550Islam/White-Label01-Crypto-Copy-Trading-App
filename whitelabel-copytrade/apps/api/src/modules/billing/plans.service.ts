@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { claimMutationIntent } from '../developer-platform/developer-mutation-intent';
 import { Prisma } from '@prisma/client';
 import {
   AuditAction,
@@ -18,7 +19,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CacheService } from '../../infrastructure/redis/cache.service';
 import { AuditService } from '../audit/audit.service';
 import { ConflictException, NotFoundException } from '../../common/errors/app.exception';
-import type { CreatePlanDto, ListPlansDto, UpdatePlanDto } from './dto/plan.dto';
+import type { CreatePlanDto, ListPlansDto, UpdatePlanDto, PlanGrantsDto } from './dto/plan.dto';
 
 const SORTABLE_FIELDS = ['sortOrder', 'price', 'createdAt', 'name'] as const;
 
@@ -45,6 +46,8 @@ const DEFAULT_LIMITS: PlanLimits = {
  */
 @Injectable()
 export class PlansService {
+  private readonly logger = new Logger(PlansService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
@@ -125,178 +128,115 @@ export class PlansService {
   async create(
     dto: CreatePlanDto,
     scope: { tenantId: string | null; isPlatformUser: boolean },
-    context: { actorId: string; auditTenantId: string; ipHash: string; requestId: string },
+    context: { actorId: string; auditTenantId: string; ipHash: string; requestId: string; idempotencyKey: string },
   ): Promise<SubscriptionPlanDto> {
-    // A platform operator authors catalogue plans (tenantId null); a tenant
-    // admin can only author plans owned by their own tenant.
     const ownerTenantId = scope.isPlatformUser ? null : scope.tenantId;
-
-    const duplicate = await this.prisma.subscriptionPlan.findFirst({
-      where: { tenantId: ownerTenantId, code: dto.code, deletedAt: null },
-      select: { id: true },
+    if (!scope.isPlatformUser && !ownerTenantId) throw new ForbiddenException('Tenant context required');
+    const plan = await this.prisma.withTenantRls(context.auditTenantId, async (tx) => {
+      await claimMutationIntent(tx, context.auditTenantId, context.idempotencyKey, 'plan.create', dto.code);
+      const lockKey = `plan:${ownerTenantId ?? 'platform'}:${dto.code}`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text`;
+      const duplicate = await tx.subscriptionPlan.findFirst({ where: { tenantId: ownerTenantId, code: dto.code, deletedAt: null }, select: { id: true } });
+      if (duplicate) throw new ConflictException('A plan with this code already exists.', { code: dto.code });
+      const created = await tx.subscriptionPlan.create({ data: {
+        tenantId: ownerTenantId, code: dto.code, name: dto.name, description: dto.description ?? null,
+        audience: dto.audience, price: new Prisma.Decimal(dto.price), currency: dto.currency, interval: dto.interval,
+        trialDays: dto.trialDays, performanceFeeBps: dto.performanceFeeBps, platformFeeBps: dto.platformFeeBps,
+        limits: { ...DEFAULT_LIMITS, ...Object.fromEntries(Object.entries(dto.limits ?? {}).filter(([, value]) => value !== undefined)) } as unknown as Prisma.InputJsonValue,
+        features: dto.features ?? [], isActive: dto.isActive, sortOrder: dto.sortOrder, externalPriceId: dto.externalPriceId ?? null,
+      } });
+      await this.auditPlanMutation(tx, context, created.id, AuditAction.PLAN_CREATED, Object.keys(dto));
+      return created;
     });
-
-    if (duplicate) {
-      throw new ConflictException('A plan with this code already exists.', { code: dto.code });
-    }
-
-    const plan = await this.prisma.subscriptionPlan.create({
-      data: {
-        tenantId: ownerTenantId,
-        code: dto.code,
-        name: dto.name,
-        description: dto.description ?? null,
-        audience: dto.audience,
-        price: new Prisma.Decimal(dto.price),
-        currency: dto.currency,
-        interval: dto.interval,
-        trialDays: dto.trialDays,
-        performanceFeeBps: dto.performanceFeeBps,
-        platformFeeBps: dto.platformFeeBps,
-        limits: { ...DEFAULT_LIMITS, ...(dto.limits ?? {}) } as unknown as Prisma.InputJsonValue,
-        features: dto.features ?? [],
-        isActive: dto.isActive,
-        sortOrder: dto.sortOrder,
-        externalPriceId: dto.externalPriceId ?? null,
-      },
-    });
-
-    await this.cache.delete('billing:platform-catalogue');
-
-    await this.audit.record({
-      tenantId: context.auditTenantId,
-      actorType: AuditActorType.USER,
-      actorId: context.actorId,
-      action: AuditAction.PLAN_CREATED,
-      outcome: AuditOutcome.SUCCESS,
-      resourceType: 'SubscriptionPlan',
-      resourceId: plan.id,
-      description: `Created plan ${plan.code}`,
-      ipHash: context.ipHash,
-      requestId: context.requestId,
-    });
-
-    return this.toDto(plan);
+    await this.invalidateCatalogue();
+    const response = this.toDto(plan);
+    // Return a submitted provider price identifier only on this protected
+    // mutation response so the caller can verify it, not in public catalogue reads.
+    return dto.externalPriceId === undefined ? response : Object.assign(response, { externalPriceId: plan.externalPriceId });
   }
 
   async update(
     planId: string,
     dto: UpdatePlanDto,
     scope: { tenantId: string | null; isPlatformUser: boolean },
-    context: { actorId: string; auditTenantId: string; ipHash: string; requestId: string },
+    context: { actorId: string; auditTenantId: string; ipHash: string; requestId: string; idempotencyKey: string },
   ): Promise<SubscriptionPlanDto> {
-    const existing = await this.prisma.subscriptionPlan.findFirst({
-      where: {
-        id: planId,
-        deletedAt: null,
-        ...(scope.isPlatformUser ? {} : { tenantId: scope.tenantId }),
-      },
-    });
-
-    if (!existing) {
-      throw new NotFoundException('Subscription plan', planId);
-    }
-
-    const updated = await this.prisma.subscriptionPlan.update({
-      where: { id: planId },
-      data: {
+    const updated = await this.prisma.withTenantRls(context.auditTenantId, async (tx) => {
+      await claimMutationIntent(tx, context.auditTenantId, context.idempotencyKey, 'plan.update', planId);
+      await tx.$queryRaw`SELECT id FROM subscription_plans WHERE id = ${planId}::uuid FOR UPDATE`;
+      const existing = await tx.subscriptionPlan.findFirst({ where: { id: planId, deletedAt: null, ...(scope.isPlatformUser ? {} : { tenantId: scope.tenantId }) } });
+      if (!existing) throw new NotFoundException('Subscription plan', planId);
+      const providedLimits = dto.limits ? Object.fromEntries(Object.entries(dto.limits).filter(([, value]) => value !== undefined)) : undefined;
+      const result = await tx.subscriptionPlan.update({ where: { id: planId }, data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
         ...(dto.price !== undefined ? { price: new Prisma.Decimal(dto.price) } : {}),
         ...(dto.interval !== undefined ? { interval: dto.interval } : {}),
         ...(dto.trialDays !== undefined ? { trialDays: dto.trialDays } : {}),
-        ...(dto.performanceFeeBps !== undefined
-          ? { performanceFeeBps: dto.performanceFeeBps }
-          : {}),
+        ...(dto.performanceFeeBps !== undefined ? { performanceFeeBps: dto.performanceFeeBps } : {}),
         ...(dto.platformFeeBps !== undefined ? { platformFeeBps: dto.platformFeeBps } : {}),
-        ...(dto.limits !== undefined
-          ? {
-              limits: {
-                ...DEFAULT_LIMITS,
-                ...((existing.limits as unknown as PlanLimits) ?? {}),
-                ...dto.limits,
-              } as unknown as Prisma.InputJsonValue,
-            }
-          : {}),
+        ...(providedLimits !== undefined ? { limits: { ...DEFAULT_LIMITS, ...((existing.limits as unknown as PlanLimits) ?? {}), ...providedLimits } as unknown as Prisma.InputJsonValue } : {}),
         ...(dto.features !== undefined ? { features: dto.features } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         ...(dto.externalPriceId !== undefined ? { externalPriceId: dto.externalPriceId } : {}),
-      },
+      } });
+      await this.auditPlanMutation(tx, context, planId, AuditAction.PLAN_UPDATED, Object.keys(dto));
+      return result;
     });
-
-    await this.cache.delete('billing:platform-catalogue');
-
-    await this.audit.record({
-      tenantId: context.auditTenantId,
-      actorType: AuditActorType.USER,
-      actorId: context.actorId,
-      action: AuditAction.PLAN_UPDATED,
-      outcome: AuditOutcome.SUCCESS,
-      resourceType: 'SubscriptionPlan',
-      resourceId: planId,
-      changes: {
-        plan: { before: this.toDto(existing), after: this.toDto(updated) },
-      },
-      ipHash: context.ipHash,
-      requestId: context.requestId,
-    });
-
-    return this.toDto(updated);
+    await this.invalidateCatalogue();
+    const response = this.toDto(updated);
+    return dto.externalPriceId === undefined ? response : Object.assign(response, { externalPriceId: updated.externalPriceId });
   }
 
   async archive(
     planId: string,
     scope: { tenantId: string | null; isPlatformUser: boolean },
-    context: { actorId: string; auditTenantId: string; ipHash: string; requestId: string },
+    context: { actorId: string; auditTenantId: string; ipHash: string; requestId: string; idempotencyKey: string },
   ): Promise<{ id: string; archived: true }> {
-    const plan = await this.prisma.subscriptionPlan.findFirst({
-      where: {
-        id: planId,
-        deletedAt: null,
-        ...(scope.isPlatformUser ? {} : { tenantId: scope.tenantId }),
-      },
-      select: { id: true, code: true },
+    await this.prisma.withTenantRls(context.auditTenantId, async (tx) => {
+      await claimMutationIntent(tx, context.auditTenantId, context.idempotencyKey, 'plan.archive', planId);
+      await tx.$queryRaw`SELECT id FROM subscription_plans WHERE id = ${planId}::uuid FOR UPDATE`;
+      const plan = await tx.subscriptionPlan.findFirst({ where: { id: planId, deletedAt: null, ...(scope.isPlatformUser ? {} : { tenantId: scope.tenantId }) }, select: { id: true, tenantId: true } });
+      if (!plan) throw new NotFoundException('Subscription plan', planId);
+      const [check] = await tx.$queryRaw<Array<{ has_live: boolean }>>`SELECT plan_has_live_subscribers(${planId}::uuid) AS has_live`;
+      if (!check || typeof check.has_live !== 'boolean') throw new Error('Global subscription visibility unavailable');
+      if (check.has_live) throw new ConflictException('This plan still has active subscriptions and cannot be archived.');
+      await tx.subscriptionPlan.update({ where: { id: planId }, data: { deletedAt: new Date(), isActive: false } });
+      await this.auditPlanMutation(tx, context, planId, AuditAction.PLAN_UPDATED, ['archive']);
     });
-
-    if (!plan) {
-      throw new NotFoundException('Subscription plan', planId);
-    }
-
-    // Refuse to archive a plan that still has paying subscribers: the FK is
-    // Restrict, and silently orphaning billing state is worse than an error.
-    const activeSubscriptions = await this.prisma.tenantSubscription.count({
-      where: { planId, status: { in: ['TRIALING', 'ACTIVE', 'PAST_DUE'] } },
-    });
-
-    if (activeSubscriptions > 0) {
-      throw new ConflictException(
-        'This plan still has active subscriptions and cannot be archived.',
-        { activeSubscriptions },
-      );
-    }
-
-    await this.prisma.subscriptionPlan.update({
-      where: { id: planId },
-      data: { deletedAt: new Date(), isActive: false },
-    });
-
-    await this.cache.delete('billing:platform-catalogue');
-
-    await this.audit.record({
-      tenantId: context.auditTenantId,
-      actorType: AuditActorType.USER,
-      actorId: context.actorId,
-      action: AuditAction.PLAN_UPDATED,
-      outcome: AuditOutcome.SUCCESS,
-      resourceType: 'SubscriptionPlan',
-      resourceId: planId,
-      description: `Archived plan ${plan.code}`,
-      ipHash: context.ipHash,
-      requestId: context.requestId,
-    });
-
+    await this.invalidateCatalogue();
     return { id: planId, archived: true };
+  }
+
+  /** Only a platform operator can change machine-readable grants on a platform plan. */
+  async updateGrants(planId: string, dto: PlanGrantsDto, scope: { isPlatformUser: boolean },
+    context: { actorId: string; auditTenantId: string; ipHash: string; requestId: string; idempotencyKey: string }): Promise<SubscriptionPlanDto> {
+    if (!scope.isPlatformUser) throw new ForbiddenException('Platform operator required');
+    const updated = await this.prisma.withTenantRls(context.auditTenantId, async (tx) => {
+      await claimMutationIntent(tx, context.auditTenantId, context.idempotencyKey, 'plan.grants', planId);
+      await tx.$queryRaw`SELECT id FROM subscription_plans WHERE id = ${planId}::uuid FOR UPDATE`;
+      const existing = await tx.subscriptionPlan.findFirst({ where: { id: planId, tenantId: null, deletedAt: null } });
+      if (!existing) throw new NotFoundException('Platform subscription plan', planId);
+      const oldLimits = existing.limits && typeof existing.limits === 'object' && !Array.isArray(existing.limits) ? existing.limits : {};
+      const limits = { ...oldLimits, ...dto, developer_pkce_required: 1 } as Prisma.InputJsonValue;
+      const result = await tx.subscriptionPlan.update({ where: { id: planId }, data: { limits } });
+      await this.auditPlanMutation(tx, context, planId, AuditAction.PLAN_UPDATED, Object.keys(dto));
+      return result;
+    });
+    await this.invalidateCatalogue();
+    return this.toDto(updated);
+  }
+
+  private async invalidateCatalogue(): Promise<void> {
+    try { await this.cache.delete('billing:platform-catalogue'); }
+    catch { this.logger.warn('Plan catalogue cache invalidation failed; bounded cache entries will expire'); }
+  }
+
+  private async auditPlanMutation(tx: Prisma.TransactionClient, context: { actorId: string; auditTenantId: string; ipHash: string; requestId: string }, planId: string, action: AuditAction, fields: string[]): Promise<void> {
+    await tx.auditLog.create({ data: { tenantId: context.auditTenantId, actorType: AuditActorType.USER, actorId: context.actorId, action,
+      outcome: AuditOutcome.SUCCESS, resourceType: 'SubscriptionPlan', resourceId: planId, description: 'Subscription plan changed',
+      metadata: { fields }, ipHash: context.ipHash, requestId: context.requestId } });
   }
 
   toDto(plan: {

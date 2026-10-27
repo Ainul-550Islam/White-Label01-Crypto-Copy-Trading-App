@@ -33,6 +33,7 @@ export interface ClientFetchOptions {
   signal?: AbortSignal;
   skipAuthRefresh?: boolean;
   correlationId?: string;
+  idempotencyKey?: string;
   /**
    * The path is one of this app's own route handlers (for example
    * '/api/auth/login') and is used as-is instead of being sent through
@@ -43,7 +44,7 @@ export interface ClientFetchOptions {
 }
 
 async function request<T>(path: string, options: ClientFetchOptions, retry: boolean): Promise<T> {
-  const { method = 'GET', body, searchParams, signal, correlationId } = options;
+  const { method = 'GET', body, searchParams, signal, correlationId, idempotencyKey } = options;
 
   const normalisedPath = path.startsWith('/') ? path : `/${path}`;
   const url = new URL(
@@ -70,6 +71,7 @@ async function request<T>(path: string, options: ClientFetchOptions, retry: bool
   if (method !== 'GET') {
     const csrf = readCsrfCookie();
     if (csrf) headers['x-csrf-token'] = csrf;
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   }
 
   const controller = new AbortController();

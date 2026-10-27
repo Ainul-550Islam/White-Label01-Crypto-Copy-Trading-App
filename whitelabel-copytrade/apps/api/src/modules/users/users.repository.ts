@@ -62,10 +62,10 @@ export class UsersRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async findById(tenantId: string, userId: string): Promise<UserRecord | null> {
-    return this.prisma.user.findFirst({
+    return this.prisma.withTenantRls(tenantId, (tx) => tx.user.findFirst({
       where: { id: userId, tenantId, deletedAt: null },
       select: USER_SELECT,
-    });
+    }));
   }
 
   async findByIdIncludingDeleted(tenantId: string, userId: string): Promise<UserRecord | null> {

@@ -29,8 +29,11 @@ function makeDeliveryHarness() {
       ]),
     },
   };
-  const service = new EventSubscriptionService(prisma as never, delivery as never);
-  return { service, delivery, prisma };
+  const scopedPrisma = Object.assign(prisma, {
+    withTenantRls: jest.fn((_tenantId: string, run: (tx: typeof prisma) => unknown) => run(prisma)),
+  });
+  const service = new EventSubscriptionService(scopedPrisma as never, delivery as never);
+  return { service, delivery, prisma: scopedPrisma };
 }
 
 describe('developer webhook event catalog', () => {
@@ -86,6 +89,8 @@ describe('developer webhook event catalog', () => {
       expect(outcome.deliveryIds).toEqual([`delivery:${definition.eventType}`]);
     }
 
+    expect(prisma.withTenantRls).toHaveBeenCalledTimes(DEVELOPER_EVENT_TYPES.length);
+    expect(prisma.withTenantRls.mock.calls.every(([tenantId]) => tenantId === TENANT_ID)).toBe(true);
     expect(prisma.developerWebhookSubscription.findMany).toHaveBeenCalledTimes(DEVELOPER_EVENT_TYPES.length);
     expect(delivery.enqueue).toHaveBeenCalledTimes(DEVELOPER_EVENT_TYPES.length);
     expect(delivery.enqueue.mock.calls.map(([input]) => input.envelope.eventType).sort()).toEqual(

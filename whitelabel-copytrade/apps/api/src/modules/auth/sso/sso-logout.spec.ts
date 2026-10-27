@@ -183,11 +183,13 @@ describe('SessionService records the auth method of each login', () => {
         create: jest.fn(async () => ({ id: SESSION })),
       },
     };
+    prisma.$queryRaw = jest.fn(async () => [{ id: USER, sessionVersion: 3, status: 'ACTIVE' }]);
+    prisma.withTenantRls = jest.fn(async (_tenantId: string, callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const config: any = { refreshTokenTtlSeconds: 3600, maxActiveSessionsPerUser: 10 };
     const logger: any = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
     return { service: new SessionService(prisma, config, logger), prisma };
   }
-  const base = { userId: USER, tenantId: TENANT, deviceId: 'dev-1', ipHash: 'h' };
+  const base = { userId: USER, tenantId: TENANT, deviceId: 'dev-1', ipHash: 'h', expectedSessionVersion: 3 };
 
   it('a new SSO session stores SSO_OIDC and the issuing configuration', async () => {
     const h = sessions(null);

@@ -8,7 +8,8 @@
  * silently mutated by this service.
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
@@ -20,8 +21,9 @@ import {
 } from './developer.types';
 
 export interface ReconciliationReport {
-  tenantId: string | null;
+  tenantId: string;
   scannedAt: string;
+  truncated: boolean;
   findings: ReconciliationFinding[];
   counts: Record<ReconciliationFindingKind, number>;
 }
@@ -47,23 +49,36 @@ export class DeveloperReconciliationService {
     return { kind, severity, subjectType, subjectId, detail, suggestedAction };
   }
 
-  async reconcile(tenantId?: string): Promise<ReconciliationReport> {
+  async reconcile(tenantId: string): Promise<ReconciliationReport> {
+    return this.prisma.withTenantRls(tenantId, (tx) => this.reconcileTenant(tx, tenantId));
+  }
+
+  private async reconcileTenant(tx: Prisma.TransactionClient, tenantId: string): Promise<ReconciliationReport> {
+    const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!tenant) throw new NotFoundException('tenant not found');
     const findings: ReconciliationFinding[] = [];
     const counts = this.emptyCounts();
     const push = (finding: ReconciliationFinding) => {
       findings.push(finding);
       counts[finding.kind] += 1;
     };
-    const tenantFilter = tenantId ? { tenantId } : {};
+    const tenantFilter = { tenantId };
 
     // 1. APPLICATION_WITHOUT_TENANT — the FK prevents this in SQL, but the
     //    scan is deliberate: a tenant row removed by an unrelated flow would
     //    orphan applications and the detector must say so, not assume.
-    const applications = await this.prisma.developerApplication.findMany({
+    const applications = await tx.developerApplication.findMany({
       where: tenantFilter,
       include: { tenant: { select: { id: true } } },
       take: 10_000,
     });
+    const revokedIds = applications.filter((application) => application.state === 'REVOKED').map((application) => application.id);
+    const liveTokenGroups = revokedIds.length ? await tx.developerAccessToken.groupBy({
+      by: ['applicationId'],
+      where: { tenantId, applicationId: { in: revokedIds }, revokedAt: null, expiresAt: { gt: new Date() } },
+      _count: { _all: true },
+    }) : [];
+    const liveTokensByApplication = new Map(liveTokenGroups.map((group) => [group.applicationId, group._count._all]));
     for (const application of applications) {
       if (!application.tenant || !application.tenantId) {
         push(
@@ -83,9 +98,7 @@ export class DeveloperReconciliationService {
 
       // 3. TOKEN_WITHOUT_ACTIVE_APPLICATION
       if (application.state === 'REVOKED') {
-        const liveTokens = await this.prisma.developerAccessToken.count({
-          where: { applicationId: application.id, revokedAt: null },
-        });
+        const liveTokens = liveTokensByApplication.get(application.id) ?? 0;
         if (liveTokens > 0) {
           push(
             this.finding(
@@ -102,7 +115,7 @@ export class DeveloperReconciliationService {
     }
 
     // 4. CREDENTIAL_WITHOUT_APPLICATION
-    const credentials = await this.prisma.developerCredential.findMany({
+    const credentials = await tx.developerCredential.findMany({
       where: { ...tenantFilter, revokedAt: null },
       include: { application: { select: { id: true, tenantId: true } } },
       take: 10_000,
@@ -142,7 +155,7 @@ export class DeveloperReconciliationService {
     }
 
     // 6. WEBHOOK_WITHOUT_APPLICATION / WEBHOOK_SCOPE_MISMATCH
-    const subscriptions = await this.prisma.developerWebhookSubscription.findMany({
+    const subscriptions = await tx.developerWebhookSubscription.findMany({
       where: { ...tenantFilter, revokedAt: null },
       include: {
         application: { select: { id: true, scopes: true, tenantId: true } },
@@ -191,9 +204,9 @@ export class DeveloperReconciliationService {
     }
 
     // 7. DELIVERY_WITHOUT_EVENT / DELIVERY_STATUS_UNKNOWN
-    const deliveries = await this.prisma.developerWebhookDelivery.findMany({
+    const deliveries = await tx.developerWebhookDelivery.findMany({
       where: tenantFilter,
-      select: { id: true, state: true, eventId: true },
+      select: { id: true, state: true, eventId: true, tenantId: true, subscription: { select: { tenantId: true } } },
       take: 20_000,
     });
     for (const delivery of deliveries) {
@@ -225,7 +238,7 @@ export class DeveloperReconciliationService {
     }
 
     // 8. USAGE_WITHOUT_APPLICATION
-    const usageEvents = await this.prisma.usageEvent.findMany({
+    const usageEvents = await tx.usageEvent.findMany({
       where: {
         ...tenantFilter,
         meterKey: { startsWith: 'developer_' },
@@ -253,12 +266,9 @@ export class DeveloperReconciliationService {
 
     // 9. TENANT_SCOPE_MISMATCH — deliveries whose tenant differs from their
     //    subscription's tenant.
-    for (const delivery of deliveries.slice(0, 2_000)) {
-      const row = await this.prisma.developerWebhookDelivery.findUnique({
-        where: { id: delivery.id },
-        select: { tenantId: true, subscription: { select: { tenantId: true } } },
-      });
-      if (row?.subscription && row.tenantId !== row.subscription.tenantId) {
+    for (const delivery of deliveries) {
+      // A required subscription hidden by tenant RLS is also inconsistent.
+      if (!delivery.subscription || delivery.tenantId !== delivery.subscription.tenantId) {
         push(
           this.finding(
             'TENANT_SCOPE_MISMATCH',
@@ -273,6 +283,9 @@ export class DeveloperReconciliationService {
     }
 
     findings.sort((a, b) => a.kind.localeCompare(b.kind) || a.subjectId.localeCompare(b.subjectId));
-    return { tenantId: tenantId ?? null, scannedAt: new Date().toISOString(), findings, counts };
+    // Every source is capped. Never present a capped scan as complete.
+    const truncated = applications.length >= 10_000 || credentials.length >= 10_000 ||
+      subscriptions.length >= 10_000 || deliveries.length >= 20_000 || usageEvents.length >= 20_000;
+    return { tenantId, scannedAt: new Date().toISOString(), truncated, findings, counts };
   }
 }

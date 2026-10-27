@@ -5,10 +5,12 @@
  * queryable into existence.
  */
 
+import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 
 export class DeveloperPaginationQuery {
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(200)
@@ -43,6 +45,10 @@ export class ListCredentialsQuery extends DeveloperPaginationQuery {
   applicationId?: string;
 
   @IsOptional()
+  @IsIn(['API_KEY', 'OAUTH_CLIENT'])
+  kind?: string;
+
+  @IsOptional()
   @IsIn(['ACTIVE', 'REVOKED', 'EXPIRED'])
   status?: string;
 }
@@ -58,9 +64,6 @@ export class ListWebhookSubscriptionsQuery extends DeveloperPaginationQuery {
 }
 
 export class ListDeliveriesQuery extends DeveloperPaginationQuery {
-  @IsUUID()
-  subscriptionId!: string;
-
   @IsOptional()
   @IsIn(['QUEUED', 'DELIVERING', 'DELIVERED', 'FAILED', 'RETRY_SCHEDULED', 'EXHAUSTED', 'CANCELLED'])
   state?: string;
@@ -72,6 +75,7 @@ export class ListDeliveriesQuery extends DeveloperPaginationQuery {
 }
 
 export class DeveloperUsageQuery {
+  @IsOptional()
   @IsUUID()
   applicationId?: string;
 

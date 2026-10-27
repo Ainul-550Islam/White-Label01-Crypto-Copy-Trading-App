@@ -68,7 +68,7 @@ export class UsersService {
       throw new NotFoundException('User', userId);
     }
 
-    const access = await this.permissions.getEffectiveAccess(userId);
+    const access = await this.permissions.getEffectiveAccessForTenant(userId, tenantId);
     return this.toDto(user, access.permissionKeys);
   }
 

@@ -4,13 +4,16 @@ import type { JSX } from 'react';
 import { useAuth } from '@/auth/auth.store';
 import { useTenant } from '@/tenant/tenant-context';
 import { TenantLogo } from '@/tenant/tenant-branding';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { oauthCopy, type OAuthLocale } from '@/features/oauth/oauth-copy';
 import Link from 'next/link';
 
 export function Topbar(): JSX.Element {
   const { session, logout } = useAuth();
   const { tenant } = useTenant();
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  const [locale, setLocale] = useState<OAuthLocale>('en');
+  useEffect(() => { const language = navigator.language.split('-')[0] as OAuthLocale; if (language in oauthCopy) setLocale(language); }, []);
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b bg-card px-4">
@@ -46,6 +49,9 @@ export function Topbar(): JSX.Element {
               <div className="border-t">
                 <Link href="/account" className="block px-4 py-2 text-sm hover:bg-accent">
                   Account Settings
+                </Link>
+                <Link href="/settings/connected-apps" className="block px-4 py-2 text-sm hover:bg-accent">
+                  {oauthCopy[locale].listTitle}
                 </Link>
                 <Link href="/security" className="block px-4 py-2 text-sm hover:bg-accent">
                   Security

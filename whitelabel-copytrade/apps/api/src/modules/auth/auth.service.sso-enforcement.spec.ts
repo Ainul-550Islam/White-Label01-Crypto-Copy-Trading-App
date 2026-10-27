@@ -79,9 +79,11 @@ function build(options: {
       ),
       findUniqueOrThrow: jest.fn(async () => userRow),
       update: jest.fn(async () => userRow),
+      updateMany: jest.fn(async () => ({ count: 1 })),
     },
     ssoConfiguration: { findMany: ssoFindMany },
     loginAttempt: { create: jest.fn(async ({ data }: any) => loginAttempts.push(data)) },
+    withTenantRls: jest.fn(async (_tenantId: string, work: (tx: any) => Promise<unknown>) => work(prisma)),
   };
   const config: any = {};
   const crypto: any = { blindIndex: (value: string) => `bi:${value}` };
@@ -109,6 +111,7 @@ function build(options: {
   const users: any = { findByIdForSession: jest.fn(async (id: string) => ({ id, email, tenantId: TENANT })) };
   const permissions: any = {
     getEffectiveAccess: jest.fn(async () => ({ roleKeys: ['FOLLOWER'], permissionKeys: ['strategy:read'] })),
+    getEffectiveAccessForTenant: jest.fn(async () => ({ roleKeys: ['FOLLOWER'], permissionKeys: ['strategy:read'] })),
   };
   const audit: any = { record: jest.fn(async () => undefined) };
   const riskDetector: any = {
@@ -137,7 +140,7 @@ function build(options: {
   );
   const login = (password: string = CORRECT_PASSWORD) =>
     auth.login(tenant, { email, password, deviceId: 'web-device-0001' } as any, context);
-  return { auth, login, prisma, sessions, tokens, lockout, audit, loginAttempts, ssoFindMany };
+  return { auth, login, prisma, sessions, tokens, lockout, audit, loginAttempts, ssoFindMany, passwords, userRow };
 }
 
 const enforced = (overrides: Partial<SsoRow> = {}): SsoRow => ({
@@ -220,6 +223,35 @@ describe('AuthService password login under ENFORCED SSO (round 7)', () => {
     const h = build({ isPlatformUser: true, sso: [enforced()] });
     await expect(h.login()).resolves.toEqual(expect.objectContaining({ sessionId: 'session-1', tokens: expect.objectContaining({ accessToken: 'access' }) }));
     expect(h.ssoFindMany).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite a password reset with an opportunistic rehash of the old password', async () => {
+    const h = build();
+    h.passwords.needsRehash.mockReturnValue(true);
+    h.passwords.hash.mockResolvedValue('old-password-rehash');
+    // A concurrent reset has changed the password/version before the CAS.
+    h.prisma.user.updateMany.mockResolvedValueOnce({ count: 0 });
+    expect((await refusal(h.login())).code).toBe(ErrorCode.TOKEN_REVOKED);
+    expect(h.prisma.user.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: TENANT, passwordHash: '$argon2id$stored', sessionVersion: 1 }),
+    }));
+    expect(h.sessions.createOrReuse).not.toHaveBeenCalled();
+    expect(h.tokens.issueTokenPair).not.toHaveBeenCalled();
+  });
+
+  it('refuses to mint tokens if a reset commits after password verification', async () => {
+    const h = build();
+    h.prisma.user.findUniqueOrThrow.mockResolvedValueOnce({ ...h.userRow, sessionVersion: 2 });
+    expect((await refusal(h.login())).code).toBe(ErrorCode.TOKEN_REVOKED);
+    expect(h.sessions.createOrReuse).toHaveBeenCalledTimes(1);
+    expect(h.tokens.issueTokenPair).not.toHaveBeenCalled();
+  });
+
+  it('binds password two-factor challenges to the verified credential generation', async () => {
+    const h = build({ twoFactorEnabled: true });
+    await h.login();
+    expect(h.tokens.issueTwoFactorChallenge).toHaveBeenCalledWith(USER, TENANT, 'web-device-0001', { sessionVersion: 1 });
+    expect(h.tokens.issueTokenPair).not.toHaveBeenCalled();
   });
 
   it('a failing policy lookup fails the login instead of allowing the password', async () => {

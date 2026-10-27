@@ -94,9 +94,24 @@ describe('crawler policy: robots.txt', () => {
       expect(result.host).toBeUndefined();
       expect(rule.allow).toBeUndefined();
     } else {
-      expect(rule.allow).toEqual([...PUBLIC_ROUTES]);
+      expect(rule.allow).toEqual(PUBLIC_ROUTES.map((route) => `${route}$`));
       expect(result.sitemap).toBe(`${resolvePublicOrigin()}/sitemap.xml`);
       expect(result.host).toBe(resolvePublicOrigin());
+    }
+  });
+
+  it('uses end-anchored allow rules so public prefixes do not expose private descendants', () => {
+    const rule = firstRule(robots() as RobotsResult);
+    if (resolvePublicOrigin() === null) return;
+    const allow = rule.allow ?? [];
+    const matches = (pattern: string, path: string) => pattern.endsWith('$')
+      ? path === pattern.slice(0, -1)
+      : path.startsWith(pattern);
+    for (const path of ['/dashboard', '/s/private-token', '/traders/apply', '/traders/123', '/privacy/data-export']) {
+      expect(allow.some((pattern) => matches(pattern, path))).toBe(false);
+    }
+    for (const route of PUBLIC_ROUTES) {
+      expect(allow.some((pattern) => matches(pattern, route))).toBe(true);
     }
   });
 

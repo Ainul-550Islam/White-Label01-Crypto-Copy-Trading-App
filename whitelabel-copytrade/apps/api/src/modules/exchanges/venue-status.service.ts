@@ -1,5 +1,5 @@
 // # Merges the venue's public status feed, this tenant's account health and an expiring manual override into one normalised venue status where an unreachable feed is UNKNOWN and never OPERATIONAL.
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import {
   AuditActorType,
   AuditOutcome,
@@ -7,7 +7,7 @@ import {
   type AuthenticatedActor,
 } from '@wlct/shared-types';
 
-import { CacheService } from '../../infrastructure/redis/cache.service';
+import { RedisService } from '../../infrastructure/redis/redis.service';
 import { AppException } from '../../common/errors/app.exception';
 import { AuditService } from '../audit/audit.service';
 import {
@@ -39,9 +39,8 @@ import {
  *      exchanges announce maintenance minutes-to-hours late) and when the feed
  *      itself is the broken thing.
  *
- * The precedence is OVERRIDE > FEED > ACCOUNT HEALTH, because a human with a
- * reason outranks a feed, and a feed outranks the inference we can draw from our
- * own connection.
+ * An override wins, then the feed determines the venue state. Account health
+ * can downgrade an otherwise operational feed but cannot upgrade it.
  *
  * THE RULE THAT MATTERS MOST
  * --------------------------
@@ -212,7 +211,7 @@ export class VenueStatusService {
 
   constructor(
     private readonly accounts: ExchangeAccountRepository,
-    private readonly cache: CacheService,
+    private readonly redis: RedisService,
     private readonly audit: AuditService,
     @Optional() @Inject(VENUE_STATUS_FEED) private readonly feed?: VenueStatusFeed | null,
   ) {}
@@ -227,13 +226,8 @@ export class VenueStatusService {
    * noise that trains people to ignore the banner.
    */
   async listForTenant(tenantId: string, requested?: readonly ExchangeVenue[]): Promise<VenueStatusView[]> {
-    const accounts = await this.loadAccounts(tenantId).catch((error: unknown) => {
-      // Fail closed: no account list means no known venues, and inventing a
-      // global "all venues operational" from a database error is the failure this
-      // whole surface exists to prevent.
-      this.logger.warn(`Venue status could not load accounts for tenant ${tenantId}: ${(error as Error)?.message ?? 'unknown error'}`);
-      return [] as ExchangeAccountRecord[];
-    });
+    // A failed account read is not an empty venue list.
+    const accounts = await this.loadAccounts(tenantId);
     const venues = requested && requested.length > 0
       ? [...new Set(requested)]
       : [...new Set(accounts.map((account) => account.venue))];
@@ -299,6 +293,19 @@ export class VenueStatusService {
         since: feedSample.since ?? feedSample.observedAt,
       };
     })();
+
+    if (feedVerdict?.state === 'OPERATIONAL' && accountHealth.degraded) {
+      return {
+        ...base,
+        state: 'DEGRADED',
+        reason: 'ACCOUNT_HEALTH_DEGRADED',
+        since: accountHealth.since,
+        messageCode: 'ACCOUNT_HEALTH_DEGRADED',
+        message: MESSAGE.ACCOUNT_HEALTH_DEGRADED,
+        source: 'ACCOUNT_HEALTH',
+        verified: true,
+      };
+    }
 
     if (feedVerdict) {
       // A feed that says OPERATIONAL but whose own sample is stale is UNKNOWN, and
@@ -398,7 +405,10 @@ export class VenueStatusService {
       expiresAt: new Date(now.getTime() + ttl * 1_000).toISOString(),
       revokedAt: null,
     };
-    await this.cache.set(OVERRIDE_KEY(input.venue), JSON.stringify(override), ttl);
+    // This override is the source of truth, not an optional cache. CacheService
+    // deliberately swallows failures, so use Redis directly and fail the write.
+    // Preserve the historic double-JSON encoding for rolling deployments.
+    await this.redis.client.set(OVERRIDE_KEY(input.venue), JSON.stringify(JSON.stringify(override)), 'EX', ttl);
     // Awaited, not buffered: an override is a platform-wide assertion about a
     // venue, and "the audit row will follow in a second" is not good enough for
     // the one action that can silence a customer-facing warning.
@@ -425,7 +435,7 @@ export class VenueStatusService {
     context: { requestId?: string; ipHash?: string } = {},
   ): Promise<{ cleared: boolean }> {
     const existing = await this.readOverride(venue);
-    await this.cache.delete(OVERRIDE_KEY(venue));
+    await this.redis.client.del(OVERRIDE_KEY(venue));
     if (existing.override) {
       await this.audit.recordImmediate({
         tenantId: actor.tenantId,
@@ -444,20 +454,22 @@ export class VenueStatusService {
     return { cleared: Boolean(existing.override) };
   }
 
-  /** Read the override in force, if any. An unreadable store is "no override",
-   * because the store's failure must not be able to *create* one. */
+  /** An unreadable or corrupt override is unknown, not evidence of no halt. */
   private async readOverride(venue: ExchangeVenue): Promise<{ override: VenueStatusOverride | null }> {
     try {
-      const raw = await this.cache.get<string>(OVERRIDE_KEY(venue));
-      if (!raw) return { override: null };
-      const parsed = typeof raw === 'string' ? (JSON.parse(raw) as VenueStatusOverride) : (raw as VenueStatusOverride);
-      if (!parsed || parsed.venue !== venue || !this.isOverState(parsed.state)) return { override: null };
-      if (parsed.revokedAt) return { override: null };
-      if (!parsed.expiresAt || Date.parse(parsed.expiresAt) <= Date.now()) return { override: null };
+      const raw = await this.redis.client.get(OVERRIDE_KEY(venue));
+      if (raw === null) return { override: null };
+      const stored: unknown = JSON.parse(raw);
+      const parsed = (typeof stored === 'string' ? JSON.parse(stored) : stored) as VenueStatusOverride;
+      if (!parsed || parsed.venue !== venue || !this.isOverState(parsed.state) ||
+          typeof parsed.expiresAt !== 'string' || !Number.isFinite(Date.parse(parsed.expiresAt))) {
+        throw new Error('Invalid stored venue override');
+      }
+      if (parsed.revokedAt || Date.parse(parsed.expiresAt) <= Date.now()) return { override: null };
       return { override: parsed };
     } catch (error) {
       this.logger.warn(`Venue override store unreadable for ${venue}: ${(error as Error)?.message ?? 'unknown error'}`);
-      return { override: null };
+      throw new ServiceUnavailableException('Venue status is temporarily unavailable.');
     }
   }
 
@@ -508,7 +520,7 @@ export class VenueStatusService {
       return { degraded: unhealthy.length > 0, since: since ?? new Date().toISOString() };
     } catch (error) {
       this.logger.warn(`Tenant account health unreadable for ${tenantId}: ${(error as Error)?.message ?? 'unknown error'}`);
-      return { degraded: false, since: new Date().toISOString() };
+      throw new ServiceUnavailableException('Venue status is temporarily unavailable.');
     }
   }
 
@@ -526,9 +538,15 @@ export class VenueStatusService {
     for (let page = 1; page <= 20; page += 1) {
       const result = await this.accounts.listByTenant(tenantId, { page, limit: pageSize });
       collected.push(...result.data);
-      if (result.data.length < pageSize || collected.length >= result.total) break;
+      if (result.data.length < pageSize || collected.length >= result.total) {
+        if (collected.length < result.total) {
+          throw new ServiceUnavailableException('Venue status is temporarily unavailable.');
+        }
+        return collected;
+      }
     }
-    return collected;
+    // Do not silently drop venues beyond the bounded scan.
+    throw new ServiceUnavailableException('Venue status is temporarily unavailable.');
   }
 
   private isFresh(sample: VenueStatusFeedSample, now: Date): boolean {

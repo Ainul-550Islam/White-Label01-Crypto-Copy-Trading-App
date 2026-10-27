@@ -6,6 +6,7 @@ import '../../features/auth/presentation/auth_state.dart';
 import '../../features/risk/data/risk_repository.dart';
 import '../../features/risk/presentation/risk_controller.dart';
 import '../../features/risk/presentation/risk_state.dart';
+import '../../features/settings/data/user_preferences_repository.dart';
 import '../../features/strategies/data/strategy_repository.dart';
 import '../../features/strategies/presentation/strategy_controller.dart';
 import '../../features/strategies/presentation/strategy_state.dart';
@@ -31,19 +32,23 @@ final Provider<AppLogger> appLoggerProvider = Provider<AppLogger>((Ref ref) {
   return AppLogger(ref.watch(appConfigProvider).environment);
 });
 
-final Provider<SecureStorage> secureStorageProvider = Provider<SecureStorage>((Ref ref) {
+final Provider<SecureStorage> secureStorageProvider =
+    Provider<SecureStorage>((Ref ref) {
   return SecureStorage();
 });
 
-final Provider<TokenStorage> tokenStorageProvider = Provider<TokenStorage>((Ref ref) {
+final Provider<TokenStorage> tokenStorageProvider =
+    Provider<TokenStorage>((Ref ref) {
   return TokenStorage(ref.watch(secureStorageProvider));
 });
 
-final Provider<DeviceIdentity> deviceIdentityProvider = Provider<DeviceIdentity>((Ref ref) {
+final Provider<DeviceIdentity> deviceIdentityProvider =
+    Provider<DeviceIdentity>((Ref ref) {
   return DeviceIdentity(ref.watch(secureStorageProvider));
 });
 
-final Provider<AuthInterceptor> authInterceptorProvider = Provider<AuthInterceptor>((Ref ref) {
+final Provider<AuthInterceptor> authInterceptorProvider =
+    Provider<AuthInterceptor>((Ref ref) {
   return AuthInterceptor(
     config: ref.watch(appConfigProvider),
     tokenStorage: ref.watch(tokenStorageProvider),
@@ -65,7 +70,8 @@ final Provider<ApiClient> apiClientProvider = Provider<ApiClient>((Ref ref) {
   );
 });
 
-final Provider<AuthRepository> authRepositoryProvider = Provider<AuthRepository>((Ref ref) {
+final Provider<AuthRepository> authRepositoryProvider =
+    Provider<AuthRepository>((Ref ref) {
   return AuthRepository(
     apiClient: ref.watch(apiClientProvider),
     tokenStorage: ref.watch(tokenStorageProvider),
@@ -94,7 +100,8 @@ final Provider<StrategyRepository> strategyRepositoryProvider =
   );
 });
 
-final StateNotifierProvider<StrategyController, StrategyViewState> strategyControllerProvider =
+final StateNotifierProvider<StrategyController, StrategyViewState>
+    strategyControllerProvider =
     StateNotifierProvider<StrategyController, StrategyViewState>((Ref ref) {
   return StrategyController(
     repository: ref.watch(strategyRepositoryProvider),
@@ -116,10 +123,27 @@ final Provider<RiskRepository> riskRepositoryProvider =
   );
 });
 
-final StateNotifierProvider<RiskController, RiskViewState> riskControllerProvider =
+final StateNotifierProvider<RiskController, RiskViewState>
+    riskControllerProvider =
     StateNotifierProvider<RiskController, RiskViewState>((Ref ref) {
   return RiskController(
     repository: ref.watch(riskRepositoryProvider),
     logger: ref.watch(appLoggerProvider),
   );
+});
+
+/// Preferences are scoped to the authenticated user and discarded on sign-out.
+final Provider<UserPreferencesRepository> userPreferencesRepositoryProvider =
+    Provider<UserPreferencesRepository>(
+  (Ref ref) => UserPreferencesRepository(ref.watch(apiClientProvider)),
+);
+
+final FutureProvider<UserPreferences?> userPreferencesProvider =
+    FutureProvider<UserPreferences?>((Ref ref) async {
+  final user = ref.watch(
+    authControllerProvider
+        .select((state) => state.isAuthenticated ? state.user : null),
+  );
+  if (user == null) return null;
+  return ref.watch(userPreferencesRepositoryProvider).fetch();
 });

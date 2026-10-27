@@ -27,6 +27,8 @@ import { LifecycleAuditService } from './lifecycle-audit.service';
 import { LifecycleReconciliationService } from './lifecycle-reconciliation.service';
 import { ClientVisibilityService } from './client-visibility.service';
 import { ClientLifecycleController } from './client-lifecycle.controller';
+import { WithdrawalDestinationCheckController } from './withdrawal-destination-check.controller';
+import { CustodyModule } from '../custody/custody.module';
 
 /**
  * Part 20 — Institutional Client Lifecycle, Account Administration & Funding Control Plane
@@ -51,7 +53,8 @@ import { ClientLifecycleController } from './client-lifecycle.controller';
  */
 
 @Module({
-  controllers: [ClientLifecycleController],
+  imports: [CustodyModule],
+  controllers: [ClientLifecycleController, WithdrawalDestinationCheckController],
   providers: [
     PrismaService,
     AppConfigService,

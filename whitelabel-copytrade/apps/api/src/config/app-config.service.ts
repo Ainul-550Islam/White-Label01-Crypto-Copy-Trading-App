@@ -1305,6 +1305,12 @@ export class AppConfigService {
     return { name: this.env.MAIL_FROM_NAME, address: this.env.MAIL_FROM_ADDRESS };
   }
 
+  /** Validated SMTP settings shared by the API and delivery worker. */
+  get smtpOptions(): { host: string; port: number; secure: boolean; user: string; password: string } {
+    return { host: this.env.SMTP_HOST ?? '', port: this.env.SMTP_PORT, secure: this.env.SMTP_SECURE,
+      user: this.env.SMTP_USER ?? '', password: this.env.SMTP_PASSWORD ?? '' };
+  }
+
   get notificationsEnabled(): boolean {
     return this.env.NOTIFICATIONS_ENABLED;
   }

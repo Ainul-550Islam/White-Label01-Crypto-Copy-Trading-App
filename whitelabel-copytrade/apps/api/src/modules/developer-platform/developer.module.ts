@@ -10,7 +10,7 @@
  * - secret cipher: existing CryptoService (webhook secrets encrypted at
  *   rest, decryptable only for outbound signing);
  * - rate-limit store: existing Redis infrastructure;
- * - webhook HTTP: plain https client with timeout semantics.
+ * - webhook HTTP: public-address-pinned HTTPS with bounded timeout semantics.
  *
  * Usage metering stays with the existing UsageModule: developer usage is an
  * aggregation over authoritative UsageEvent rows, never a second counter.
@@ -31,9 +31,9 @@ import {
   DEVELOPER_POLICY_DATA_PORT,
   DEVELOPER_POLICY_SOURCE,
   DeveloperPolicyService,
-  type PlanLimitView,
 } from './developer-policy.service';
 import { DeveloperApplicationService } from './developer-application.service';
+import { createDeveloperPolicyData } from './developer-policy-data';
 import { DeveloperAuditService } from './developer-audit.service';
 import {
   DEVELOPER_SECRET_HMAC_KEY,
@@ -48,7 +48,6 @@ import { OAuthService } from './oauth.service';
 import {
   DEVELOPER_WEBHOOK_HTTP,
   WebhookDeliveryService,
-  type WebhookHttpClient,
 } from './webhook-delivery.service';
 import {
   DEVELOPER_SECRET_CIPHER,
@@ -58,6 +57,10 @@ import {
 import { WebhookReplayService } from './webhook-replay.service';
 import { WebhookSubscriptionService } from './webhook-subscription.service';
 import { DeveloperController } from './developer.controller';
+import { DeveloperVersionPinService } from './developer-version-pin.service';
+import { DeveloperIntegrationController } from './developer-integration.controller';
+import { SecureWebhookHttpClient } from './webhook-http-client';
+import { WebhookDeliveryProcessor } from './webhook-delivery.processor';
 
 function requireEnv(key: string): string {
   const value = process.env[key];
@@ -80,44 +83,7 @@ const POLICY_SOURCE_PROVIDER: Provider = {
 
 const POLICY_DATA_PROVIDER: Provider = {
   provide: DEVELOPER_POLICY_DATA_PORT,
-  useFactory: (prisma: PrismaService) => ({
-    async planLimitViewForTenant(tenantId: string): Promise<PlanLimitView> {
-      // Authoritative truth: the tenant's active subscription plan rows.
-      const subscription = await prisma.tenantSubscription.findFirst({
-        where: { tenantId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
-        orderBy: { currentPeriodStart: 'desc' },
-        select: { planId: true },
-      });
-      if (!subscription) {
-        // No plan: NOTHING is granted (strictest interpretation).
-        return { planKey: 'none', limits: {}, features: [] };
-      }
-      const [limits, features] = await Promise.all([
-        prisma.planLimit.findMany({
-          where: { planId: subscription.planId },
-          select: { key: true, value: true },
-        }),
-        prisma.planFeature.findMany({
-          where: { planId: subscription.planId, enabled: true },
-          select: { key: true },
-        }),
-      ]);
-      const limitMap: Record<string, number> = {};
-      for (const limit of limits) limitMap[limit.key] = limit.value;
-      return {
-        planKey: subscription.planId,
-        limits: limitMap,
-        features: features.map((feature: { key: string }) => feature.key),
-      };
-    },
-    async tenantEntitlementKeys(tenantId: string): Promise<string[]> {
-      const rows = await prisma.tenantFeatureFlag.findMany({
-        where: { tenantId, enabled: true },
-        select: { featureFlag: { select: { key: true } } },
-      });
-      return rows.map((row: { featureFlag: { key: string } }) => row.featureFlag.key);
-    },
-  }),
+  useFactory: createDeveloperPolicyData,
   inject: [PrismaService],
 };
 
@@ -155,36 +121,13 @@ const RATE_LIMIT_STORE_PROVIDER: Provider = {
 
 const WEBHOOK_HTTP_PROVIDER: Provider = {
   provide: DEVELOPER_WEBHOOK_HTTP,
-  useFactory: (): WebhookHttpClient => ({
-    async post(url, headers, body, timeoutMs) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...headers },
-          body,
-          signal: controller.signal,
-        });
-        // Response body is drained but never echoed: it may contain anything.
-        await response.arrayBuffer().catch(() => undefined);
-        return { status: response.status };
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
-          return { timedOut: true };
-        }
-        return { networkError: true };
-      } finally {
-        clearTimeout(timer);
-      }
-    },
-  }),
+  useFactory: () => new SecureWebhookHttpClient(),
 };
 
 @Global()
 @Module({
   imports: [PrismaModule, RedisModule, CryptoModule],
-  controllers: [DeveloperController],
+  controllers: [DeveloperController, DeveloperIntegrationController],
   providers: [
     POLICY_SOURCE_PROVIDER,
     POLICY_DATA_PROVIDER,
@@ -194,6 +137,7 @@ const WEBHOOK_HTTP_PROVIDER: Provider = {
     WEBHOOK_HTTP_PROVIDER,
     DeveloperPolicyService,
     DeveloperApplicationService,
+    DeveloperVersionPinService,
     DeveloperCredentialService,
     DeveloperScopeService,
     OAuthService,
@@ -203,6 +147,7 @@ const WEBHOOK_HTTP_PROVIDER: Provider = {
     WebhookSubscriptionService,
     WebhookSigningService,
     WebhookDeliveryService,
+    WebhookDeliveryProcessor,
     WebhookReplayService,
     EventSubscriptionService,
     DeveloperUsageService,
@@ -213,6 +158,7 @@ const WEBHOOK_HTTP_PROVIDER: Provider = {
   exports: [
     DeveloperPolicyService,
     DeveloperApplicationService,
+    DeveloperVersionPinService,
     DeveloperCredentialService,
     DeveloperScopeService,
     OAuthService,

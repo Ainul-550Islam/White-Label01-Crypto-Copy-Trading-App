@@ -17,6 +17,8 @@ hosts:
 ingress:
   className: nginx
   tlsSecretName: wlct-tls
+  # Immutable multi-architecture image; may be mirrored into a private registry.
+  webRawTargetGuardImage: nginxinc/nginx-unprivileged:1.27.5-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0
 services:
   api:
     image: registry.example.com/wlct/api

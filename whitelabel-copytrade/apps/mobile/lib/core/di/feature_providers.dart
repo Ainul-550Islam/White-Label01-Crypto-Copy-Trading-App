@@ -51,6 +51,8 @@ final AutoDisposeFutureProvider<List<CopyExecutionSummary>> copyExecutionsProvid
 });
 
 final Provider<FundingRepository> fundingRepositoryProvider = Provider<FundingRepository>((Ref ref) {
+  // Forget in-memory mutation intents on logout or a different authenticated user.
+  ref.watch(authControllerProvider.select((state) => state.isAuthenticated ? '${state.user!.tenantId}:${state.user!.id}' : null));
   return FundingRepository(apiClient: ref.watch(apiClientProvider), logger: ref.watch(appLoggerProvider));
 });
 

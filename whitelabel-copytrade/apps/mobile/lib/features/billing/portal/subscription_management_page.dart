@@ -190,6 +190,7 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
     }
 
     final sub = _state?['subscription'] as Map<String, dynamic>?;
+    final plan = sub?['plan'] as Map<String, dynamic>?;
     final canCancel = _state?['canCancel'] == true;
     final canResume = _state?['canResume'] == true;
     final effectiveActions = (_state?['effectiveActions'] as List?) ?? [];
@@ -222,10 +223,10 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
                     const Text('Current Subscription', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     if (sub != null) ...[
-                      _buildRow('Plan', '${sub['plan']?['name'] ?? sub['planId'] ?? 'Unknown'}'),
+                      _buildRow('Plan', '${plan?['name'] ?? sub['planId'] ?? 'Unknown'}'),
                       _buildRow('Status', '${sub['status'] ?? 'UNKNOWN'}', isBadge: true),
                       _buildRow('Period End', sub['currentPeriodEnd'] != null ? DateTime.parse('${sub['currentPeriodEnd']}').toLocal().toString().split(' ')[0] : 'N/A'),
-                      _buildRow('Interval', '${sub['plan']?['interval'] ?? 'N/A'}'),
+                      _buildRow('Interval', '${plan?['interval'] ?? 'N/A'}'),
                       if (sub['cancelAtPeriodEnd'] == true)
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
@@ -356,7 +357,7 @@ class _SubscriptionManagementPageState extends State<SubscriptionManagementPage>
                     const SizedBox(height: 12),
                     Row(
                       children: ['MONTHLY', 'QUARTERLY', 'YEARLY'].map((interval) {
-                        final isCurrentInterval = sub?['plan']?['interval'] == interval;
+                        final isCurrentInterval = plan?['interval'] == interval;
                         return Expanded(
                           child: Padding(
                             padding: const EdgeInsets.only(right: 8),

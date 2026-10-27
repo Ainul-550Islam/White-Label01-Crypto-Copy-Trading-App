@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { UsersRepository } from './users.repository';
+import { UserPreferencesController } from './user-preferences.controller';
+import { UserPreferencesService } from './user-preferences.service';
 import { EnforcementModule } from '../billing/enforcement/enforcement.module';
 
 /**
@@ -15,8 +17,8 @@ import { EnforcementModule } from '../billing/enforcement/enforcement.module';
  */
 @Module({
   imports: [EnforcementModule],
-  controllers: [UsersController],
-  providers: [UsersService, UsersRepository],
+  controllers: [UsersController, UserPreferencesController],
+  providers: [UsersService, UsersRepository, UserPreferencesService],
   exports: [UsersService, UsersRepository],
 })
 export class UsersModule {}

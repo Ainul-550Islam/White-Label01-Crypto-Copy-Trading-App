@@ -25,7 +25,7 @@ describe('funding / withdrawal amount validation', () => {
   });
 
   function services() {
-    const prisma = { institutionalAccount: { findFirst: jest.fn().mockResolvedValue(null) } };
+    const prisma = { institutionalAccount: { findFirst: jest.fn().mockResolvedValue(null) }, withTenantRls: jest.fn(async (_tenant: string, fn: (tx: any) => unknown) => fn(prisma)) };
     const deps = [
       prisma,
       { resolvePolicy: jest.fn() },

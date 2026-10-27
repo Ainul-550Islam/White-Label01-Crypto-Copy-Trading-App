@@ -82,39 +82,41 @@ export class EventSubscriptionService {
       payload: observation.payload,
     });
 
-    const subscriptions = await this.prisma.developerWebhookSubscription.findMany({
-      where: {
-        tenantId: observation.tenantId,
-        state: 'ACTIVE',
-        revokedAt: null,
-        eventTypes: { has: observation.eventType },
-      },
-    });
-
-    const deliveryIds: string[] = [];
-    for (const subscription of subscriptions) {
-      const filter: EventSubscriptionFilter = {
-        eventTypes: subscription.eventTypes,
-        eventVersion: subscription.eventVersion,
-      };
-      if (!eventMatchesFilter(envelope, filter)) {
-        continue;
-      }
-      const record = await this.delivery.enqueue({
-        tenantId: observation.tenantId,
-        subscriptionId: subscription.id,
-        applicationId: subscription.applicationId,
-        envelope,
-        idempotencyKey: idempotencyKey(
-          observation.tenantId,
-          'webhook.delivery',
-          `${subscription.id}|${envelope.eventId}`,
-        ),
-        environment: subscription.environment,
+    return this.prisma.withTenantRls(observation.tenantId, async (transaction) => {
+      const subscriptions = await transaction.developerWebhookSubscription.findMany({
+        where: {
+          tenantId: observation.tenantId,
+          state: 'ACTIVE',
+          revokedAt: null,
+          eventTypes: { has: observation.eventType },
+        },
       });
-      deliveryIds.push(record.id);
-    }
-    return { delivered: deliveryIds.length > 0, deliveryIds };
+
+      const deliveryIds: string[] = [];
+      for (const subscription of subscriptions) {
+        const filter: EventSubscriptionFilter = {
+          eventTypes: subscription.eventTypes,
+          eventVersion: subscription.eventVersion,
+        };
+        if (!eventMatchesFilter(envelope, filter)) {
+          continue;
+        }
+        const record = await this.delivery.enqueue({
+          tenantId: observation.tenantId,
+          subscriptionId: subscription.id,
+          applicationId: subscription.applicationId,
+          envelope,
+          idempotencyKey: idempotencyKey(
+            observation.tenantId,
+            'webhook.delivery',
+            `${subscription.id}|${envelope.eventId}`,
+          ),
+          environment: subscription.environment,
+        }, transaction);
+        deliveryIds.push(record.id);
+      }
+      return { delivered: deliveryIds.length > 0, deliveryIds };
+    });
   }
 
   /** Portal-facing event catalog, including the stable payload-schema identifier. */

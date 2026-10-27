@@ -112,102 +112,107 @@ export class RiskStateService {
     const summary = this.config.riskSafetySummary;
     const freshWindowMicros = this.config.riskSnapshotRefreshMs * 2 * 1000;
 
-    const [accounts, switches, protections, sinceAgg] = await Promise.all([
-      this.prisma.tradingAccount.findMany({
-        where: { tenantId },
-        select: { id: true },
-      }),
-      this.prisma.killSwitch.findMany({
-        where: { OR: [{ tenantId }, { tenantId: null, scope: 'GLOBAL' }] },
-        select: {
-          id: true,
-          tenantId: true,
-          scope: true,
-          target: true,
-          isEngaged: true,
-          reason: true,
-          status: true,
-          triggeredByRule: true,
-          severity: true,
-          requiresExplicitClear: true,
-          engagedAt: true,
-          acknowledgedAt: true,
-          clearedAt: true,
-          updatedAt: true,
-        },
-      }),
-      this.prisma.riskProtectionTrip.findMany({
-        where: { tenantId, status: 'ACTIVE' },
-        select: {
-          id: true,
-          accountId: true,
-          scope: true,
-          target: true,
-          action: true,
-          ruleId: true,
-          reason: true,
-          status: true,
-          acknowledgedAt: true,
-          clearedAt: true,
-          triggeredAtDateTime: true,
-          isSimulated: true,
-        },
-      }),
-      this.prisma.riskEvent.groupBy({
-        by: ['severity'],
-        where: {
-          tenantId,
-          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-        },
-        _count: { _all: true },
-      }),
-    ]);
+    // Every mirror in this aggregate must see the same transaction-local
+    // tenant. Without it, forced RLS turns real rows into false zero counts.
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const [accounts, switches, protections, sinceAgg] = await Promise.all([
+        tx.tradingAccount.findMany({
+          where: { tenantId },
+          select: { id: true },
+        }),
+        tx.killSwitch.findMany({
+          where: { OR: [{ tenantId }, { tenantId: null, scope: 'GLOBAL' }] },
+          select: {
+            id: true,
+            tenantId: true,
+            scope: true,
+            target: true,
+            isEngaged: true,
+            reason: true,
+            status: true,
+            triggeredByRule: true,
+            severity: true,
+            requiresExplicitClear: true,
+            engagedAt: true,
+            acknowledgedAt: true,
+            clearedAt: true,
+            updatedAt: true,
+          },
+        }),
+        tx.riskProtectionTrip.findMany({
+          where: { tenantId, status: 'ACTIVE', isSimulated: false },
+          select: {
+            id: true,
+            accountId: true,
+            scope: true,
+            target: true,
+            action: true,
+            ruleId: true,
+            reason: true,
+            status: true,
+            acknowledgedAt: true,
+            clearedAt: true,
+            triggeredAtDateTime: true,
+            isSimulated: true,
+          },
+        }),
+        tx.riskEvent.groupBy({
+          by: ['severity'],
+          where: {
+            tenantId,
+            isSimulated: false,
+            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          },
+          _count: { _all: true },
+        }),
+      ]);
 
-    const latestByAccount: RiskSnapshotMetadataView[] = [];
-    const staleAccounts: string[] = [];
-    const nowMs = Date.now();
-    for (const account of accounts) {
-      const latest = (await this.prisma.riskSnapshotMetadata.findFirst({
-        where: { accountId: account.id },
-        orderBy: { capturedAt: 'desc' },
-        select: RiskStateService.SNAPSHOT_SELECT,
-      })) as RiskSnapshotMetadataRow | null;
-      if (!latest) {
-        // No mirrored snapshot at all is the STALEST possible state; an
-        // account that has never synced appears as stale, not absent, so
-        // the dashboard's silence is never misread as health.
-        staleAccounts.push(account.id);
-        continue;
+      const latestByAccount: RiskSnapshotMetadataView[] = [];
+      const staleAccounts: string[] = [];
+      const nowMs = Date.now();
+      for (const account of accounts) {
+        const latest = (await tx.riskSnapshotMetadata.findFirst({
+          where: { tenantId, accountId: account.id },
+          orderBy: { capturedAt: 'desc' },
+          select: RiskStateService.SNAPSHOT_SELECT,
+        })) as RiskSnapshotMetadataRow | null;
+        if (!latest) {
+          // No mirrored snapshot at all is the STALEST possible state; an
+          // account that has never synced appears as stale, not absent, so
+          // the dashboard's silence is never misread as health.
+          staleAccounts.push(account.id);
+          continue;
+        }
+        latestByAccount.push(toSnapshotMetadataView(latest));
+        const ageMs = nowMs - latest.capturedAt.getTime();
+        if (ageMs * 1000 > freshWindowMicros) {
+          staleAccounts.push(account.id);
+        }
       }
-      latestByAccount.push(toSnapshotMetadataView(latest));
-      const ageMs = nowMs - latest.capturedAt.getTime();
-      if (ageMs * 1000 > freshWindowMicros) {
-        staleAccounts.push(account.id);
+
+      const eventsLast24hBySeverity: Partial<Record<RiskEventSeverityWire, number>> = {};
+      for (const row of sinceAgg) {
+        eventsLast24hBySeverity[row.severity as RiskEventSeverityWire] = row._count._all;
       }
-    }
 
-    const eventsLast24hBySeverity: Partial<Record<RiskEventSeverityWire, number>> = {};
-    for (const row of sinceAgg) {
-      eventsLast24hBySeverity[row.severity as RiskEventSeverityWire] = row._count._all;
-    }
+      const engaged = switches.filter((row) => row.isEngaged);
+      const triggered = protections.length;
 
-    const engaged = switches.filter((row) => row.isEngaged);
-    const triggered = protections.length;
-
-    return {
-      engineEnabled: summary.engineEnabled,
-      failClosed: summary.failClosed,
-      maxRiskStateAgeMs: summary.maxRiskStateAgeMs,
-      snapshotRefreshMs: summary.snapshotRefreshMs,
-      refreshOutpacesStaleness: summary.refreshOutpacesStaleness,
-      platformCeilings: summary.ceilings as unknown as Record<string, string | number>,
-      engagedSwitchCount: engaged.length,
-      triggeredProtectionCount: triggered,
-      latestSnapshotPerAccount: latestByAccount,
-      staleAccounts,
-      eventsLast24hBySeverity,
-      note: summary.note,
-    };
+      return {
+        engineEnabled: summary.engineEnabled,
+        failClosed: summary.failClosed,
+        maxRiskStateAgeMs: summary.maxRiskStateAgeMs,
+        snapshotRefreshMs: summary.snapshotRefreshMs,
+        refreshOutpacesStaleness: summary.refreshOutpacesStaleness,
+        platformCeilings: summary.ceilings as unknown as Record<string, string | number>,
+        engagedSwitchCount: engaged.length,
+        triggeredProtectionCount: triggered,
+        latestSnapshotPerAccount: latestByAccount,
+        staleAccounts,
+        eventsLast24hBySeverity,
+        note: summary.note,
+      };
+    });
   }
 
   // -- events -----------------------------------------------------------------
@@ -228,16 +233,16 @@ export class RiskStateService {
         ...(query.until ? { lt: this.parseDate(query.until, 'until') } : {}),
       };
     }
-    const [rows, total] = await this.prisma.$transaction([
-      this.prisma.riskEvent.findMany({
+    const [rows, total] = await this.prisma.withTenantRls(tenantId, (tx) => Promise.all([
+      tx.riskEvent.findMany({
         where,
         orderBy: this.eventOrderBy(pagination.sortBy, pagination.sortOrder),
         skip: pagination.skip,
         take: pagination.take,
         select: RiskStateService.EVENT_SELECT,
       }),
-      this.prisma.riskEvent.count({ where }),
-    ]);
+      tx.riskEvent.count({ where }),
+    ]));
     return {
       items: rows.map((row) => toRiskEventView(row)),
       pagination: buildPaginationMeta(pagination.page, pagination.limit, total),

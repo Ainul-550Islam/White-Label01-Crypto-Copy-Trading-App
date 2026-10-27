@@ -150,6 +150,12 @@ export class InMemoryPrisma {
     return work(this);
   }
 
+  async withTenantRls<T>(_tenantId: string, work: (tx: this) => Promise<T>): Promise<T> {
+    return work(this);
+  }
+
+  async $queryRaw(): Promise<unknown[]> { return []; }
+
   readonly client = {
     developerApplication: this.clientFor('developerApplication'),
     developerCredential: this.clientFor('developerCredential'),
@@ -184,7 +190,9 @@ function planView(overrides: Partial<PlanLimitView> = {}): PlanLimitView {
     limits: {
       developer_applications: 5,
       developer_credentials_per_app: 3,
+      developer_redirect_uris: 5,
       developer_webhook_subscriptions: 4,
+      developer_webhook_endpoints_per_app: 3,
       developer_rate_burst_per_minute: 100,
       developer_rate_sustained_per_minute: 60,
       developer_pkce_required: 1,

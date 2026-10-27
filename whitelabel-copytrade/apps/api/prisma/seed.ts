@@ -479,6 +479,21 @@ interface PlanSeed {
   features: string[];
 }
 
+// Machine-readable grants are deliberately not mixed into the marketing
+// features displayed in the billing portal. These grant the ability to opt in;
+// the tenant feature-flag defaults and risk checks still apply independently.
+const COMMON_TENANT_FLAG_GRANTS: Record<string, boolean> = {
+  tenant_flag_grant_copy_trading: true,
+  tenant_flag_grant_spot_trading: true,
+  tenant_flag_grant_paper_trading: true,
+  tenant_flag_grant_referral_program: true,
+  tenant_flag_grant_kyc_required: true,
+  tenant_flag_grant_two_factor_mandatory: true,
+  tenant_flag_grant_public_registration: true,
+  tenant_flag_grant_mobile_app: true,
+  tenant_flag_grant_withdrawal_notifications: true,
+};
+
 const PLAN_SEEDS: PlanSeed[] = [
   {
     code: 'starter',
@@ -490,6 +505,17 @@ const PLAN_SEEDS: PlanSeed[] = [
     platformFeeBps: 100,
     sortOrder: 10,
     limits: {
+      ...COMMON_TENANT_FLAG_GRANTS,
+      developer_applications: 1,
+      developer_credentials_per_app: 2,
+      developer_redirect_uris: 3,
+      developer_webhook_subscriptions: 1,
+      developer_webhook_endpoints_per_app: 1,
+      developer_rate_burst_per_minute: 120,
+      developer_rate_sustained_per_minute: 60,
+      developer_pkce_required: 1,
+      developer_feature_portfolio_read: true,
+      developer_feature_webhooks: true,
       maxUsers: 250,
       maxTraders: 5,
       maxFollowersPerTrader: 100,
@@ -513,6 +539,19 @@ const PLAN_SEEDS: PlanSeed[] = [
     platformFeeBps: 75,
     sortOrder: 20,
     limits: {
+      ...COMMON_TENANT_FLAG_GRANTS,
+      tenant_flag_grant_custom_domain: true,
+      tenant_flag_grant_advanced_analytics: true,
+      developer_applications: 5,
+      developer_credentials_per_app: 3,
+      developer_redirect_uris: 5,
+      developer_webhook_subscriptions: 5,
+      developer_webhook_endpoints_per_app: 3,
+      developer_rate_burst_per_minute: 300,
+      developer_rate_sustained_per_minute: 120,
+      developer_pkce_required: 1,
+      developer_feature_portfolio_read: true,
+      developer_feature_webhooks: true,
       maxUsers: 5000,
       maxTraders: 50,
       maxFollowersPerTrader: 1000,
@@ -536,6 +575,22 @@ const PLAN_SEEDS: PlanSeed[] = [
     platformFeeBps: 50,
     sortOrder: 30,
     limits: {
+      ...COMMON_TENANT_FLAG_GRANTS,
+      tenant_flag_grant_custom_domain: true,
+      tenant_flag_grant_advanced_analytics: true,
+      developer_applications: 10,
+      developer_credentials_per_app: 5,
+      developer_redirect_uris: 10,
+      developer_webhook_subscriptions: 20,
+      developer_webhook_endpoints_per_app: 5,
+      developer_rate_burst_per_minute: 600,
+      developer_rate_sustained_per_minute: 120,
+      developer_pkce_required: 1,
+      developer_reactivation_review: 1,
+      developer_feature_portfolio_read: true,
+      developer_feature_webhooks: true,
+      developer_feature_reporting: true,
+      developer_feature_billing: true,
       maxUsers: null,
       maxTraders: null,
       maxFollowersPerTrader: null,
@@ -562,7 +617,7 @@ async function seedPlans(): Promise<void> {
     // lookup cannot express; match them explicitly instead.
     const existingPlan = await prisma.subscriptionPlan.findFirst({
       where: { tenantId: null, code: plan.code },
-      select: { id: true },
+      select: { id: true, limits: true },
     });
 
     if (existingPlan) {
@@ -572,7 +627,11 @@ async function seedPlans(): Promise<void> {
           name: plan.name,
           description: plan.description,
           price: new Prisma.Decimal(plan.price),
-          limits: plan.limits as Prisma.InputJsonValue,
+          limits: {
+            ...plan.limits,
+            ...(existingPlan.limits && typeof existingPlan.limits === 'object' && !Array.isArray(existingPlan.limits)
+              ? existingPlan.limits : {}),
+          } as Prisma.InputJsonValue,
           features: plan.features,
           sortOrder: plan.sortOrder,
           deletedAt: null,

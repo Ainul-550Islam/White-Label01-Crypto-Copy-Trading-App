@@ -32,7 +32,7 @@ const SIGNATURE = /^\s*(?:public\s+|protected\s+)?(?:async\s+)?[A-Za-z_$][\w$]*\
  */
 const REVIEWED = {
   'modules/client-lifecycle/client-lifecycle.controller.ts': {
-    routes: 46,
+    routes: 45,
     reason: 'ownership and staff checks enforced in-handler (client-lifecycle.authorization.spec.ts)',
   },
   'modules/portfolio-accounting/portfolio-accounting.controller.ts': {
@@ -54,12 +54,6 @@ const REVIEWED = {
   'modules/feature-flags/feature-flags.controller.ts': {
     routes: 1,
     reason: 'flags resolved for the caller (read-only)',
-  },
-  'modules/auth/account-recovery.controller.ts': {
-    routes: 3,
-    reason:
-      'account recovery must work without a session: request/verify/complete are anonymous, rate-limited per IP hash ' +
-      'and per account, answer identically for every address, and are single-use (account-recovery.spec.ts)',
   },
 };
 

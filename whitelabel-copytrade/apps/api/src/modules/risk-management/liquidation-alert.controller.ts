@@ -1,17 +1,3 @@
-// # Serves the caller's own positions with their liquidation-distance bucket, worst first.
-//
-// THE BUCKET IS DERIVED, NOT INVENTED
-// -----------------------------------
-// Every row comes from `LiquidationRiskService`, which already refuses to invent a
-// liquidation price: when the canonical position has no authoritative liquidation
-// level the state is UNKNOWN and the reason says so. This controller maps that state
-// to the customer's four buckets and keeps UNKNOWN as its own bucket - a customer who
-// is told "safe" because we could not compute anything would size a position on a
-// number nobody has.
-//
-// Scope is the caller: the route reads the caller's own trading accounts and asks the
-// risk service per account, so one follower can never see another's exposure, and the
-// tenant is taken from the JWT rather than from a query parameter.
 import { Controller, Get } from '@nestjs/common';
 import { Permission, type AuthenticatedActor } from '@wlct/shared-types';
 
@@ -21,131 +7,93 @@ import { RequireAnyPermission } from '../../common/decorators/permissions.decora
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { LiquidationRiskService } from './liquidation-risk.service';
 
-/** The customer-facing buckets. UNKNOWN is a bucket, never a reassurance. */
 export type LiquidationBucket = 'SAFE' | 'WATCH' | 'DANGER' | 'CRITICAL' | 'UNKNOWN';
-
 export interface LiquidationAlertView {
   positionId: string;
   accountId: string;
   symbol: string;
   side: string;
-  quantity: string;
+  quantity: string | null;
   markPrice: string | null;
   liquidationPrice: string | null;
   distancePercent: string | null;
   bucket: LiquidationBucket;
   reason: string;
   severity: string;
+  sourceUpdatedAt: string | null;
+  containsSimulatedFills: boolean | null;
 }
 
-const BUCKET_ORDER: Record<LiquidationBucket, number> = {
-  CRITICAL: 4,
-  DANGER: 3,
-  WATCH: 2,
-  UNKNOWN: 1,
-  SAFE: 0,
-};
-
-/** Risk state -> customer bucket. `UNKNOWN`/`STALE` stay unknown: they are not safety. */
-function toBucket(state: unknown): LiquidationBucket {
+const ORDER: Record<LiquidationBucket, number> = { CRITICAL: 4, DANGER: 3, WATCH: 2, UNKNOWN: 1, SAFE: 0 };
+function bucket(state: unknown, authoritative: boolean): LiquidationBucket {
+  // A spot 'NORMAL' result is not evidence of distance from liquidation. Nor
+  // can missing/non-authoritative price evidence be promoted to a safe state.
+  if (!authoritative) return 'UNKNOWN';
   switch (String(state ?? '').toUpperCase()) {
-    case 'NORMAL':
-      return 'SAFE';
-    case 'WATCH':
-    case 'ELEVATED':
-      return 'WATCH';
-    case 'HIGH':
-      return 'DANGER';
-    case 'CRITICAL':
-    case 'BLOCKED':
-      return 'CRITICAL';
-    default:
-      return 'UNKNOWN';
+    case 'NORMAL': return 'SAFE';
+    case 'WATCH': case 'ELEVATED': return 'WATCH';
+    case 'HIGH': return 'DANGER';
+    case 'CRITICAL': case 'BLOCKED': return 'CRITICAL';
+    default: return 'UNKNOWN';
   }
 }
 
 @Controller('risk/liquidation-alerts')
 export class LiquidationAlertController {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly liquidationRisk: LiquidationRiskService,
-  ) {}
+  constructor(private readonly prisma: PrismaService, private readonly liquidationRisk: LiquidationRiskService) {}
 
-  /**
-   * One row per open position, worst bucket first.
-   *
-   * A failure to evaluate one account does not blank the screen: the account's rows
-   * are reported as UNKNOWN with the reason, because "the margin check failed" is
-   * information the customer needs and an empty list would read as "nothing at risk".
-   */
   @Get()
   @RequireAnyPermission(Permission.POSITION_READ, Permission.PORTFOLIO_READ)
-  async list(
-    @TenantId() tenantId: string,
-    @CurrentUser() user: AuthenticatedActor,
-  ): Promise<{ data: LiquidationAlertView[]; total: number; unknownCount: number }> {
-    const accounts = await this.prisma.tradingAccount.findMany({
-      where: { tenantId, userId: user.userId, deletedAt: null },
-      select: { id: true },
-    });
-
+  async list(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedActor):
+    Promise<{ tenantId: string; userId: string; data: LiquidationAlertView[]; total: number; unknownCount: number }> {
+    const accounts = await this.prisma.withTenantRls(tenantId, (tx) => tx.tradingAccount.findMany({
+      where: { tenantId, userId: user.userId, deletedAt: null }, select: { id: true },
+    }));
     const rows: LiquidationAlertView[] = [];
     for (const account of accounts) {
       try {
-        // The risk result is keyed by account and symbol, not by position id, so the
-        // position rows are read here and joined by symbol. Nothing is invented: a
-        // result whose position cannot be found keeps the symbol and reports the
-        // account-level id, and its side/quantity stay empty rather than being
-        // guessed from the risk numbers.
-        const positions = await this.prisma.position.findMany({
-          where: { tenantId, accountId: account.id },
-          select: { id: true, symbol: true, side: true, quantity: true },
-        });
-        const bySymbol = new Map(positions.map((position) => [position.symbol, position]));
-
-        const results = await this.liquidationRisk.evaluateLiquidationRisk({
-          tenantId,
-          accountId: account.id,
-        });
-        for (const result of results) {
-          const position = result.symbol ? bySymbol.get(result.symbol) : undefined;
+        const positions = await this.prisma.withTenantRls(tenantId, (tx) => tx.position.findMany({
+          // A sync can reopen a nonzero quantity without clearing closedAt;
+          // hiding that inconsistency would falsely report no position.
+          where: { tenantId, accountId: account.id, quantity: { not: 0 } },
+          select: { id: true, symbol: true, side: true, quantity: true, markPrice: true, updatedAt: true, closedAt: true, containsSimulatedFills: true },
+        }));
+        // Risk results are joined only when there is exactly one result for a
+        // symbol. An empty, partial or ambiguous evaluation is UNKNOWN, never an
+        // empty/healthy panel. Position ownership comes from the scoped query.
+        const results = await this.liquidationRisk.evaluateLiquidationRisk({ tenantId, accountId: account.id });
+        for (const position of positions) {
+          const matching = results.filter((result) => result.symbol === position.symbol && result.accountId === account.id);
+          const result = matching.length === 1 ? matching[0] : null;
+          const validNumber = (value: unknown): value is string => typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value);
+          const positive = (value: unknown): value is string => validNumber(value) && /[1-9]/.test(value);
+          const age = Date.now() - position.updatedAt.getTime();
+          const verified = Boolean(result?.isAuthoritative && positive(result.liquidationPrice) &&
+            positive(result.markPrice) && result.markPrice === position.markPrice?.toString() &&
+            validNumber(result.distancePercent) && !position.containsSimulatedFills && position.closedAt === null &&
+            Number.isFinite(age) && age >= 0 && age <= 15 * 60 * 1000);
+          const classification = result && verified ? bucket(result.state, true) : 'UNKNOWN';
           rows.push({
-            positionId: position?.id ?? `account:${account.id}:${result.symbol ?? 'unknown'}`,
-            accountId: account.id,
-            symbol: result.symbol ?? '',
-            side: position ? String(position.side) : '',
-            quantity: position?.quantity?.toString() ?? '0',
-            markPrice: result.markPrice,
-            liquidationPrice: result.liquidationPrice,
-            distancePercent: result.distancePercent,
-            bucket: toBucket(result.state),
-            reason: result.reason,
-            severity: String(result.severity),
+            positionId: position.id, accountId: account.id, symbol: position.symbol, side: String(position.side),
+            quantity: position.quantity.toString(), markPrice: position.markPrice?.toString() ?? null,
+            liquidationPrice: verified ? result!.liquidationPrice : null,
+            distancePercent: verified ? result!.distancePercent : null,
+            bucket: classification,
+            reason: classification === 'UNKNOWN' ? 'Liquidation distance is not available from authoritative evidence.' : 'Liquidation risk was evaluated.',
+            severity: classification === 'UNKNOWN' ? 'UNKNOWN' : String(result?.severity ?? 'UNKNOWN'),
+            sourceUpdatedAt: position.updatedAt.toISOString(), containsSimulatedFills: position.containsSimulatedFills,
           });
         }
       } catch {
-        // Never silently drop an account: an unreadable account is UNKNOWN exposure.
-        rows.push({
-          positionId: `account:${account.id}`,
-          accountId: account.id,
-          symbol: '',
-          side: '',
-          quantity: '0',
-          markPrice: null,
-          liquidationPrice: null,
-          distancePercent: null,
-          bucket: 'UNKNOWN',
-          reason: 'Margin health could not be evaluated for this account, so this is unknown rather than safe.',
-          severity: 'UNKNOWN',
-        });
+        // Even a failed position read must remain visibly unknown; never invent
+        // a zero position or expose a raw provider/storage exception.
+        rows.push({ positionId: `account:${account.id}`, accountId: account.id, symbol: '', side: '', quantity: null,
+          markPrice: null, liquidationPrice: null, distancePercent: null, bucket: 'UNKNOWN',
+          reason: 'Liquidation risk could not be evaluated for this account.', severity: 'UNKNOWN',
+          sourceUpdatedAt: null, containsSimulatedFills: null });
       }
     }
-
-    rows.sort((left, right) => BUCKET_ORDER[right.bucket] - BUCKET_ORDER[left.bucket]);
-    return {
-      data: rows,
-      total: rows.length,
-      unknownCount: rows.filter((row) => row.bucket === 'UNKNOWN').length,
-    };
+    rows.sort((a, b) => ORDER[b.bucket] - ORDER[a.bucket]);
+    return { tenantId, userId: user.userId, data: rows, total: rows.length, unknownCount: rows.filter((row) => row.bucket === 'UNKNOWN').length };
   }
 }

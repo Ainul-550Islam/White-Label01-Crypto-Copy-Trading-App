@@ -110,19 +110,37 @@ export class TokenService {
       audience: this.config.jwtAudience,
     });
 
-    await this.prisma.refreshToken.create({
-      data: {
-        id: refreshTokenId,
-        userId: context.userId,
-        tenantId: context.tenantId,
-        sessionId: context.sessionId,
-        tokenHash: this.crypto.hashToken(refreshToken),
-        familyId,
-        status: 'ACTIVE',
-        expiresAt: addSeconds(new Date(), this.config.refreshTokenTtlSeconds),
-        ipHash: context.ipHash ?? null,
-        userAgent: context.userAgent ?? null,
-      },
+    await this.prisma.withTenantRls(context.tenantId, async (tx) => {
+      // Serialize token issuance with recovery/global credential changes. A
+      // token cannot be created for a session that recovery already revoked.
+      const users = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "users" WHERE id = ${context.userId}::uuid
+          AND tenant_id = ${context.tenantId}::uuid AND deleted_at IS NULL FOR UPDATE
+      `;
+      if (users.length !== 1) throw new AppException({ code: ErrorCode.TOKEN_REVOKED });
+      const [user, session] = await Promise.all([
+        tx.user.findFirst({ where: { id: context.userId, tenantId: context.tenantId }, select: { sessionVersion: true, status: true } }),
+        tx.userSession.findFirst({ where: { id: context.sessionId, tenantId: context.tenantId, userId: context.userId, revokedAt: null,
+          expiresAt: { gt: new Date() } }, select: { id: true } }),
+      ]);
+      if (!user || user.sessionVersion !== context.sessionVersion ||
+          ['SUSPENDED', 'DEACTIVATED', 'LOCKED'].includes(user.status) || !session) {
+        throw new AppException({ code: ErrorCode.TOKEN_REVOKED, message: 'Your session is no longer valid. Please sign in again.' });
+      }
+      await tx.refreshToken.create({
+        data: {
+          id: refreshTokenId,
+          userId: context.userId,
+          tenantId: context.tenantId,
+          sessionId: context.sessionId,
+          tokenHash: this.crypto.hashToken(refreshToken),
+          familyId,
+          status: 'ACTIVE',
+          expiresAt: addSeconds(new Date(), this.config.refreshTokenTtlSeconds),
+          ipHash: context.ipHash ?? null,
+          userAgent: context.userAgent ?? null,
+        },
+      });
     });
 
     return {
@@ -185,104 +203,72 @@ export class TokenService {
     let payload: JwtRefreshPayload;
     try {
       payload = await this.jwtService.verifyAsync<JwtRefreshPayload>(presentedToken, {
-        secret: this.config.jwtRefreshVerificationKey,
-        algorithms: [this.config.jwtAlgorithm],
-        issuer: this.config.jwtIssuer,
-        audience: this.config.jwtAudience,
+        secret: this.config.jwtRefreshVerificationKey, algorithms: [this.config.jwtAlgorithm],
+        issuer: this.config.jwtIssuer, audience: this.config.jwtAudience,
       });
     } catch (error) {
       const name = (error as Error).name;
-      throw new AppException({
-        code: name === 'TokenExpiredError' ? ErrorCode.TOKEN_EXPIRED : ErrorCode.TOKEN_INVALID,
-        message: 'Your session has expired. Please sign in again.',
-      });
+      throw new AppException({ code: name === 'TokenExpiredError' ? ErrorCode.TOKEN_EXPIRED : ErrorCode.TOKEN_INVALID,
+        message: 'Your session has expired. Please sign in again.' });
     }
-
-    if (payload.typ !== 'refresh') {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (payload.typ !== 'refresh' || ![payload.tid, payload.sub, payload.sid, payload.fam, payload.jti].every((id) => typeof id === 'string' && uuid.test(id))) {
       throw new AppException({ code: ErrorCode.TOKEN_INVALID });
     }
-
     const tokenHash = this.crypto.hashToken(presentedToken);
-    const stored = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash },
-      select: {
-        id: true,
-        userId: true,
-        tenantId: true,
-        sessionId: true,
-        familyId: true,
-        status: true,
-        expiresAt: true,
-        session: { select: { deviceId: true, revokedAt: true } },
-      },
+    const result = await this.prisma.withTenantRls(payload.tid, async (tx) => {
+      // Match recovery's lock order. This prevents a concurrent rotation from
+      // being committed after recovery has revoked the user's sessions.
+      const users = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "users" WHERE id = ${payload.sub}::uuid AND tenant_id = ${payload.tid}::uuid
+          AND deleted_at IS NULL FOR UPDATE
+      `;
+      if (users.length !== 1) return { kind: 'invalid' as const };
+      await tx.$queryRaw`SELECT id FROM "refresh_tokens" WHERE token_hash = ${tokenHash} AND tenant_id = ${payload.tid}::uuid FOR UPDATE`;
+      const stored = await tx.refreshToken.findUnique({ where: { tokenHash }, select: {
+        id: true, userId: true, tenantId: true, sessionId: true, familyId: true, status: true, expiresAt: true,
+        session: { select: { deviceId: true, revokedAt: true, expiresAt: true } },
+      } });
+      if (!stored || stored.id !== payload.jti || stored.userId !== payload.sub || stored.tenantId !== payload.tid ||
+          stored.sessionId !== payload.sid || stored.familyId !== payload.fam) return { kind: 'invalid' as const };
+      // Recovery/log-out may leave historical ROTATED rows. A revoked session
+      // must never be able to revoke a subsequent, newly-authenticated session.
+      if (stored.status === 'REVOKED' || stored.session.revokedAt) return { kind: 'revoked' as const };
+      if (stored.status === 'ROTATED') {
+        const now = new Date();
+        const revoked = await tx.refreshToken.updateMany({
+          where: { tenantId: stored.tenantId, userId: stored.userId, familyId: stored.familyId, status: { in: ['ACTIVE', 'ROTATED'] } },
+          data: { status: 'REVOKED', revokedAt: now, revokeReason: 'refresh_token_reuse_detected' },
+        });
+        await tx.userSession.updateMany({ where: { tenantId: stored.tenantId, userId: stored.userId, revokedAt: null },
+          data: { revokedAt: now, revokeReason: 'refresh_token_reuse_detected' } });
+        return { kind: 'reuse' as const, familyId: stored.familyId, userId: stored.userId, tenantId: stored.tenantId, revokedCount: revoked.count };
+      }
+      if (stored.status === 'EXPIRED' || stored.expiresAt.getTime() <= Date.now() || stored.session.expiresAt.getTime() <= Date.now()) {
+        if (stored.status === 'ACTIVE') await tx.refreshToken.update({ where: { id: stored.id }, data: { status: 'EXPIRED' } });
+        return { kind: 'expired' as const };
+      }
+      if (stored.status !== 'ACTIVE') return { kind: 'invalid' as const };
+      if (stored.session.deviceId !== deviceId) return { kind: 'device' as const, tenantId: stored.tenantId, userId: stored.userId, expectedDeviceId: stored.session.deviceId };
+      await tx.refreshToken.update({ where: { id: stored.id }, data: { status: 'ROTATED', usedAt: new Date() } });
+      return { kind: 'ok' as const, userId: stored.userId, tenantId: stored.tenantId, sessionId: stored.sessionId, familyId: stored.familyId };
     });
-
-    if (!stored) {
-      // A validly signed token that we have never stored means the row was
-      // deleted (global logout) or the token was forged with a leaked key.
-      throw new AppException({
-        code: ErrorCode.TOKEN_INVALID,
-        message: 'Your session is no longer valid. Please sign in again.',
-      });
+    if (result.kind === 'reuse') {
+      await this.reportTokenReuse(result.familyId, result.userId, result.tenantId, result.revokedCount, context);
+      throw new AppException({ code: ErrorCode.REFRESH_TOKEN_REUSE_DETECTED,
+        message: 'A security issue was detected with your session and all devices were signed out. Please sign in again.' });
     }
-
-    if (stored.status !== 'ACTIVE') {
-      await this.handleTokenReuse(stored.familyId, stored.userId, stored.tenantId, context);
-      throw new AppException({
-        code: ErrorCode.REFRESH_TOKEN_REUSE_DETECTED,
-        message:
-          'A security issue was detected with your session and all devices were signed out. Please sign in again.',
-      });
+    if (result.kind === 'device') {
+      await this.securityEvents.record({ tenantId: result.tenantId, userId: result.userId, type: SecurityEventType.TOKEN_REUSE,
+        severity: SecuritySeverity.HIGH, description: 'Refresh token presented from a device other than the one it was issued to.',
+        ipHash: context.ipHash, requestId: context.requestId,
+        metadata: { expectedDeviceId: result.expectedDeviceId, presentedDeviceId: deviceId } });
+      throw new AppException({ code: ErrorCode.TOKEN_INVALID, message: 'Your session is no longer valid. Please sign in again.' });
     }
-
-    if (stored.expiresAt.getTime() <= Date.now()) {
-      await this.prisma.refreshToken.update({
-        where: { id: stored.id },
-        data: { status: 'EXPIRED' },
-      });
-      throw new AppException({
-        code: ErrorCode.TOKEN_EXPIRED,
-        message: 'Your session has expired. Please sign in again.',
-      });
-    }
-
-    if (stored.session.revokedAt) {
-      throw new AppException({
-        code: ErrorCode.TOKEN_REVOKED,
-        message: 'This device was signed out. Please sign in again.',
-      });
-    }
-
-    // Binding the refresh token to its device stops a stolen token from being
-    // replayed from a different client installation.
-    if (stored.session.deviceId !== deviceId) {
-      await this.securityEvents.record({
-        tenantId: stored.tenantId,
-        userId: stored.userId,
-        type: SecurityEventType.TOKEN_REUSE,
-        severity: SecuritySeverity.HIGH,
-        description: 'Refresh token presented from a device other than the one it was issued to.',
-        ipHash: context.ipHash,
-        requestId: context.requestId,
-        metadata: { expectedDeviceId: stored.session.deviceId, presentedDeviceId: deviceId },
-      });
-      throw new AppException({
-        code: ErrorCode.TOKEN_INVALID,
-        message: 'Your session is no longer valid. Please sign in again.',
-      });
-    }
-
-    await this.prisma.refreshToken.update({
-      where: { id: stored.id },
-      data: { status: 'ROTATED', usedAt: new Date() },
-    });
-
-    return {
-      userId: stored.userId,
-      tenantId: stored.tenantId,
-      sessionId: stored.sessionId,
-      familyId: stored.familyId,
-    };
+    if (result.kind === 'expired') throw new AppException({ code: ErrorCode.TOKEN_EXPIRED, message: 'Your session has expired. Please sign in again.' });
+    if (result.kind === 'revoked') throw new AppException({ code: ErrorCode.TOKEN_REVOKED, message: 'This device was signed out. Please sign in again.' });
+    if (result.kind !== 'ok') throw new AppException({ code: ErrorCode.TOKEN_INVALID, message: 'Your session is no longer valid. Please sign in again.' });
+    return { userId: result.userId, tenantId: result.tenantId, sessionId: result.sessionId, familyId: result.familyId };
   }
 
   /** Issues the short-lived token that carries a user through the 2FA step. */
@@ -290,14 +276,16 @@ export class TokenService {
     userId: string,
     tenantId: string,
     deviceId: string,
-    options: { sso?: string } = {},
+    options: { sso?: string; sessionVersion: number },
   ): Promise<{ token: string; expiresIn: number }> {
-    const payload: Omit<JwtTwoFactorPayload, 'iat' | 'exp'> = {
+    const payload: Omit<JwtTwoFactorPayload, 'iat' | 'exp'> & { sv: number } = {
       sub: userId,
       tid: tenantId,
       typ: '2fa_challenge',
       did: deviceId,
       jti: randomUUID(),
+      // A password reset/global sign-out invalidates challenges in flight too.
+      sv: options.sessionVersion,
       // The SSO login transaction this challenge follows (opaque id, no identity data).
       ...(options.sso ? { sso: options.sso } : {}),
     };
@@ -313,10 +301,10 @@ export class TokenService {
     return { token, expiresIn: this.config.twoFactorChallengeTtlSeconds };
   }
 
-  async verifyTwoFactorChallenge(token: string): Promise<JwtTwoFactorPayload> {
-    let payload: JwtTwoFactorPayload;
+  async verifyTwoFactorChallenge(token: string): Promise<JwtTwoFactorPayload & { sv: number }> {
+    let payload: JwtTwoFactorPayload & { sv: number };
     try {
-      payload = await this.jwtService.verifyAsync<JwtTwoFactorPayload>(token, {
+      payload = await this.jwtService.verifyAsync<JwtTwoFactorPayload & { sv: number }>(token, {
         secret: this.config.jwtAccessVerificationKey,
         algorithms: [this.config.jwtAlgorithm],
         issuer: this.config.jwtIssuer,
@@ -329,7 +317,9 @@ export class TokenService {
       });
     }
 
-    if (payload.typ !== '2fa_challenge') {
+    // Challenges minted before version binding was deployed must be restarted;
+    // accepting an unversioned challenge could bypass a completed reset.
+    if (payload.typ !== '2fa_challenge' || !Number.isSafeInteger(payload.sv) || payload.sv < 0) {
       throw new AppException({ code: ErrorCode.TOKEN_INVALID });
     }
 
@@ -372,11 +362,14 @@ export class TokenService {
    * while still allowing a few wrong codes beforehand.
    */
   async consumeTwoFactorChallenge(jti: string): Promise<void> {
-    await this.cache.set(
+    const created = await this.cache.setIfAbsent(
       this.twoFactorChallengeConsumedKey(jti),
       true,
       this.config.twoFactorChallengeTtlSeconds,
     );
+    if (!created) {
+      throw new AppException({ code: ErrorCode.TOKEN_INVALID, message: 'This verification request was already used. Please sign in again.' });
+    }
     await this.cache.delete(this.twoFactorChallengeAttemptsKey(jti));
   }
 
@@ -415,28 +408,15 @@ export class TokenService {
     await this.cache.set(CACHE_KEY.revokedToken(tokenId), true, ttl);
   }
 
-  private async handleTokenReuse(
+  private async reportTokenReuse(
     familyId: string,
     userId: string,
     tenantId: string,
+    revokedCount: number,
     context: { ipHash: string; userAgent: string | null; requestId: string },
   ): Promise<void> {
-    const revoked = await this.prisma.refreshToken.updateMany({
-      where: { familyId, status: { in: ['ACTIVE', 'ROTATED'] } },
-      data: {
-        status: 'REVOKED',
-        revokedAt: new Date(),
-        revokeReason: 'refresh_token_reuse_detected',
-      },
-    });
-
-    await this.prisma.userSession.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date(), revokeReason: 'refresh_token_reuse_detected' },
-    });
-
     this.logger.error(
-      { event: 'auth.token_reuse', userId, tenantId, familyId, revokedCount: revoked.count },
+      { event: 'auth.token_reuse', userId, tenantId, familyId, revokedCount },
       'Refresh token reuse detected: the token family and all sessions were revoked',
     );
 
@@ -450,7 +430,7 @@ export class TokenService {
       ipHash: context.ipHash,
       userAgent: context.userAgent,
       requestId: context.requestId,
-      metadata: { familyId, revokedTokens: revoked.count },
+      metadata: { familyId, revokedTokens: revokedCount },
     });
 
     await this.audit.recordImmediate({

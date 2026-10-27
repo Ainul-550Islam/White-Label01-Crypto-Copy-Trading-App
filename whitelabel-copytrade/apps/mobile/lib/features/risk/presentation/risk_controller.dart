@@ -15,7 +15,10 @@ import 'risk_state.dart';
 /// disarmed between notifications. If this controller ever grows a third
 /// public method, stop and re-read the Part 8 brief.
 class RiskController extends StateNotifier<RiskViewState> {
-  RiskController({required RiskRepository repository, required AppLogger logger})
+  RiskController({
+    required RiskRepository repository,
+    required AppLogger logger,
+  })
       : _repository = repository,
         _logger = logger,
         super(const RiskViewState.initial());
@@ -74,7 +77,9 @@ class RiskController extends StateNotifier<RiskViewState> {
         status: RiskViewStatus.failed,
         isRefreshing: false,
         error: lastFailure,
-        degradedPanels: const <String>[],
+        // Preserve explicit failure markers even if cached data is retained;
+        // old panels must not be displayed as fresh after a failed refresh.
+        degradedPanels: List<String>.unmodifiable(degraded),
       );
       return;
     }

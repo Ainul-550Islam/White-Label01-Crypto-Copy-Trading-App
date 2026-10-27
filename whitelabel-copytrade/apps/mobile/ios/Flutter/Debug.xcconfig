@@ -1,0 +1,5 @@
+#include "Generated.xcconfig"
+WLCT_IOS_BUNDLE_ID = com.whitelabel.generated.mobile
+WLCT_APP_DISPLAY_NAME = Copy Trading
+#include? "Brand.xcconfig"
+APS_ENVIRONMENT = development

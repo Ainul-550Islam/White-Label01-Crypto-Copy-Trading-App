@@ -8,6 +8,7 @@ import { REDACTED_PLACEHOLDER } from '@wlct/config';
 import { AppConfigService } from '../../config/app-config.service';
 import { AppConfigModule } from '../../config/app-config.module';
 import type { AppRequest } from '../../common/types/request.types';
+import { requestBodyForLog } from './request-body-redaction';
 
 /**
  * Structured logging.
@@ -101,7 +102,7 @@ export class LoggerModule {
                 // Raw IPs are never logged; only the keyed hash.
                 ipHash: request.ipHash,
                 userAgent: source.headers?.['user-agent'],
-                ...(config.logRequestBody ? { body: request.body } : {}),
+                ...(config.logRequestBody ? { body: requestBodyForLog(source.url ?? '', request.body) } : {}),
               };
             },
             res: (res: ServerResponse): Record<string, unknown> => ({

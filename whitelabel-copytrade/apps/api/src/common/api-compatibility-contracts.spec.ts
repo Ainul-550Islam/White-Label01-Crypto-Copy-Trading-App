@@ -885,6 +885,7 @@ describe('Typed lifecycle persistence boundaries', () => {
 
   function lifecycleDatabase() {
     return {
+      $queryRaw: jest.fn().mockResolvedValue([]),
       tenant: { findUnique: jest.fn<(args: Prisma.TenantFindUniqueArgs) => Promise<{ supportedCurrencies: string[]; defaultCurrency: string }>>()
         .mockResolvedValue({ supportedCurrencies: ['USD'], defaultCurrency: 'USD' }) },
       securityPolicy: { findFirst: jest.fn<(args: Prisma.SecurityPolicyFindFirstArgs) => Promise<null>>().mockResolvedValue(null) },
@@ -925,6 +926,7 @@ describe('Typed lifecycle persistence boundaries', () => {
         create: jest.fn<(args: Prisma.AccountRestrictionCreateArgs) => Promise<AccountRestriction>>()
           .mockRejectedValue(new Error('Unexpected restriction creation')),
       },
+      clientLifecycleAudit: { create: jest.fn(async () => ({})) },
       fundingRequest: {
         findFirst: jest.fn<(args: Prisma.FundingRequestFindFirstArgs) => Promise<FundingRequest | null>>()
           .mockImplementation(async (args) => fundingRows.find((row) => rowMatches(row, args.where ?? {})) ?? null),
@@ -1098,6 +1100,7 @@ describe('Typed lifecycle persistence boundaries', () => {
   });
 
   it('returns matching idempotent funding evidence without duplicating its external reference or outbox event', async () => {
+    accounts[0] = lifecycleAccount({ state: 'ACTIVE', isFundingEnabled: true });
     fundingRows = [lifecycleFunding()];
     const result = await module.get<FundingRequestService>(FundingRequestService).createFundingRequest({
       tenantId: TENANT_A, accountId: 'account-a', requestedAmount: '10.00', currency: 'USD', externalReference: 'external-ref', idempotencyKey: 'funding-key',
@@ -1107,6 +1110,7 @@ describe('Typed lifecycle persistence boundaries', () => {
   });
 
   it('rejects external funding reference replay that changes the amount', async () => {
+    accounts[0] = lifecycleAccount({ state: 'ACTIVE', isFundingEnabled: true });
     fundingRows = [lifecycleFunding()];
     await expect(module.get<FundingRequestService>(FundingRequestService).createFundingRequest({
       tenantId: TENANT_A, accountId: 'account-a', requestedAmount: '20.00', currency: 'USD', externalReference: 'external-ref', idempotencyKey: 'funding-key',
@@ -1115,6 +1119,7 @@ describe('Typed lifecycle persistence boundaries', () => {
   });
 
   it('keeps newly persisted funding requests REQUESTED and appends the requested event in the same RLS transaction', async () => {
+    accounts[0] = lifecycleAccount({ state: 'ACTIVE', isFundingEnabled: true });
     const result = await module.get<FundingRequestService>(FundingRequestService).createFundingRequest({
       tenantId: TENANT_A, accountId: 'account-a', requestedAmount: '10.00', currency: 'USD', externalReference: 'external-ref', idempotencyKey: 'funding-key',
     });
@@ -1123,6 +1128,7 @@ describe('Typed lifecycle persistence boundaries', () => {
   });
 
   it('rolls back a new funding record in the test transaction when required outbox persistence fails', async () => {
+    accounts[0] = lifecycleAccount({ state: 'ACTIVE', isFundingEnabled: true });
     const failure = new Error('outbox unavailable'); outbox.append.mockRejectedValueOnce(failure);
     await expect(module.get<FundingRequestService>(FundingRequestService).createFundingRequest({
       tenantId: TENANT_A, accountId: 'account-a', requestedAmount: '10.00', currency: 'USD', externalReference: 'external-ref', idempotencyKey: 'funding-key',

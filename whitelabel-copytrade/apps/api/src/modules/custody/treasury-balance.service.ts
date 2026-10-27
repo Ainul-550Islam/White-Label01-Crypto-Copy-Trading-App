@@ -21,15 +21,15 @@ export class TreasuryBalanceService {
   async getWalletBalance(params: { tenantId: string; walletId: string; assetId: string; networkId: string }): Promise<BalanceObservation> {
     const { tenantId, walletId, assetId, networkId } = params;
     if (!assetId || !networkId) throw new BadRequestException('assetId and networkId must be explicit');
-    const wallet = await this.prisma.custodyWallet.findFirst({ where: { id: walletId, tenantId } });
+    const wallet = await this.prisma.withTenantRls(tenantId, (tx) => tx.custodyWallet.findFirst({ where: { id: walletId, tenantId } }));
     if (!wallet || wallet.assetId !== assetId || wallet.networkId !== networkId) {
       throw new BadRequestException('Wallet not found for this tenant and asset/network');
     }
     const asset = await this.prisma.custodyAsset.findFirst({ where: { assetId, isActive: true }, select: { symbol: true } });
     if (!asset) throw new BadRequestException('Authoritative asset identity unavailable');
-    const addresses = await this.prisma.custodyWalletAddress.findMany({
+    const addresses = await this.prisma.withTenantRls(tenantId, (tx) => tx.custodyWalletAddress.findMany({
       where: { tenantId, walletId, assetId, networkId, status: 'ACTIVE' }, orderBy: { id: 'asc' },
-    });
+    }));
     if (addresses.length === 0) return this.unknown(params, asset.symbol, 'UNAVAILABLE', 'UNKNOWN_NO_ADDRESS');
     let provider: BlockchainProvider;
     try {
@@ -75,7 +75,7 @@ export class TreasuryBalanceService {
     if (!assetId) throw new BadRequestException('Treasury asset must be explicit');
     const where: Prisma.CustodyWalletWhereInput = { tenantId, assetId, state: 'ACTIVE' };
     if (networkId) where.networkId = networkId;
-    const wallets = await this.prisma.custodyWallet.findMany({ where, orderBy: { id: 'asc' } });
+    const wallets = await this.prisma.withTenantRls(tenantId, (tx) => tx.custodyWallet.findMany({ where, orderBy: { id: 'asc' } }));
     if (wallets.length === 0) return { totalAvailable: null, balances: [], dataCompleteness: 'UNKNOWN_NO_WALLET' };
     const balances: BalanceObservation[] = [];
     let totalAvailable = '0';
@@ -105,10 +105,10 @@ export class TreasuryBalanceService {
     if (assetId) where.assetId = assetId;
     if (networkId) where.networkId = networkId;
     if (walletId) where.id = walletId;
-    const [wallets, total] = await Promise.all([
-      this.prisma.custodyWallet.findMany({ where, orderBy: { id: 'asc' }, take: limit, skip: (page - 1) * limit }),
-      this.prisma.custodyWallet.count({ where }),
-    ]);
+    const [wallets, total] = await this.prisma.withTenantRls(tenantId, (tx) => Promise.all([
+      tx.custodyWallet.findMany({ where, orderBy: { id: 'asc' }, take: limit, skip: (page - 1) * limit }),
+      tx.custodyWallet.count({ where }),
+    ]));
     const data: BalanceObservation[] = [];
     for (const wallet of wallets) {
       const identity = { tenantId, walletId: wallet.id, assetId: wallet.assetId ?? 'UNKNOWN', networkId: wallet.networkId ?? 'UNKNOWN' };

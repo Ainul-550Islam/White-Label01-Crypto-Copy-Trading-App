@@ -13,7 +13,8 @@ function fixture(foundUser = true) {
   const findFirst = jest.fn().mockResolvedValue(foundUser ? { id: userA } : null);
   const findUnique = jest.fn().mockResolvedValue(null);
   const upsert = jest.fn(async ({ create }: { create: { tenantId: string; userId: string; locale: string; displayCurrency: string; timezone: string; dateFormat: string } }) => ({ ...create, updatedAt: new Date('2026-10-26T00:00:00.000Z') }));
-  const prisma = { user: { findFirst }, userPreferences: { findUnique, upsert } } as unknown as PrismaService;
+  const tx = { user: { findFirst }, userPreferences: { findUnique, upsert } };
+  const prisma = { ...tx, withTenantRls: async (_tenant: string, work: (client: typeof tx) => unknown) => work(tx) } as unknown as PrismaService;
   return { service: new UserPreferencesService(prisma), findFirst, findUnique, upsert };
 }
 
@@ -30,6 +31,19 @@ describe('UserPreferencesService', () => {
     const result = await service.update(tenantA, userA, { locale: 'bn', displayCurrency: 'BDT', timezone: 'Asia/Dhaka', dateFormat: 'DMY' });
     expect(result).toMatchObject({ tenantId: tenantA, userId: userA, locale: 'bn', displayCurrency: 'BDT', timezone: 'Asia/Dhaka', dateFormat: 'DMY' });
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId_userId: { tenantId: tenantA, userId: userA } } }));
+  });
+
+  it.each(['ar', 'es', 'tr'] as const)('persists the %s locale without falling back', async (locale) => {
+    const { service } = fixture();
+    await expect(service.update(tenantA, userA, { locale, displayCurrency: 'USD', timezone: 'UTC', dateFormat: 'ISO' }))
+      .resolves.toMatchObject({ locale });
+  });
+
+  it('rejects unsupported locales before writing preferences', async () => {
+    const { service, upsert } = fixture();
+    await expect(service.update(tenantA, userA, { locale: 'fr' as never, displayCurrency: 'USD', timezone: 'UTC', dateFormat: 'ISO' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it('does not read another tenant or user profile', async () => {

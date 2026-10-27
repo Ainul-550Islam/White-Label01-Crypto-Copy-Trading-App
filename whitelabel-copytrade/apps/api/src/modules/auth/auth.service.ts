@@ -133,7 +133,7 @@ export class AuthService {
             },
           },
         },
-        select: { id: true },
+        select: { id: true, sessionVersion: true },
       });
 
       if (followerRoles.length > 0) {
@@ -178,6 +178,7 @@ export class AuthService {
       platform: dto.platform ?? null,
       appVersion: dto.appVersion ?? null,
       context,
+      expectedSessionVersion: user.sessionVersion,
     });
   }
 
@@ -195,7 +196,7 @@ export class AuthService {
 
     await this.lockout.assertNotLocked(tenant.tenantId, email);
 
-    const user = await this.prisma.user.findFirst({
+    const user = await this.prisma.withTenantRls(tenant.tenantId, (tx) => tx.user.findFirst({
       where: { tenantId: tenant.tenantId, emailIndex, deletedAt: null },
       select: {
         id: true,
@@ -206,7 +207,7 @@ export class AuthService {
         isPlatformUser: true,
         sessionVersion: true,
       },
-    });
+    }));
 
     if (!user) {
       // Equalise timing with the "user exists" branch.
@@ -244,13 +245,18 @@ export class AuthService {
     // count towards lockout).
     await this.assertPasswordLoginAllowed(tenant.tenantId, email, emailIndex, user, dto, context);
 
-    // Opportunistic upgrade when argon2 parameters have been hardened.
+    // Never let an in-flight login overwrite a newer password reset with a
+    // rehash of the old password. The compare-and-swap includes the session
+    // generation because resets and global sign-outs advance that generation.
     if (this.passwords.needsRehash(user.passwordHash)) {
       const rehashed = await this.passwords.hash(dto.password);
-      await this.prisma.user.update({
-        where: { id: user.id },
+      const upgraded = await this.prisma.withTenantRls(tenant.tenantId, (tx) => tx.user.updateMany({
+        where: { id: user.id, tenantId: tenant.tenantId, passwordHash: user.passwordHash, sessionVersion: user.sessionVersion },
         data: { passwordHash: rehashed },
-      });
+      }));
+      if (upgraded.count !== 1) {
+        throw new AppException({ code: ErrorCode.TOKEN_REVOKED, message: 'Your credentials changed. Please sign in again.' });
+      }
     }
 
     await this.lockout.clear(tenant.tenantId, email, user.id);
@@ -260,6 +266,7 @@ export class AuthService {
         user.id,
         tenant.tenantId,
         dto.deviceId,
+        { sessionVersion: user.sessionVersion },
       );
 
       await this.recordLoginAttempt({
@@ -281,7 +288,7 @@ export class AuthService {
       return result;
     }
 
-    return this.completeLogin(user.id, tenant, dto, context, emailIndex);
+    return this.completeLogin(user.id, tenant, dto, context, emailIndex, user.sessionVersion);
   }
 
   /**
@@ -311,10 +318,10 @@ export class AuthService {
   ): Promise<void> {
     if (user.isPlatformUser) return;
 
-    const enforcing = await this.prisma.ssoConfiguration.findMany({
+    const enforcing = await this.prisma.withTenantRls(tenantId, (tx) => tx.ssoConfiguration.findMany({
       where: { tenantId, isActive: true, enforced: true, state: 'ENFORCED' },
       select: { providerType: true, allowedDomains: true },
-    });
+    }));
     if (enforcing.length === 0) return;
 
     const domain = email.split('@')[1]?.toLowerCase() ?? '';
@@ -377,13 +384,16 @@ export class AuthService {
       });
     }
 
-    const user = await this.prisma.user.findFirst({
+    const user = await this.prisma.withTenantRls(tenant.tenantId, (tx) => tx.user.findFirst({
       where: { id: payload.sub, tenantId: tenant.tenantId, deletedAt: null },
-      select: { id: true, email: true, status: true },
-    });
+      select: { id: true, email: true, status: true, sessionVersion: true },
+    }));
 
     if (!user) {
       throw new AppException({ code: ErrorCode.INVALID_CREDENTIALS });
+    }
+    if (payload.sv !== user.sessionVersion) {
+      throw new AppException({ code: ErrorCode.TOKEN_REVOKED, message: 'Your credentials changed. Please sign in again.' });
     }
 
     this.assertAccountUsable(user.status);
@@ -448,6 +458,7 @@ export class AuthService {
       appVersion: null,
       trusted: dto.trustDevice,
       context,
+      expectedSessionVersion: payload.sv,
       ...(origin ?? {}),
     });
   }
@@ -467,8 +478,8 @@ export class AuthService {
       requestId: context.requestId,
     });
 
-    const user = await this.prisma.user.findFirst({
-      where: { id: consumed.userId, deletedAt: null },
+    const user = await this.prisma.withTenantRls(consumed.tenantId, (tx) => tx.user.findFirst({
+      where: { id: consumed.userId, tenantId: consumed.tenantId, deletedAt: null },
       select: {
         id: true,
         status: true,
@@ -476,7 +487,7 @@ export class AuthService {
         tenantId: true,
         sessionVersion: true,
       },
-    });
+    }));
 
     if (!user) {
       throw new AppException({ code: ErrorCode.TOKEN_INVALID });
@@ -484,7 +495,7 @@ export class AuthService {
 
     this.assertAccountUsable(user.status);
 
-    const access = await this.permissions.getEffectiveAccess(user.id);
+    const access = await this.permissions.getEffectiveAccessForTenant(user.id, consumed.tenantId);
 
     const tokens = await this.tokens.issueTokenPair({
       userId: user.id,
@@ -499,7 +510,7 @@ export class AuthService {
       userAgent: context.userAgent,
     });
 
-    await this.sessions.touch(consumed.sessionId, context.ipHash);
+    await this.sessions.touch(consumed.sessionId, context.ipHash, consumed.tenantId);
 
     await this.audit.record({
       tenantId: consumed.tenantId,
@@ -527,19 +538,24 @@ export class AuthService {
     allDevices: boolean,
     context: AuthRequestContext,
   ): Promise<{ loggedOut: true; sessionsRevoked: number }> {
-    let sessionsRevoked = 1;
-
-    if (allDevices) {
-      sessionsRevoked = await this.sessions.revokeAll(userId, null, 'user_logout_all');
-      await this.tokens.revokeAllUserTokens(userId, 'user_logout_all');
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { sessionVersion: { increment: 1 } },
-      });
-    } else {
-      await this.sessions.revoke(userId, sessionId, 'user_logout');
-      await this.tokens.revokeSessionTokens(sessionId, 'user_logout');
-    }
+    const sessionsRevoked = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      // Serialize sign-out with recovery and token issuance so an in-flight
+      // refresh cannot mint a live token after the revocation commits.
+      const users = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "users" WHERE id = ${userId}::uuid AND tenant_id = ${tenantId}::uuid
+          AND deleted_at IS NULL FOR UPDATE
+      `;
+      if (users.length !== 1) throw new AppException({ code: ErrorCode.TOKEN_INVALID });
+      const current = await tx.userSession.findFirst({ where: { id: sessionId, tenantId, userId, revokedAt: null }, select: { id: true } });
+      if (!current) throw new AppException({ code: ErrorCode.TOKEN_REVOKED });
+      const now = new Date(), reason = allDevices ? 'user_logout_all' : 'user_logout';
+      const revoked = await tx.userSession.updateMany({ where: { tenantId, userId, revokedAt: null, ...(allDevices ? {} : { id: sessionId }) },
+        data: { revokedAt: now, revokeReason: reason } });
+      await tx.refreshToken.updateMany({ where: { tenantId, userId, status: 'ACTIVE', ...(allDevices ? {} : { sessionId }) },
+        data: { status: 'REVOKED', revokedAt: now, revokeReason: reason } });
+      if (allDevices) await tx.user.update({ where: { id: userId }, data: { sessionVersion: { increment: 1 } } });
+      return revoked.count;
+    });
 
     await this.tokens.blacklistAccessToken(accessTokenId, accessTokenExp);
     await this.permissions.invalidateUser(userId);
@@ -571,68 +587,58 @@ export class AuthService {
     dto: ChangePasswordDto,
     context: AuthRequestContext,
   ): Promise<{ changed: true; sessionsRevoked: number }> {
-    const user = await this.prisma.user.findFirst({
-      where: { id: userId, tenantId },
+    const user = await this.prisma.withTenantRls(tenantId, (tx) => tx.user.findFirst({
+      where: { id: userId, tenantId, deletedAt: null },
       select: { id: true, email: true, passwordHash: true },
-    });
-
-    if (!user) {
-      throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Account not found.' });
+    }));
+    if (!user) throw new AppException({ code: ErrorCode.NOT_FOUND, message: 'Account not found.' });
+    if (!(await this.passwords.verify(user.passwordHash, dto.currentPassword))) {
+      throw new AppException({ code: ErrorCode.INVALID_CREDENTIALS, message: 'Your current password is incorrect.' });
     }
-
-    const valid = await this.passwords.verify(user.passwordHash, dto.currentPassword);
-    if (!valid) {
-      throw new AppException({
-        code: ErrorCode.INVALID_CREDENTIALS,
-        message: 'Your current password is incorrect.',
-      });
-    }
-
     this.passwords.assertPolicy(dto.newPassword, { email: user.email });
-
     const passwordHash = await this.passwords.hash(dto.newPassword);
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        passwordHash,
-        passwordChangedAt: new Date(),
-        sessionVersion: { increment: 1 },
-      },
+    const sessionsRevoked = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      // Recovery, refresh and issuance take this same lock. Recheck the hash
+      // after locking so a previously verified old password cannot overwrite a
+      // concurrent recovery or another password change.
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "users" WHERE id = ${userId}::uuid AND tenant_id = ${tenantId}::uuid
+          AND deleted_at IS NULL FOR UPDATE
+      `;
+      if (locked.length !== 1) throw new AppException({ code: ErrorCode.TOKEN_REVOKED });
+      const current = await tx.user.findFirst({ where: { id: userId, tenantId, deletedAt: null },
+        select: { email: true, passwordHash: true, status: true } });
+      if (!current || current.passwordHash !== user.passwordHash || current.email !== user.email) {
+        throw new AppException({ code: ErrorCode.TOKEN_REVOKED, message: 'Your credentials changed. Please sign in again.' });
+      }
+      this.assertAccountUsable(current.status);
+      const session = await tx.userSession.findFirst({ where: { id: currentSessionId, tenantId, userId, revokedAt: null,
+        expiresAt: { gt: new Date() } }, select: { id: true } });
+      if (!session) throw new AppException({ code: ErrorCode.TOKEN_REVOKED });
+      const now = new Date();
+      await tx.user.update({ where: { id: userId }, data: { passwordHash, passwordChangedAt: now, sessionVersion: { increment: 1 } } });
+      let revoked = 0;
+      if (dto.revokeOtherSessions) {
+        const result = await tx.userSession.updateMany({ where: { tenantId, userId, revokedAt: null, id: { not: currentSessionId } },
+          data: { revokedAt: now, revokeReason: 'password_changed' } });
+        revoked = result.count;
+        await tx.refreshToken.updateMany({ where: { tenantId, userId, status: 'ACTIVE', sessionId: { not: currentSessionId } },
+          data: { status: 'REVOKED', revokedAt: now, revokeReason: 'password_changed' } });
+      }
+      await tx.auditLog.create({ data: { tenantId, actorType: 'USER', actorId: userId, action: AuditAction.PASSWORD_CHANGED,
+        outcome: 'SUCCESS', resourceType: 'User', resourceId: userId, description: 'Account password changed.',
+        metadata: { sessionsRevoked: revoked }, ipHash: context.ipHash, requestId: context.requestId } });
+      return revoked;
     });
 
-    let sessionsRevoked = 0;
-    if (dto.revokeOtherSessions) {
-      sessionsRevoked = await this.sessions.revokeAll(
-        userId,
-        currentSessionId,
-        'password_changed',
-      );
+    try {
+      await this.notifications.enqueueTransactional({ tenantId, userId, type: 'security.password_changed', locale: context.locale, data: {} });
+    } catch {
+      // A post-commit notification problem must not falsely report that the
+      // already-audited password change was rolled back.
+      this.logger.warn({ event: 'auth.password_change_notification_failed', tenantId, userId }, 'Password change notification unavailable');
     }
-
-    await this.audit.recordImmediate({
-      tenantId,
-      actorType: AuditActorType.USER,
-      actorId: userId,
-      actorEmail: user.email,
-      action: AuditAction.PASSWORD_CHANGED,
-      outcome: AuditOutcome.SUCCESS,
-      resourceType: 'User',
-      resourceId: userId,
-      description: 'Account password changed.',
-      metadata: { sessionsRevoked },
-      ipHash: context.ipHash,
-      requestId: context.requestId,
-    });
-
-    await this.notifications.enqueueTransactional({
-      tenantId,
-      userId,
-      type: 'security.password_changed',
-      locale: context.locale,
-      data: {},
-    });
-
     return { changed: true, sessionsRevoked };
   }
 
@@ -658,10 +664,10 @@ export class AuthService {
     context: AuthRequestContext,
     sso?: { providerType: 'OIDC' | 'SAML'; configurationId: string; transactionId?: string },
   ): Promise<LoginResultDto> {
-    const user = await this.prisma.user.findFirst({
+    const user = await this.prisma.withTenantRls(tenant.tenantId, (tx) => tx.user.findFirst({
       where: { id: userId, tenantId: tenant.tenantId, deletedAt: null },
-      select: { id: true, email: true, status: true, twoFactorEnabled: true },
-    });
+      select: { id: true, email: true, status: true, twoFactorEnabled: true, sessionVersion: true },
+    }));
     if (!user) {
       throw new AppException({ code: ErrorCode.INVALID_CREDENTIALS });
     }
@@ -687,9 +693,10 @@ export class AuthService {
     }
 
     if (user.twoFactorEnabled) {
-      const challenge = sso?.transactionId
-        ? await this.tokens.issueTwoFactorChallenge(user.id, tenant.tenantId, device.deviceId, { sso: sso.transactionId })
-        : await this.tokens.issueTwoFactorChallenge(user.id, tenant.tenantId, device.deviceId);
+      const challenge = await this.tokens.issueTwoFactorChallenge(user.id, tenant.tenantId, device.deviceId, {
+        sessionVersion: user.sessionVersion,
+        ...(sso?.transactionId ? { sso: sso.transactionId } : {}),
+      });
       await this.recordLoginAttempt({
         tenantId: tenant.tenantId,
         userId: user.id,
@@ -714,6 +721,7 @@ export class AuthService {
       platform: device.platform,
       appVersion: device.appVersion,
       context,
+      expectedSessionVersion: user.sessionVersion,
       ...(origin ?? {}),
     });
 
@@ -731,9 +739,9 @@ export class AuthService {
   }
 
   /** Revokes a just-issued SSO session (used when its durable audit record cannot be written). */
-  async revokeSsoSession(userId: string, sessionId: string): Promise<void> {
-    await this.sessions.revoke(userId, sessionId, 'sso_audit_failed');
-    await this.tokens.revokeSessionTokens(sessionId, 'sso_audit_failed');
+  async revokeSsoSession(tenantId: string, userId: string, sessionId: string): Promise<void> {
+    // SessionService revokes the session and refresh tokens in one scoped transaction.
+    await this.sessions.revoke(tenantId, userId, sessionId, 'sso_audit_failed');
   }
 
   /**
@@ -757,10 +765,10 @@ export class AuthService {
    * The SAML logout data is copied as stored (sealed; never decrypted here).
    */
   private async ssoSessionOrigin(tenantId: string, transactionId: string): Promise<SsoSessionOrigin> {
-    const tx = await this.prisma.ssoAuthTransaction.findFirst({
+    const tx = await this.prisma.withTenantRls(tenantId, (db) => db.ssoAuthTransaction.findFirst({
       where: { id: transactionId, tenantId, status: 'CONSUMED' },
       select: { providerType: true, configurationId: true, samlLogoutContext: true },
-    });
+    }));
     if (!tx) {
       throw new AppException({ code: ErrorCode.TOKEN_INVALID, message: 'Single sign-on could not be completed.' });
     }
@@ -786,6 +794,7 @@ export class AuthService {
     dto: LoginDto,
     context: AuthRequestContext,
     emailIndex: string,
+    expectedSessionVersion: number,
   ): Promise<AuthenticatedSessionDto> {
     const session = await this.establishSession(userId, tenant, {
       deviceId: dto.deviceId,
@@ -794,6 +803,7 @@ export class AuthService {
       appVersion: dto.appVersion ?? null,
       trusted: dto.rememberDevice,
       context,
+      expectedSessionVersion,
     });
 
     await this.recordLoginAttempt({
@@ -819,6 +829,7 @@ export class AuthService {
       appVersion: string | null;
       trusted?: boolean;
       context: AuthRequestContext;
+      expectedSessionVersion: number;
       authMethod?: SessionAuthMethod;
       ssoConfigurationId?: string | null;
       samlLogout?: SessionSamlLogout | null;
@@ -829,6 +840,7 @@ export class AuthService {
     const session = await this.sessions.createOrReuse({
       userId,
       tenantId: tenant.tenantId,
+      expectedSessionVersion: options.expectedSessionVersion,
       deviceId: options.deviceId,
       deviceName: options.deviceName,
       platform: options.platform,
@@ -841,11 +853,25 @@ export class AuthService {
       samlLogout: options.samlLogout ?? null,
     });
 
-    const access = await this.permissions.getEffectiveAccess(userId);
-    const user = await this.prisma.user.findUniqueOrThrow({
+    const user = await this.prisma.withTenantRls(tenant.tenantId, (tx) => tx.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { isPlatformUser: true, email: true, sessionVersion: true },
-    });
+      select: { isPlatformUser: true, email: true, sessionVersion: true, status: true },
+    }));
+    this.assertAccountUsable(user.status);
+    // A password/2FA/SSO attempt may have started before a password reset.
+    // Check its captured generation *after* the session exists but before
+    // issuing any token. If reset commits later it revokes this session; if it
+    // committed earlier, the mismatch below refuses the old attempt.
+    if (options.expectedSessionVersion !== undefined && user.sessionVersion !== options.expectedSessionVersion) {
+      if (session.isNewDevice) {
+        await this.prisma.withTenantRls(tenant.tenantId, (tx) => tx.userSession.updateMany({
+          where: { id: session.id, tenantId: tenant.tenantId, userId, revokedAt: null },
+          data: { revokedAt: new Date(), revokeReason: 'credentials_changed_during_login' },
+        }));
+      }
+      throw new AppException({ code: ErrorCode.TOKEN_REVOKED, message: 'Your credentials changed. Please sign in again.' });
+    }
+    const access = await this.permissions.getEffectiveAccessForTenant(userId, tenant.tenantId);
 
     const tokens = await this.tokens.issueTokenPair({
       userId,
@@ -859,10 +885,10 @@ export class AuthService {
       userAgent: context.userAgent,
     });
 
-    await this.prisma.user.update({
+    await this.prisma.withTenantRls(tenant.tenantId, (tx) => tx.user.update({
       where: { id: userId },
       data: { lastLoginAt: new Date(), lastLoginIpHash: context.ipHash },
-    });
+    }));
 
     const risk = await this.riskDetector.assess({
       tenantId: tenant.tenantId,
@@ -969,7 +995,7 @@ export class AuthService {
     context: AuthRequestContext;
   }): Promise<void> {
     try {
-      await this.prisma.loginAttempt.create({
+      await this.prisma.withTenantRls(input.tenantId, (tx) => tx.loginAttempt.create({
         data: {
           tenantId: input.tenantId,
           userId: input.userId,
@@ -980,7 +1006,7 @@ export class AuthService {
           userAgent: input.context.userAgent,
           deviceId: input.deviceId,
         },
-      });
+      }));
     } catch (error) {
       this.logger.warn(
         { event: 'auth.attempt_log_failed', message: (error as Error).message },

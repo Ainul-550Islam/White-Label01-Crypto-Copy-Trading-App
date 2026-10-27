@@ -1,15 +1,13 @@
 /**
  * Developer usage aggregation over the EXISTING UsageModule meters.
  *
- * This service NEVER creates a second authoritative meter: it reads
- * UsageEvent/UsageMeter rows (meter keys `developer_api_requests`,
- * `developer_rate_limited`, `developer_webhook_deliveries`) that the API
- * layer records through the usage module's own idempotency rules, and
- * aggregates them for the portal/analytics. Duplicate usage events are
- * impossible to double-count because UsageEvent.idempotencyKey is unique.
+ * Integration requests are recorded in the existing UsageEvent ledger, not
+ * a parallel counter. Each server-observed request has a unique idempotency
+ * key; no credential, request body or subject is placed in metadata.
  */
 
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
@@ -43,11 +41,32 @@ export interface UsageRollup {
   /** The authoritative period these numbers come from. */
   periodId: string;
   sources: { meterKey: string; count: number }[];
+  /** True when the bounded query omitted part of the requested window. */
+  truncated: boolean;
 }
 
 @Injectable()
 export class DeveloperUsageService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Record only server-authenticated integration traffic and bounded outcomes. */
+  async recordIntegrationRequest(input: {
+    tenantId: string; applicationId: string; apiVersion: string; endpoint: string;
+    outcome: 'ok' | '4xx' | '5xx' | 'rate_limited';
+  }): Promise<void> {
+    const id = randomUUID();
+    const occurredAt = new Date();
+    const metadata = { applicationId: input.applicationId, apiVersion: input.apiVersion, endpoint: input.endpoint, outcome: input.outcome };
+    const common = {
+      tenantId: input.tenantId, eventType: 'developer_integration_request',
+      periodId: this.periodFor(occurredAt, 'day'), quantity: 1, sourceType: 'developer_integration',
+      sourceId: id, safeMetadata: metadata,
+    };
+    await this.prisma.withTenantRls(input.tenantId, (tx) => tx.usageEvent.createMany({ data: [
+      { ...common, meterKey: DEVELOPER_METER_KEYS.apiRequests, idempotencyKey: `developer:${id}:request` },
+      ...(input.outcome === 'rate_limited' ? [{ ...common, meterKey: DEVELOPER_METER_KEYS.rateLimited, idempotencyKey: `developer:${id}:rate` }] : []),
+    ] }));
+  }
 
   /** Deterministic period id at the requested granularity. */
   periodFor(date: Date, granularity: UsageQuery['granularity']): string {
@@ -66,7 +85,7 @@ export class DeveloperUsageService {
     const to = query.to ?? new Date();
     const from = query.from ?? new Date(to.getTime() - 24 * 60 * 60 * 1000);
     const meterKeys = Object.values(DEVELOPER_METER_KEYS);
-    const events = await this.prisma.usageEvent.findMany({
+    const events = await this.prisma.withTenantRls(tenantId, (tx) => tx.usageEvent.findMany({
       where: {
         tenantId,
         meterKey: { in: meterKeys },
@@ -76,8 +95,8 @@ export class DeveloperUsageService {
           : {}),
       },
       orderBy: { createdAt: 'asc' },
-      take: 50_000,
-    });
+      take: 50_001,
+    }));
 
     const periodId = this.periodFor(to, query.granularity);
     const rollup: UsageRollup = {
@@ -89,13 +108,14 @@ export class DeveloperUsageService {
       byApiVersion: [],
       periodId,
       sources: [],
+      truncated: events.length > 50_000,
     };
 
     const endpointMap = new Map<string, { requests: number; errors4xx: number; errors5xx: number }>();
     const versionMap = new Map<string, number>();
     const sourceMap = new Map<string, number>();
 
-    for (const event of events) {
+    for (const event of events.slice(0, 50_000)) {
       sourceMap.set(event.meterKey, (sourceMap.get(event.meterKey) ?? 0) + event.quantity);
       const metadata = (event.safeMetadata ?? {}) as Record<string, unknown>;
       const endpoint = typeof metadata.endpoint === 'string' ? metadata.endpoint : 'unknown';
@@ -139,9 +159,9 @@ export class DeveloperUsageService {
 
   /** Portal view for one application; 404 instead of another tenant's data. */
   async applicationRollup(tenantId: string, applicationId: string, query: UsageQuery) {
-    const application = await this.prisma.developerApplication.findUnique({
+    const application = await this.prisma.withTenantRls(tenantId, (tx) => tx.developerApplication.findUnique({
       where: { id: applicationId },
-    });
+    }));
     if (!application || application.tenantId !== tenantId) {
       throw new NotFoundException('developer application not found');
     }

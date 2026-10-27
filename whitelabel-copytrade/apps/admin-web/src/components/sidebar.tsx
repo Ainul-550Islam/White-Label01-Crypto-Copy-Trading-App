@@ -45,6 +45,7 @@ export const NAV_ITEMS: NavItem[] = [
   // entitlements per tenant). The API requires platform:manage on every call.
   { href: '/saas-admin', label: 'SaaS tenants', permission: 'platform:manage', platformOnly: true },
   { href: '/audit-logs', label: 'Audit log', permission: 'audit_log:read' },
+  { href: '/developer', label: 'Developer', permission: 'api_key:read' },
   { href: '/settings', label: 'Settings', permission: 'tenant:read' },
 ];
 

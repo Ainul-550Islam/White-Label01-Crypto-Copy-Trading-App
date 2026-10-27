@@ -104,6 +104,10 @@ class AppLocalizationsBn extends AppLocalizations {
   String get changePassword => 'পাসওয়ার্ড পরিবর্তন করুন';
 
   @override
+  String get securityWebManagement =>
+      'ওয়েবের নিরাপত্তা সেটিংসে আপনার সক্রিয় ডিভাইস এবং পাসওয়ার্ড পরিচালনা করুন।';
+
+  @override
   String get executionDisabledNotice =>
       'এই বিল্ডে লাইভ অর্ডার এক্সিকিউশন বন্ধ রাখা হয়েছে।';
 
@@ -292,7 +296,7 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get riskReadOnlyNotice =>
-      'ডিজাইনেই শুধু-পড়া। সুইচ চালু বা বন্ধ করা অ্যাডমিন কনসোলে থাকে — লিখিত কারণ ও টাইপ-করা নিশ্চিতকরণের আড়ালে।';
+      'এখানে ঝুঁকির বিরতি শুধু দেখা যায়। সুইচ চালু বা বন্ধ করতে অ্যাডমিন কনসোলে কারণ ও লিখিত নিশ্চিতকরণ প্রয়োজন।';
 
   @override
   String get riskPanelsDegraded =>
@@ -470,7 +474,8 @@ class AppLocalizationsBn extends AppLocalizations {
   String get followersLabel => 'অনুসারী';
 
   @override
-  String get fundingSubtitle => 'ওয়ালেট, জমার ঠিকানা ও লেনদেন।';
+  String get fundingSubtitle =>
+      'অ্যাকাউন্ট, জমার অনুরোধ ও ট্রান্সফারের ইতিহাস।';
 
   @override
   String get fundingTitle => 'ফান্ডিং';
@@ -580,6 +585,31 @@ class AppLocalizationsBn extends AppLocalizations {
   String get preferencesTab => 'পছন্দ';
 
   @override
+  String get displayPreferences => 'প্রদর্শন পছন্দ';
+
+  @override
+  String get languageLabel => 'ভাষা';
+
+  @override
+  String get displayCurrencyLabel => 'প্রদর্শনের মুদ্রা';
+
+  @override
+  String get timeZoneLabel => 'সময় অঞ্চল (IANA)';
+
+  @override
+  String get timeZoneRequired => 'সময় অঞ্চল লিখুন';
+
+  @override
+  String get dateFormatLabel => 'তারিখের ধরন';
+
+  @override
+  String get preferencesSupportNotice =>
+      'পছন্দ আপনার অ্যাকাউন্টে সংরক্ষিত হয়। মুদ্রা, সময় অঞ্চল ও তারিখের ধরন স্ক্রিনভেদে ভিন্ন হতে পারে।';
+
+  @override
+  String get savePreferences => 'পছন্দ সংরক্ষণ করুন';
+
+  @override
   String get resume => 'আবার শুরু';
 
   @override
@@ -625,7 +655,7 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get withdrawOnWebNotice =>
-      'উইথড্রয়ালের জন্য নীতি যাচাই ও অনুমোদন প্রয়োজন; এটি ওয়েব কনসোলে পাওয়া যায়।';
+      'এই অ্যাপে অর্থ উত্তোলন উপলব্ধ নয়। অনুমোদিত পদ্ধতি জানতে আপনার সেবা প্রদানকারীর সঙ্গে যোগাযোগ করুন।';
 
   @override
   String get accountsTab => 'অ্যাকাউন্ট';
@@ -641,13 +671,20 @@ class AppLocalizationsBn extends AppLocalizations {
   String get depositRequested => 'জমার অনুরোধ জমা হয়েছে';
 
   @override
+  String get depositUnconfirmed =>
+      'জমার অনুরোধ নিশ্চিত করা যায়নি। আবার চেষ্টা করার আগে আপনার লেনদেনের ইতিহাস দেখুন।';
+
+  @override
   String get amountLabel => 'পরিমাণ';
 
   @override
   String get currencyLabel => 'মুদ্রা';
 
   @override
-  String get transferReferenceLabel => 'ট্রান্সফার রেফারেন্স (ঐচ্ছিক)';
+  String get transferReferenceLabel => 'ট্রান্সফার রেফারেন্স (প্রয়োজনীয়)';
+
+  @override
+  String get transferReferenceRequired => 'আপনার ট্রান্সফার রেফারেন্স লিখুন।';
 
   @override
   String get depositRequestNotice =>
@@ -674,4 +711,155 @@ class AppLocalizationsBn extends AppLocalizations {
   @override
   String get pendingNotCompleted =>
       'অপেক্ষমাণ অনুরোধ মানে সম্পন্ন ট্রান্সফার নয়।';
+
+  @override
+  String get deviceNotificationsTitle => 'ডিভাইসের বিজ্ঞপ্তির অনুমতি';
+
+  @override
+  String get deviceNotificationsExplanation =>
+      'এটি শুধু এই ডিভাইসের অনুমতি নিয়ন্ত্রণ করে। পুশ বিজ্ঞপ্তি পৌঁছাতে একটি কনফিগার করা পুশ পরিষেবাও প্রয়োজন।';
+
+  @override
+  String get deviceNotificationsUndetermined => 'এখনও অনুমতি চাওয়া হয়নি';
+
+  @override
+  String get deviceNotificationsAllowed => 'অনুমতি দেওয়া হয়েছে';
+
+  @override
+  String get deviceNotificationsLimited => 'সীমিতভাবে অনুমতি দেওয়া হয়েছে';
+
+  @override
+  String get deviceNotificationsDenied => 'ডিভাইস সেটিংসে অনুমতি অস্বীকৃত';
+
+  @override
+  String get deviceNotificationsUnavailable =>
+      'এই ডিভাইসে অনুমতির অবস্থা পাওয়া যাচ্ছে না';
+
+  @override
+  String get deviceNotificationsRequest => 'ডিভাইসের অনুমতি চাইুন';
+
+  @override
+  String get deviceNotificationsSettings => 'ডিভাইস সেটিংস খুলুন';
+
+  @override
+  String get deviceNotificationsSettingsError => 'ডিভাইস সেটিংস খোলা যায়নি।';
+
+  @override
+  String get devicePushRegistered =>
+      'ডিভাইস নিবন্ধিত। প্রদানকারীর মাধ্যমে বিতরণ নিশ্চিত নয়।';
+
+  @override
+  String get devicePushUnavailable =>
+      'ডিভাইস নিবন্ধন করা যাচ্ছে না। সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।';
+
+  @override
+  String get devicePushRetry => 'ডিভাইস নিবন্ধন আবার চেষ্টা করুন';
+
+  @override
+  String get destinationCheckTitle => 'উত্তোলনের গন্তব্য যাচাই';
+
+  @override
+  String get destinationCheckNotice =>
+      'ঠিকানাটি এখন আপনার অনুমোদিত তালিকায় আছে কি না যাচাই করুন। এটি উত্তোলনের অনুরোধ করে না বা ভবিষ্যতের ট্রান্সফারের নিশ্চয়তা দেয় না।';
+
+  @override
+  String get destinationNetwork => 'নেটওয়ার্ক';
+
+  @override
+  String get destinationAddress => 'গন্তব্যের ঠিকানা';
+
+  @override
+  String get destinationAddressInvalid => '১৬ থেকে ১২৮ অক্ষরের ঠিকানা লিখুন।';
+
+  @override
+  String get destinationCheckAction => 'অনুমোদিত তালিকা যাচাই';
+
+  @override
+  String get destinationCheckAllowed =>
+      'যাচাইয়ের সময় ঠিকানাটি আপনার অনুমোদিত তালিকায় আছে। উত্তোলনের অন্যান্য শর্তও প্রযোজ্য।';
+
+  @override
+  String get destinationCheckPending =>
+      'এই গন্তব্য সক্রিয় হওয়ার অপেক্ষায় আছে এবং এখন ব্যবহার করা যাবে না।';
+
+  @override
+  String get destinationCheckDenied =>
+      'এই নেটওয়ার্কে এটি সক্রিয় অনুমোদিত গন্তব্য নয়।';
+
+  @override
+  String get destinationCheckError =>
+      'গন্তব্য যাচাই করা যায়নি। সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।';
+
+  @override
+  String get riskPanelUnavailable =>
+      'ঝুঁকির এই অংশটি উপলব্ধ নয়। আবার চেষ্টা করতে নিচে টানুন।';
+
+  @override
+  String get riskSwitchListIncomplete =>
+      'বিরতির সংখ্যা ও তালিকা অসম্পূর্ণ বা অসামঞ্জস্যপূর্ণ হতে পারে। যাচাই করতে রিফ্রেশ করুন।';
+
+  @override
+  String get copyBudgetTitle => 'কপি ট্রেডিং বাজেট';
+
+  @override
+  String get copyBudgetAbout =>
+      'কপি ট্রেডিং বাজেটের কনফিগার করা সীমা কমান। এটি পুরো অ্যাকাউন্টের ঝুঁকি-সীমা নয় এবং বিদ্যমান পজিশন বন্ধ করে না।';
+
+  @override
+  String get copyBudgetEffective => 'বর্তমান কার্যকর সীমা';
+
+  @override
+  String get copyBudgetUnlimited => 'কোনো সীমা নির্ধারিত নেই';
+
+  @override
+  String get copyBudgetCommitted => 'সক্রিয় বরাদ্দ মানের যোগফল';
+
+  @override
+  String get copyBudgetNewLimit => 'নতুন সর্বোচ্চ সীমা';
+
+  @override
+  String get copyBudgetHelp =>
+      'এখানে শুধু সীমা কমানো যায়। দশমিকের জন্য বিন্দু ব্যবহার করুন, হাজারের বিভাজক নয়; পূর্ণসংখ্যায় সর্বোচ্চ ১৬টি ও দশমিকে ১২টি অঙ্ক।';
+
+  @override
+  String get copyBudgetInvalid =>
+      'শূন্য বা তার বেশি পরিমাণ লিখুন; দশমিকের পরে সর্বোচ্চ ১২টি অঙ্ক।';
+
+  @override
+  String get copyBudgetTooHigh =>
+      'নতুন সীমা বর্তমান কার্যকর সীমার বেশি হতে পারে না।';
+
+  @override
+  String get copyBudgetReduce => 'সীমা কমান';
+
+  @override
+  String get copyBudgetSaving => 'সংরক্ষণ হচ্ছে…';
+
+  @override
+  String get copyBudgetSaved =>
+      'সীমা কমানোর তথ্য সংরক্ষিত হয়েছে। বর্তমান সীমা উপরে দেখানো আছে।';
+
+  @override
+  String get copyBudgetUnavailable =>
+      'কপি বাজেট পাওয়া যাচ্ছে না। আবার চেষ্টা করুন।';
+
+  @override
+  String get copyBudgetFailed =>
+      'সীমা কমানো নিশ্চিত করা যায়নি। রিফ্রেশ করে আবার চেষ্টা করুন।';
+
+  @override
+  String get copyBudgetEstimateWarning =>
+      'বরাদ্দের মান ভিন্ন এককে হতে পারে; এগুলো যাচাইকৃত বর্তমান এক্সপোজার বা ক্ষতির বিরুদ্ধে নিশ্চয়তা নয়।';
+
+  @override
+  String get copyBudgetMetricUnavailable =>
+      'বরাদ্দের আনুমানিক মান পাওয়া যাচ্ছে না।';
+
+  @override
+  String get copyBudgetCurrencyUnavailable =>
+      'বাজেটের মুদ্রা নির্ধারিত নেই। আপনার অপারেটরের সঙ্গে যোগাযোগ করুন।';
+
+  @override
+  String get copyBudgetEnforcementUnavailable =>
+      'বর্তমান এক্সপোজার ও অর্ডারের সংরক্ষণ যাচাই করা না যাওয়া পর্যন্ত নির্ধারিত বাজেটসহ কপি অর্ডার বন্ধ থাকবে।';
 }

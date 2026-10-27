@@ -17,11 +17,13 @@ class ApiEndpoints {
   static String session(String id) => '/auth/sessions/$id';
 
   static const String twoFactorSetup = '/auth/two-factor/setup';
+
   /// Confirms a pending two-factor setup with the first TOTP code (enables 2FA).
   static const String twoFactorEnable = '/auth/two-factor/confirm';
   static const String twoFactorDisable = '/auth/two-factor/disable';
 
   static const String currentUser = '/users/me';
+  static const String userPreferences = '/users/me/preferences';
   static const String tenantPublicConfig = '/tenants/public-config';
   static const String featureFlags = '/feature-flags/resolved';
 
@@ -53,15 +55,18 @@ class ApiEndpoints {
   static const String exchangeAccounts = '/exchanges/accounts';
   static const String exchangeVenues = '/exchanges/registry/venues';
   static String exchangeAccount(String id) => '/exchanges/accounts/$id';
-  static String exchangeAccountDisable(String id) => '/exchanges/accounts/$id/disable';
+  static String exchangeAccountDisable(String id) =>
+      '/exchanges/accounts/$id/disable';
   static String exchangeHealthCheck(String id) => '/exchanges/health/$id/check';
 
   /// Phase 3: copy trading (follower side).
   static const String copyRankings = '/copy-trading/rankings';
-  static String copyTraderStrategies(String traderId) => '/copy-trading/traders/$traderId/strategies';
+  static String copyTraderStrategies(String traderId) =>
+      '/copy-trading/traders/$traderId/strategies';
   static const String copySubscriptions = '/copy-trading/subscriptions';
   static const String copyMySubscriptions = '/copy-trading/subscriptions/me';
-  static String copySubscriptionAction(String id, String action) => '/copy-trading/subscriptions/$id/$action';
+  static String copySubscriptionAction(String id, String action) =>
+      '/copy-trading/subscriptions/$id/$action';
   static const String copyExecutions = '/copy-trading/executions';
 
   /// Phase 3: funding through client-lifecycle requests on the customer's own
@@ -72,6 +77,9 @@ class ApiEndpoints {
   static const String fundingAccounts = '/client-lifecycle/accounts';
   static const String fundingRequests = '/client-lifecycle/funding';
   static const String withdrawalRequests = '/client-lifecycle/withdrawals';
+  // Read-only allowlist preflight. It never creates or authorizes a withdrawal.
+  static const String withdrawalDestinationCheck =
+      '/client-lifecycle/withdrawal-destination-check';
 
   /// Phase 3: portfolio accounting (read-only).
   static const String portfolioProfiles = '/portfolio-accounting/profiles';

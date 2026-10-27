@@ -2,7 +2,7 @@
 // # Validates supported locale, display-currency, timezone, and date-format preferences.
 import { IsIn, IsString, MaxLength, MinLength } from 'class-validator';
 
-export const SUPPORTED_PREFERENCE_LOCALES = ['en', 'bn'] as const;
+export const SUPPORTED_PREFERENCE_LOCALES = ['en', 'bn', 'ar', 'es', 'tr'] as const;
 export const SUPPORTED_PREFERENCE_CURRENCIES = ['BDT', 'USD', 'EUR', 'GBP', 'JPY', 'BTC', 'ETH'] as const;
 export const SUPPORTED_DATE_FORMATS = ['ISO', 'DMY', 'MDY'] as const;
 

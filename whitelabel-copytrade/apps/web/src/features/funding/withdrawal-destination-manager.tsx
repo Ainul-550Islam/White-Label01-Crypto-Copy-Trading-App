@@ -21,7 +21,8 @@
 'use client';
 import type { JSX } from 'react';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { newIdempotencyKey } from '@/lib/idempotency-key';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
@@ -90,12 +91,11 @@ export function WithdrawalDestinationManager(): JSX.Element {
   const [label, setLabel] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // Identity checking is delegated to the shared dialog so this screen never handles
-  // an authenticator code itself. The dialog offers authenticator, password and
-  // recovery code, which matters here: a customer who withdraws rarely may not have
-  // an authenticator set up, and a hard-coded "authenticator code" field would leave
-  // them with no way to whitelist an address at all.
-  const [stepUpOpen, setStepUpOpen] = useState(false);
+  // Identity checking is delegated to the shared dialog. This action requires
+  // an authenticator or recovery code; a password-only proof is not sufficient.
+  const [pendingAction, setPendingAction] = useState<{ type: 'add' } | { type: 'revoke'; id: string } | null>(null);
+  const keys = useRef<Record<string, string>>({});
+  const keyFor = (intent: string): string => { const key = keys.current[intent] ?? newIdempotencyKey('destination'); keys.current[intent] = key; return key; };
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -109,42 +109,41 @@ export function WithdrawalDestinationManager(): JSX.Element {
   const pending = useMemo(() => rows.filter((row) => row.status === 'PENDING'), [rows]);
 
   const addMutation = useMutation({
-    mutationFn: () => withdrawalDestinationApi.add({ network, address: address.trim(), label: label.trim() }),
+    mutationFn: () => withdrawalDestinationApi.add({ network, address: address.trim(), label: label.trim() }, keyFor(JSON.stringify(['add', network, address.trim(), label.trim()]))),
     onSuccess: (result) => {
       if (!result.ok) {
         if (isStepUpRefusal(result)) {
-          setStepUpOpen(true);
+          setPendingAction({ type: 'add' });
           setFormError('Confirm your identity to add this address.');
           return;
         }
-        setFormError(result.message);
+        setFormError('The address could not be added. Check the network and address, then try again.');
         return;
       }
       setFormError(null);
-      setNotice(result.message);
+      if (!['CREATED', 'EXISTING'].includes(result.code) || !result.destination || !['PENDING', 'ACTIVE'].includes(result.destination.status)) { setFormError('The address response could not be verified.'); return; }
+      setNotice(result.destination.status === 'PENDING' ? 'Address submitted. It cannot be used until its safety period ends.' : 'This address is already active.');
       setAddress('');
       setLabel('');
       void queryClient.invalidateQueries({ queryKey: WITHDRAWAL_DESTINATIONS_QUERY_KEY });
     },
-    onError: (error: unknown) => {
-      setFormError(error instanceof Error ? error.message : 'The address could not be added.');
-    },
+    onError: () => { setFormError('The address could not be added. Please try again.'); },
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (id: string) => withdrawalDestinationApi.revoke(id, 'Revoked by the account holder'),
+    mutationFn: (id: string) => withdrawalDestinationApi.revoke(id, 'Revoked by the account holder', keyFor(`revoke:${id}`)),
     onSuccess: (result) => {
-      setNotice(result.message);
+      if (!result.ok || result.code !== 'REVOKED' || result.destination?.status !== 'REVOKED') { setFormError('The address could not be revoked.'); return; }
+      setFormError(null);
+      setNotice('The address is revoked and cannot be used.');
       void queryClient.invalidateQueries({ queryKey: WITHDRAWAL_DESTINATIONS_QUERY_KEY });
     },
-    onError: (error: unknown) => {
-      setFormError(error instanceof Error ? error.message : 'The address could not be revoked.');
-    },
+    onError: () => { setFormError('The address could not be revoked. Please try again.'); },
   });
 
   if (destinationsQuery.isLoading) return <LoadingState />;
   if (destinationsQuery.error) {
-    return <ErrorState error={destinationsQuery.error} onRetry={() => void destinationsQuery.refetch()} />;
+    return <ErrorState error={new Error('Addresses could not be loaded. Please try again.')} onRetry={() => void destinationsQuery.refetch()} />;
   }
 
   return (
@@ -178,7 +177,7 @@ export function WithdrawalDestinationManager(): JSX.Element {
                 destination={row}
                 nowMs={now}
                 revoking={revokeMutation.isPending}
-                onRevoke={() => revokeMutation.mutate(row.id)}
+                onRevoke={() => setPendingAction({ type: 'revoke', id: row.id })}
               />
             ))}
           </ul>
@@ -197,7 +196,7 @@ export function WithdrawalDestinationManager(): JSX.Element {
             setFormError('Enter the full address.');
             return;
           }
-          addMutation.mutate();
+          setPendingAction({ type: 'add' });
         }}
       >
         <h2 className="text-sm font-semibold">Add an address</h2>
@@ -258,18 +257,15 @@ export function WithdrawalDestinationManager(): JSX.Element {
       </form>
 
       <StepUpAuthDialog
-        open={stepUpOpen}
+        open={pendingAction !== null}
         action={DESTINATION_STEP_UP_ACTION}
+        allowedMethods={['TOTP', 'RECOVERY_CODE']}
         onVerified={() => {
-          setStepUpOpen(false);
-          // The proof is single-use and bound to this action, so the add is retried
-          // immediately with the same values the customer already entered.
-          addMutation.mutate();
+          const selected = pendingAction; setPendingAction(null);
+          if (selected?.type === 'add') addMutation.mutate();
+          else if (selected?.type === 'revoke') revokeMutation.mutate(selected.id);
         }}
-        onCancel={() => {
-          setStepUpOpen(false);
-          setFormError('The address was not added because your identity was not confirmed.');
-        }}
+        onCancel={() => { setPendingAction(null); setFormError('The address was not changed.'); }}
       />
     </div>
   );

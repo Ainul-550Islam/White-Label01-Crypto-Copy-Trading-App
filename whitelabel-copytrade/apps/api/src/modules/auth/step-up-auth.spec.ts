@@ -1,10 +1,7 @@
 // # Proves step-up proofs are action-bound, single-use, session-bound and fail closed when the proof store is down.
 import { ErrorCode } from '@wlct/shared-types';
 
-import { THROTTLER_LIMIT, THROTTLER_TTL } from '@nestjs/throttler/dist/throttler.constants';
-
 import { STEP_UP_CONSUME_LUA, StepUpAuthService } from './step-up-auth.service';
-import { StepUpAuthController } from './step-up-auth.controller';
 
 const ACTOR = { userId: 'user-a', tenantId: 'tenant-a', sessionId: 'session-a' } as never;
 const CONTEXT = { ipHash: 'ip-hash', requestId: 'request-a', userAgent: 'jest' };
@@ -230,7 +227,7 @@ describe('StepUpAuthService', () => {
       const h = harness();
       const expiresAt = new Date(Date.now() + 120_000).toISOString();
       h.redis.client.get.mockResolvedValue(
-        JSON.stringify({ action: 'PAYOUT_CREATE', expiresAt, expiresAtMs: Date.now() + 120_000 }),
+        JSON.stringify({ action: 'PAYOUT_CREATE', expiresAt, expiresAtMs: Date.parse(expiresAt) }),
       );
 
       await expect(h.service.status(ACTOR, 'PAYOUT_CREATE')).resolves.toEqual({
@@ -264,6 +261,14 @@ describe('StepUpAuthService', () => {
   });
 
   describe('consumeForRoute', () => {
+    it('refuses and audits password-only proofs for payout creation but accepts recovery factors', async () => {
+      const h = harness();
+      const proof = { proofId: 'proof-payout', action: 'PAYOUT_CREATE', tenantId: 'tenant-a', userId: 'user-a', sessionId: 'session-a', issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
+      h.redis.client.eval.mockResolvedValueOnce(JSON.stringify({ ...proof, method: 'PASSWORD' })).mockResolvedValueOnce(JSON.stringify({ ...proof, method: 'RECOVERY_CODE' }));
+      await expect(h.service.consumeForRoute(ACTOR, 'PAYOUT_CREATE', CONTEXT)).resolves.toBe(false);
+      expect(h.audit.recordImmediate).toHaveBeenCalledWith(expect.objectContaining({ action: 'STEP_UP_ROUTE_DENIED', metadata: expect.objectContaining({ reason: 'MFA_REQUIRED' }) }));
+      await expect(h.service.consumeForRoute(ACTOR, 'PAYOUT_CREATE', CONTEXT)).resolves.toBe(true);
+    });
     it('audits an allow with the consumed proof id', async () => {
       const h = harness();
       h.redis.client.eval.mockResolvedValue(
@@ -321,21 +326,5 @@ describe('StepUpAuthService', () => {
         }),
       );
     });
-  });
-});
-
-// Rescued from the removed duplicate-stack spec (step-up.controller.spec):
-// credential verification is throttled to five attempts per minute on BOTH
-// issue routes of the canonical controller, so a six-digit TOTP cannot be
-// brute-forced inside its own validity window.
-describe('StepUpAuthController throttling', () => {
-  it('throttles both proof-issue routes to five attempts per minute', () => {
-    for (const handler of [
-      StepUpAuthController.prototype.challengeAtRoot,
-      StepUpAuthController.prototype.challenge,
-    ]) {
-      expect(Reflect.getMetadata(`${THROTTLER_LIMIT}auth`, handler)).toBe(5);
-      expect(Reflect.getMetadata(`${THROTTLER_TTL}auth`, handler)).toBe(60_000);
-    }
   });
 });

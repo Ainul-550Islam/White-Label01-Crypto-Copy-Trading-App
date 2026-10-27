@@ -53,7 +53,8 @@ List<String> _stringList(Object? value) {
 Map<String, Object?> _asMap(Object? value) {
   if (value is Map) {
     return value.map<String, Object?>(
-      (Object? key, Object? item) => MapEntry<String, Object?>(key.toString(), item),
+      (Object? key, Object? item) =>
+          MapEntry<String, Object?>(key.toString(), item),
     );
   }
   return const <String, Object?>{};
@@ -88,7 +89,8 @@ class RiskMirrorStatus extends Equatable {
                 .map(_asMap)
                 .toList(growable: false)
             : const <Map<String, Object?>>[];
-    final Map<String, Object?> severity = _asMap(json['eventsLast24hBySeverity']);
+    final Map<String, Object?> severity =
+        _asMap(json['eventsLast24hBySeverity']);
     final Set<String> staleIds = _stringList(json['staleAccounts']).toSet();
 
     return RiskMirrorStatus(
@@ -101,11 +103,14 @@ class RiskMirrorStatus extends Equatable {
       triggeredProtectionCount: _intOrZero(json['triggeredProtectionCount']),
       staleAccountIds: _stringList(json['staleAccounts']),
       mirrors: mirrors
-          .map((Map<String, Object?> row) =>
-              RiskAccountMirror.fromJson(row, staleIds: staleIds),)
+          .map(
+            (Map<String, Object?> row) =>
+                RiskAccountMirror.fromJson(row, staleIds: staleIds),
+          )
           .toList(growable: false),
-      criticalEvents24h:
-          _intOrZero(severity['CRITICAL']) + _intOrZero(severity['HIGH']),
+      criticalEvents24h: _intOrZero(severity['CRITICAL']) +
+          _intOrZero(severity['EMERGENCY']) +
+          _intOrZero(severity['HIGH']),
       note: _requiredString(json['note']),
     );
   }
@@ -296,7 +301,8 @@ class RiskEventInfo extends Equatable {
   final String? scope;
   final bool isSimulated;
 
-  bool get isSevere => severity == 'CRITICAL' || severity == 'HIGH';
+  bool get isSevere =>
+      severity == 'EMERGENCY' || severity == 'CRITICAL' || severity == 'HIGH';
 
   @override
   List<Object?> get props => <Object?>[

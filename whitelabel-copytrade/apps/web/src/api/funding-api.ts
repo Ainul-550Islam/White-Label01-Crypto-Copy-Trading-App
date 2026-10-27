@@ -212,37 +212,40 @@ export const fundingApi = {
     accountId: string;
     amount: string;
     currency: string;
-    externalReference?: string;
-  }): Promise<FundingRequest> =>
-    toFundingRequest(
-      await apiClient.post<Raw>("/v1/client-lifecycle/funding", {
-        accountId: data.accountId,
-        requestedAmount: data.amount,
-        currency: data.currency,
-        ...(data.externalReference
-          ? { externalReference: data.externalReference }
-          : {}),
-      }),
-      "DEPOSIT",
-    ),
+    externalReference: string;
+    idempotencyKey: string;
+  }): Promise<FundingRequest> => {
+    if (!data.externalReference.trim() || data.externalReference.length > 120) throw new Error("Invalid deposit reference");
+    const raw = await apiClient.post<Raw>("/v1/client-lifecycle/funding", {
+      accountId: data.accountId,
+      requestedAmount: data.amount,
+      currency: data.currency,
+      externalReference: data.externalReference.trim(),
+    }, { idempotencyKey: data.idempotencyKey });
+    if (!raw || typeof raw !== "object" || typeof raw.id !== "string" || !raw.id ||
+        raw.accountId !== data.accountId || raw.requestedAmount !== data.amount || raw.currency !== data.currency ||
+        typeof raw.state !== "string" || !OPEN_FUNDING_STATES.includes(raw.state)) throw new Error("Invalid deposit response");
+    return toFundingRequest(raw, "DEPOSIT");
+  },
 
   createWithdrawalRequest: async (data: {
     accountId: string;
     amount: string;
     currency: string;
     destinationAddress: string;
-    destinationType?: string;
-  }): Promise<FundingRequest> =>
-    toFundingRequest(
-      await apiClient.post<Raw>("/v1/client-lifecycle/withdrawals", {
+    destinationType: string;
+    idempotencyKey: string;
+  }): Promise<FundingRequest> => {
+    const raw = await apiClient.post<Raw>("/v1/client-lifecycle/withdrawals", {
         accountId: data.accountId,
         requestedAmount: data.amount,
         currency: data.currency,
         destinationAddress: data.destinationAddress,
-        ...(data.destinationType
-          ? { destinationType: data.destinationType }
-          : {}),
-      }),
-      "WITHDRAWAL",
-    ),
+        destinationType: data.destinationType,
+      }, { idempotencyKey: data.idempotencyKey });
+    if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !raw.id ||
+        raw.accountId !== data.accountId || raw.requestedAmount !== data.amount || raw.currency !== data.currency ||
+        typeof raw.state !== 'string' || !OPEN_FUNDING_STATES.includes(raw.state)) throw new Error("Invalid withdrawal response");
+    return toFundingRequest(raw, "WITHDRAWAL");
+  },
 };

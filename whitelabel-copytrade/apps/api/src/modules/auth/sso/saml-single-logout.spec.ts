@@ -137,6 +137,11 @@ function samlConfig(crypto: ReturnType<typeof fakeCryptoService>, overrides: Rec
 
 function harness(): Harness {
   const prisma = createInMemorySsoPrisma();
+  // Session creation now locks a tenant's user and verifies the credential
+  // generation before changing a session. Preserve that contract in the fake.
+  const sessionDb = prisma as any;
+  sessionDb.$queryRaw = jest.fn(async (_parts: TemplateStringsArray, userId: string) => [{ id: userId, sessionVersion: 0, status: 'ACTIVE' }]);
+  sessionDb.withTenantRls = jest.fn(async (_tenantId: string, callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
   const crypto = fakeCryptoService();
   const saml = new SamlProviderService(prisma as never, crypto as never);
   const transactions = new SsoTransactionService(prisma as never, crypto as never);
@@ -179,6 +184,7 @@ async function samlSession(
   const created = await h.sessions.createOrReuse({
     userId: input.userId,
     tenantId,
+    expectedSessionVersion: 0,
     deviceId: input.deviceId,
     ipHash: 'iphash-0001',
     authMethod: 'SSO_SAML',
@@ -425,7 +431,7 @@ describe('IdP-initiated SAML logout (GET /v1/auth/sso/saml/slo with SAMLRequest)
       aliceIdx1: await samlSession(h, { userId: ALICE, deviceId: 'web-alice-1', nameID: ALICE_NAME_ID, sessionIndex: 'idx-alice-1' }),
       aliceIdx2: await samlSession(h, { userId: ALICE, deviceId: 'web-alice-2', nameID: ALICE_NAME_ID, sessionIndex: 'idx-alice-2' }),
       bob: await samlSession(h, { userId: BOB, deviceId: 'web-bob-1', nameID: BOB_NAME_ID, sessionIndex: 'idx-alice-1' }),
-      alicePassword: (await h.sessions.createOrReuse({ userId: ALICE, tenantId: TENANT, deviceId: 'web-alice-pw', ipHash: 'iphash-0001' })).id,
+      alicePassword: (await h.sessions.createOrReuse({ userId: ALICE, tenantId: TENANT, expectedSessionVersion: 0, deviceId: 'web-alice-pw', ipHash: 'iphash-0001' })).id,
     };
   }
 
@@ -649,7 +655,7 @@ describe('session rows', () => {
     const h = harness();
     const sessionId = await samlSession(h, { userId: ALICE, deviceId: 'web-alice-1', nameID: ALICE_NAME_ID, sessionIndex: 'idx-alice-1' });
     expect(sessionRow(h, sessionId).ssoSubjectHash).toEqual(expect.any(String));
-    await h.sessions.createOrReuse({ userId: ALICE, tenantId: TENANT, deviceId: 'web-alice-1', ipHash: 'iphash-0002' });
+    await h.sessions.createOrReuse({ userId: ALICE, tenantId: TENANT, expectedSessionVersion: 0, deviceId: 'web-alice-1', ipHash: 'iphash-0002' });
     const row = sessionRow(h, sessionId);
     expect(row.authMethod).toBe('PASSWORD');
     expect(row.ssoSubjectHash).toBeNull();

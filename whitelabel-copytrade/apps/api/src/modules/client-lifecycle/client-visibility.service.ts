@@ -31,51 +31,53 @@ export class ClientVisibilityService {
     isPlatformUser?: boolean;
   }): Promise<Array<{ clientProfileId: string }>> {
     const { tenantId, userId, role, isPlatformUser = false } = params;
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
 
-    // Platform admin can view all profiles in tenant with audit
-    if (isPlatformUser && role === ClientVisibilityRole.PLATFORM_ADMIN) {
-      const profiles = await (this.prisma as any).clientProfile.findMany({ where: { tenantId } });
-      return profiles.map((p: any) => ({ clientProfileId: p.id }));
-    }
-
-    // Compliance reviewer and security admin can view all profiles for compliance/security purposes
-    if (role === ClientVisibilityRole.COMPLIANCE_REVIEWER || role === ClientVisibilityRole.SECURITY_ADMIN) {
-      const profiles = await (this.prisma as any).clientProfile.findMany({ where: { tenantId } });
-      return profiles.map((p: any) => ({ clientProfileId: p.id }));
-    }
-
-    // Tenant owner can view all profiles in tenant
-    if (role === ClientVisibilityRole.TENANT_OWNER) {
-      const profiles = await (this.prisma as any).clientProfile.findMany({ where: { tenantId } });
-      return profiles.map((p: any) => ({ clientProfileId: p.id }));
-    }
-
-    // Client can view own profile only — based on externalIdentityRef or ownership
-    if (role === ClientVisibilityRole.CLIENT) {
-      const profiles = await (this.prisma as any).clientProfile.findMany({
-        where: { tenantId, OR: [{ externalIdentityRef: userId }, { id: userId }] },
-      });
-      return profiles.map((p: any) => ({ clientProfileId: p.id }));
-    }
-
-    // Trader, follower, managed-account operator — view profiles they are related to via relationships
-    if ([ClientVisibilityRole.TRADER, ClientVisibilityRole.FOLLOWER, ClientVisibilityRole.MANAGED_ACCOUNT_OPERATOR].includes(role)) {
-      const relationships = await (this.prisma as any).accountRelationship.findMany({
-        where: { tenantId, OR: [{ sourceId: userId }, { targetId: userId }], status: 'ACTIVE' },
-      });
-      const profileIds = new Set<string>();
-      for (const rel of relationships) {
-        if (rel.clientProfileId) profileIds.add(rel.clientProfileId);
+      // Platform admin can view all profiles in tenant with audit
+      if (isPlatformUser && role === ClientVisibilityRole.PLATFORM_ADMIN) {
+        const profiles = await tx.clientProfile.findMany({ where: { tenantId } });
+        return profiles.map((p) => ({ clientProfileId: p.id }));
       }
-      // Also check ownership
-      const ownerships = await (this.prisma as any).accountOwnership.findMany({ where: { tenantId, ownerId: userId, status: 'ACTIVE' } });
-      for (const own of ownerships) {
-        if (own.clientProfileId) profileIds.add(own.clientProfileId);
-      }
-      return Array.from(profileIds).map((id) => ({ clientProfileId: id }));
-    }
 
-    return [];
+      // Compliance reviewer and security admin can view all profiles for compliance/security purposes
+      if (role === ClientVisibilityRole.COMPLIANCE_REVIEWER || role === ClientVisibilityRole.SECURITY_ADMIN) {
+        const profiles = await tx.clientProfile.findMany({ where: { tenantId } });
+        return profiles.map((p) => ({ clientProfileId: p.id }));
+      }
+
+      // Tenant owner can view all profiles in tenant
+      if (role === ClientVisibilityRole.TENANT_OWNER) {
+        const profiles = await tx.clientProfile.findMany({ where: { tenantId } });
+        return profiles.map((p) => ({ clientProfileId: p.id }));
+      }
+
+      // Client can view own profile only — based on externalIdentityRef or ownership
+      if (role === ClientVisibilityRole.CLIENT) {
+        const profiles = await tx.clientProfile.findMany({
+          where: { tenantId, OR: [{ externalIdentityRef: userId }, { id: userId }] },
+        });
+        return profiles.map((p) => ({ clientProfileId: p.id }));
+      }
+
+      // Trader, follower, managed-account operator — view profiles they are related to via relationships
+      if ([ClientVisibilityRole.TRADER, ClientVisibilityRole.FOLLOWER, ClientVisibilityRole.MANAGED_ACCOUNT_OPERATOR].includes(role)) {
+        const relationships = await tx.accountRelationship.findMany({
+          where: { tenantId, OR: [{ sourceId: userId }, { targetId: userId }], status: 'ACTIVE' },
+        });
+        const profileIds = new Set<string>();
+        for (const rel of relationships) {
+          if (rel.clientProfileId) profileIds.add(rel.clientProfileId);
+        }
+        // Also check ownership
+        const ownerships = await tx.accountOwnership.findMany({ where: { tenantId, ownerId: userId, status: 'ACTIVE' } });
+        for (const own of ownerships) {
+          if (own.clientProfileId) profileIds.add(own.clientProfileId);
+        }
+        return Array.from(profileIds).map((id) => ({ clientProfileId: id }));
+      }
+
+      return [];
+    });
   }
 
   async canViewClientProfile(params: {
@@ -101,7 +103,7 @@ export class ClientVisibilityService {
     role: ClientVisibilityRole;
     isPlatformUser?: boolean;
   }): Promise<boolean> {
-    const account = await (this.prisma as any).institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } });
+    const account = await this.prisma.withTenantRls(params.tenantId, (tx) => tx.institutionalAccount.findFirst({ where: { id: params.accountId, tenantId: params.tenantId } }));
     if (!account) return false;
 
     if (params.isPlatformUser && params.role === ClientVisibilityRole.PLATFORM_ADMIN) return true;
@@ -120,9 +122,9 @@ export class ClientVisibilityService {
     }
 
     // Check ownership
-    const ownership = await (this.prisma as any).accountOwnership.findFirst({
+    const ownership = await this.prisma.withTenantRls(params.tenantId, (tx) => tx.accountOwnership.findFirst({
       where: { tenantId: params.tenantId, accountId: params.accountId, ownerId: params.userId, status: 'ACTIVE' },
-    });
+    }));
     return !!ownership;
   }
 
@@ -133,7 +135,7 @@ export class ClientVisibilityService {
     role: ClientVisibilityRole;
     isPlatformUser?: boolean;
   }): Promise<boolean> {
-    const fr = await (this.prisma as any).fundingRequest.findFirst({ where: { id: params.fundingRequestId, tenantId: params.tenantId } });
+    const fr = await this.prisma.withTenantRls(params.tenantId, (tx) => tx.fundingRequest.findFirst({ where: { id: params.fundingRequestId, tenantId: params.tenantId } }));
     if (!fr) return false;
     return await this.canViewAccount({ tenantId: params.tenantId, userId: params.userId, accountId: fr.accountId, role: params.role, isPlatformUser: params.isPlatformUser });
   }

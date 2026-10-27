@@ -104,6 +104,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get changePassword => 'Change password';
 
   @override
+  String get securityWebManagement =>
+      'Manage your active devices and password in the web security settings.';
+
+  @override
   String get executionDisabledNotice =>
       'Live order execution is disabled on this build.';
 
@@ -292,7 +296,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get riskReadOnlyNotice =>
-      'Read-only by design. Engaging or clearing a switch lives in the admin console, behind reasons and typed confirmations.';
+      'Risk halts are read-only here. The admin console requires a reason and typed confirmation to engage or clear a switch.';
 
   @override
   String get riskPanelsDegraded =>
@@ -470,7 +474,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get followersLabel => 'Followers';
 
   @override
-  String get fundingSubtitle => 'Wallets, deposit addresses and transfers.';
+  String get fundingSubtitle =>
+      'Accounts, deposit requests and transfer history.';
 
   @override
   String get fundingTitle => 'Funding';
@@ -582,6 +587,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String get preferencesTab => 'Preferences';
 
   @override
+  String get displayPreferences => 'Display preferences';
+
+  @override
+  String get languageLabel => 'Language';
+
+  @override
+  String get displayCurrencyLabel => 'Display currency';
+
+  @override
+  String get timeZoneLabel => 'Time zone (IANA)';
+
+  @override
+  String get timeZoneRequired => 'Enter a time zone';
+
+  @override
+  String get dateFormatLabel => 'Date format';
+
+  @override
+  String get preferencesSupportNotice =>
+      'Preferences are saved to your account. Currency, time zone and date format support varies by screen.';
+
+  @override
+  String get savePreferences => 'Save preferences';
+
+  @override
   String get resume => 'Resume';
 
   @override
@@ -627,7 +657,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get withdrawOnWebNotice =>
-      'Withdrawals require policy checks and approval and are available in the web console.';
+      'Withdrawals are unavailable in this app. Contact your provider about approved withdrawal channels.';
 
   @override
   String get accountsTab => 'Accounts';
@@ -643,13 +673,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get depositRequested => 'Deposit request submitted';
 
   @override
+  String get depositUnconfirmed =>
+      'The deposit request could not be confirmed. Check your funding history before trying again.';
+
+  @override
   String get amountLabel => 'Amount';
 
   @override
   String get currencyLabel => 'Currency';
 
   @override
-  String get transferReferenceLabel => 'Transfer reference (optional)';
+  String get transferReferenceLabel => 'Transfer reference (required)';
+
+  @override
+  String get transferReferenceRequired => 'Enter your transfer reference.';
 
   @override
   String get depositRequestNotice =>
@@ -676,4 +713,156 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get pendingNotCompleted =>
       'Pending requests are not completed transfers.';
+
+  @override
+  String get deviceNotificationsTitle => 'Device notification permission';
+
+  @override
+  String get deviceNotificationsExplanation =>
+      'This controls permission on this device only. Push delivery also requires a configured push service.';
+
+  @override
+  String get deviceNotificationsUndetermined => 'Not requested yet';
+
+  @override
+  String get deviceNotificationsAllowed => 'Allowed';
+
+  @override
+  String get deviceNotificationsLimited => 'Allowed with limited delivery';
+
+  @override
+  String get deviceNotificationsDenied => 'Denied in device settings';
+
+  @override
+  String get deviceNotificationsUnavailable =>
+      'Permission status is unavailable on this device';
+
+  @override
+  String get deviceNotificationsRequest => 'Request device permission';
+
+  @override
+  String get deviceNotificationsSettings => 'Open device settings';
+
+  @override
+  String get deviceNotificationsSettingsError =>
+      'Device settings could not be opened.';
+
+  @override
+  String get devicePushRegistered =>
+      'Device registered. Provider delivery is not guaranteed.';
+
+  @override
+  String get devicePushUnavailable =>
+      'Device registration is unavailable. Check the connection and try again.';
+
+  @override
+  String get devicePushRetry => 'Retry device registration';
+
+  @override
+  String get destinationCheckTitle => 'Check withdrawal destination';
+
+  @override
+  String get destinationCheckNotice =>
+      'Check whether an address is on your allowlist now. This does not create a withdrawal or guarantee a future transfer.';
+
+  @override
+  String get destinationNetwork => 'Network';
+
+  @override
+  String get destinationAddress => 'Destination address';
+
+  @override
+  String get destinationAddressInvalid =>
+      'Enter an address between 16 and 128 characters.';
+
+  @override
+  String get destinationCheckAction => 'Check allowlist';
+
+  @override
+  String get destinationCheckAllowed =>
+      'On your allowlist at the time of this check. Other withdrawal conditions still apply.';
+
+  @override
+  String get destinationCheckPending =>
+      'This destination is awaiting activation and cannot currently be used.';
+
+  @override
+  String get destinationCheckDenied =>
+      'This is not an active approved destination for this network.';
+
+  @override
+  String get destinationCheckError =>
+      'The destination could not be checked. Check your connection and try again.';
+
+  @override
+  String get riskPanelUnavailable =>
+      'This risk panel is unavailable. Pull down to try again.';
+
+  @override
+  String get riskSwitchListIncomplete =>
+      'The halt count and list may be incomplete or out of sync. Refresh to check.';
+
+  @override
+  String get copyBudgetTitle => 'Copy-trading budget';
+
+  @override
+  String get copyBudgetAbout =>
+      'Reduce the copy-trading budget configuration. This is not an account-wide risk limit and does not close existing positions.';
+
+  @override
+  String get copyBudgetEffective => 'Current effective limit';
+
+  @override
+  String get copyBudgetUnlimited => 'No limit set';
+
+  @override
+  String get copyBudgetCommitted => 'Sum of active allocation values';
+
+  @override
+  String get copyBudgetNewLimit => 'New maximum';
+
+  @override
+  String get copyBudgetHelp =>
+      'You can only lower the limit here. Use a dot for decimals, without grouping; up to 16 whole and 12 decimal digits.';
+
+  @override
+  String get copyBudgetInvalid =>
+      'Enter a non-negative amount with up to 12 decimal places.';
+
+  @override
+  String get copyBudgetTooHigh =>
+      'The new limit cannot exceed the current effective limit.';
+
+  @override
+  String get copyBudgetReduce => 'Reduce limit';
+
+  @override
+  String get copyBudgetSaving => 'Saving…';
+
+  @override
+  String get copyBudgetSaved =>
+      'The reduction is recorded. The current limit is shown above.';
+
+  @override
+  String get copyBudgetUnavailable =>
+      'The copy budget is unavailable. Try again.';
+
+  @override
+  String get copyBudgetFailed =>
+      'The reduction could not be confirmed. Refresh and try again.';
+
+  @override
+  String get copyBudgetEstimateWarning =>
+      'Allocation values may use different units and are not verified live exposure or a guarantee against losses.';
+
+  @override
+  String get copyBudgetMetricUnavailable => 'Allocation estimate unavailable.';
+
+  @override
+  String get copyBudgetCurrencyUnavailable =>
+      'No budget currency is configured. Contact your operator.';
+
+  @override
+  String get copyBudgetEnforcementUnavailable =>
+      'Copy orders with a configured budget are blocked until live exposure and order reservations can be verified.';
 }

@@ -129,7 +129,6 @@ class ConfiguredBlockchainProvider implements BlockchainProvider {
         take: 100,
       });
 
-      const available = '0';
       let hasObservation = false;
 
       for (const dep of deposits) {
@@ -148,7 +147,7 @@ class ConfiguredBlockchainProvider implements BlockchainProvider {
           assetSymbol: params.assetId.split('-')[0] ?? params.assetId,
           networkId: params.networkId,
           walletId: 'unknown',
-          available: '0',
+          available: null,
           observationTimestamp: new Date().toISOString(),
           provider: this.providerId,
           sourceReference: `no-provider-observation:${params.address}`,
@@ -163,7 +162,7 @@ class ConfiguredBlockchainProvider implements BlockchainProvider {
         walletId: 'unknown',
         // Internal deposit records are not chain truth: the balance stays
         // UNKNOWN (never a fabricated 0) and is labelled as ledger-derived.
-        available: '0',
+        available: null,
         observationTimestamp: new Date().toISOString(),
         provider: this.providerId,
         sourceReference: `ledger-deposits-only:${params.address}`,

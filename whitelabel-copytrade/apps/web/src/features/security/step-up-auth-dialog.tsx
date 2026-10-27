@@ -65,6 +65,8 @@ export interface StepUpAuthDialogProps {
   defaultMethod?: StepUpMethod;
   /** Attempts already used in this dialog's lifetime, shown as a warning at 3. */
   maxAttemptsWarning?: number;
+  /** Restrict methods when a sensitive action requires a second factor. */
+  allowedMethods?: StepUpMethod[];
 }
 
 /**
@@ -84,6 +86,7 @@ export function StepUpAuthDialog(props: StepUpAuthDialogProps): JSX.Element | nu
       onCancel={props.onCancel}
       defaultMethod={props.defaultMethod ?? 'TOTP'}
       maxAttemptsWarning={props.maxAttemptsWarning ?? 3}
+      allowedMethods={props.allowedMethods}
     />
   );
 }
@@ -99,6 +102,7 @@ function StepUpAuthForm({
   onCancel,
   defaultMethod,
   maxAttemptsWarning,
+  allowedMethods,
 }: StepUpAuthFormProps): JSX.Element {
   const [method, setMethod] = useState<StepUpMethod>(defaultMethod);
   const [code, setCode] = useState('');
@@ -143,6 +147,7 @@ function StepUpAuthForm({
         ...(method === 'PASSWORD' ? { password } : {}),
         ...(method === 'RECOVERY_CODE' ? { recoveryCode: recoveryCode.trim() } : {}),
       });
+      if (!issued || !issued.proofId || issued.action !== action || issued.method !== method || !Number.isFinite(Date.parse(issued.expiresAt)) || Date.parse(issued.expiresAt) <= Date.now()) throw new Error('Invalid verification response');
       setProof(issued);
       setAttempts(0);
       // The credential is dropped the instant it has been exchanged for a proof.
@@ -150,13 +155,9 @@ function StepUpAuthForm({
       setPassword('');
       setRecoveryCode('');
       onVerified(issued);
-    } catch (failure) {
+    } catch {
       setAttempts((count) => count + 1);
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : 'That code was not accepted. Check your authenticator and try again.',
-      );
+      setError('Verification was not accepted. Check your details and try again.');
     } finally {
       setBusy(false);
     }
@@ -180,7 +181,7 @@ function StepUpAuthForm({
         </p>
 
         <div className="mt-3 flex gap-1 text-xs" role="tablist" aria-label="Verification method">
-          {(['TOTP', 'PASSWORD', 'RECOVERY_CODE'] as StepUpMethod[]).map((option) => (
+          {(allowedMethods ?? (['TOTP', 'PASSWORD', 'RECOVERY_CODE'] as StepUpMethod[])).map((option) => (
             <button
               key={option}
               type="button"

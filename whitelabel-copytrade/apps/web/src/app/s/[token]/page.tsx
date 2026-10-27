@@ -113,12 +113,12 @@ export default async function SharedPage({ params }: SharedPageProps): Promise<J
 
   if (!share) {
     return (
-      <main className="mx-auto grid max-w-md gap-3 p-6 text-center">
+      <div className="mx-auto grid max-w-md gap-3 p-6 text-center">
         <h1 className="text-lg font-semibold">This link is not available</h1>
         <p className="text-sm text-muted">
           The link may have expired, or the person who shared it may have withdrawn it. Ask them for a new one.
         </p>
-      </main>
+      </div>
     );
   }
 
@@ -130,7 +130,7 @@ export default async function SharedPage({ params }: SharedPageProps): Promise<J
   const avatar = typeof share.fields.avatarUrl === 'string' ? share.fields.avatarUrl : null;
 
   return (
-    <main className="mx-auto grid max-w-2xl gap-4 p-6">
+    <div className="mx-auto grid max-w-2xl gap-4 p-6">
       {/* The share URL is the page's own address; attributing it to the trader's
           private profile would credit a link the owner never handed out. */}
       {shareUrl && <link rel="canonical" href={shareUrl} />}
@@ -173,6 +173,6 @@ export default async function SharedPage({ params }: SharedPageProps): Promise<J
         Figures are as recorded by the platform at the time this page was requested. Past performance is not a reliable
         indicator of future results. Balances and followers are never shown on a shared page.
       </p>
-    </main>
+    </div>
   );
 }

@@ -321,28 +321,29 @@ export interface WithdrawalDestinationMutation {
 export const withdrawalDestinationApi = {
   list: async (): Promise<WithdrawalDestination[]> => {
     const page = await apiClient.get<{ data: WithdrawalDestination[]; total: number }>('/v1/custody/destinations');
-    return page?.data ?? [];
+    if (!Array.isArray(page?.data) || page.data.some((row) => !row || typeof row.id !== 'string' || !row.id || typeof row.network !== 'string' || !row.network || typeof row.address !== 'string' || !row.address || typeof row.label !== 'string' || !['PENDING', 'ACTIVE', 'REVOKED'].includes(row.status) || typeof row.activatesAt !== 'string' || !Number.isFinite(Date.parse(row.activatesAt)))) {
+      throw new Error('Invalid destination response');
+    }
+    return page.data;
   },
 
   /** Requires a fresh step-up proof for PAYOUT_CREATE; call stepUpApi.issue first. */
-  add: (input: { network: string; address: string; label: string }): Promise<WithdrawalDestinationMutation> =>
-    apiClient.post<WithdrawalDestinationMutation>('/v1/custody/destinations', input),
+  add: (input: { network: string; address: string; label: string }, idempotencyKey?: string): Promise<WithdrawalDestinationMutation> =>
+    apiClient.post<WithdrawalDestinationMutation>('/v1/custody/destinations', input, { idempotencyKey }),
 
-  revoke: (id: string, reason?: string): Promise<WithdrawalDestinationMutation> =>
+  revoke: (id: string, reason?: string, idempotencyKey?: string): Promise<WithdrawalDestinationMutation> =>
     apiClient.delete<WithdrawalDestinationMutation>(`/v1/custody/destinations/${encodeURIComponent(id)}`, {
-      ...(reason ? { body: { reason } } : {}),
+      ...(reason ? { body: { reason } } : {}), idempotencyKey,
     }),
 };
 
 /**
- * Account recovery. These three calls are the public flow, so they must work
- * without a session: `skipAuthRefresh` keeps a 401 (or a 429) from triggering a
- * refresh loop on a signed-out browser.
+ * Account recovery uses three fixed, same-origin public BFF routes. They do not
+ * enter the authenticated generic proxy or trigger a session refresh.
  */
 export interface RecoveryRequestResponse {
   accepted: true;
   message: string;
-  deliveryQueued: boolean;
 }
 
 export interface RecoveryVerifyResponse {
@@ -360,16 +361,16 @@ export interface RecoveryCompleteResponse {
 }
 
 export const accountRecoveryApi = {
-  request: (email: string): Promise<RecoveryRequestResponse> =>
-    apiClient.post<RecoveryRequestResponse>('/v1/auth/recovery/request', { email }, { skipAuthRefresh: true }),
+  request: (email: string, idempotencyKey: string): Promise<RecoveryRequestResponse> =>
+    apiClient.app.post<RecoveryRequestResponse>('/api/auth/recovery/request', { email }, { idempotencyKey }),
 
   verify: (token: string): Promise<RecoveryVerifyResponse> =>
-    apiClient.post<RecoveryVerifyResponse>('/v1/auth/recovery/verify', { token }, { skipAuthRefresh: true }),
+    apiClient.app.post<RecoveryVerifyResponse>('/api/auth/recovery/verify', { token }),
 
-  complete: (token: string, newPassword: string): Promise<RecoveryCompleteResponse> =>
-    apiClient.post<RecoveryCompleteResponse>(
-      '/v1/auth/recovery/complete',
+  complete: (token: string, newPassword: string, idempotencyKey: string): Promise<RecoveryCompleteResponse> =>
+    apiClient.app.post<RecoveryCompleteResponse>(
+      '/api/auth/recovery/complete',
       { token, newPassword },
-      { skipAuthRefresh: true },
+      { idempotencyKey },
     ),
 };

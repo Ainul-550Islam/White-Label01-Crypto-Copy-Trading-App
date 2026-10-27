@@ -68,7 +68,7 @@ function harness(options: {
   traderProfile?: { userId: string; verificationState: string } | null;
   complianceBlockedUserId?: string;
   /** Make a pre-dispatch lookup throw. */
-  failing?: 'compliance' | 'health' | 'killSwitch' | 'maintenance' | 'followerAccount';
+  failing?: 'compliance' | 'followerCompliance' | 'health' | 'killSwitch' | 'maintenance' | 'followerAccount';
   health?: Array<{ venue: string; state: string }>;
   inMaintenance?: boolean;
   /** Engaged kill-switch rows returned by the lookup. */
@@ -106,7 +106,9 @@ function harness(options: {
     },
     complianceCase: {
       findFirst: jest.fn(async (args: any) => {
-        if (options.failing === 'compliance') throw new Error('compliance lookup failed');
+        if (options.failing === 'compliance' || (options.failing === 'followerCompliance' && args.where.userId === 'user-f')) {
+          throw new Error('compliance lookup failed');
+        }
         return options.complianceBlockedUserId && args.where.userId === options.complianceBlockedUserId ? { id: 'case-1' } : null;
       }),
     },
@@ -341,6 +343,17 @@ describe('copy execution pre-dispatch gates', () => {
   it.each(['compliance', 'health', 'killSwitch', 'maintenance'] as const)('a failing %s lookup blocks the event, no order', async (failing) => {
     const h = harness({ failing });
     await expect(run(h)).resolves.toEqual({ processed: 0, skipped: 0, blocked: 1, executions: [] });
+    expect(h.createIntent).not.toHaveBeenCalled();
+  });
+
+  it('a failed follower compliance lookup blocks that copy without dispatching', async () => {
+    const h = harness({ failing: 'followerCompliance' });
+    const result = await run(h);
+    expect(result).toMatchObject({ processed: 0, blocked: 1 });
+    expect(result.executions[0]).toMatchObject({
+      status: CopyExecutionStatus.BLOCKED,
+      failureReason: 'Follower compliance status is unavailable; copy refused.',
+    });
     expect(h.createIntent).not.toHaveBeenCalled();
   });
 

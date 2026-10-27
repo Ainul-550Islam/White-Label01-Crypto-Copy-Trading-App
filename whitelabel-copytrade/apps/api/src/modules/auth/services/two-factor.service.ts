@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { authenticator } from 'otplib';
 import * as QRCode from 'qrcode';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -258,14 +259,18 @@ export class TwoFactorService {
       });
     }
 
-    await this.prisma.twoFactorAuth.update({
-      where: { userId },
+    const consumed = await this.prisma.twoFactorAuth.updateMany({
+      where: { userId, status: 'ACTIVE', secretCiphertext: { equals: record.secretCiphertext as Prisma.InputJsonValue },
+        OR: [{ lastUsedCounter: null }, { lastUsedCounter: { lt: BigInt(counter) } }] },
       data: {
         lastVerifiedAt: new Date(),
         lastUsedCounter: BigInt(counter),
         failedAttempts: 0,
       },
     });
+    if (consumed.count !== 1) {
+      throw new AppException({ code: ErrorCode.TWO_FACTOR_INVALID, message: 'That code has already been used. Wait for the next code and try again.' });
+    }
 
     const remaining = await this.prisma.twoFactorRecoveryCode.count({
       where: { userId, usedAt: null },
@@ -382,10 +387,13 @@ export class TwoFactorService {
     for (const candidate of candidates) {
       const matches = await this.passwords.verify(candidate.codeHash, recoveryCode.toUpperCase());
       if (matches) {
-        await this.prisma.twoFactorRecoveryCode.update({
-          where: { id: candidate.id },
+        // A recovery code is one-use even if two challenges are submitted in
+        // parallel after both callers have verified the same Argon2 hash.
+        const consumed = await this.prisma.twoFactorRecoveryCode.updateMany({
+          where: { id: candidate.id, userId, usedAt: null },
           data: { usedAt: new Date() },
         });
+        if (consumed.count !== 1) continue;
 
         const remaining = await this.prisma.twoFactorRecoveryCode.count({
           where: { userId, usedAt: null },

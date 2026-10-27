@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
-import { ApiError } from '@wlct/utils/api-error';
+import { PlanStepUpDialog } from './plan-step-up-dialog';
+import type { StepUpMethod } from '@/api/developer-platform-api';
+import { DeveloperI18n } from '@/features/developer/i18n';
+import { PlanGrantsPanel } from './plan-grants-panel';
 
-import { activatePlan, archivePlan, createPlan, deactivatePlan, getPlans, updatePlan } from './plan-api';
+import { activatePlan, archivePlan, createPlan, deactivatePlan, getPlans, updatePlan, verifyPlanAction, type PlanAction } from './plan-api';
 import { formatAudience, formatBps, formatInterval, formatPrice, formatStatus, LIMIT_LABELS } from './plan-formatters';
 import {
   BILLING_INTERVALS,
@@ -122,20 +125,24 @@ function featuresFromForm(form: PlanForm): string[] {
   return [...new Set(form.features.split(',').map((f) => f.trim()).filter(Boolean))];
 }
 
-function toInt(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+function validInteger(value: string, maximum: number): boolean {
+  return /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) <= maximum;
+}
+function toInt(value: string): number { return Number(value); }
+
+function validPlanForm(form: PlanForm, creating: boolean): boolean {
+  if (!form.name.trim() || form.name.trim().length > 120 || form.description.trim().length > 500 ||
+      !/^\d{1,12}(?:\.\d{1,6})?$/.test(form.price.trim()) ||
+      !validInteger(form.trialDays, 90) || !validInteger(form.platformFeeBps, 10000) ||
+      !validInteger(form.performanceFeeBps, 10000) || !validInteger(form.sortOrder, 2147483647)) return false;
+  if (creating && (!/^[a-z0-9][a-z0-9_-]*$/.test(form.code.trim().toLowerCase()) || form.code.trim().length > 48)) return false;
+  if (NUMERIC_LIMITS.some((key) => { const value = String(form.limits[key] ?? '').trim(); return value !== '' && !validInteger(value, Number.MAX_SAFE_INTEGER); })) return false;
+  return featuresFromForm(form).every((feature) => feature.length <= 120);
 }
 
-function errorText(error: unknown): string {
-  if (error instanceof ApiError) {
-    const fields = Object.entries(error.fieldErrors);
-    return fields.length > 0 ? `${error.message} (${fields.map(([f, m]) => `${f}: ${m}`).join('; ')})` : error.message;
-  }
-  return error instanceof Error ? error.message : 'The request failed';
-}
+function errorText(_error: unknown): string { return 'The request could not be confirmed. Refresh the list before retrying.'; }
 
-export default function PlanCatalogManagement({ canManage }: { canManage: boolean }) {
+export default function PlanCatalogManagement({ canManage, isPlatformUser = false }: { canManage: boolean; isPlatformUser?: boolean }) {
   const [page, setPage] = useState<PlanPage | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [search, setSearch] = useState('');
@@ -148,6 +155,10 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<Plan | 'new' | null>(null);
   const [form, setForm] = useState<PlanForm>(emptyForm());
+  const [grantPlan, setGrantPlan] = useState<Plan | null>(null);
+  const keys = useRef(new Map<string, string>());
+  const [pending, setPending] = useState<{ identity: string; key: string; actionName: PlanAction; operation: (key: string) => Promise<unknown>; success: string; onSuccess?: () => void } | null>(null);
+  const [verificationError, setVerificationError] = useState('');
 
   const load = async (requestedPage = pageNumber) => {
     try {
@@ -173,21 +184,21 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeInactive]);
 
-  /** Runs one API action; true when it succeeded (the list is then reloaded). */
-  const runAction = async (key: string, action: () => Promise<unknown>, success: string): Promise<boolean> => {
-    setBusy(key);
-    setMessage(null);
-    try {
-      await action();
-      setMessage(success);
-      await refresh();
-      return true;
-    } catch (e) {
-      setMessage(`Error: ${errorText(e)}`);
-      return false;
-    } finally {
-      setBusy(null);
-    }
+  /** Keep the same key for an uncertain retry of the same intent. */
+  const runAction = (identity: string, actionName: PlanAction, operation: (key: string) => Promise<unknown>, success: string, onSuccess?: () => void): void => {
+    if (busy) return;
+    const key = keys.current.get(identity) ?? crypto.randomUUID(); keys.current.set(identity, key);
+    setMessage(null); setVerificationError(''); setPending({ identity, key, actionName, operation, success, onSuccess });
+  };
+  const confirm = async (method: StepUpMethod, value: string): Promise<void> => {
+    if (!pending || busy) return;
+    setBusy('verify'); setVerificationError('');
+    try { await verifyPlanAction(pending.actionName, method, value, crypto.randomUUID()); }
+    catch { setVerificationError('Verification failed. Check your details and try again.'); setBusy(null); return; }
+    const intent = pending; setPending(null);
+    try { await intent.operation(intent.key); keys.current.delete(intent.identity); intent.onSuccess?.(); setMessage(intent.success); await refresh(); }
+    catch (e) { setMessage(`Error: ${errorText(e)}`); }
+    finally { setBusy(null); }
   };
 
   const openCreate = () => {
@@ -202,11 +213,12 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
     setMessage(null);
   };
 
-  const save = async () => {
+  const save = () => {
     if (editing === null) return;
+    if (!validPlanForm(form, editing === 'new')) { setMessage('Error: Check the plan fields and enter valid non-negative values.'); return; }
     const common = {
       name: form.name.trim(),
-      description: form.description.trim() || undefined,
+      description: form.description.trim(),
       price: form.price.trim(),
       interval: form.interval,
       trialDays: toInt(form.trialDays),
@@ -224,9 +236,10 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
         audience: form.audience,
         currency: form.currency,
       };
-      if (await runAction('save', () => createPlan(request), `Plan ${request.code} created`)) setEditing(null);
-    } else if (await runAction('save', () => updatePlan(editing.id, common), `Plan ${editing.code} updated`)) {
-      setEditing(null);
+      runAction(`create:${JSON.stringify(request)}`, 'PLAN_CREATE', (key) => createPlan(request, key), `Plan ${request.code} created`, () => setEditing(null));
+    } else {
+      const plan = editing;
+      runAction(`update:${plan.id}:${JSON.stringify(common)}`, 'PLAN_UPDATE', (key) => updatePlan(plan.id, common, key), `Plan ${plan.code} updated`, () => setEditing(null));
     }
   };
 
@@ -235,6 +248,8 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
 
   return (
     <div className="p-6 space-y-6">
+      {pending && <PlanStepUpDialog busy={!!busy} failed={!!verificationError} onCancel={() => setPending(null)} onVerify={confirm} />}
+      {grantPlan && <DeveloperI18n><PlanGrantsPanel key={grantPlan.id} plan={grantPlan} onClose={() => setGrantPlan(null)} onSaved={() => { setGrantPlan(null); void refresh(); }} /></DeveloperI18n>}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">Plan catalogue</h1>
@@ -331,9 +346,10 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
                             <button onClick={() => openEdit(plan)} disabled={!!busy} className="text-blue-600 hover:underline text-xs disabled:opacity-50">
                               Edit
                             </button>
+                            {isPlatformUser && !plan.tenantId && <button type="button" onClick={() => setGrantPlan(plan)} disabled={!!busy} className="text-blue-600 hover:underline text-xs">Developer &amp; feature grants</button>}
                             {plan.isActive ? (
                               <button
-                                onClick={() => runAction(`deactivate:${plan.id}`, () => deactivatePlan(plan.id), `Plan ${plan.code} is no longer offered`)}
+                                onClick={() => runAction(`deactivate:${plan.id}`, 'PLAN_UPDATE', (key) => deactivatePlan(plan.id, key), `Plan ${plan.code} is no longer offered`)}
                                 disabled={!!busy}
                                 className="text-yellow-700 hover:underline text-xs disabled:opacity-50"
                               >
@@ -341,7 +357,7 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
                               </button>
                             ) : (
                               <button
-                                onClick={() => runAction(`activate:${plan.id}`, () => activatePlan(plan.id), `Plan ${plan.code} is offered again`)}
+                                onClick={() => runAction(`activate:${plan.id}`, 'PLAN_UPDATE', (key) => activatePlan(plan.id, key), `Plan ${plan.code} is offered again`)}
                                 disabled={!!busy}
                                 className="text-green-600 hover:underline text-xs disabled:opacity-50"
                               >
@@ -351,7 +367,7 @@ export default function PlanCatalogManagement({ canManage }: { canManage: boolea
                             <button
                               onClick={() => {
                                 if (window.confirm(`Archive plan ${plan.code}? The API refuses while it still has trialing, active or past-due subscribers.`)) {
-                                  runAction(`archive:${plan.id}`, () => archivePlan(plan.id), `Plan ${plan.code} archived`);
+                                  runAction(`archive:${plan.id}`, 'PLAN_ARCHIVE', (key) => archivePlan(plan.id, key), `Plan ${plan.code} archived`);
                                 }
                               }}
                               disabled={!!busy}

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { serverEnv } from '@/lib/env';
 import { runtimeConfig } from '@/config/runtime-config';
 import { getAccessToken, getCsrfToken } from '@/lib/session';
-import { buildUpstreamPath, isAnonymousRoute, isUnsafeSegment } from '@/lib/proxy-path';
+import { buildUpstreamPath, isAnonymousRoute, isExactAnonymousProxyUrl, isUnsafeSegment } from '@/lib/proxy-path';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,7 +27,8 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
     );
   }
 
-  const anonymous = isAnonymousRoute(request.method, segments, runtimeConfig.apiVersion);
+  const anonymous = isAnonymousRoute(request.method, segments, runtimeConfig.apiVersion) &&
+    isExactAnonymousProxyUrl(request.url, runtimeConfig.apiVersion);
 
   if (MUTATING_METHODS.has(request.method)) {
     const submitted = request.headers.get('x-csrf-token');
@@ -67,6 +68,12 @@ async function handle(request: Request, segments: string[]): Promise<NextRespons
   if (forwardedHost) {
     headers['x-forwarded-host'] = forwardedHost;
     headers['host'] = forwardedHost;
+  }
+
+  // Forward only the bounded mutation key, never arbitrary browser headers.
+  const mutationKey = request.headers.get('idempotency-key');
+  if (mutationKey && /^[A-Za-z0-9._:-]{8,128}$/.test(mutationKey)) {
+    headers['idempotency-key'] = mutationKey;
   }
 
   const contentType = request.headers.get('content-type');
@@ -123,5 +130,11 @@ export async function PUT(request: Request, context: RouteContext): Promise<Next
   return handle(request, (await context.params).path);
 }
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
+  return handle(request, (await context.params).path);
+}
+export async function HEAD(request: Request, context: RouteContext): Promise<NextResponse> {
+  return handle(request, (await context.params).path);
+}
+export async function OPTIONS(request: Request, context: RouteContext): Promise<NextResponse> {
   return handle(request, (await context.params).path);
 }

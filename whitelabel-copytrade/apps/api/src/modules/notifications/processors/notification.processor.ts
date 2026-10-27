@@ -1,7 +1,9 @@
-import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Optional, type OnApplicationBootstrap } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { Job } from 'bullmq';
+import { createHash } from 'node:crypto';
+import { PUSH_JOB_NAME, PushDeviceService, type PushJob } from '../push/push-device.service';
 import { JOB_NAMES, QUEUE_NAMES } from '@wlct/config';
 import {
   NotificationChannel,
@@ -27,9 +29,8 @@ import { REALTIME_DISPATCH_CHANNEL } from '../../realtime/realtime.constants';
  *              realtime gateway relays to the user's sockets on any API node.
  *   EMAIL   -> a job on the email queue consumed by the notification-service
  *              worker, which owns the provider integration.
- *   PUSH/SMS-> queued the same way; the transports land with their providers in
- *              a later part, and unroutable channels are recorded as failed
- *              rather than silently dropped.
+ *   PUSH  -> a separately retried provider job, with per-device outcomes.
+ *   SMS   -> explicitly recorded as unsupported.
  */
 @Injectable()
 @Processor(QUEUE_NAMES.NOTIFICATION, { concurrency: 10 })
@@ -41,6 +42,7 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
     private readonly queues: QueueService,
     private readonly config: AppConfigService,
     @InjectPinoLogger(NotificationProcessor.name) private readonly logger: PinoLogger,
+    @Optional() private readonly pushDevices?: PushDeviceService,
   ) {
     super();
   }
@@ -57,7 +59,17 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
     );
   }
 
-  async process(job: Job<TransactionalNotificationJob>): Promise<{ delivered: number }> {
+  async process(job: Job<TransactionalNotificationJob | PushJob>): Promise<{ delivered: number }> {
+    if (job.name === PUSH_JOB_NAME) {
+      if (!this.pushDevices || !job.id) throw new Error('PUSH_WORKER_UNAVAILABLE');
+      const push = job.data as PushJob;
+      if (push.category) {
+        const allowed = await this.filterByPreferences(push.tenantId, push.userId, push.category, [NotificationChannel.PUSH], push.critical === true);
+        if (!allowed.length) return { delivered: 0 };
+      }
+      const result = await this.pushDevices.deliver(job.id, push);
+      return { delivered: result.accepted };
+    }
     if (job.name !== JOB_NAMES.DISPATCH_NOTIFICATION) {
       this.logger.warn(
         { event: 'notification.unknown_job', jobName: job.name },
@@ -66,10 +78,10 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
       return { delivered: 0 };
     }
 
-    const payload = job.data;
+    const payload = job.data as TransactionalNotificationJob;
     const template = resolveTemplate(payload.type);
 
-    const user = await this.prisma.user.findFirst({
+    const user = await this.prisma.withTenantRls(payload.tenantId, (tx) => tx.user.findFirst({
       where: { id: payload.userId, tenantId: payload.tenantId, deletedAt: null },
       select: {
         id: true,
@@ -77,7 +89,7 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
         status: true,
         profile: { select: { locale: true, displayName: true, firstName: true } },
       },
-    });
+    }));
 
     if (!user) {
       // The recipient was deleted between enqueue and delivery. Not an error.
@@ -88,7 +100,7 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
       return { delivered: 0 };
     }
 
-    const tenant = await this.prisma.tenant.findUnique({
+    const tenant = await this.prisma.withTenantRls(payload.tenantId, (tx) => tx.tenant.findUnique({
       where: { id: payload.tenantId },
       select: {
         name: true,
@@ -97,7 +109,7 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
           select: { appName: true, logoUrl: true, primaryColor: true, supportEmail: true },
         },
       },
-    });
+    }));
 
     const locale = payload.locale || user.profile?.locale || tenant?.defaultLocale || 'en';
     const appName = tenant?.branding?.appName ?? tenant?.name ?? this.config.appName;
@@ -113,6 +125,7 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
 
     const requestedChannels = payload.channels?.length ? payload.channels : template.channels;
     const channels = await this.filterByPreferences(
+      payload.tenantId,
       user.id,
       template.category,
       requestedChannels,
@@ -124,7 +137,7 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
     for (const channel of channels) {
       switch (channel) {
         case NotificationChannel.IN_APP: {
-          const record = await this.prisma.notification.create({
+          const record = await this.prisma.withTenantRls(payload.tenantId, (tx) => tx.notification.create({
             data: {
               tenantId: payload.tenantId,
               userId: user.id,
@@ -135,7 +148,7 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
               data: payload.data as object,
               deliveredAt: new Date(),
             },
-          });
+          }));
 
           await this.publishRealtime(payload.tenantId, user.id, {
             id: record.id,
@@ -172,9 +185,25 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
           break;
         }
 
+        case NotificationChannel.PUSH: {
+          if (this.pushDevices && job.id) {
+            const id = `push-${createHash('sha256').update(String(job.id)).update(payload.tenantId).update(user.id).digest('hex')}`;
+            await this.queues.enqueueOrThrow(QUEUE_NAMES.NOTIFICATION, PUSH_JOB_NAME,
+              { tenantId: payload.tenantId, userId: user.id, locale, category: template.category, critical: template.critical } satisfies PushJob,
+              { jobId: id, attempts: 5, backoff: { type: 'exponential', delay: 5000 } });
+            // Queued is not delivered: the provider worker records its own outcome.
+            break;
+          }
+          // A missing worker is an explicit failure, never a fake success.
+          await this.prisma.withTenantRls(payload.tenantId, (tx) => tx.notification.create({ data: {
+            tenantId: payload.tenantId, userId: user.id, channel, type: template.type, title, body,
+            data: payload.data as object, failedAt: new Date(), failureReason: `No transport configured for channel ${channel}`,
+          } }));
+          break;
+        }
         default: {
           // Transport not wired yet: record the attempt so nothing disappears.
-          await this.prisma.notification.create({
+          await this.prisma.withTenantRls(payload.tenantId, (tx) => tx.notification.create({
             data: {
               tenantId: payload.tenantId,
               userId: user.id,
@@ -186,7 +215,7 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
               failedAt: new Date(),
               failureReason: `No transport configured for channel ${channel}`,
             },
-          });
+          }));
           break;
         }
       }
@@ -212,15 +241,16 @@ export class NotificationProcessor extends WorkerHost implements OnApplicationBo
    * devices changed.
    */
   private async filterByPreferences(
+    tenantId: string,
     userId: string,
     category: string,
     channels: NotificationChannel[],
     critical: boolean,
   ): Promise<NotificationChannel[]> {
-    const preferences = await this.prisma.notificationPreference.findMany({
+    const preferences = await this.prisma.withTenantRls(tenantId, (tx) => tx.notificationPreference.findMany({
       where: { userId, category, channel: { in: channels } },
       select: { channel: true, enabled: true },
-    });
+    }));
 
     const disabled = new Set(
       preferences.filter((preference) => !preference.enabled).map((preference) => preference.channel),

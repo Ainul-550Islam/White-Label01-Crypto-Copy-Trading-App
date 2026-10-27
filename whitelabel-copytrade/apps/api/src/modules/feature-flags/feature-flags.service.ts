@@ -12,9 +12,9 @@ import { CACHE_KEY, CACHE_TTL, FEATURE_FLAG_KEYS } from '@wlct/config';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CacheService } from '../../infrastructure/redis/cache.service';
-import { AuditService } from '../audit/audit.service';
 import { NotFoundException } from '../../common/errors/app.exception';
 import type { UpsertFeatureFlagDto, SetTenantFlagDto } from './dto/feature-flag.dto';
+import { claimMutationIntent } from '../developer-platform/developer-mutation-intent';
 
 /**
  * Definitions applied to every newly provisioned tenant. Anything that touches
@@ -22,18 +22,6 @@ import type { UpsertFeatureFlagDto, SetTenantFlagDto } from './dto/feature-flag.
  * it on after the corresponding contractual and regulatory work is done.
  */
 const GLOBAL_KILL_SWITCH_KEY = 'platform.kill_switch';
-
-/**
- * Keys that switch a tenant toward real-money behaviour. The admin console
- * classifies with this exact pattern; the two must stay in lockstep, or a
- * key the console treats as "live" could be toggled through the plain route
- * this classification exists to keep it off.
- */
-const LIVE_FLAG_KEY_PATTERN = /(^|_)(live|mainnet)(_|$)/i;
-
-export function isLiveFlagKey(key: string): boolean {
-  return LIVE_FLAG_KEY_PATTERN.test(key);
-}
 
 const TENANT_DEFAULTS: Record<string, boolean> = {
   [FEATURE_FLAG_KEYS.COPY_TRADING]: false,
@@ -55,7 +43,6 @@ export class FeatureFlagsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
-    private readonly audit: AuditService,
     @InjectPinoLogger(FeatureFlagsService.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -64,10 +51,10 @@ export class FeatureFlagsService {
     return this.cache.remember(
       CACHE_KEY.tenantFeatureFlags(tenantId),
       CACHE_TTL.FEATURE_FLAGS_SECONDS,
-      async () => {
+      async () => this.prisma.withTenantRls(tenantId, async (tx) => {
         const [definitions, overrides] = await Promise.all([
-          this.prisma.featureFlag.findMany(),
-          this.prisma.tenantFeatureFlag.findMany({
+          tx.featureFlag.findMany(),
+          tx.tenantFeatureFlag.findMany({
             where: { tenantId },
             include: { featureFlag: { select: { key: true } } },
           }),
@@ -98,7 +85,7 @@ export class FeatureFlagsService {
         }
 
         return resolved;
-      },
+      }),
     );
   }
 
@@ -160,11 +147,11 @@ export class FeatureFlagsService {
   }
 
   async listForTenant(tenantId: string): Promise<TenantFeatureFlagDto[]> {
-    const overrides = await this.prisma.tenantFeatureFlag.findMany({
+    const overrides = await this.prisma.withTenantRls(tenantId, (tx) => tx.tenantFeatureFlag.findMany({
       where: { tenantId },
       include: { featureFlag: { select: { key: true } } },
       orderBy: { featureFlag: { key: 'asc' } },
-    });
+    }));
 
     return overrides.map((override) => ({
       id: override.id,
@@ -181,158 +168,124 @@ export class FeatureFlagsService {
   async upsertDefinition(
     dto: UpsertFeatureFlagDto,
     context: { actorId: string; tenantId: string; ipHash: string; requestId: string },
+    idempotencyKey: string,
   ): Promise<FeatureFlagDto> {
-    const definition = await this.prisma.featureFlag.upsert({
-      where: { key: dto.key },
-      create: {
-        key: dto.key,
-        name: dto.name,
-        description: dto.description ?? null,
-        isGlobalDefault: dto.isGlobalDefault ?? false,
-        rolloutPercentage: dto.rolloutPercentage ?? 100,
-      },
-      update: {
-        name: dto.name,
-        ...(dto.description !== undefined ? { description: dto.description } : {}),
-        ...(dto.isGlobalDefault !== undefined ? { isGlobalDefault: dto.isGlobalDefault } : {}),
-        ...(dto.rolloutPercentage !== undefined
-          ? { rolloutPercentage: dto.rolloutPercentage }
-          : {}),
-      },
+    const definition = await this.prisma.withTenantRls(context.tenantId, async (tx) => {
+      // Global definitions can be changed by different platform tenants; lock
+      // by flag key as well as recording the tenant-scoped intent.
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('feature-flag-global'), hashtext(${dto.key}))`;
+      await claimMutationIntent(tx, context.tenantId, idempotencyKey, 'feature_flag.definition', dto.key);
+      const saved = await tx.featureFlag.upsert({
+        where: { key: dto.key },
+        create: {
+          key: dto.key, name: dto.name, description: dto.description ?? null,
+          isGlobalDefault: dto.isGlobalDefault ?? false, rolloutPercentage: dto.rolloutPercentage ?? 100,
+        },
+        update: {
+          name: dto.name,
+          ...(dto.description !== undefined ? { description: dto.description } : {}),
+          ...(dto.isGlobalDefault !== undefined ? { isGlobalDefault: dto.isGlobalDefault } : {}),
+          ...(dto.rolloutPercentage !== undefined ? { rolloutPercentage: dto.rolloutPercentage } : {}),
+        },
+      });
+      await tx.auditLog.create({ data: {
+        tenantId: context.tenantId, actorType: AuditActorType.USER, actorId: context.actorId,
+        action: AuditAction.FEATURE_FLAG_UPDATED, outcome: AuditOutcome.SUCCESS,
+        resourceType: 'FeatureFlag', resourceId: saved.id,
+        description: `Feature flag definition "${dto.key}" saved`,
+        ipHash: context.ipHash, requestId: context.requestId,
+      } });
+      return saved;
     });
-
-    // A definition change can affect every tenant, so drop the whole namespace.
-    await this.cache.deleteByPattern('tenant:*:feature-flags');
-
-    await this.audit.record({
-      tenantId: context.tenantId,
-      actorType: AuditActorType.USER,
-      actorId: context.actorId,
-      action: AuditAction.FEATURE_FLAG_UPDATED,
-      outcome: AuditOutcome.SUCCESS,
-      resourceType: 'FeatureFlag',
-      resourceId: definition.id,
-      description: `Feature flag definition "${dto.key}" saved`,
-      ipHash: context.ipHash,
-      requestId: context.requestId,
-    });
-
+    // A definition can affect every tenant. If Redis is temporarily unavailable,
+    // the committed result is still returned and bounded TTLs expire the cache.
+    try {
+      await this.cache.deleteByPattern('tenant:*:feature-flags');
+    } catch {
+      this.logger.warn({ event: 'feature_flag.definition_cache_invalidation_failed' }, 'Feature flag cache will expire');
+    }
     return {
-      id: definition.id,
-      key: definition.key,
-      name: definition.name,
-      description: definition.description,
-      isGlobalDefault: definition.isGlobalDefault,
+      id: definition.id, key: definition.key, name: definition.name,
+      description: definition.description, isGlobalDefault: definition.isGlobalDefault,
       rolloutPercentage: definition.rolloutPercentage,
-      createdAt: definition.createdAt.toISOString(),
-      updatedAt: definition.updatedAt.toISOString(),
-    };
-  }
-
-  async setForTenant(
-    tenantId: string,
-    dto: SetTenantFlagDto,
-    context: { actorId: string; ipHash: string; requestId: string },
-    stepUpVerified = false,
-  ): Promise<TenantFeatureFlagDto> {
-    // Live/mainnet switches sit behind the step-up boundary: the plain route
-    // calls this with stepUpVerified=false, and only PUT /live — gated by
-    // @RequireStepUp('FEATURE_FLAG_LIVE_TOGGLE'), whose guard consumes the
-    // single-use proof before the handler runs — may pass true. Checking
-    // here as well as at the route means no future caller can widen the
-    // plain path by forgetting the decorator.
-    if (isLiveFlagKey(dto.key) && !stepUpVerified) {
-      throw new ForbiddenException(
-        `Feature "${dto.key}" is a live-trading switch and requires step-up verification via PUT /v1/feature-flags/live`,
-      );
-    }
-
-    // Enabling is an entitlement decision; disabling never is. Turning a
-    // feature off must stay possible after a plan lapses or is cancelled —
-    // the safe direction is never gated on billing state.
-    if (dto.enabled) {
-      await this.assertPlanEntitles(tenantId, dto.key);
-    }
-
-    const definition = await this.prisma.featureFlag.findUnique({ where: { key: dto.key } });
-    if (!definition) {
-      throw new NotFoundException('Feature flag', dto.key);
-    }
-
-    const override = await this.prisma.tenantFeatureFlag.upsert({
-      where: {
-        tenantId_featureFlagId: { tenantId, featureFlagId: definition.id },
-      },
-      create: {
-        tenantId,
-        featureFlagId: definition.id,
-        enabled: dto.enabled,
-        rolloutPercentage: dto.rolloutPercentage ?? null,
-        metadata: (dto.metadata ?? {}) as object,
-      },
-      update: {
-        enabled: dto.enabled,
-        ...(dto.rolloutPercentage !== undefined
-          ? { rolloutPercentage: dto.rolloutPercentage }
-          : {}),
-        ...(dto.metadata !== undefined ? { metadata: dto.metadata as object } : {}),
-      },
-    });
-
-    await this.cache.delete(
-      CACHE_KEY.tenantFeatureFlags(tenantId),
-      CACHE_KEY.tenantPublicConfig(tenantId),
-    );
-
-    this.logger.info(
-      { event: 'feature_flag.changed', tenantId, key: dto.key, enabled: dto.enabled },
-      'Tenant feature flag updated',
-    );
-
-    await this.audit.record({
-      tenantId,
-      actorType: AuditActorType.USER,
-      actorId: context.actorId,
-      action: AuditAction.FEATURE_FLAG_UPDATED,
-      outcome: AuditOutcome.SUCCESS,
-      resourceType: 'TenantFeatureFlag',
-      resourceId: override.id,
-      description: `Feature "${dto.key}" ${dto.enabled ? 'enabled' : 'disabled'}`,
-      changes: { enabled: { before: !dto.enabled, after: dto.enabled } },
-      ipHash: context.ipHash,
-      requestId: context.requestId,
-    });
-
-    return {
-      id: override.id,
-      tenantId: override.tenantId,
-      featureFlagId: override.featureFlagId,
-      key: definition.key,
-      enabled: override.enabled,
-      rolloutPercentage: override.rolloutPercentage,
-      metadata: (override.metadata as Record<string, unknown>) ?? {},
-      updatedAt: override.updatedAt.toISOString(),
+      createdAt: definition.createdAt.toISOString(), updatedAt: definition.updatedAt.toISOString(),
     };
   }
 
   /**
-   * The current plan's feature list is the entitlement: a flag the plan does
-   * not name cannot be switched on for the tenant, whatever the caller's
-   * permission says. Only billable subscriptions entitle — a cancelled or
-   * expired plan keeps its history, not its privileges.
+   * The intent, override and primary audit record commit together. Reusing a
+   * key is a conflict rather than a second write, including after a lost HTTP
+   * response. An advisory transaction lock also serialises different keys for
+   * the same tenant/flag so before/after audit values are accurate.
    */
-  private async assertPlanEntitles(tenantId: string, key: string): Promise<void> {
-    const subscription = await this.prisma.tenantSubscription.findFirst({
-      where: { tenantId, status: { in: ['ACTIVE', 'TRIALING'] } },
-      include: { plan: { select: { features: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
-    const entitled = subscription?.plan.features ?? [];
-    if (!entitled.includes(key)) {
-      throw new ForbiddenException(
-        `The tenant's current plan does not entitle feature "${key}"`,
-      );
+  async setForTenant(
+    tenantId: string,
+    dto: SetTenantFlagDto,
+    context: { actorId: string; ipHash: string; requestId: string },
+    idempotencyKey: string,
+  ): Promise<TenantFeatureFlagDto> {
+    if (dto.key === GLOBAL_KILL_SWITCH_KEY) {
+      throw new ForbiddenException('The platform kill switch cannot be changed by a tenant.');
     }
+    const result = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('feature-flag'), hashtext(${`${tenantId}:${dto.key}`}))`;
+      const definition = await tx.featureFlag.findUnique({ where: { key: dto.key } });
+      if (!definition) throw new NotFoundException('Feature flag', dto.key);
+      if (dto.enabled) {
+        const subscription = await tx.tenantSubscription.findFirst({
+          where: { tenantId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
+          orderBy: { currentPeriodStart: 'desc' },
+          select: { plan: { select: { features: true, limits: true } } },
+        });
+        const limits = subscription?.plan.limits;
+        const explicitGrant = limits && typeof limits === 'object' && !Array.isArray(limits)
+          && (limits as Record<string, unknown>)[`tenant_flag_grant_${dto.key}`] === true;
+        if (!explicitGrant) {
+          throw new ForbiddenException('The current plan does not grant this feature.');
+        }
+      }
+      await claimMutationIntent(tx, tenantId, idempotencyKey, 'feature_flag.set', dto.key);
+      const previous = await tx.tenantFeatureFlag.findUnique({
+        where: { tenantId_featureFlagId: { tenantId, featureFlagId: definition.id } },
+        select: { enabled: true },
+      });
+      const override = await tx.tenantFeatureFlag.upsert({
+        where: { tenantId_featureFlagId: { tenantId, featureFlagId: definition.id } },
+        create: {
+          tenantId, featureFlagId: definition.id, enabled: dto.enabled,
+          rolloutPercentage: dto.rolloutPercentage ?? null,
+          metadata: (dto.metadata ?? {}) as object,
+        },
+        update: {
+          enabled: dto.enabled,
+          ...(dto.rolloutPercentage !== undefined ? { rolloutPercentage: dto.rolloutPercentage } : {}),
+          ...(dto.metadata !== undefined ? { metadata: dto.metadata as object } : {}),
+        },
+      });
+      await tx.auditLog.create({ data: {
+        tenantId, actorType: AuditActorType.USER, actorId: context.actorId,
+        action: AuditAction.FEATURE_FLAG_UPDATED, outcome: AuditOutcome.SUCCESS,
+        resourceType: 'TenantFeatureFlag', resourceId: override.id,
+        description: 'Tenant feature flag override updated',
+        changes: { enabled: { before: previous?.enabled ?? null, after: dto.enabled } },
+        ipHash: context.ipHash, requestId: context.requestId,
+      } });
+      return { override, key: definition.key };
+    });
+    // Cache failure must not disguise a committed write as an uncommitted one.
+    // The cache entries have bounded TTLs and will self-expire if Redis is down.
+    try {
+      await this.cache.delete(CACHE_KEY.tenantFeatureFlags(tenantId), CACHE_KEY.tenantPublicConfig(tenantId));
+    } catch {
+      this.logger.warn({ event: 'feature_flag.cache_invalidation_failed', tenantId }, 'Feature flag cache will expire');
+    }
+    this.logger.info({ event: 'feature_flag.changed', tenantId, key: dto.key, enabled: dto.enabled }, 'Tenant feature flag updated');
+    const { override, key } = result;
+    return {
+      id: override.id, tenantId: override.tenantId, featureFlagId: override.featureFlagId,
+      key, enabled: override.enabled, rolloutPercentage: override.rolloutPercentage,
+      metadata: (override.metadata as Record<string, unknown>) ?? {}, updatedAt: override.updatedAt.toISOString(),
+    };
   }
 
   /** Writes the default override rows for a freshly provisioned tenant. */
@@ -350,20 +303,20 @@ export class FeatureFlagsService {
       return;
     }
 
-    await this.prisma.tenantFeatureFlag.createMany({
+    await this.prisma.withTenantRls(tenantId, (tx) => tx.tenantFeatureFlag.createMany({
       data: definitions.map((definition) => ({
         tenantId,
         featureFlagId: definition.id,
         enabled: TENANT_DEFAULTS[definition.key] ?? false,
       })),
       skipDuplicates: true,
-    });
+    }));
 
     await this.cache.delete(CACHE_KEY.tenantFeatureFlags(tenantId));
   }
 
   private async getRolloutPercentage(tenantId: string, key: string): Promise<number> {
-    const definition = await this.prisma.featureFlag.findUnique({
+    const definition = await this.prisma.withTenantRls(tenantId, (tx) => tx.featureFlag.findUnique({
       where: { key },
       select: {
         id: true,
@@ -374,7 +327,7 @@ export class FeatureFlagsService {
           take: 1,
         },
       },
-    });
+    }));
 
     if (!definition) {
       return 0;

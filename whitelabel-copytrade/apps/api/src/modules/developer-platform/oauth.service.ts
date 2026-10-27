@@ -29,6 +29,7 @@ import {
   validateScopes,
 } from './developer.types';
 import { DeveloperAuditService, type DeveloperAuditActor } from './developer-audit.service';
+import { claimMutationIntent } from './developer-mutation-intent';
 import {
   DEVELOPER_POLICY_DATA_PORT,
   DeveloperPolicyDataPort,
@@ -55,6 +56,8 @@ export interface AuthorizationRequestResult {
   /** The consent view the user actually confirms in the portal. */
   consentedScopes: string[];
   redirectTo: string;
+  clientName: string;
+  environment: string;
 }
 
 export interface TokenExchangeResult {
@@ -76,9 +79,9 @@ export class OAuthService {
   ) {}
 
   private async loadApplicationByClientId(tenantId: string, clientId: string) {
-    const application = await this.prisma.developerApplication.findUnique({
+    const application = await this.prisma.withTenantRls(tenantId, (tx) => tx.developerApplication.findUnique({
       where: { clientId },
-    });
+    }));
     if (!application || application.tenantId !== tenantId) {
       // Cross-tenant client ids are indistinguishable from unknown ones.
       throw new NotFoundException('OAuth client not found');
@@ -86,7 +89,7 @@ export class OAuthService {
     if (application.state === 'REVOKED') {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_REVOKED, 'application is revoked');
     }
-    if (application.state === 'SUSPENDED' || application.state === 'REACTIVATION_REVIEW') {
+    if (application.state !== 'ACTIVE') {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.APPLICATION_SUSPENDED, 'application is not active');
     }
     return application;
@@ -113,41 +116,56 @@ export class OAuthService {
     const requested = validateScopes(input.requestedScopes ?? application.scopes);
     // The requestable set is bounded by the application's registered scopes.
     assertScopesCovered(requested, application.scopes);
-
-    const pkceRequired = policy.oauth.pkceRequired || application.state === 'PENDING';
-    if (pkceRequired) {
-      if (!input.codeChallenge || input.codeChallengeMethod !== 'S256') {
-        throw new DeveloperError(
-          DEVELOPER_ERROR_CODES.PKCE_REQUIRED,
-          'PKCE (S256) is required for this authorization',
-        );
-      }
+    // Only the user-profile capability is exposed through the current OAuth
+    // integration boundary. Never grant unavailable or write-level scopes.
+    if (requested.length !== 1 || requested[0] !== 'profile:read' || !policy.allowedScopes.includes('profile:read')) {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.SCOPE_NOT_ALLOWED, 'requested OAuth capability is unavailable');
     }
 
-    const grant = await this.prisma.developerOAuthGrant.create({
-      data: {
-        tenantId: input.tenantId,
-        applicationId: application.id,
-        userId: input.userId,
-        state: 'PENDING_CONSENT',
-        redirectUri: input.redirectUri,
-        requestedScopes: requested,
-        consentedScopes: [],
-        codeChallenge: input.codeChallenge ?? null,
-        codeChallengeMethod: input.codeChallenge ?? null,
-        nonce: input.nonce ?? null,
-        stateParameter: input.state,
-        idempotencyKey: idempotencyKey(
-          input.tenantId,
-          'oauth.grant',
-          `${application.id}|${input.userId}|${input.state}`,
-        ),
-      },
+    // All interactive authorizations require PKCE. A browser cannot keep a
+    // client secret, and allowing a non-PKCE grant would expose intercepted codes.
+    if (!input.codeChallenge || input.codeChallengeMethod !== 'S256') {
+      throw new DeveloperError(
+        DEVELOPER_ERROR_CODES.PKCE_REQUIRED,
+        'PKCE (S256) is required for this authorization',
+      );
+    }
+
+    const grantKey = idempotencyKey(input.tenantId, 'oauth.grant', `${application.id}|${input.userId}|${input.state}`);
+    const grant = await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      // Serialize the deterministic state key so retried/concurrent requests
+      // return the existing grant, not a unique-index server error.
+      await tx.$queryRaw`SELECT "id" FROM "tenants" WHERE "id" = ${input.tenantId}::uuid FOR UPDATE`;
+      const existing = await tx.developerOAuthGrant.findFirst({ where: { tenantId: input.tenantId, idempotencyKey: grantKey } });
+      if (existing) {
+        const sameScopes = existing.requestedScopes.length === requested.length && requested.every((scope) => existing.requestedScopes.includes(scope));
+        if (existing.redirectUri !== input.redirectUri || !sameScopes || existing.codeChallenge !== (input.codeChallenge ?? null)
+          || existing.codeChallengeMethod !== (input.codeChallengeMethod ?? null) || existing.nonce !== (input.nonce ?? null)) {
+          throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'authorization state was already used for a different request');
+        }
+        return existing;
+      }
+      const created = await tx.developerOAuthGrant.create({
+        data: {
+          tenantId: input.tenantId, applicationId: application.id, userId: input.userId,
+          state: 'PENDING_CONSENT', redirectUri: input.redirectUri, requestedScopes: requested, consentedScopes: [],
+          codeChallenge: input.codeChallenge ?? null, codeChallengeMethod: input.codeChallengeMethod ?? null,
+          nonce: input.nonce ?? null, stateParameter: input.state, idempotencyKey: grantKey,
+        },
+      });
+      await this.audit.record({
+        tenantId: input.tenantId, applicationId: application.id, actorType: 'USER', actorId: input.userId,
+        correlationId: input.correlationId, action: 'oauth.authorization_requested',
+        detail: { grantId: created.id, scopes: requested },
+      }, tx);
+      return created;
     });
     return {
       grantId: grant.id,
       consentedScopes: requested,
       redirectTo: input.redirectUri,
+      clientName: application.name,
+      environment: application.environment,
     };
   }
 
@@ -158,7 +176,7 @@ export class OAuthService {
     decision: 'GRANTED' | 'DENIED',
     consentedScopes?: string[],
   ): Promise<void> {
-    const grant = await this.prisma.developerOAuthGrant.findUnique({ where: { id: grantId } });
+    const grant = await this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerOAuthGrant.findUnique({ where: { id: grantId } }));
     if (!grant || grant.tenantId !== actor.tenantId) {
       throw new NotFoundException('authorization grant not found');
     }
@@ -180,15 +198,18 @@ export class OAuthService {
         throw new DeveloperError(DEVELOPER_ERROR_CODES.SCOPE_NOT_ALLOWED, 'consent reduced scopes to none');
       }
     }
-    await this.prisma.developerOAuthGrant.update({
-      where: { id: grant.id },
-      data: { state: decision, consentedScopes: decision === 'GRANTED' ? finalScopes : [] },
-    });
-    await this.audit.record({
-      ...actor,
-      applicationId: grant.applicationId,
-      action: decision === 'GRANTED' ? 'oauth.consent_granted' : 'oauth.consent_denied',
-      detail: { grantId: grant.id, scopes: finalScopes },
+    await this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      const changed = await tx.developerOAuthGrant.updateMany({
+        where: { id: grant.id, tenantId: actor.tenantId, userId: actor.actorId, state: 'PENDING_CONSENT' },
+        data: { state: decision, consentedScopes: decision === 'GRANTED' ? finalScopes : [] },
+      });
+      if (changed.count !== 1) throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'consent already recorded');
+      await this.audit.record({
+        ...actor,
+        applicationId: grant.applicationId,
+        action: decision === 'GRANTED' ? 'oauth.consent_granted' : 'oauth.consent_denied',
+        detail: { grantId: grant.id, scopes: finalScopes },
+      }, tx);
     });
   }
 
@@ -197,8 +218,8 @@ export class OAuthService {
    * (backend-issued, backend-held). The code is returned exactly once and
    * stored only as a digest.
    */
-  async issueAuthorizationCode(actor: DeveloperAuditActor, grantId: string): Promise<{ code: string; expiresIn: number }> {
-    const grant = await this.prisma.developerOAuthGrant.findUnique({ where: { id: grantId } });
+  async issueAuthorizationCode(actor: DeveloperAuditActor, grantId: string): Promise<{ code: string; expiresIn: number; redirectTo: string; state: string }> {
+    const grant = await this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerOAuthGrant.findUnique({ where: { id: grantId } }));
     if (!grant || grant.tenantId !== actor.tenantId || grant.userId !== actor.actorId) {
       throw new NotFoundException('authorization grant not found');
     }
@@ -210,11 +231,19 @@ export class OAuthService {
     const policy = this.policyService.resolve(actor.tenantId, plan, entitlements);
     const code = generateAuthorizationCode();
     const expiresAt = new Date(Date.now() + policy.oauth.authorizationCodeTtlSeconds * 1000);
-    await this.prisma.developerOAuthGrant.update({
-      where: { id: grant.id },
-      data: { codeHash: credentialDigest(code, this.hmacKey), codeExpiresAt: expiresAt },
+    // A code is one-time output. Never replace a code that was already issued,
+    // including after an uncertain response; concurrent issuers race atomically.
+    await this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      const issued = await tx.developerOAuthGrant.updateMany({
+        where: { id: grant.id, tenantId: actor.tenantId, userId: actor.actorId, state: 'GRANTED', codeHash: null },
+        data: { codeHash: credentialDigest(code, this.hmacKey), codeExpiresAt: expiresAt },
+      });
+      if (issued.count !== 1) {
+        throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'authorization code was already issued');
+      }
+      await this.audit.record({ ...actor, applicationId: grant.applicationId, action: 'oauth.code_issued', detail: { grantId: grant.id } }, tx);
     });
-    return { code, expiresIn: policy.oauth.authorizationCodeTtlSeconds };
+    return { code, expiresIn: policy.oauth.authorizationCodeTtlSeconds, redirectTo: grant.redirectUri, state: grant.stateParameter };
   }
 
   /** Step 9: token exchange. Code single-use, expiry, PKCE, exact redirect. */
@@ -228,37 +257,23 @@ export class OAuthService {
     correlationId: string;
   }): Promise<TokenExchangeResult> {
     const application = await this.loadApplicationByClientId(input.tenantId, input.clientId);
-    const grant = await this.prisma.developerOAuthGrant.findFirst({
-      where: { applicationId: application.id, codeHash: { not: null } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!grant || !grant.codeHash) {
-      throw new DeveloperError(DEVELOPER_ERROR_CODES.CODE_INVALID, 'no authorization code outstanding');
+    const codeHash = credentialDigest(input.code, this.hmacKey);
+    const grant = await this.prisma.withTenantRls(input.tenantId, (tx) => tx.developerOAuthGrant.findFirst({
+      where: { tenantId: input.tenantId, applicationId: application.id, codeHash },
+    }));
+    if (!grant || !grant.codeHash || !constantTimeEqual(codeHash, grant.codeHash) || grant.state !== 'GRANTED') {
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.CODE_INVALID, 'authorization code not recognized');
     }
-    if (grant.codeExpiresAt && grant.codeExpiresAt.getTime() < Date.now()) {
+    if (!grant.codeExpiresAt || grant.codeExpiresAt.getTime() <= Date.now()) {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.CODE_EXPIRED, 'authorization code expired');
-    }
-    if (grant.codeRedeemedAt) {
-      // Single-use: a replayed code revokes the tokens issued from it.
-      await this.prisma.developerAccessToken.updateMany({
-        where: { grantId: grant.id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      await this.audit.record({
-        tenantId: input.tenantId,
-        applicationId: application.id,
-        actorType: 'SERVICE',
-        actorId: input.clientId,
-        correlationId: input.correlationId,
-        action: 'oauth.code_replayed',
-        detail: { grantId: grant.id },
-      });
-      throw new DeveloperError(DEVELOPER_ERROR_CODES.CODE_REPLAYED, 'authorization code already used');
     }
     if (grant.redirectUri !== input.redirectUri) {
       throw new DeveloperError(DEVELOPER_ERROR_CODES.REDIRECT_URI_MISMATCH, 'redirect_uri mismatch');
     }
     if (grant.codeChallenge) {
+      if (grant.codeChallengeMethod !== 'S256') {
+        throw new DeveloperError(DEVELOPER_ERROR_CODES.PKCE_VERIFIER_MISMATCH, 'unsupported PKCE method');
+      }
       const verifier = input.codeVerifier ?? '';
       const derived = createHash('sha256').update(verifier, 'utf8').digest('base64url');
       if (!constantTimeEqual(derived, grant.codeChallenge)) {
@@ -266,9 +281,9 @@ export class OAuthService {
       }
     }
     // Confidential clients must present the client secret (digest compare).
-    const confidential = await this.prisma.developerCredential.findFirst({
-      where: { applicationId: application.id, kind: 'OAUTH_CLIENT', revokedAt: null },
-    });
+    const confidential = await this.prisma.withTenantRls(input.tenantId, (tx) => tx.developerCredential.findFirst({
+      where: { tenantId: input.tenantId, applicationId: application.id, kind: 'OAUTH_CLIENT', revokedAt: null },
+    }));
     if (confidential) {
       if (!input.clientSecret) {
         throw new DeveloperError(DEVELOPER_ERROR_CODES.CODE_INVALID, 'client authentication required');
@@ -277,6 +292,14 @@ export class OAuthService {
       if (!matches) {
         throw new DeveloperError(DEVELOPER_ERROR_CODES.CODE_INVALID, 'client authentication failed');
       }
+    }
+
+    // Authenticate the client and PKCE verifier before allowing a replay to
+    // revoke an already-issued token. A stolen code alone cannot cause that.
+    if (grant.codeRedeemedAt) {
+      // Single-use: a replayed code revokes the tokens issued from it.
+      await this.revokeTokensForCodeReplay(input, application.id, grant.id);
+      throw new DeveloperError(DEVELOPER_ERROR_CODES.CODE_REPLAYED, 'authorization code already used');
     }
 
     const plan = await this.policyData.planLimitViewForTenant(input.tenantId);
@@ -293,22 +316,44 @@ export class OAuthService {
 
     const accessToken = generateAccessToken();
     const expiresAt = new Date(Date.now() + policy.oauth.accessTokenTtlSeconds * 1000);
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.developerOAuthGrant.update({
-        where: { id: grant.id },
-        data: { codeRedeemedAt: new Date() },
+    try {
+      await this.prisma.withTenantRls(input.tenantId, async (tx: Prisma.TransactionClient) => {
+        // Atomic compare-and-set prevents two concurrent exchanges from minting
+        // two tokens from the same authorization code.
+        const claimed = await tx.developerOAuthGrant.updateMany({
+          where: {
+            id: grant.id, tenantId: input.tenantId, applicationId: application.id,
+            state: 'GRANTED', codeHash, codeRedeemedAt: null, codeExpiresAt: { gt: new Date() },
+          },
+          data: { codeRedeemedAt: new Date() },
+        });
+        if (claimed.count !== 1) {
+          throw new DeveloperError(DEVELOPER_ERROR_CODES.CODE_REPLAYED, 'authorization code already used or expired');
+        }
+        await tx.developerAccessToken.create({
+          data: {
+            tenantId: input.tenantId,
+            applicationId: application.id,
+            grantId: grant.id,
+            tokenHash: credentialDigest(accessToken, this.hmacKey),
+            scopes: tokenScopes,
+            expiresAt,
+          },
+        });
+        await this.audit.record({
+          tenantId: input.tenantId, applicationId: application.id, actorType: 'SERVICE',
+          actorId: input.clientId, correlationId: input.correlationId,
+          action: 'oauth.token_issued', detail: { grantId: grant.id, scopes: tokenScopes, expiresAt: expiresAt.toISOString() },
+        }, tx);
       });
-      await tx.developerAccessToken.create({
-        data: {
-          tenantId: input.tenantId,
-          applicationId: application.id,
-          grantId: grant.id,
-          tokenHash: credentialDigest(accessToken, this.hmacKey),
-          scopes: tokenScopes,
-          expiresAt,
-        },
-      });
-    });
+    } catch (error) {
+      // A concurrent winner may have committed a token after our first read.
+      // Apply the same replay policy after the losing transaction rolls back.
+      if (error instanceof DeveloperError && error.code === DEVELOPER_ERROR_CODES.CODE_REPLAYED) {
+        await this.revokeTokensForCodeReplay(input, application.id, grant.id);
+      }
+      throw error;
+    }
     return {
       accessToken,
       tokenType: 'Bearer',
@@ -317,47 +362,116 @@ export class OAuthService {
     };
   }
 
+  private async revokeTokensForCodeReplay(
+    input: { tenantId: string; clientId: string; correlationId: string },
+    applicationId: string,
+    grantId: string,
+  ): Promise<void> {
+    await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      await tx.developerAccessToken.updateMany({
+        where: { tenantId: input.tenantId, grantId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await this.audit.record({
+        tenantId: input.tenantId, applicationId, actorType: 'SERVICE', actorId: input.clientId,
+        correlationId: input.correlationId, action: 'oauth.code_replayed', detail: { grantId },
+      }, tx);
+    });
+  }
+
+  /** A user can inspect only their own granted authorizations. */
+  async listUserGrants(tenantId: string, userId: string, limit = 50, cursor?: string) {
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      if (cursor) {
+        const owned = await tx.developerOAuthGrant.findFirst({ where: { id: cursor, tenantId, userId, state: 'GRANTED' }, select: { id: true } });
+        if (!owned) throw new NotFoundException('authorization grant not found');
+      }
+      const rows = await tx.developerOAuthGrant.findMany({
+        where: { tenantId, userId, state: 'GRANTED' },
+        select: { id: true, consentedScopes: true, createdAt: true,
+          application: { select: { name: true, environment: true } } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      const page = rows.slice(0, limit);
+      return { rows: page.map((row) => ({ id: row.id, scopes: row.consentedScopes,
+        clientName: row.application.name, environment: row.application.environment, createdAt: row.createdAt.toISOString() })),
+        nextCursor: rows.length > limit ? page[page.length - 1]?.id ?? null : null };
+    });
+  }
+
+  /** Revoke the owner's consent and all derived tokens atomically. */
+  async revokeUserGrant(actor: DeveloperAuditActor, grantId: string, key: string): Promise<void> {
+    await this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string; application_id: string; state: string }>>`
+        SELECT id, application_id, state FROM developer_oauth_grants
+        WHERE tenant_id=${actor.tenantId}::uuid AND user_id=${actor.actorId}::uuid AND id=${grantId}::uuid FOR UPDATE`;
+      const grant = rows[0];
+      if (!grant) throw new NotFoundException('authorization grant not found');
+      await claimMutationIntent(tx, actor.tenantId, key, 'oauth.grant_revoke', grantId);
+      if (grant.state !== 'GRANTED') throw new DeveloperError(DEVELOPER_ERROR_CODES.INVALID_TRANSITION, 'grant is not active');
+      await tx.developerOAuthGrant.updateMany({ where: { id: grantId, tenantId: actor.tenantId, userId: actor.actorId, state: 'GRANTED' }, data: { state: 'REVOKED' } });
+      await tx.developerAccessToken.updateMany({ where: { tenantId: actor.tenantId, grantId, revokedAt: null }, data: { revokedAt: new Date() } });
+      await this.audit.record({ ...actor, applicationId: grant.application_id, action: 'oauth.grant_revoked', detail: { grantId } }, tx);
+    });
+  }
+
   /** Immediate revocation of a token (and thereby its API access). */
   async revokeToken(actor: DeveloperAuditActor, token: string): Promise<void> {
     const tokenHash = credentialDigest(token, this.hmacKey);
-    const row = await this.prisma.developerAccessToken.findUnique({ where: { tokenHash } });
+    const row = await this.prisma.withTenantRls(actor.tenantId, (tx) => tx.developerAccessToken.findUnique({ where: { tokenHash } }));
     if (!row || row.tenantId !== actor.tenantId) {
       // Revocation of unknown/foreign tokens is indistinguishable: no error.
       return;
     }
-    if (!row.revokedAt) {
-      await this.prisma.developerAccessToken.update({
-        where: { id: row.id },
+    await this.prisma.withTenantRls(actor.tenantId, async (tx) => {
+      if (row.revokedAt) return;
+      const revoked = await tx.developerAccessToken.updateMany({
+        where: { id: row.id, tenantId: actor.tenantId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-    }
-    await this.audit.record({
-      ...actor,
-      applicationId: row.applicationId,
-      action: 'oauth.token_revoked',
-      detail: { grantId: row.grantId },
+      if (revoked.count !== 1) return;
+      await this.audit.record({
+        ...actor,
+        applicationId: row.applicationId,
+        action: 'oauth.token_revoked',
+        detail: { grantId: row.grantId },
+      }, tx);
     });
   }
 
   /** Access resolution used by api-access.service (hash-lookup, scope output). */
-  async resolveAccessToken(token: string): Promise<{
+  async resolveAccessToken(tenantId: string, token: string): Promise<{
+    id: string;
     tenantId: string;
     applicationId: string;
+    userId: string;
     scopes: string[];
     expiresAt: Date;
     revokedAt: Date | null;
   } | null> {
-    const row = await this.prisma.developerAccessToken.findUnique({
-      where: { tokenHash: credentialDigest(token, this.hmacKey) },
+    return this.prisma.withTenantRls(tenantId, async (tx) => {
+      const row = await tx.developerAccessToken.findUnique({
+        where: { tokenHash: credentialDigest(token, this.hmacKey) },
+        include: { grant: { select: { tenantId: true, userId: true, state: true } } },
+      });
+      if (!row || row.tenantId !== tenantId || !row.grant || row.grant.tenantId !== tenantId || row.grant.state !== 'GRANTED') return null;
+      // A disabled/deleted user cannot keep using old consent, even if an
+      // independent OAuth token was not explicitly revoked during suspension.
+      const subject = await tx.user.findFirst({
+        where: { tenantId, id: row.grant.userId, status: 'ACTIVE', deletedAt: null }, select: { id: true },
+      });
+      if (!subject) return null;
+      return {
+        id: row.id,
+        tenantId: row.tenantId,
+        applicationId: row.applicationId,
+        userId: subject.id,
+        scopes: row.scopes,
+        expiresAt: row.expiresAt,
+        revokedAt: row.revokedAt,
+      };
     });
-    if (!row) return null;
-    return {
-      tenantId: row.tenantId,
-      applicationId: row.applicationId,
-      scopes: row.scopes,
-      expiresAt: row.expiresAt,
-      revokedAt: row.revokedAt,
-    };
   }
 
   /** A revoked application can never mint new tokens (CHECK 13). */

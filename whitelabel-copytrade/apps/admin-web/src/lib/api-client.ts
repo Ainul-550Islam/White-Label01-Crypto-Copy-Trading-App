@@ -21,10 +21,12 @@ export interface ClientFetchOptions {
   body?: unknown;
   searchParams?: Record<string, string | number | boolean | undefined>;
   signal?: AbortSignal;
+  /** Stable for retries of the same mutation. */
+  idempotencyKey?: string;
 }
 
 async function request<T>(path: string, options: ClientFetchOptions, retry: boolean): Promise<T> {
-  const { method = 'GET', body, searchParams, signal } = options;
+  const { method = 'GET', body, searchParams, signal, idempotencyKey } = options;
 
   const url = new URL(
     `${PROXY_PREFIX}${path.startsWith('/') ? path : `/${path}`}`,
@@ -45,6 +47,7 @@ async function request<T>(path: string, options: ClientFetchOptions, retry: bool
 
   if (method !== 'GET') {
     headers['x-csrf-token'] = readCsrfCookie();
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   }
 
   const response = await fetch(url.toString(), {

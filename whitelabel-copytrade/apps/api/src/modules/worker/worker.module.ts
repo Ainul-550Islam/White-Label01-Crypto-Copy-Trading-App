@@ -27,6 +27,11 @@ import { RedisModule } from '../../infrastructure/redis/redis.module';
 import { AuditModule } from '../audit/audit.module';
 import { ObservabilityModule } from '../observability/observability.module';
 import { QueueModule } from '../queue/queue.module';
+import { CryptoModule } from '../../infrastructure/crypto/crypto.module';
+import { I18nModule } from '../../infrastructure/i18n/i18n.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { GovernanceModule } from '../governance/governance.module';
+import { AccountRecoveryRuntimeModule } from '../auth/account-recovery-runtime.module';
 import { EngineInternalClient } from './engine-internal.client';
 import { TradeExecutionProcessor } from './trade-execution.processor';
 import { WorkerCoordinationService } from './worker-coordination.service';
@@ -57,6 +62,11 @@ import { WorkerCoordinationService } from './worker-coordination.service';
     AuditModule,
     ObservabilityModule,
     QueueModule,
+    GovernanceModule,
+    CryptoModule,
+    I18nModule,
+    NotificationsModule,
+    AccountRecoveryRuntimeModule,
   ],
   providers: [WorkerCoordinationService, EngineInternalClient, TradeExecutionProcessor],
 })

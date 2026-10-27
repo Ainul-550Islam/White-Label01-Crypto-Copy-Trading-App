@@ -5,6 +5,8 @@
  */
 
 import type { JSX } from 'react';
+import { formatDecimalString } from '@/lib/i18n/locale-number-format';
+
 interface MoneyProps {
   value: string | number | null | undefined;
   currency?: string;
@@ -21,43 +23,40 @@ export function Money({ value, currency = 'USD', className, precision, showSign 
   const stringValue = typeof value === 'number' ? value.toString() : value;
 
   // Validate that value is a safe decimal string, not a float calculation
-  if (typeof stringValue === 'string' && !/^-?\d+(\.\d+)?$/.test(stringValue) && stringValue !== '—') {
+  if (!/^-?\d+(\.\d+)?$/.test(stringValue)) {
     // If backend returned something non-numeric (like UNKNOWN), show as-is safely
     return <span className={className}>{stringValue}</span>;
   }
 
-  const num = typeof value === 'number' ? value : parseFloat(stringValue);
-
-  if (isNaN(num)) {
-    return <span className={className}>{stringValue}</span>;
+  // Group decimal strings directly: converting them to Number can silently
+  // change large amounts and low-order fractional digits. Numeric props are
+  // displayed as supplied, but precision lost by an upstream number cannot be recovered.
+  const unsigned = stringValue.startsWith('-') ? stringValue.slice(1) : stringValue;
+  const [integerPart = '0', fraction = ''] = unsigned.split('.');
+  const integer = integerPart.replace(/^0+(?=\d)/, '');
+  const canonical = `${integer}${fraction ? `.${fraction}` : ''}`;
+  const nonZero = /[1-9]/.test(canonical);
+  const isNegative = stringValue.startsWith('-') && nonZero;
+  let digits: string;
+  if (precision !== undefined && Number.isInteger(precision) && precision >= 0 && precision <= 18) {
+    digits = formatDecimalString(canonical, { locale: 'en', minFraction: precision, maxFraction: precision });
+  } else {
+    const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const decimals = fraction.padEnd(2, '0');
+    digits = `${grouped}${decimals ? `.${decimals}` : ''}`;
   }
 
-  const isNegative = num < 0;
-  const absNum = Math.abs(num);
-
-  // Use Intl.NumberFormat for safe display, but preserve backend precision
-  const formatter = new Intl.NumberFormat('en-US', {
-    style: currency ? 'currency' : 'decimal',
-    currency: currency,
-    minimumFractionDigits: precision ?? 2,
-    maximumFractionDigits: precision ?? 8,
-  });
-
-  let formatted: string;
-  try {
-    formatted = currency ? formatter.format(absNum) : absNum.toLocaleString('en-US', {
-      minimumFractionDigits: precision ?? 2,
-      maximumFractionDigits: precision ?? 8,
-    });
-  } catch {
-    formatted = stringValue;
+  // Intl accepts only three-letter currency codes. Token symbols such as USDT
+  // are displayed verbatim instead of throwing or inventing a fiat symbol.
+  const code = currency.toUpperCase();
+  let prefix = code ? `${code} ` : '';
+  if (/^[A-Z]{3}$/.test(code)) {
+    try {
+      const symbol = new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).formatToParts(0).find((part) => part.type === 'currency')?.value;
+      prefix = symbol ? (symbol === code ? `${symbol} ` : symbol) : prefix;
+    } catch { /* Keep the explicit currency code. */ }
   }
-
-  if (isNegative) {
-    formatted = `-${formatted}`;
-  } else if (showSign && num > 0) {
-    formatted = `+${formatted}`;
-  }
+  const formatted = `${isNegative ? '-' : showSign && nonZero ? '+' : ''}${prefix}${digits}`;
 
   return (
     <span className={`${isNegative ? 'text-red-600' : ''} ${className ?? ''}`} aria-label={`${stringValue} ${currency}`}>

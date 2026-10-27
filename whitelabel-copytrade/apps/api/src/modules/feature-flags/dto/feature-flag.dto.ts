@@ -16,8 +16,8 @@ export class UpsertFeatureFlagDto {
   @ApiProperty({ example: 'copy_trading' })
   @IsString()
   @MaxLength(64)
-  @Matches(/^[a-z][a-z0-9_]*$/, {
-    message: 'Feature flag keys are lowercase snake_case',
+  @Matches(/^(?:[a-z][a-z0-9_]*|platform\.kill_switch)$/, {
+    message: 'Feature flag keys are lowercase snake_case or platform.kill_switch',
   })
   key!: string;
 

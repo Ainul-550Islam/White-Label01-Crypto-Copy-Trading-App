@@ -24,7 +24,7 @@ describe('UsersService tenant and lifecycle safeguards', () => {
       $transaction: jest.fn(async (ops: unknown) => ops),
     } as unknown as PrismaService;
     const repository = { findById: jest.fn(), findByEmailIndex: jest.fn() } as unknown as UsersRepository;
-    const permissions = { invalidateUser: jest.fn(), getEffectiveAccess: jest.fn() } as unknown as PermissionsService;
+    const permissions = { invalidateUser: jest.fn(), getEffectiveAccess: jest.fn(), getEffectiveAccessForTenant: jest.fn() } as unknown as PermissionsService;
     const crypto = { blindIndex: jest.fn(), generateToken: jest.fn() } as unknown as CryptoService;
     const passwords = { assertPolicy: jest.fn(), hash: jest.fn() } as unknown as PasswordService;
     const roles = { findByKeys: jest.fn() } as unknown as RolesService;
@@ -129,6 +129,7 @@ describe('UsersService tenant and lifecycle safeguards', () => {
     await expect(service.findByIdForSession('deleted-user', tenantId)).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(repository.findById).toHaveBeenCalledWith(tenantId, 'deleted-user');
     expect(permissions.getEffectiveAccess).not.toHaveBeenCalled();
+    expect(permissions.getEffectiveAccessForTenant).not.toHaveBeenCalled();
   });
 
   it('creates a user only in the authenticated tenant when the client supplies a different tenantId', async () => {

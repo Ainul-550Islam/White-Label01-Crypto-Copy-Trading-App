@@ -20,7 +20,9 @@ class ApiClient {
     required AppLogger logger,
     Dio? dio,
     ErrorMapper errorMapper = const ErrorMapper(),
+    Future<void> Function(Duration)? waitBeforeRetry,
   })  : _errorMapper = errorMapper,
+        _waitBeforeRetry = waitBeforeRetry ?? Future<void>.delayed,
         _dio = dio ??
             Dio(
               BaseOptions(
@@ -47,6 +49,7 @@ class ApiClient {
 
   final Dio _dio;
   final ErrorMapper _errorMapper;
+  final Future<void> Function(Duration) _waitBeforeRetry;
 
   Dio get raw => _dio;
 
@@ -63,6 +66,28 @@ class ApiClient {
         options: authenticated ? null : AuthInterceptor.unauthenticated(),
       ),
       parser,
+      safeRead: true,
+    );
+  }
+
+  Future<T> put<T>(
+    String path, {
+    Object? body,
+    bool authenticated = true,
+    required String idempotencyKey,
+    T Function(Object? data)? parser,
+  }) {
+    final Options options = Options(
+      headers: <String, String>{'Idempotency-Key': idempotencyKey},
+    );
+    return _send<T>(
+      () => _dio.put<dynamic>(
+        path,
+        data: body,
+        options:
+            authenticated ? options : AuthInterceptor.unauthenticated(options),
+      ),
+      parser,
     );
   }
 
@@ -71,14 +96,19 @@ class ApiClient {
     Object? body,
     Map<String, Object?>? queryParameters,
     bool authenticated = true,
+    String? idempotencyKey,
     T Function(Object? data)? parser,
   }) {
+    final Options options = Options(headers: <String, String>{
+      if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
+    },);
     return _send<T>(
       () => _dio.post<dynamic>(
         path,
         data: body,
         queryParameters: queryParameters,
-        options: authenticated ? null : AuthInterceptor.unauthenticated(),
+        options:
+            authenticated ? options : AuthInterceptor.unauthenticated(options),
       ),
       parser,
     );
@@ -104,13 +134,18 @@ class ApiClient {
     String path, {
     Object? body,
     bool authenticated = true,
+    String? idempotencyKey,
     T Function(Object? data)? parser,
   }) {
+    final Options options = Options(headers: <String, String>{
+      if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
+    },);
     return _send<T>(
       () => _dio.delete<dynamic>(
         path,
         data: body,
-        options: authenticated ? null : AuthInterceptor.unauthenticated(),
+        options:
+            authenticated ? options : AuthInterceptor.unauthenticated(options),
       ),
       parser,
     );
@@ -118,30 +153,38 @@ class ApiClient {
 
   Future<T> _send<T>(
     Future<Response<dynamic>> Function() request,
-    T Function(Object? data)? parser,
-  ) async {
-    try {
-      final Response<dynamic> response = await request();
-      final Object? payload = _unwrap(response.data);
-
-      if (parser != null) {
-        return parser(payload);
+    T Function(Object? data)? parser, {
+    bool safeRead = false,
+  }) async {
+    int retries = 0;
+    while (true) {
+      try {
+        final Response<dynamic> response = await request();
+        final Object? payload = _unwrap(response.data);
+        if (parser != null) return parser(payload);
+        if (payload is T) return payload;
+        if (null is T) return null as T;
+        throw const AppException(
+          code: AppErrorCode.unknown,
+          message: 'The server returned an unexpected response.',
+        );
+      } on DioException catch (error) {
+        final int? status = error.response?.statusCode;
+        final bool transient = status == 408 ||
+            status == 429 ||
+            status == 502 ||
+            status == 503 ||
+            status == 504 ||
+            error.type == DioExceptionType.connectionTimeout ||
+            error.type == DioExceptionType.receiveTimeout ||
+            error.type == DioExceptionType.connectionError;
+        if (safeRead && transient && retries < 2) {
+          await _waitBeforeRetry(Duration(milliseconds: 200 * (1 << retries)));
+          retries++;
+          continue;
+        }
+        throw _errorMapper.fromDioException(error);
       }
-
-      if (payload is T) {
-        return payload;
-      }
-
-      if (null is T) {
-        return null as T;
-      }
-
-      throw const AppException(
-        code: AppErrorCode.unknown,
-        message: 'The server returned an unexpected response.',
-      );
-    } on DioException catch (error) {
-      throw _errorMapper.fromDioException(error);
     }
   }
 

@@ -159,10 +159,13 @@ export class AccountRestrictionService {
     return { data, total, page, limit };
   }
 
-  async hasRestriction(params: { tenantId: string; accountId: string; restrictionType: AccountRestrictionType }): Promise<boolean> {
-    const restriction = await this.prisma.accountRestriction.findFirst({
+  async hasRestriction(params: { tenantId: string; accountId: string; restrictionType: AccountRestrictionType }, transaction?: Prisma.TransactionClient): Promise<boolean> {
+    const read = (tx: Prisma.TransactionClient) => tx.accountRestriction.findFirst({
       where: { tenantId: params.tenantId, accountId: params.accountId, restrictionType: params.restrictionType, status: 'ACTIVE' },
     });
+    // A missing tenant context under forced RLS must never look like an
+    // unrestricted account. Read on the caller's transaction when available.
+    const restriction = transaction ? await read(transaction) : await this.prisma.withTenantRls(params.tenantId, read);
     return !!restriction;
   }
 

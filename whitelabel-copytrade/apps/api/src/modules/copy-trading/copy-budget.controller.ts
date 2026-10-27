@@ -1,13 +1,14 @@
 // # Exposes the follower's global active-copy budget: read the cap, committed exposure and remainder, and set the cap.
-import { BadRequestException, Body, Controller, Get, Put, Req, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, HttpStatus, Post, Put, Req } from '@nestjs/common';
 import { Permission } from '@wlct/shared-types';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { authTenantId, authUserIdOrNull } from '../../common/guards/request-principal';
 import { CopyBudgetService, type CopyBudgetView } from './copy-budget.service';
-import { UpsertCopyBudgetDto } from './dto/copy-budget.dto';
+import { ReduceCopyBudgetDto, UpsertCopyBudgetDto } from './dto/copy-budget.dto';
 
 interface AuthenticatedRequest {
   user?: Record<string, unknown> | null;
+  headers?: Record<string, string | string[] | undefined>;
 }
 
 /**
@@ -37,23 +38,36 @@ export class CopyBudgetController {
     return this.copyBudgetService.getView(tenantId, userId);
   }
 
+  /** A self-service reduction can only make the caller's budget stricter. */
+  @Post('budget/reduce')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(Permission.COPY_SUBSCRIPTION_MANAGE)
+  async reduceBudget(@Req() req: AuthenticatedRequest, @Body() body: ReduceCopyBudgetDto): Promise<CopyBudgetView> {
+    const { tenantId, userId } = this.principal(req);
+    const key = req.headers?.['idempotency-key'];
+    if (typeof key !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(key)) {
+      throw new BadRequestException('A valid idempotency key is required.');
+    }
+    return this.copyBudgetService.reduceLimit({ tenantId, userId, maxActiveExposure: body.maxActiveExposure, currency: body.currency, idempotencyKey: key });
+  }
+
   @Put('budget')
   @RequirePermissions(Permission.COPY_SUBSCRIPTION_MANAGE)
   async putBudget(@Req() req: AuthenticatedRequest, @Body() body: UpsertCopyBudgetDto): Promise<CopyBudgetView> {
     const { tenantId, userId } = this.principal(req);
-    try {
-      return await this.copyBudgetService.upsertLimits({
-        tenantId,
-        userId,
-        maxActiveExposure: body.maxActiveExposure,
-        perTraderCap: body.perTraderCap ?? null,
-        currency: body.currency ?? 'USDT',
-      });
-    } catch (error) {
-      // The only refusal the service raises is "above the tenant ceiling", and it
-      // is a 422 rather than a 500: it is the customer's input that is wrong, and
-      // the message names the ceiling so the form can show it.
-      throw new UnprocessableEntityException((error as Error).message);
+    const key = req.headers?.['idempotency-key'];
+    if (typeof key !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(key)) {
+      throw new BadRequestException('A valid idempotency key is required.');
     }
+    // Legacy PUT used to widen/clear caps without step-up or concurrency
+    // protection. Keep it tighten-only until a fully protected widening flow is
+    // available. Do not silently clear a per-trader cap or infer a currency.
+    if (body.perTraderCap !== undefined || !body.currency) {
+      throw new BadRequestException('Only a total-cap reduction with an explicit currency is supported.');
+    }
+    return this.copyBudgetService.reduceLimit({
+      tenantId, userId, maxActiveExposure: body.maxActiveExposure,
+      currency: body.currency, idempotencyKey: key,
+    });
   }
 }

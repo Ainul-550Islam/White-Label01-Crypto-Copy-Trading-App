@@ -1,14 +1,13 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Permission } from '@wlct/shared-types';
 import { ClientLifecycleController } from './client-lifecycle.controller';
 import { ClientVisibilityRole } from './account-permission.service';
 
 /**
  * Authorization of the client-lifecycle API (KYC onboarding, institutional
- * accounts, funding and withdrawal requests). Any authenticated user of the
- * tenant reaches these routes, so the controller must keep a client inside
- * their own profile and accounts, and derive administrative roles from the
- * verified JWT permissions.
+ * accounts, funding and withdrawal requests). In addition to route guards,
+ * the controller keeps a client inside their own profile and accounts and
+ * derives administrative roles from the verified JWT permissions.
  */
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -37,7 +36,7 @@ function serviceMock(): any {
 }
 
 function client(userId: string) {
-  return { user: { userId, tenantId: TENANT, permissions: [Permission.PORTFOLIO_READ], roles: ['FOLLOWER'] }, headers: {} };
+  return { user: { userId, tenantId: TENANT, permissions: [Permission.PORTFOLIO_READ], roles: ['FOLLOWER'] }, headers: { 'idempotency-key': 'withdrawal-intent-123' } };
 }
 
 function tenantAdmin() {
@@ -55,6 +54,7 @@ describe('ClientLifecycleController authorization', () => {
 
   beforeEach(() => {
     prisma = {
+      withTenantRls: jest.fn(async (_tenant: string, work: (tx: any) => unknown) => work(prisma)),
       accountOwnership: { findMany: jest.fn(async () => []) },
       institutionalAccount: {
         findMany: jest.fn(async ({ where }: any) =>
@@ -180,6 +180,17 @@ describe('ClientLifecycleController authorization', () => {
     it('accepts a request on the client’s own account', async () => {
       await expect(controller.createWithdrawal(client(ALICE), { ...request, accountId: 'acc-alice' } as any)).resolves.toBeDefined();
       expect(services.withdrawalRequestService.createWithdrawalRequest).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'acc-alice' }));
+    });
+
+    it('requires and forwards a stable key for an own-account deposit request', async () => {
+      const body = { ...request, accountId: 'acc-alice' } as any;
+      const withoutKey = { ...client(ALICE), headers: {} };
+      await expect(controller.createFunding(withoutKey, body)).rejects.toBeInstanceOf(BadRequestException);
+      expect(services.fundingRequestService.createFundingRequest).not.toHaveBeenCalled();
+      await expect(controller.createFunding(client(ALICE), body)).resolves.toBeDefined();
+      expect(services.fundingRequestService.createFundingRequest).toHaveBeenCalledWith(expect.objectContaining({
+        tenantId: TENANT, accountId: 'acc-alice', requestedBy: ALICE, idempotencyKey: 'withdrawal-intent-123',
+      }));
     });
 
     it('filters funding lists to own rows and recomputes the total', async () => {

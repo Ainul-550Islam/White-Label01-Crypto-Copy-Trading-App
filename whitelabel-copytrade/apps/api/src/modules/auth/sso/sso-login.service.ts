@@ -829,7 +829,7 @@ export class SsoLoginService {
       // A session without its durable audit trail is not acceptable: revoke it.
       if (sessionId) {
         try {
-          await this.auth.revokeSsoSession(userId, sessionId);
+          await this.auth.revokeSsoSession(tenant.tenantId, userId, sessionId);
         } catch (revokeError) {
           this.logger.error(
             `sso.session_revoke_failed tenant=${tenant.tenantId} correlation=${failure.correlationId}: ${(revokeError as Error).name}`,

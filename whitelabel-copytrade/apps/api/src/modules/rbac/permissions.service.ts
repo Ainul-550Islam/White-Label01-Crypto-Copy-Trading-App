@@ -87,6 +87,25 @@ export class PermissionsService {
     );
   }
 
+  /** Resolve live access while a verified tenant is known (including under FORCE RLS).
+   * Deliberately bypasses the legacy user-only cache: an unscoped query could
+   * have populated it with an empty result, and login must not trust that as
+   * a tenant-scoped permissions snapshot.
+   */
+  async getEffectiveAccessForTenant(userId: string, tenantId: string): Promise<EffectiveAccess> {
+    const assignments = await this.prisma.withTenantRls(tenantId, (tx) => tx.userRole.findMany({
+      where: { userId, tenantId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], role: { deletedAt: null } },
+      select: { role: { select: { key: true, permissions: { select: { permission: { select: { key: true } } } } } } },
+    }));
+    const roleKeys = new Set<string>();
+    const permissionKeys = new Set<string>();
+    for (const assignment of assignments) {
+      roleKeys.add(assignment.role.key);
+      for (const rolePermission of assignment.role.permissions) permissionKeys.add(rolePermission.permission.key);
+    }
+    return { roleKeys: [...roleKeys], permissionKeys: [...permissionKeys] };
+  }
+
   /** Invalidates the cached permission set after a role change. */
   async invalidateUser(userId: string): Promise<void> {
     await this.cache.delete(CACHE_KEY.userPermissions(userId));

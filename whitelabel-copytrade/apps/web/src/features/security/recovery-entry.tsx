@@ -1,26 +1,29 @@
-// # Responsibility: reads the recovery token out of the link the customer was emailed and hands it to the recovery form.
-//
-// This is the only place the token is taken from the URL. It lives in a file of its
-// own because `useSearchParams` must sit under a Suspense boundary (see
-// `app/recovery/page.tsx`); keeping the hook here means the page can stay a server
-// component and still render the form fast.
-//
-// The token is treated as a bearer secret:
-//   * it is passed down as a prop and never written to state in this component,
-//   * it is never logged, never re-serialised into a URL, and never shown back,
-//   * a missing token is `undefined`, not `''`, so the form starts at step one and
-//     asks for a pasted link instead of failing a check the customer cannot see.
 'use client';
 import type { JSX } from 'react';
-
-import { useSearchParams } from 'next/navigation';
-
+import { useEffect, useState } from 'react';
 import { AccountRecoveryPage } from './account-recovery-page';
 
+/** A recovery bearer is accepted only from a URL fragment, never a query. */
 export function RecoveryEntry(): JSX.Element {
-  const searchParams = useSearchParams();
-  const raw = searchParams.get('token');
-  const token = typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : undefined;
-
-  return <AccountRecoveryPage initialToken={token} />;
+  const [token, setToken] = useState<string | undefined>();
+  useEffect(() => {
+    const consumeFragment = () => {
+      const url = new URL(window.location.href);
+      const value = new URLSearchParams(url.hash.slice(1)).get('token');
+      // Remove both fragments and any legacy query token from browser history.
+      // A legacy query may already have reached server logs and is not consumed.
+      if (url.hash || url.searchParams.has('token')) {
+        url.hash = '';
+        url.searchParams.delete('token');
+        window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+      }
+      if (value && /^[A-Za-z0-9_-]{16,256}$/.test(value)) setToken(value);
+    };
+    consumeFragment();
+    // Opening a mail link in a tab already on /recovery may only change the
+    // fragment and therefore does not remount this component.
+    window.addEventListener('hashchange', consumeFragment);
+    return () => window.removeEventListener('hashchange', consumeFragment);
+  }, []);
+  return <AccountRecoveryPage key={token ?? 'request'} initialToken={token} />;
 }
