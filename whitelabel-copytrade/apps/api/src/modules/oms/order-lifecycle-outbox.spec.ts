@@ -21,6 +21,7 @@ function buildHarness(initialState: string, failAppend = false) {
     metadata: { transitions: [] },
   };
   const tx = {
+    $queryRaw: jest.fn(async () => [{ id: 'locked' }]),
     omsOrderIntent: {
       findFirst: jest.fn(async () => current),
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {

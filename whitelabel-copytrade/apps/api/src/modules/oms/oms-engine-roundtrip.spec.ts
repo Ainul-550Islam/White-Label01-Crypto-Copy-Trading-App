@@ -104,21 +104,21 @@ describe('the engine submission result, as the API reads it', () => {
       expect(result!.isSimulated).toBe(false);
     });
 
-    it('treats isSimulated as false unless the engine says exactly true', () => {
+    it('rejects an absent or malformed simulated indicator', () => {
       for (const value of [undefined, null, 'true', 1, 'yes']) {
         const result = parseSubmissionResult({ ...paperFill(), isSimulated: value });
-        expect(result!.isSimulated).toBe(false);
+        expect(result).toBeNull();
       }
     });
 
-    it('replaces a non-decimal quantity with zero instead of storing a float', () => {
+    it('rejects a non-decimal quantity instead of inventing zero', () => {
       const result = parseSubmissionResult({ ...paperFill(), filledQuantity: '0.01000000e0' });
-      expect(result!.filledQuantity).toBe('0');
+      expect(result).toBeNull();
     });
 
-    it('drops an average fill price that is not a plain decimal', () => {
+    it('rejects an average fill price that is not a plain decimal', () => {
       const result = parseSubmissionResult({ ...paperFill(), averageFillPrice: '5e4' });
-      expect(result!.averageFillPrice).toBeNull();
+      expect(result).toBeNull();
     });
 
     it('refuses a receipt that names no order', () => {
@@ -166,41 +166,17 @@ describe('the engine submission result, as the API reads it', () => {
       expect(verdict.kind).toBe('unknown');
     });
 
-    it('a DRY_RUN is a rejection that records that nothing was transmitted', () => {
-      const result = view({ outcome: 'DRY_RUN', orderStatus: 'PENDING', isSimulated: true });
-      expect(interpretSubmission(result)).toEqual({
-        kind: 'rejected',
-        code: 'DRY_RUN',
-        reason: 'Engine is in dry-run mode; the order was not transmitted',
-      });
+    it('a dry-run response does not prove a prior attempt was never transmitted', () => {
+      expect(interpretSubmission(view({ outcome: 'DRY_RUN', orderStatus: 'PENDING', isSimulated: true })).kind).toBe('unknown');
     });
 
-    it("a venue rejection keeps the venue's own error code", () => {
-      const result = view({
-        outcome: 'REJECTED_BY_EXCHANGE',
-        orderStatus: 'REJECTED',
-        errorCode: '-2010',
-        message: 'Account has insufficient balance.',
-        filledQuantity: '0',
-        averageFillPrice: null,
-      });
-      expect(interpretSubmission(result)).toEqual({
-        kind: 'rejected',
-        code: '-2010',
-        reason: 'Account has insufficient balance.',
-      });
+    it('a venue rejection after a retry remains ambiguous', () => {
+      expect(interpretSubmission(view({ outcome: 'REJECTED_BY_EXCHANGE', orderStatus: 'REJECTED', errorCode: '-2010',
+        filledQuantity: '0', averageFillPrice: null })).kind).toBe('unknown');
     });
 
-    it('a local refusal is a rejection with its own code', () => {
-      const result = view({
-        outcome: 'REJECTED_LOCALLY',
-        orderStatus: 'REJECTED',
-        errorCode: 'EXPOSURE_INCOMPLETE',
-      });
-      expect(interpretSubmission(result)).toMatchObject({
-        kind: 'rejected',
-        code: 'EXPOSURE_INCOMPLETE',
-      });
+    it('a local refusal after a retry remains ambiguous', () => {
+      expect(interpretSubmission(view({ outcome: 'REJECTED_LOCALLY', orderStatus: 'REJECTED', errorCode: 'EXPOSURE_INCOMPLETE' })).kind).toBe('unknown');
     });
 
     it('an unrecognised outcome is unknown, never a silent success', () => {
@@ -234,15 +210,14 @@ describe('the engine submission result, as the API reads it', () => {
     it('a cancellation is not representable here, and that is the point', () => {
       // Cancels travel on their own job (CANCEL_ORDER) and their own result
       // recorder. A submission receipt that reported CANCELED would mean the
-      // submit job did something other than submit, so it is recorded as a
-      // rejection rather than accepted as a lifecycle state.
+      // submit job did something other than submit, so it remains ambiguous rather than being guessed as a terminal rejection.
       const result = view({
         outcome: 'REJECTED_BY_EXCHANGE',
         orderStatus: 'CANCELED',
         errorCode: '-2011',
         message: 'Unknown order sent.',
       });
-      expect(interpretSubmission(result).kind).toBe('rejected');
+      expect(interpretSubmission(result).kind).toBe('unknown');
     });
   });
 });

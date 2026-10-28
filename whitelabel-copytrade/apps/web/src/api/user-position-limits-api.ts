@@ -25,6 +25,8 @@ export type UserPositionLimitsView = {
 export type UpdateUserPositionLimitsInput = {
   maxConcurrentPositions?: number | null;
   maxOpenOrders?: number | null;
+  /** Version received on the last read; null means no policy row existed. */
+  expectedUpdatedAt: string | null;
 };
 
 export const userPositionLimitsApi = {
@@ -32,7 +34,7 @@ export const userPositionLimitsApi = {
     return apiClient.get<UserPositionLimitsView>('/v1/risk-management/my-position-limits');
   },
 
-  updateMyLimits(input: UpdateUserPositionLimitsInput): Promise<UserPositionLimitsView> {
-    return apiClient.put<UserPositionLimitsView>('/v1/risk-management/my-position-limits', input);
+  updateMyLimits(input: UpdateUserPositionLimitsInput, idempotencyKey: string): Promise<UserPositionLimitsView> {
+    return apiClient.put<UserPositionLimitsView>('/v1/risk-management/my-position-limits', input, { idempotencyKey });
   },
 };

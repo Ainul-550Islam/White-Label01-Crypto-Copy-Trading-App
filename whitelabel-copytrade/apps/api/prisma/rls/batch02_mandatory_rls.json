@@ -1,0 +1,23 @@
+{
+  "schema": "batch02-mandatory-tenant-rls-v1",
+  "modeled": [
+    { "table": "copy_budget_reduction_intents", "model": "CopyBudgetReductionIntent", "policy": "copy_budget_reduction_tenant_isolation", "predicate": "function" },
+    { "table": "copy_budgets", "model": "CopyBudget", "policy": "copy_budget_tenant_isolation", "predicate": "function" },
+    { "table": "developer_mutation_intents", "model": "DeveloperMutationIntent", "policy": "tenant_isolation", "predicate": "function" },
+    { "table": "governance_audit_export_intents", "model": "GovernanceAuditExportIntent", "policy": "governance_audit_export_intent_tenant_isolation", "predicate": "guc" },
+    { "table": "login_devices", "model": "LoginDevice", "policy": "login_device_tenant_isolation", "predicate": "function" },
+    { "table": "mobile_push_attempts", "model": "MobilePushAttempt", "policy": "mobile_push_attempt_tenant_isolation", "predicate": "guc" },
+    { "table": "mobile_push_devices", "model": "MobilePushDevice", "policy": "mobile_push_device_tenant_isolation", "predicate": "guc" },
+    { "table": "user_preferences", "model": "UserPreferences", "policy": "tenant_isolation", "predicate": "function" },
+    { "table": "withdrawal_destinations", "model": "WithdrawalDestination", "policy": "withdrawal_destination_tenant_isolation", "predicate": "guc" }
+  ],
+  "sqlOnly": [
+    { "table": "account_recovery_tokens", "policy": "account_recovery_token_tenant_isolation", "predicate": "function" },
+    { "table": "account_order_size_limit_update_intents", "policy": "account_order_size_limit_update_intents_tenant", "predicate": "function" },
+    { "table": "account_order_size_limits", "policy": "account_order_size_limits_tenant", "predicate": "function" },
+    { "table": "customer_deposit_address_issuances", "policy": "customer_deposit_issuance_tenant_isolation", "predicate": "function" },
+    { "table": "customer_deposit_address_request_keys", "policy": "customer_deposit_key_tenant_isolation", "predicate": "function" },
+    { "table": "institutional_risk_policy_update_intents", "policy": "institutional_risk_policy_update_intents_tenant", "predicate": "function" },
+    { "table": "user_position_limit_update_intents", "policy": "user_position_limit_update_intents_tenant", "predicate": "guc" }
+  ]
+}

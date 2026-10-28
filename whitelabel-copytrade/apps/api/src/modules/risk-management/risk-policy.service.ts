@@ -1,5 +1,6 @@
-import { Injectable, Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'crypto';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { EffectiveRiskPolicy, RiskPolicyScope, RiskPolicyThresholds } from './risk-management.types';
 
@@ -50,6 +51,7 @@ function canonicalJson(value: unknown): string {
 
 function defaultThresholds(): RiskPolicyThresholds {
   return {
+    notionalCurrency: null,
     maxGrossExposure: null,
     maxNetExposure: null,
     maxSymbolExposure: null,
@@ -106,37 +108,24 @@ function mergeThresholds(base: RiskPolicyThresholds, override: Partial<RiskPolic
   for (const [k, v] of Object.entries(override)) {
     if (v === null || v === undefined) continue;
     const key = k as keyof RiskPolicyThresholds;
-    // Platform defines ceilings; lower scopes may only tighten, never loosen beyond platform ceiling for safety-critical.
+    // Lower scopes may tighten inherited limits, but cannot disable or weaken
+    // a protection or silently reinterpret monetary caps in a new currency.
     if (!isPlatform) {
-      // Safety-critical tightening checks: if base has a limit, override must be <= base for max limits, >= for min distances?
-      // For max exposure/leverage/drawdown/loss/concentration: smaller = tighter.
-      // For margin utilization, liquidation distance: higher utilization = looser? Actually higher % = tighter warning? We treat same: override must be <= base for max, >= for distance?
-      // Simplified: for max* and concentration, override must be <= base if base exists.
-      if (typeof v === 'string' && typeof base[key] === 'string') {
-        const baseVal = base[key] as string;
-        // Skip if not decimal (booleans handled separately)
-        if (isValidDecimalString(baseVal) && isValidDecimalString(v as string)) {
-          const isMaxLimit = String(key).startsWith('max') || String(key).includes('Concentration') || String(key).includes('Leverage');
-          if (isMaxLimit) {
-            // override must be <= base (tighter)
-            const cmp = compareDecimalStrings(v as string, baseVal);
-            if (cmp > 0) {
-              // Attempt to weaken higher-level safety rule -> forbidden
-              throw new ForbiddenException(
-                `Policy scope attempted to weaken higher-level limit ${key}: ${v} > ${baseVal}. Lower scope may only tighten.`,
-              );
-            }
-          }
-          // For liquidation distance, larger distance is tighter? Actually larger % means earlier warning, so tighter = larger. We allow larger.
-          // For margin utilization, smaller % is tighter warning (earlier). So override <= base is tighter.
-          if (String(key).includes('margin') || String(key).includes('Utilization')) {
-            const cmp = compareDecimalStrings(v as string, baseVal);
-            if (cmp > 0) {
-              throw new ForbiddenException(`Policy scope attempted to weaken margin limit ${key}: ${v} > ${baseVal}`);
-            }
-          }
-        }
+      const parent = base[key];
+      let weaker = false;
+      if (key === 'notionalCurrency' && parent != null) weaker = v !== parent;
+      if ((key === 'killSwitchEnabled' || key === 'circuitBreakerEnabled' || key === 'dailyLossIncludesUnrealized') && parent === true) weaker = v !== true;
+      if (key === 'allowRiskReducingOrders' && parent === false) weaker = v !== false;
+      if (typeof v === 'number' && typeof parent === 'number') {
+        if (['maxOpenOrders', 'marketDataMaxAgeMs', 'exchangeHealthMaxAgeMs', 'executionFailureBurstThreshold'].includes(String(key))) weaker = v > parent;
+        if (key === 'executionFailureWindowMs') weaker = v < parent;
       }
+      if (typeof v === 'string' && typeof parent === 'string' && isValidDecimalString(parent) && isValidDecimalString(v)) {
+        const comparison = compareDecimalStrings(v, parent);
+        if (String(key).startsWith('max') || String(key).includes('Concentration') || String(key).includes('Leverage') || String(key).includes('margin') || String(key).includes('Utilization') || ['varThreshold', 'stressLossThreshold', 'circuitBreakerLossThreshold', 'circuitBreakerDrawdownThreshold'].includes(String(key))) weaker = comparison > 0;
+        if (['liquidationWarningDistance', 'liquidationCriticalDistance', 'varConfidence'].includes(String(key))) weaker = comparison < 0;
+      }
+      if (weaker) throw new ForbiddenException(`Policy scope attempted to weaken higher-level limit ${key}.`);
     }
     (merged as any)[key] = v;
   }
@@ -160,22 +149,28 @@ function compareDecimalStrings(a: string, b: string): number {
 }
 
 function validateThresholds(thresholds: Partial<RiskPolicyThresholds>): void {
-  for (const [k, v] of Object.entries(thresholds)) {
-    if (v === null || v === undefined) continue;
-    if (typeof v === 'string') {
-      if (!isValidDecimalString(v)) {
-        throw new BadRequestException(`Invalid decimal threshold ${k}: ${v}`);
-      }
-      // No executable
-      if (/[;`$\\{}()<>]/.test(v)) {
-        throw new BadRequestException(`Threshold ${k} contains disallowed characters`);
-      }
+  if (!thresholds || typeof thresholds !== 'object' || Array.isArray(thresholds)) {
+    throw new BadRequestException('Risk thresholds must be an object');
+  }
+  const defaults = defaultThresholds() as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(thresholds)) {
+    if (!Object.prototype.hasOwnProperty.call(defaults, key) || value === undefined) {
+      throw new BadRequestException(`Unsupported risk threshold: ${key}`);
     }
-    if (typeof v === 'number') {
-      // Only maxOpenOrders and lookback etc allowed as numbers
-      if (!Number.isInteger(v) || v < 0) {
-        throw new BadRequestException(`Invalid numeric threshold ${k}: ${v}`);
+    if (value === null) continue; // null inherits the higher scope, never clears it
+    const defaultValue = defaults[key];
+    if (key === 'notionalCurrency') {
+      if (typeof value !== 'string' || !/^[A-Z0-9]{2,16}$/.test(value)) {
+        throw new BadRequestException('Invalid notional currency');
       }
+    } else if (typeof defaultValue === 'boolean') {
+      if (typeof value !== 'boolean') throw new BadRequestException(`Invalid boolean for ${key}`);
+    } else if (typeof defaultValue === 'number' || key === 'maxOpenOrders') {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < (key === 'maxOpenOrders' ? 0 : 1)) {
+        throw new BadRequestException(`Invalid integer for ${key}`);
+      }
+    } else if (typeof value !== 'string' || value.length > 40 || !/^\d+(?:\.\d{1,12})?$/.test(value) || !isValidDecimalString(value)) {
+      throw new BadRequestException(`Invalid nonnegative decimal string for ${key}`);
     }
   }
 }
@@ -196,7 +191,7 @@ export class InstitutionalRiskPolicyService {
     traderId?: string | null;
     strategyId?: string | null;
     followerId?: string | null;
-  }): Promise<EffectiveRiskPolicy> {
+  }, transaction?: Prisma.TransactionClient): Promise<EffectiveRiskPolicy> {
     const { tenantId, traderId, strategyId, followerId } = params;
     const chain: Array<{ scope: RiskPolicyScope; scopeId: string | null }> = [
       { scope: RiskPolicyScope.PLATFORM, scopeId: null },
@@ -206,18 +201,22 @@ export class InstitutionalRiskPolicyService {
       ...(followerId ? [{ scope: RiskPolicyScope.FOLLOWER, scopeId: followerId }] : []),
     ];
 
-    // Fetch policies from DB: InstitutionalRiskPolicy where active, ordered by scope precedence
-    const dbPolicies = await this.prisma.institutionalRiskPolicy.findMany({
-      where: {
-        isActive: true,
-        OR: chain.map((c) => ({
-          scope: c.scope as any,
-          ...(c.scopeId ? { scopeId: c.scopeId } : c.scope === RiskPolicyScope.PLATFORM ? { tenantId: null } : {}),
-          ...(c.scope === RiskPolicyScope.TENANT && tenantId ? { tenantId } : {}),
-        })),
-      },
-      orderBy: [{ scope: 'asc' }, { version: 'desc' }],
+    // Platform rules are global; every other scope must also belong to this
+    // tenant. Scope IDs alone are not a tenant boundary. Run tenant reads in a
+    // scoped transaction so forced RLS cannot silently erase configured rules.
+    const where = {
+      isActive: true,
+      OR: chain.map((c) => c.scope === RiskPolicyScope.PLATFORM
+        ? { scope: c.scope as any, scopeId: null, tenantId: null }
+        : { scope: c.scope as any, scopeId: c.scopeId, tenantId: tenantId! }),
+    };
+    const queryPolicies = (tx: Prisma.TransactionClient) => tx.institutionalRiskPolicy.findMany({
+      where, orderBy: [{ scope: 'asc' }, { version: 'desc' }],
     });
+    const dbPolicies = transaction
+      ? await queryPolicies(transaction)
+      : tenantId ? await this.prisma.withTenantRls(tenantId, queryPolicies)
+        : await queryPolicies(this.prisma);
 
     // Build map latest per scope
     const latestByScope = new Map<string, (typeof dbPolicies)[number]>();
@@ -320,9 +319,15 @@ export class InstitutionalRiskPolicyService {
     thresholds: Partial<RiskPolicyThresholds>;
     changeReason: string;
     changedByUserId: string;
-    actorTenantId?: string;
+    actorTenantId: string;
+    expectedVersion: number | null;
+    idempotencyKey: string;
   }): Promise<{ id: string; version: number; digest: string }> {
-    const { scope, scopeId, tenantId, thresholds, changeReason, changedByUserId } = params;
+    const { scope, scopeId, tenantId, thresholds, changeReason, changedByUserId, actorTenantId, expectedVersion, idempotencyKey } = params;
+    if (!actorTenantId || !changedByUserId || !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey ?? '') ||
+        (expectedVersion !== null && (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1))) {
+      throw new BadRequestException('A valid retry key and observed policy version are required.');
+    }
     if (!changeReason || changeReason.trim().length < 10) {
       throw new BadRequestException('changeReason must be at least 10 characters');
     }
@@ -336,77 +341,114 @@ export class InstitutionalRiskPolicyService {
     }
     const digest = sha256Hex(canonical);
 
-    // Platform scope requires PLATFORM_MANAGE (checked in controller) and tenantId must be null
-    if (scope === RiskPolicyScope.PLATFORM && tenantId) {
-      throw new BadRequestException('PLATFORM scope must have null tenantId');
+    if (!Object.values(RiskPolicyScope).includes(scope)) throw new BadRequestException('Invalid policy scope');
+    const platform = scope === RiskPolicyScope.PLATFORM;
+    const targetTenant = tenantId ?? null;
+    const targetScopeId = platform ? null : scope === RiskPolicyScope.TENANT ? (scopeId ?? targetTenant) : (scopeId ?? null);
+    if (platform && (targetTenant !== null || scopeId != null)) {
+      throw new BadRequestException('PLATFORM scope must not name a tenant or scope id');
     }
-
-    // Fetch existing latest version for this scope
-    const existing = await this.prisma.institutionalRiskPolicy.findFirst({
-      where: { scope: scope as any, scopeId: scopeId ?? null, tenantId: tenantId ?? undefined },
-      orderBy: { version: 'desc' },
-    });
-
-    // If existing, ensure not weakening higher-level (will be checked on resolve, but also here for immediate feedback)
-    if (existing) {
-      // If this is not platform, fetch platform policy to ensure not weakening
-      if (scope !== RiskPolicyScope.PLATFORM) {
-        const platformPolicy = await this.resolveEffectivePolicy({ tenantId: tenantId ?? null });
-        // merge check will throw if weakening
-        mergeThresholds(platformPolicy.thresholds, thresholds, false);
+    if (!platform && (!targetTenant || !targetScopeId || targetScopeId.length > 128 ||
+        (scope === RiskPolicyScope.TENANT && targetScopeId !== targetTenant))) {
+      throw new BadRequestException('Policy scope must belong to its tenant');
+    }
+    if (!platform && scope !== RiskPolicyScope.TENANT && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetScopeId!)) {
+      throw new BadRequestException('A valid policy scope identifier is required');
+    }
+    const retryTenant = targetTenant ?? actorTenantId;
+    const keyHash = sha256Hex(idempotencyKey);
+    const intentHash = sha256Hex(canonicalJson({ actorTenantId, changedByUserId, scope, targetTenant, targetScopeId,
+      thresholds, changeReason, expectedVersion }));
+    const where = { scope: scope as any, scopeId: targetScopeId, tenantId: targetTenant };
+    const replay = async (tx: Prisma.TransactionClient) => {
+      const [record] = await tx.$queryRaw<Array<{ intent_hash: string; policy_id: string }>>`
+        SELECT intent_hash, policy_id::text FROM institutional_risk_policy_update_intents
+        WHERE tenant_id=${retryTenant}::uuid AND user_id=${changedByUserId}::uuid AND key_hash=${keyHash}`;
+      if (!record) return null;
+      if (record.intent_hash !== intentHash) throw new ConflictException('Retry key belongs to a different policy update.');
+      const saved = await tx.institutionalRiskPolicy.findFirst({ where: { ...where, id: record.policy_id } });
+      if (!saved) throw new ServiceUnavailableException('The saved policy revision is unavailable.');
+      return { id: saved.id, version: saved.version, digest: saved.digest };
+    };
+    // A completed retry returns its immutable revision even if the parent
+    // policy has since changed. In-flight duplicate requests recheck under the
+    // same transaction lock below.
+    const previous = await this.prisma.withTenantRls(retryTenant, replay);
+    if (previous) return previous;
+    const retryLock = JSON.stringify(['institutional-risk-policy-retry', retryTenant, changedByUserId, keyHash]);
+    const lockKey = JSON.stringify(['institutional-risk-policy', targetTenant, scope, targetScopeId]);
+    const write = async (tx: Prisma.TransactionClient) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${retryLock}, 0))::text`;
+      const existingRetry = await replay(tx);
+      if (existingRetry) return existingRetry;
+      // Serialize policy writers in a hierarchy: a platform update excludes
+      // all tenant writers, while tenant updates also serialize per tenant.
+      // Parent validation runs on this very transaction after those locks.
+      const hierarchy = 'institutional-risk-policy-hierarchy';
+      if (platform) await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hierarchy}, 0))::text`;
+      else {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${hierarchy}, 0))::text`;
+        const tenantLock = JSON.stringify(['institutional-risk-policy-tenant', targetTenant]);
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${tenantLock}, 0))::text`;
+        const parent = await this.resolveEffectivePolicy({ tenantId: scope === RiskPolicyScope.TENANT ? null : targetTenant }, tx);
+        mergeThresholds(parent.thresholds, thresholds, false);
       }
-    }
-
-    const nextVersion = (existing?.version ?? 0) + 1;
-
-    const created = await this.prisma.institutionalRiskPolicy.create({
-      data: {
-        scope: scope as any,
-        scopeId: scopeId ?? null,
-        tenantId: tenantId ?? null,
-        version: nextVersion,
-        digest,
-        policyJson: thresholds as any,
-        ruleIds: Object.keys(thresholds).map((k) => k.toUpperCase()),
-        changeReason,
-        changedByUserId,
-        isActive: true,
-      },
-    });
-
-    // Deactivate older versions for same scope (keep history but mark inactive)
-    if (existing) {
-      await this.prisma.institutionalRiskPolicy.updateMany({
-        where: { scope: scope as any, scopeId: scopeId ?? null, tenantId: tenantId ?? undefined, id: { not: created.id } },
-        data: { isActive: false },
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text`;
+      if (!platform && scope !== RiskPolicyScope.TENANT) {
+        const entityWhere = { id: targetScopeId!, tenantId: targetTenant!, deletedAt: null };
+        const exists = scope === RiskPolicyScope.TRADER
+          ? await tx.traderProfile.findFirst({ where: entityWhere, select: { id: true } })
+          : scope === RiskPolicyScope.FOLLOWER
+            ? await tx.user.findFirst({ where: entityWhere, select: { id: true } })
+            : await tx.strategy.findFirst({ where: entityWhere, select: { id: true } }) ||
+              await tx.traderStrategy.findFirst({ where: entityWhere, select: { id: true } });
+        if (!exists) throw new BadRequestException('Policy scope was not found in the target tenant.');
+      }
+      const existing = await tx.institutionalRiskPolicy.findFirst({ where, orderBy: { version: 'desc' } });
+      if ((existing?.version ?? null) !== expectedVersion) throw new ConflictException('Policy changed; reload before updating.');
+      const nextVersion = (existing?.version ?? 0) + 1;
+      // The partial unique index allows only one active revision. Temporarily
+      // deactivate the old one inside this transaction; a later failure rolls
+      // it back together with the new revision, retry record and audit.
+      await tx.institutionalRiskPolicy.updateMany({ where: { ...where, isActive: true }, data: { isActive: false } });
+      const created = await tx.institutionalRiskPolicy.create({
+        data: {
+          ...where, version: nextVersion, digest, policyJson: thresholds as any,
+          ruleIds: Object.keys(thresholds).map((k) => k.toUpperCase()), changeReason, changedByUserId, isActive: true,
+        },
       });
-      // Reactivate the newly created one (in case updateMany deactivated it)
-      await this.prisma.institutionalRiskPolicy.update({ where: { id: created.id }, data: { isActive: true } });
-    }
-
-    // Audit log
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: tenantId ?? undefined,
-        actorId: changedByUserId,
-        actorType: 'USER',
-        action: 'RISK_POLICY_UPSERT',
-        resourceType: 'INSTITUTIONAL_RISK_POLICY',
-        resourceId: created.id,
-        description: `Upsert ${scope} ${scopeId ?? ''} v${nextVersion} digest ${digest}`,
-        changes: { before: existing?.policyJson ?? null, after: thresholds } as any,
-      },
-    });
-
-    this.logger.log(`Risk policy upsert ${scope} ${scopeId ?? ''} v${nextVersion} digest ${digest}`);
-    return { id: created.id, version: nextVersion, digest };
+      await tx.auditLog.create({
+        data: {
+          tenantId: targetTenant, actorId: changedByUserId, actorType: 'USER', action: 'RISK_POLICY_UPSERT',
+          resourceType: 'INSTITUTIONAL_RISK_POLICY', resourceId: created.id,
+          description: `Upsert ${scope} ${targetScopeId ?? ''} v${nextVersion} digest ${digest}`,
+          changes: { before: existing?.policyJson ?? null, after: thresholds } as any,
+        },
+      });
+      await tx.$executeRaw`
+        INSERT INTO institutional_risk_policy_update_intents (tenant_id, user_id, key_hash, intent_hash, policy_id)
+        VALUES (${retryTenant}::uuid, ${changedByUserId}::uuid, ${keyHash}, ${intentHash}, ${created.id}::uuid)`;
+      return { id: created.id, version: nextVersion, digest };
+    };
+    // The version, active revision and audit must commit together. A database
+    // without permission to write a global policy fails rather than silently
+    // creating a tenant policy or omitting the audit.
+    const saved = targetTenant ? await this.prisma.withTenantRls(targetTenant, write) : await this.prisma.$transaction(write);
+    this.logger.log(`Risk policy upsert ${scope} ${targetScopeId ?? ''} v${saved.version} digest ${digest}`);
+    return saved;
   }
 
   async getPolicyHistory(params: { scope: RiskPolicyScope; scopeId?: string | null; tenantId?: string | null }): Promise<any[]> {
-    return this.prisma.institutionalRiskPolicy.findMany({
-      where: { scope: params.scope as any, scopeId: params.scopeId ?? undefined, tenantId: params.tenantId ?? undefined },
-      orderBy: { version: 'desc' },
+    const platform = params.scope === RiskPolicyScope.PLATFORM;
+    if (!platform && !params.tenantId) throw new BadRequestException('Tenant context is required for policy history');
+    const query = {
+      where: { scope: params.scope as any, scopeId: platform ? null : params.scopeId ?? undefined,
+        tenantId: platform ? null : params.tenantId! },
+      orderBy: { version: 'desc' as const },
       take: 50,
-    });
+    };
+    return params.tenantId
+      ? this.prisma.withTenantRls(params.tenantId, (tx) => tx.institutionalRiskPolicy.findMany(query))
+      : this.prisma.institutionalRiskPolicy.findMany(query);
   }
 }

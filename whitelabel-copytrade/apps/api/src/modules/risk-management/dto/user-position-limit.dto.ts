@@ -1,10 +1,15 @@
 // # Responsibility: validates self-service integer ceilings for user-wide concurrent positions and open orders.
 
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsISO8601, IsOptional, Max, Min } from 'class-validator';
 
 const MAX_DATABASE_INTEGER = 2_147_483_647;
 
 export class UpdateUserPositionLimitDto {
+  /** The version observed during the preceding read; null means no row. */
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  expectedUpdatedAt?: string | null;
+
   /** Null clears the configured ceiling; zero prevents any new reservation. */
   @IsOptional()
   @IsInt()

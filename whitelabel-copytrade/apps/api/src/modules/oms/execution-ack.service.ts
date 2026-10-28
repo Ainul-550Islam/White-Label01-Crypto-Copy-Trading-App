@@ -1,17 +1,29 @@
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { failClosedMoneyOperation } from '../../common/money-path-failure';
-import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
 import { OrderIntentState, ExecutionAckType } from './oms.types';
-import { randomUUID } from 'crypto';
 
-/**
- * Execution Ack Service — normalizes acknowledgements from existing execution infrastructure
- * into safe OMS events without becoming a second execution engine.
- *
- * Never invents an ACK. If no real ack exists, remain in appropriate pending state.
- */
+export interface ExecutionEventAck {
+  tenantId: string;
+  orderId: string;
+  clientOrderId: string;
+  exchangeOrderId?: string | null;
+  providerOrderId?: string | null;
+  venue: string;
+  status: string;
+  occurredAtMicros: string;
+  reason?: string | null;
+  correlationId?: string | null;
+  source: string;
+  providerErrorCode?: string | null;
+  providerErrorMessage?: string | null;
+  latencyMicros?: string | null;
+}
 
+/** Persists real execution acknowledgements and the corresponding OMS event in
+ * the same tenant-scoped transaction. An unknown worker outcome is not an ACK. */
 @Injectable()
 export class ExecutionAckService {
   private readonly logger = new Logger(ExecutionAckService.name);
@@ -21,166 +33,128 @@ export class ExecutionAckService {
     private readonly lifecycleService: OrderLifecycleService,
   ) {}
 
-  /**
-   * Normalize ack from execution engine OrderEvent / ExecutionOrderEvent
-   */
-  async processAckFromExecutionEvent(params: {
-    tenantId: string;
-    orderId: string; // internal order id
-    clientOrderId: string;
-    exchangeOrderId?: string | null;
-    providerOrderId?: string | null;
-    venue: string;
-    status: string; // ACKNOWLEDGED, REJECTED, etc.
-    occurredAtMicros: string;
-    reason?: string | null;
-    correlationId?: string | null;
-    source: string;
-    providerErrorCode?: string | null;
-    providerErrorMessage?: string | null;
-    latencyMicros?: string | null;
-  }) {
-    const { tenantId, orderId, clientOrderId, exchangeOrderId, providerOrderId, venue, status, occurredAtMicros, reason, correlationId, source, providerErrorCode, providerErrorMessage, latencyMicros } = params;
+  async processAckFromExecutionEvent(params: ExecutionEventAck) {
+    return this.prisma.withTenantRls(params.tenantId, (tx) => this.processAckInTransaction(tx, params));
+  }
 
-    // Find linked OMS intent by clientOrderId
-    let intent: any;
-    try {
-      intent = await (this.prisma as any).omsOrderIntent.findFirst({ where: { tenantId, clientOrderId } });
-    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_EXECUTION_ACK_OPERATION_1_FAILED', tenantId: tenantId, entityId: orderId }); }
-    if (!intent) {
-      intent = await this.prisma.order.findFirst({ where: { tenantId, clientOrderId } });
-    }
-    if (!intent) {
-      this.logger.warn(`No OMS intent found for clientOrderId ${clientOrderId} tenant ${tenantId} — ack orphan, ignoring`);
-      return null;
+  /** `tx` must already be scoped to params.tenantId with withTenantRls. */
+  async processAckInTransaction(tx: Prisma.TransactionClient, params: ExecutionEventAck) {
+    const { tenantId, orderId, clientOrderId, exchangeOrderId, providerOrderId, venue, status, occurredAtMicros,
+      reason, correlationId, source, providerErrorCode, providerErrorMessage, latencyMicros } = params;
+    const ackType = ['ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'].includes(status)
+      ? ExecutionAckType.ACCEPTED : status === 'REJECTED' ? ExecutionAckType.REJECTED : null;
+    if (!ackType) return null;
+    if (!/^\d{1,32}$/.test(occurredAtMicros) || (latencyMicros != null && !/^\d{1,32}$/.test(latencyMicros)) ||
+        !clientOrderId || clientOrderId.length > 128 || !venue || venue.length > 32 || !source || source.length > 64 ||
+        (exchangeOrderId != null && (!exchangeOrderId || exchangeOrderId.length > 64)) ||
+        (providerOrderId != null && (!providerOrderId || providerOrderId.length > 128)) ||
+        (correlationId != null && correlationId.length > 64) || (providerErrorCode != null && providerErrorCode.length > 128)) {
+      throw new ConflictException('Invalid execution acknowledgement');
     }
 
-    const ackType = status === 'REJECTED' || status === 'FAILED' ? ExecutionAckType.REJECTED : ExecutionAckType.ACCEPTED;
+    // Always lock canonical order before intent. Read after locking so a late
+    // event cannot overwrite a concurrent terminal/fill transition.
+    const orderLock = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM orders WHERE tenant_id=${tenantId}::uuid AND id=${orderId}::uuid FOR UPDATE`;
+    if (orderLock.length !== 1) return null;
+    const order = await tx.order.findFirst({ where: { id: orderId, tenantId } });
+    const metadata = order?.metadata && typeof order.metadata === 'object' && !Array.isArray(order.metadata)
+      ? order.metadata as Record<string, unknown> : {};
+    if (!order || order.clientOrderId !== clientOrderId || order.venue !== venue || typeof metadata.omsIntentId !== 'string') return null;
+    if ((ackType === ExecutionAckType.ACCEPTED && !['ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'].includes(order.status)) ||
+        (ackType === ExecutionAckType.REJECTED && order.status !== 'REJECTED')) return null;
+    const intentLock = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM oms_order_intents WHERE tenant_id=${tenantId}::uuid AND id=${metadata.omsIntentId}::uuid FOR UPDATE`;
+    if (intentLock.length !== 1) return null;
+    const intent = await tx.omsOrderIntent.findFirst({ where: { id: metadata.omsIntentId, tenantId, clientOrderId } });
+    if (!intent || intent.accountId !== order.accountId || intent.symbol !== order.symbol || intent.side !== order.side ||
+        intent.isSimulated !== order.isSimulated) return null;
+    if ((order.exchangeOrderId && exchangeOrderId && order.exchangeOrderId !== exchangeOrderId) ||
+        (intent.exchangeOrderId && exchangeOrderId && intent.exchangeOrderId !== exchangeOrderId) ||
+        (intent.providerOrderId && providerOrderId && intent.providerOrderId !== providerOrderId)) {
+      throw new ConflictException('Conflicting execution acknowledgement');
+    }
+    if ((ackType === ExecutionAckType.REJECTED && ![OrderIntentState.SUBMITTED, OrderIntentState.REJECTED].includes(intent.state as OrderIntentState)) ||
+        (ackType === ExecutionAckType.ACCEPTED && [OrderIntentState.REJECTED, OrderIntentState.FAILED, OrderIntentState.EXPIRED,
+          OrderIntentState.REPLACED].includes(intent.state as OrderIntentState))) {
+      throw new ConflictException('Execution acknowledgement conflicts with the current order state');
+    }
 
-    // Idempotency: reuse the ack row, but still complete the lifecycle transition. The ack row and
-    // state/outbox write do not share a database transaction; returning early here after an outbox
-    // failure would permanently suppress the retry that should finish delivery.
-    let ackRecord: any;
-    let ackAlreadyPersisted = false;
+    // PostgreSQL unique indexes treat NULL exchange IDs as distinct. Holding
+    // the intent lock makes this read/create pair safe even when the venue has
+    // not yet supplied an ID, and avoids conflating NULL with an arbitrary ID.
+    let ackRecord;
     try {
-      const existing = await (this.prisma as any).omsExecutionAck.findFirst({
-        where: { tenantId, clientOrderId, exchangeOrderId: exchangeOrderId ?? undefined },
-      });
-      if (existing) {
-        ackRecord = existing;
-        ackAlreadyPersisted = true;
-        this.logger.log(`Duplicate ack row reused for lifecycle recovery clientOrderId ${clientOrderId} exchangeOrderId ${exchangeOrderId}`);
+      const existing = await tx.omsExecutionAck.findMany({ where: { tenantId, clientOrderId }, take: 2 });
+      if (existing.length > 1) throw new ConflictException('Conflicting execution acknowledgements require reconciliation');
+      ackRecord = existing[0] ?? null;
+      if (ackRecord && (ackRecord.orderIntentId !== intent.id || ackRecord.internalOrderId !== order.id ||
+          ackRecord.ackType !== ackType || (ackRecord.exchangeOrderId && exchangeOrderId && ackRecord.exchangeOrderId !== exchangeOrderId) ||
+          (ackRecord.providerOrderId && providerOrderId && ackRecord.providerOrderId !== providerOrderId))) {
+        throw new ConflictException('Conflicting execution acknowledgement');
       }
-    } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'OMS_EXECUTION_ACK_OPERATION_2_FAILED', tenantId: tenantId, entityId: orderId }); }
-
-    // Persist ack only once; retry the authoritative lifecycle transition below even on a hit.
-    if (!ackAlreadyPersisted) try {
-      ackRecord = await (this.prisma as any).omsExecutionAck.create({
-        data: {
-          tenantId,
-          orderIntentId: intent.id,
-          internalOrderId: orderId,
-          clientOrderId,
-          providerOrderId: providerOrderId ?? null,
-          exchangeOrderId: exchangeOrderId ?? null,
-          venue,
-          ackType,
-          timestampMicros: occurredAtMicros,
-          latencyMicros: latencyMicros ?? null,
+      if (ackRecord && ((!ackRecord.exchangeOrderId && exchangeOrderId) || (!ackRecord.providerOrderId && providerOrderId))) {
+        // A delayed venue identifier enriches the same acknowledgement; it
+        // must not create a second one merely because NULL is unique-distinct.
+        ackRecord = await tx.omsExecutionAck.update({ where: { id: ackRecord.id }, data: {
+          ...(!ackRecord.exchangeOrderId && exchangeOrderId ? { exchangeOrderId } : {}),
+          ...(!ackRecord.providerOrderId && providerOrderId ? { providerOrderId } : {}),
+        } });
+      }
+      if (!ackRecord) {
+        ackRecord = await tx.omsExecutionAck.create({ data: {
+          tenantId, orderIntentId: intent.id, internalOrderId: orderId, clientOrderId,
+          providerOrderId: providerOrderId ?? null, exchangeOrderId: exchangeOrderId ?? null,
+          venue, ackType, timestampMicros: occurredAtMicros, latencyMicros: latencyMicros ?? null,
           providerErrorCode: providerErrorCode ?? null,
           providerErrorMessage: providerErrorMessage ? providerErrorMessage.slice(0, 500) : null,
-          rawAckRef: orderId,
-          correlationId: correlationId ?? null,
-          source,
-        },
+          rawAckRef: orderId, correlationId: correlationId ?? null, source,
+        } });
+      }
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      failClosedMoneyOperation(error, { code: 'OMS_EXECUTION_ACK_PERSIST_FAILED', tenantId, entityId: orderId });
+    }
+
+    if (ackType === ExecutionAckType.ACCEPTED && intent.state === OrderIntentState.SUBMITTED) {
+      await this.lifecycleService.transitionInTransaction(tx, {
+        tenantId, intentId: intent.id, toState: OrderIntentState.ACKNOWLEDGED, source: 'EXECUTION_ENGINE',
+        reason: reason ?? `Acknowledged by venue ${venue} exchangeOrderId ${exchangeOrderId ?? 'pending'}`,
+        correlationId, timestampMicros: occurredAtMicros, metadata: { exchangeOrderId, providerOrderId, venue, latencyMicros },
       });
-    } catch (e) {
-      this.logger.warn(`OmsExecutionAck model missing, storing ack in audit only: ${(e as Error).message}`);
-      ackRecord = {
-        id: randomUUID(),
-        tenantId,
-        orderIntentId: intent.id,
-        clientOrderId,
-        exchangeOrderId,
-        venue,
-        ackType,
-        timestampMicros: occurredAtMicros,
-        source,
-      };
+    } else if (ackType === ExecutionAckType.REJECTED && intent.state === OrderIntentState.SUBMITTED) {
+      await this.lifecycleService.transitionInTransaction(tx, {
+        tenantId, intentId: intent.id, toState: OrderIntentState.REJECTED, source: 'EXECUTION_ENGINE',
+        reason: reason ?? `Rejected by venue ${venue} code ${providerErrorCode ?? 'unknown'}`,
+        correlationId, timestampMicros: occurredAtMicros, metadata: { providerErrorCode, providerErrorMessage, venue },
+      });
     }
-
-    // Transition OMS intent based on ack
-    const currentState = intent.state ?? intent.status;
-    if (ackType === ExecutionAckType.ACCEPTED) {
-      if (currentState === OrderIntentState.SUBMITTED) {
-        await this.lifecycleService.transition({
-          tenantId,
-          intentId: intent.id,
-          toState: OrderIntentState.ACKNOWLEDGED,
-          source: 'EXECUTION_ENGINE',
-          reason: reason ?? `Acknowledged by venue ${venue} exchangeOrderId ${exchangeOrderId ?? 'pending'}`,
-          correlationId,
-          timestampMicros: occurredAtMicros,
-          metadata: { exchangeOrderId, providerOrderId, venue, latencyMicros },
-        });
-      }
-    } else {
-      // REJECTED
-      if (currentState !== OrderIntentState.REJECTED && currentState !== OrderIntentState.FILLED && currentState !== OrderIntentState.CANCELLED) {
-        await this.lifecycleService.transition({
-          tenantId,
-          intentId: intent.id,
-          toState: OrderIntentState.REJECTED,
-          source: 'EXECUTION_ENGINE',
-          reason: reason ?? `Rejected by venue ${venue} code ${providerErrorCode ?? 'unknown'}`,
-          correlationId,
-          timestampMicros: occurredAtMicros,
-          metadata: { providerErrorCode, providerErrorMessage, venue },
-        });
-      }
+    if (exchangeOrderId || providerOrderId) {
+      await tx.omsOrderIntent.update({ where: { id: intent.id }, data: {
+        ...(exchangeOrderId ? { exchangeOrderId } : {}), ...(providerOrderId ? { providerOrderId } : {}),
+      } });
     }
-
-    // Update intent with exchangeOrderId if provided and not already set
-    if (exchangeOrderId) {
-      try {
-        await (this.prisma as any).omsOrderIntent.update({
-          where: { id: intent.id },
-          data: { exchangeOrderId, providerOrderId: providerOrderId ?? undefined },
-        });
-      } catch {
-        await this.prisma.order.update({
-          where: { id: intent.id },
-          data: { exchangeOrderId } as any,
-        });
-      }
-    }
-
-    this.logger.log(`Ack processed intent ${intent.id} clientOrderId ${clientOrderId} type ${ackType} venue ${venue}`);
+    this.logger.log(`Acknowledgement recorded for intent ${intent.id} tenant ${tenantId} type ${ackType}`);
     return ackRecord;
   }
 
   async processAckFromOrderTable(tenantId: string, orderId: string) {
-    const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
-    if (!order) return null;
-    if (!order.exchangeOrderId) return null; // no real ack yet, remain pending
-
-    // Find latest order event for ack
-    const event = await this.prisma.orderEvent.findFirst({
-      where: { orderId },
-      orderBy: { occurredAtMicros: 'desc' },
+    const snapshot = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const order = await tx.order.findFirst({ where: { id: orderId, tenantId } });
+      if (!order || !order.exchangeOrderId) return null;
+      const event = await tx.orderEvent.findFirst({ where: { orderId }, orderBy: { occurredAtMicros: 'desc' } });
+      return { order, event };
     });
-
+    if (!snapshot) return null;
+    const { order, event } = snapshot;
+    const metadata = order.metadata && typeof order.metadata === 'object' && !Array.isArray(order.metadata)
+      ? order.metadata as Record<string, unknown> : {};
     return this.processAckFromExecutionEvent({
-      tenantId,
-      orderId: order.id,
-      clientOrderId: order.clientOrderId,
-      exchangeOrderId: order.exchangeOrderId,
-      venue: order.venue as any,
-      status: order.status,
+      tenantId, orderId: order.id, clientOrderId: order.clientOrderId, exchangeOrderId: order.exchangeOrderId,
+      venue: order.venue, status: order.status,
       occurredAtMicros: event?.occurredAtMicros?.toString() ?? (BigInt(Date.now()) * 1000n).toString(),
-      reason: event?.reason ?? null,
-      source: 'ORDER_TABLE_SYNC',
-      correlationId: (order.metadata as any)?.correlationId ?? null,
+      reason: event?.reason ?? null, source: 'ORDER_TABLE_SYNC',
+      correlationId: typeof metadata.correlationId === 'string' ? metadata.correlationId : null,
     });
   }
 }

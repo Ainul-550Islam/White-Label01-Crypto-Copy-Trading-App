@@ -3,6 +3,7 @@ import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavai
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { Decimal, DecimalError, maxDecimal } from '../../common/decimal-string';
+import { assertNoActiveCopyIntents } from './copy-budget-admission';
 
 /**
  * Subscription allocation values are not verified live exposure: they can use
@@ -492,7 +493,9 @@ export class CopyBudgetService {
     currency: string;
   }): Promise<CopyBudgetView> {
     await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const ceilingLock = `copy-budget-ceiling:${input.tenantId}`;
       const lockName = `copy-budget:${input.tenantId}:${input.userId}`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${ceilingLock}, 0))::text`;
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockName}, 0))::text`;
       const user = await tx.user.findFirst({ where: { tenantId: input.tenantId, id: input.userId, deletedAt: null }, select: { id: true } });
       if (!user) throw new NotFoundException('Copy budget user not found.');
@@ -511,6 +514,7 @@ export class CopyBudgetService {
         // though the effective ceiling would remain the tighter limit.
         throw new UnprocessableEntityException(`maxActiveExposure exceeds the tenant ceiling of ${ceiling.amount} ${ceiling.currency}`);
       }
+      await assertNoActiveCopyIntents(tx, input.tenantId, input.userId);
       const data = {
         maxActiveExposure: input.maxActiveExposure,
         perTraderCap: input.perTraderCap ?? null,
@@ -539,7 +543,9 @@ export class CopyBudgetService {
     const requested = Decimal.parse(input.maxActiveExposure).toString();
     const keyHash = createHash('sha256').update(input.idempotencyKey).digest('hex');
     await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const ceilingLock = `copy-budget-ceiling:${input.tenantId}`;
       const lockName = `copy-budget:${input.tenantId}:${input.userId}`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${ceilingLock}, 0))::text`;
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockName}, 0))::text`;
       const user = await tx.user.findFirst({ where: { tenantId: input.tenantId, id: input.userId, deletedAt: null }, select: { id: true } });
       if (!user) throw new NotFoundException('Copy budget user not found.');
@@ -564,6 +570,7 @@ export class CopyBudgetService {
           (ceiling && next.gt(Decimal.parse(ceiling.amount)))) {
         throw new ConflictException('A reduction cannot raise the current budget or tenant ceiling.');
       }
+      await assertNoActiveCopyIntents(tx, input.tenantId, input.userId);
       await tx.copyBudget.upsert({
         where: { tenantId_userId: { tenantId: input.tenantId, userId: input.userId } },
         create: { tenantId: input.tenantId, userId: input.userId, maxActiveExposure: requested, currency },

@@ -26,11 +26,9 @@ because a mocked gate proves the mock.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
-import httpx2
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -67,6 +65,7 @@ SUBMIT_BODY: dict[str, Any] = {
         "positionQuantity": "0",
         "symbolExposureNotional": "0",
         "accountExposureNotional": "0",
+        "realisedPnlToday": "0",
         "complete": True,
     },
     "metadata": {"copyExecutionId": "copy-exec-gate-1"},
@@ -79,9 +78,7 @@ def submit_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
-def post(
-    client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"
-) -> httpx2.Response:
+def post(client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"):
     return client.post("/internal/v1/orders/submit", headers=auth_headers(tenant), json=body)
 
 
@@ -162,7 +159,7 @@ class TestTheNonSimulatedAdapterRefusal:
 
     @staticmethod
     def _runtime(client: TestClient) -> Any:
-        return cast(FastAPI, client.app).state.runtime
+        return client.app.state.runtime
 
     def test_the_route_refuses_a_non_simulated_adapter(self, client: TestClient) -> None:
         runtime = self._runtime(client)
@@ -217,8 +214,9 @@ class TestTheNonSimulatedAdapterRefusal:
         response = post(client, submit_body(clientOrderId="oms-gate-paper-0001"))
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["isSimulated"] is True
+        assert body["outcome"] == "REJECTED_LOCALLY"
         assert body["transmitted"] is False
+        assert body["fillCount"] == 0
 
 
 # ======================================================================
@@ -316,4 +314,5 @@ def test_dry_run_default_means_nothing_is_transmitted(client: TestClient) -> Non
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["transmitted"] is False
-    assert body["outcome"] in {"ACCEPTED", "DRY_RUN"}
+    assert body["outcome"] == "REJECTED_LOCALLY"
+    assert body["fillCount"] == 0

@@ -15,6 +15,7 @@ import { ErrorState, InlineError } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FundingStatusBadge } from "@/components/status-badge";
 import { Money } from "@/components/money";
+import { DepositAddressPanel } from './deposit-address-panel';
 import {
   AccountSelect,
   accountAllows,
@@ -160,18 +161,21 @@ export function DepositPage(): JSX.Element {
             received. Pending does not mean completed.
           </p>
           {created && (
-            <div className="rounded border p-3 text-sm" role="status">
-              <div className="flex items-center justify-between">
-                <span>
-                  Deposit of{" "}
-                  <Money value={created.amount} currency={created.currency} />
-                </span>
-                <FundingStatusBadge state={created.state} />
+            <div className="rounded border p-3 text-sm">
+              <div role="status">
+                <div className="flex items-center justify-between">
+                  <span>
+                    Deposit of{" "}
+                    <Money value={created.amount} currency={created.currency} />
+                  </span>
+                  <FundingStatusBadge state={created.state} />
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  Reference {created.id.slice(0, 8)} — track it in the funding
+                  history.
+                </p>
               </div>
-              <p className="mt-1 text-xs text-muted">
-                Reference {created.id.slice(0, 8)} — track it in the funding
-                history.
-              </p>
+              <DepositAddressPanel request={{ id: created.id, accountId: created.accountId, currency: created.currency }} />
             </div>
           )}
         </div>

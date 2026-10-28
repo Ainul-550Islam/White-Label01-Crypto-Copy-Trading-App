@@ -28,6 +28,8 @@ import { LifecycleReconciliationService } from './lifecycle-reconciliation.servi
 import { ClientVisibilityService } from './client-visibility.service';
 import { ClientLifecycleController } from './client-lifecycle.controller';
 import { WithdrawalDestinationCheckController } from './withdrawal-destination-check.controller';
+import { CustomerDepositAddressController } from './customer-deposit-address.controller';
+import { CustomerDepositAddressService, CustomerDepositProviderFactory } from './customer-deposit-address.service';
 import { CustodyModule } from '../custody/custody.module';
 
 /**
@@ -54,8 +56,10 @@ import { CustodyModule } from '../custody/custody.module';
 
 @Module({
   imports: [CustodyModule],
-  controllers: [ClientLifecycleController, WithdrawalDestinationCheckController],
+  controllers: [ClientLifecycleController, WithdrawalDestinationCheckController, CustomerDepositAddressController],
   providers: [
+    CustomerDepositAddressService,
+    CustomerDepositProviderFactory,
     PrismaService,
     AppConfigService,
     ClientPolicyService,

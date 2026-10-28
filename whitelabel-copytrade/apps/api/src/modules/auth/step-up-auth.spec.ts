@@ -51,9 +51,13 @@ function harness(overrides: { user?: unknown; session?: unknown } = {}): Harness
         ),
     },
   };
+  const scopedPrisma = {
+    ...prisma,
+    withTenantRls: jest.fn((_tenantId: string, callback: (tx: typeof prisma) => unknown) => callback(prisma)),
+  };
 
   const service = new StepUpAuthService(
-    prisma as never,
+    scopedPrisma as never,
     redis as never,
     passwords as never,
     twoFactor as never,

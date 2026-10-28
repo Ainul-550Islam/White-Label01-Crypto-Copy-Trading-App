@@ -1,5 +1,5 @@
 import { failClosedMoneyOperation } from '../../common/money-path-failure';
-import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
 import { OrderIntentService } from './order-intent.service';
@@ -75,27 +75,34 @@ export class OrderReplaceService {
     if (newPrice && !isValidDecimal(newPrice)) throw new BadRequestException(`Invalid newPrice ${newPrice}`);
     if (newStopPrice && !isValidDecimal(newStopPrice)) throw new BadRequestException(`Invalid newStopPrice ${newStopPrice}`);
 
-    // Re-run risk validation with new qty/price
-    const riskResult = await this.riskDecisionService.evaluateUnifiedRisk({
-      tenantId,
-      userId: userId ?? null,
-      accountId: intent.accountId,
-      symbol: intent.symbol,
-      traderId: intent.traderId as any,
-      followerId: intent.followerId as any,
-      strategyId: intent.strategyId as any,
-      orderIntent: {
-        side: intent.side,
-        quantity: newQuantity ?? intent.quantity?.toString() ?? intent.quantity,
-        price: newPrice ?? intent.price?.toString() ?? intent.price ?? null,
-        orderType: intent.orderType,
-      } as any,
-      environment: intent.environment ?? 'PAPER',
-      requestId: requestId as any,
-    } as any);
+    // Re-run risk validation with new qty/price. No other outcome authorizes
+    // the unchanged replacement; REDUCE has no executable sizing instruction.
+    let riskResult: Awaited<ReturnType<RiskDecisionService['evaluateUnifiedRisk']>>;
+    try {
+      riskResult = await this.riskDecisionService.evaluateUnifiedRisk({
+        tenantId,
+        userId: userId ?? null,
+        accountId: intent.accountId,
+        symbol: intent.symbol,
+        traderId: intent.traderId as any,
+        followerId: intent.followerId as any,
+        strategyId: intent.strategyId as any,
+        orderIntent: {
+          side: intent.side,
+          quantity: newQuantity ?? intent.quantity?.toString() ?? intent.quantity,
+          price: newPrice ?? intent.price?.toString() ?? intent.price ?? null,
+          orderType: intent.orderType,
+        } as any,
+        environment: intent.environment ?? 'PAPER',
+        requestId: requestId as any,
+      } as any);
+    } catch {
+      this.logger.warn(`Risk evaluation unavailable for replacement tenant ${tenantId}`);
+      throw new ServiceUnavailableException('Risk evaluation is unavailable; the order was not replaced.');
+    }
 
-    if (riskResult.decision === 'BLOCK' || riskResult.decision === 'KILL_SWITCH_REQUIRED') {
-      throw new ForbiddenException(`Risk BLOCK prevents replace for intent ${intentId}: ${riskResult.blockingReasons.join(', ')}`);
+    if (riskResult?.decision !== 'ALLOW') {
+      throw new ForbiddenException('Risk evaluation did not authorize this replacement.');
     }
 
     // Preserve original identity/reference — create new intent that references original

@@ -1,11 +1,12 @@
 import { failClosedMoneyOperation } from '../../common/money-path-failure';
 // # Validates order intent against symbol trading rules and account balance
-import { Injectable, Logger, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { RiskDecisionService } from '../risk-management/risk-decision.service';
 import { OrderIntentState, isValidDecimal, parseScaled } from './oms.types';
 import { PositionLimitService } from '../risk/position-limit.service';
+import { accountOrderSizeLimitCode } from '../risk-management/account-order-size-limit-errors';
 import { randomUUID } from 'crypto';
 
 /**
@@ -62,26 +63,29 @@ export class OrderIntentService {
   }
 
   private async validateAccountOwnership(params: { tenantId: string; accountId: string; userId?: string | null }) {
-    const account = await this.prisma.tradingAccount.findFirst({
-      where: { id: params.accountId, tenantId: params.tenantId },
-    });
+    const account = await this.prisma.withTenantRls(params.tenantId, (tx) => tx.tradingAccount.findFirst({
+      where: { id: params.accountId, tenantId: params.tenantId, deletedAt: null },
+    }));
     if (!account) throw new ForbiddenException(`Account ${params.accountId} not found for tenant ${params.tenantId}`);
     if (account.status === 'DISABLED') throw new BadRequestException(`Account ${params.accountId} is DISABLED`);
     if (account.status === 'CREDENTIALS_INVALID') throw new BadRequestException(`Account credentials invalid`);
     return account;
   }
 
-  private async validateSymbol(params: { tenantId: string; symbol: string; venue?: string | null }) {
-    // Check trading symbol exists and is tradeable
-    const symbolRecord = await this.prisma.tradingSymbol.findFirst({
+  private async validateSymbol(params: { tenantId: string; symbol: string; exchangeId: string; marketType: string; venue?: string | null }) {
+    // The same symbol can exist on several exchanges and markets with different
+    // increments and quote assets. Validate the one belonging to this account.
+    const symbolRecord = await this.prisma.withTenantRls(params.tenantId, (tx) => tx.tradingSymbol.findFirst({
       where: {
         tenantId: params.tenantId,
+        exchangeId: params.exchangeId,
+        marketType: params.marketType as any,
         symbol: params.symbol,
         isTradeable: true,
         ...(params.venue ? { exchange: { venue: params.venue as any } } : {}),
       },
       include: { exchange: true },
-    });
+    }));
     if (!symbolRecord) throw new BadRequestException(`Symbol ${params.symbol} not tradeable for tenant ${params.tenantId}`);
     return symbolRecord;
   }
@@ -130,9 +134,9 @@ export class OrderIntentService {
 
   private async checkStrategyState(params: { tenantId: string; strategyId?: string | null }) {
     if (!params.strategyId) return null;
-    const strategy = await this.prisma.strategy.findFirst({
-      where: { id: params.strategyId, tenantId: params.tenantId },
-    });
+    const strategy = await this.prisma.withTenantRls(params.tenantId, (tx) => tx.strategy.findFirst({
+      where: { id: params.strategyId!, tenantId: params.tenantId },
+    }));
     if (!strategy) throw new BadRequestException(`Strategy ${params.strategyId} not found`);
     if (strategy.status === 'DISABLED') throw new BadRequestException(`Strategy ${params.strategyId} DISABLED`);
     if (strategy.status === 'ERROR') throw new BadRequestException(`Strategy ${params.strategyId} in ERROR state`);
@@ -191,9 +195,10 @@ export class OrderIntentService {
       metadata: producerMetadata,
     } = params;
 
-    // Tenant ownership validation
-    await this.validateAccountOwnership({ tenantId, accountId, userId });
-    const symbolRecord = await this.validateSymbol({ tenantId, symbol, venue });
+    // Capture the actual account owner for both risk evaluation and the later
+    // locked reservation; the acting operator may be a different user.
+    const account = await this.validateAccountOwnership({ tenantId, accountId, userId });
+    const symbolRecord = await this.validateSymbol({ tenantId, symbol, exchangeId: account.exchangeId, marketType: account.marketType, venue });
     this.validatePrecision({ quantity, price, symbol: symbolRecord });
     await this.checkStrategyState({ tenantId, strategyId });
 
@@ -204,15 +209,16 @@ export class OrderIntentService {
     if (!['PAPER', 'LIVE'].includes(environment)) throw new BadRequestException(`Invalid environment ${environment}`);
     if (!['STRATEGY', 'COPY_TRADING', 'MANUAL', 'RESEARCH_PROMOTION'].includes(source)) throw new BadRequestException(`Invalid source ${source}`);
 
-    // Risk decision — must be APPROVED before intent creation if policy requires
-    // We do a pre-check via RiskDecisionService but do not trust client-supplied risk approval
-    let riskDecisionId: string | null = null;
-    let riskPolicyVersion: string | null = null;
+    // Only an affirmative risk decision authorizes an unchanged order. REVIEW,
+    // PAUSE, STOP_COPY and unknown outcomes are not approval. REDUCE is also
+    // not approval here: this path has no authoritative reduced quantity.
+    let riskResult: Awaited<ReturnType<RiskDecisionService['evaluateUnifiedRisk']>>;
     try {
-      const riskResult = await this.riskDecisionService.evaluateUnifiedRisk({
+      riskResult = await this.riskDecisionService.evaluateUnifiedRisk({
         tenantId,
         userId: (userId ?? undefined) as any,
         accountId,
+        expectedAccountOwnerId: account.userId ?? null,
         symbol,
         traderId: traderId as any,
         followerId: followerId as any,
@@ -221,46 +227,25 @@ export class OrderIntentService {
         environment: environment as any,
         requestId: requestId as any,
       } as any);
-      riskDecisionId = riskResult.id;
-      riskPolicyVersion = riskResult.policyVersion;
-      if (riskResult.decision === 'BLOCK' || riskResult.decision === 'KILL_SWITCH_REQUIRED') {
-        throw new BadRequestException(`Risk blocked: ${riskResult.blockingReasons.join(', ')}`);
-      }
-    } catch (e) {
-      if (e instanceof BadRequestException) throw e;
-      this.logger.warn(`Risk check failed for intent creation tenant ${tenantId} symbol ${symbol}: ${(e as Error).message}`);
-      // Fail closed if risk unavailable for LIVE
-      if (environment === 'LIVE') throw new BadRequestException(`Risk check unavailable for LIVE order: ${(e as Error).message}`);
+    } catch {
+      this.logger.warn(`Risk evaluation unavailable for intent creation tenant ${tenantId}`);
+      // A simulated order is still recorded and may affect later activity;
+      // missing evidence must not silently become permission in either mode.
+      throw new ServiceUnavailableException('Risk evaluation is unavailable; the order was not admitted.');
     }
-
-    // Compliance check — reuse compliance screening
-    const complianceScreen = await this.prisma.complianceScreeningRequest.findFirst({
-      where: { tenantId, status: 'BLOCKED' as any },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (complianceScreen) {
-      // If tenant has active compliance block, prevent
-      const isBlocked = complianceScreen.decision === 'BLOCK';
-      if (isBlocked) throw new ForbiddenException(`Compliance BLOCK prevents order intent`);
+    if (riskResult?.decision !== 'ALLOW') {
+      throw new BadRequestException('Risk evaluation did not authorize this order.');
     }
-
-    // Security state — check threat signals
-    const threat = await this.prisma.securityThreatSignal.findFirst({
-      where: { tenantId, resolved: false, riskLevel: { in: ['HIGH', 'CRITICAL'] as any } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (threat && threat.decision === 'DENY') {
-      throw new ForbiddenException(`Security BLOCK prevents order intent: ${threat.safeSummary}`);
-    }
+    const riskDecisionId: string | null = riskResult.id;
+    const riskPolicyVersion: string | null = riskResult.policyVersion;
 
     // Exchange capability check
     const exchange = symbolRecord.exchange;
     if (!exchange.isEnabled) throw new BadRequestException(`Exchange ${exchange.venue} not enabled`);
     if (environment === 'LIVE' && !exchange.tradingEnabled) throw new BadRequestException(`Exchange ${exchange.venue} trading not enabled for LIVE`);
 
-    // Live gate requirements — check account liveTradingEnabled for LIVE
-    const account = await this.prisma.tradingAccount.findUnique({ where: { id: accountId } });
-    if (environment === 'LIVE' && !account?.liveTradingEnabled) {
+    // The tenant-scoped account read above is also the source of the live gate.
+    if (environment === 'LIVE' && !account.liveTradingEnabled) {
       throw new ForbiddenException(`Live trading not enabled for account ${accountId}`);
     }
 
@@ -304,7 +289,29 @@ export class OrderIntentService {
       tenantId,
       accountId,
       symbol,
+      expectedOwnerUserId: account.userId ?? null,
+      ...(source === 'COPY_TRADING' ? { copyFollowerId: followerId ?? null } : {}),
       persist: async (tx) => {
+        // Repeat the critical identity gates inside the owner-locked, tenant-RLS
+        // reservation transaction. An operator's clear state does not override
+        // a blocked account owner (or vice versa). Do not use a tenant-wide
+        // arbitrary first row, which can belong to an unrelated customer.
+        const subjects = Array.from(new Set([userId, account.userId].filter((id): id is string => !!id)));
+        if (subjects.length) {
+          const screening = await tx.complianceScreeningRequest.findFirst({
+            where: { tenantId, userId: { in: subjects }, OR: [
+              { status: { in: ['BLOCKED', 'REVIEW_REQUIRED'] } },
+              { decision: { in: ['BLOCK', 'RESTRICT', 'REVIEW_REQUIRED'] } },
+            ] },
+            select: { id: true },
+          });
+          if (screening) throw new ForbiddenException('Compliance screening does not authorize this order.');
+          const threat = await tx.securityThreatSignal.findFirst({
+            where: { tenantId, userId: { in: subjects }, resolved: false, riskLevel: { in: ['HIGH', 'CRITICAL'] } },
+            select: { id: true },
+          });
+          if (threat) throw new ForbiddenException('Security state does not authorize this order.');
+        }
         // The write is wrapped in a savepoint because it has a fallback. A failed statement aborts
         // the surrounding transaction in PostgreSQL, so without the savepoint the fallback insert
         // would run inside an aborted transaction and fail too - the fallback would look defensive
@@ -352,6 +359,8 @@ export class OrderIntentService {
           return created;
         } catch (e) {
           await (tx as any).$executeRaw`ROLLBACK TO SAVEPOINT oms_order_intent_persist`;
+          const limitCode = accountOrderSizeLimitCode(e);
+          if (limitCode) throw new ForbiddenException({ code: limitCode, message: 'The account order-size limit does not authorize this order.' });
           const error = e as { code?: string; meta?: { modelName?: string }; message?: string };
           const missingIntentModel = !(tx as any).omsOrderIntent?.create ||
             ((error.code === 'P2021' || error.code === 'P2022') && error.meta?.modelName === 'OmsOrderIntent');
@@ -359,7 +368,9 @@ export class OrderIntentService {
           // Fallback only when the OmsOrderIntent model/table is unavailable; event validation and
           // outbox failures must never be mistaken for a persistence-model migration gap.
           this.logger.warn(`OmsOrderIntent model missing, falling back to Order table: ${error.message ?? 'model unavailable'}`);
-          const created = await (tx as any).order.create({
+          let created: any;
+          try {
+            created = await (tx as any).order.create({
             data: {
               tenantId,
               accountId,
@@ -380,7 +391,12 @@ export class OrderIntentService {
               wasDryRun: false,
               metadata: { ...safeProducerMetadata, omsIntent: true, transitions: [transition], source, correlationId, riskDecisionId, environment, signalId } as any,
             },
-          });
+            });
+          } catch (fallbackError) {
+            const fallbackLimit = accountOrderSizeLimitCode(fallbackError);
+            if (fallbackLimit) throw new ForbiddenException({ code: fallbackLimit, message: 'The account order-size limit does not authorize this order.' });
+            throw fallbackError;
+          }
           await this.appendOrderCreated(tx, created, { tenantId, symbol, side, quantity, price, correlationId });
           return created;
         }

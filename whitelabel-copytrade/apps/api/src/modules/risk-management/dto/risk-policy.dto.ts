@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsNumber, IsBoolean, IsObject, MaxLength, MinLength, Matches, IsNumberString } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNumber, IsBoolean, IsObject, IsInt, Min, MaxLength, MinLength, Matches, IsNumberString } from 'class-validator';
 
 /**
  * Risk policy DTO — validated thresholds exposure/margin/leverage/drawdown/daily loss/concentration/correlation/VaR/stress/breaker/stale-data.
@@ -14,6 +14,11 @@ export enum RiskPolicyScopeDto {
 }
 
 export class RiskPolicyThresholdsDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Z0-9]{2,16}$/)
+  notionalCurrency?: string;
+
   @IsOptional()
   @IsNumberString()
   maxGrossExposure?: string;
@@ -208,6 +213,12 @@ export class RiskPolicyThresholdsDto {
 }
 
 export class UpsertRiskPolicyDto {
+  /** Null when no revision existed; otherwise the version the editor read. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number | null;
+
   @IsEnum(RiskPolicyScopeDto)
   scope!: RiskPolicyScopeDto;
 

@@ -166,7 +166,7 @@ describe('submission result interpretation', () => {
     expect(parseSubmissionResult(JSON.stringify(raw))?.outcome).toBe('ACCEPTED');
     expect(parseSubmissionResult({ verified: true })).toBeNull();
     expect(parseSubmissionResult('not json')).toBeNull();
-    expect(parseSubmissionResult({ ...raw, filledQuantity: '1e3' })?.filledQuantity).toBe('0');
+    expect(parseSubmissionResult({ ...raw, filledQuantity: '1e3' })).toBeNull();
   });
 
   it.each([
@@ -175,9 +175,9 @@ describe('submission result interpretation', () => {
     [{ outcome: 'ACCEPTED', orderStatus: 'ACKNOWLEDGED' }, { kind: 'accepted', orderStatus: 'ACKNOWLEDGED' }],
     [{ outcome: 'DUPLICATE', orderStatus: 'FILLED' }, { kind: 'accepted', orderStatus: 'FILLED' }],
     [{ outcome: 'DUPLICATE', orderStatus: 'UNKNOWN' }, { kind: 'unknown' }],
-    [{ outcome: 'REJECTED_LOCALLY', errorCode: 'VALIDATION_FAILED', message: 'bad tick' }, { kind: 'rejected', code: 'VALIDATION_FAILED', reason: 'bad tick' }],
-    [{ outcome: 'REJECTED_BY_EXCHANGE' }, { kind: 'rejected', code: 'REJECTED_BY_EXCHANGE' }],
-    [{ outcome: 'DRY_RUN' }, { kind: 'rejected', code: 'DRY_RUN' }],
+    [{ outcome: 'REJECTED_LOCALLY', errorCode: 'VALIDATION_FAILED', message: 'bad tick' }, { kind: 'unknown' }],
+    [{ outcome: 'REJECTED_BY_EXCHANGE' }, { kind: 'unknown' }],
+    [{ outcome: 'DRY_RUN' }, { kind: 'unknown' }],
     [{ outcome: 'UNKNOWN' }, { kind: 'unknown' }],
   ] as Array<[Partial<SubmissionResultView>, Record<string, unknown>]>)('%j -> %j', (patch, expected) => {
     expect(interpretSubmission(result(patch))).toMatchObject(expected);
@@ -189,26 +189,32 @@ function fakeRecorder(order: Record<string, unknown> | null) {
   const copyUpdates: any[] = [];
   const transitions: any[] = [];
   const acks: any[] = [];
-  const prisma = {
+  const prisma: any = {
+    $queryRaw: jest.fn(async () => order ? [{ id: 'locked' }] : []),
     order: {
       findFirst: jest.fn(async () => order),
-      update: jest.fn(async (args: any) => {
-        orderUpdates.push(args);
-        return { ...order, ...args.data };
-      }),
+      update: jest.fn(async (args: any) => { orderUpdates.push(args); return { ...order, ...args.data }; }),
       findMany: jest.fn(async () => []),
-    },
-    copyExecution: {
       updateMany: jest.fn(async (args: any) => {
-        copyUpdates.push(args);
-        return { count: 1 };
+        orderUpdates.push(args);
+        return { count: order && ['SUBMITTED', 'PENDING'].includes(String(order.status)) ? 1 : 0 };
       }),
+    },
+    omsOrderIntent: {
+      findFirst: jest.fn(async () => ({ id: 'i-1', accountId: 'a-1', symbol: 'BTC-USDT', side: 'BUY',
+        filledQuantity: '0', cumulativeFee: '0' })),
+      update: jest.fn(async () => ({})),
+    },
+    withTenantRls: jest.fn(async (_tenantId: string, work: (tx: unknown) => Promise<unknown>) => work(prisma)),
+    copyExecution: {
+      findFirst: jest.fn(async () => ({ id: 'c-1', followerAccountId: 'a-1', followerOrderId: null, status: 'ROUTED' })),
+      update: jest.fn(async (args: any) => { copyUpdates.push(args); return {}; }),
     },
   };
-  const ackService = { processAckFromExecutionEvent: jest.fn(async (args: any) => acks.push(args)) };
-  const lifecycle = { transition: jest.fn(async (args: any) => transitions.push(args)) };
+  const ackService = { processAckInTransaction: jest.fn(async (_tx: any, args: any) => { acks.push(args); return { id: 'ack-1' }; }) };
+  const lifecycle = { transitionInTransaction: jest.fn(async (_tx: any, args: any) => transitions.push(args)) };
   const queue = { getQueue: jest.fn(() => ({ getJob: jest.fn(async () => null) })) };
-  const service = new OrderSubmissionResultService(prisma as any, ackService as any, lifecycle as any, queue as any);
+  const service = new OrderSubmissionResultService(prisma as any, ackService as any, queue as any);
   return { service, prisma, orderUpdates, copyUpdates, transitions, acks };
 }
 
@@ -217,30 +223,41 @@ const ORDER = {
   tenantId: 't-1',
   clientOrderId: 'oms0123456789abcdef0123456789abcdef',
   status: 'SUBMITTED',
-  venue: 'PAPER',
+  venue: 'PAPER', accountId: 'a-1', symbol: 'BTC-USDT', side: 'BUY', isSimulated: true,
+  quantity: '0.01', filledQuantity: '0', averageFillPrice: null, cumulativeFee: '0', exchangeOrderId: null,
   metadata: { omsIntentId: 'i-1', copyExecutionId: 'c-1' },
 };
 
 describe('OrderSubmissionResultService', () => {
-  it('a filled result updates the order, acks and fills the intent, and fills the copy execution', async () => {
+  it('atomically acknowledges a no-fill result and retains the copy order', async () => {
     const { service, orderUpdates, copyUpdates, transitions, acks } = fakeRecorder(ORDER);
-    const verdict = await service.recordResult(result());
-    expect(verdict).toEqual({ kind: 'accepted', orderStatus: 'FILLED' });
-    expect(orderUpdates[0].data).toMatchObject({ status: 'FILLED', exchangeOrderId: 'paper-1', filledQuantity: '0.01', averageFillPrice: '50000' });
-    expect(orderUpdates[0].data.metadata).toMatchObject({ omsIntentId: 'i-1', engineOutcome: 'ACCEPTED', engineOrderId: 'eng-1' });
+    const verdict = await service.recordResult(result({ orderStatus: 'ACKNOWLEDGED', filledQuantity: '0',
+      averageFillPrice: null, cumulativeFee: '0', feeCurrency: null }));
+    expect(verdict).toEqual({ kind: 'accepted', orderStatus: 'ACKNOWLEDGED' });
+    expect(orderUpdates[0].data).toMatchObject({ status: 'ACKNOWLEDGED', exchangeOrderId: 'paper-1' });
     expect(acks[0]).toMatchObject({ status: 'ACKNOWLEDGED', clientOrderId: ORDER.clientOrderId, source: 'EXECUTION_ENGINE_SIMULATED' });
-    expect(transitions[0]).toMatchObject({ intentId: 'i-1', toState: OrderIntentState.FILLED });
-    expect(copyUpdates[0]).toMatchObject({ where: { id: 'c-1', tenantId: 't-1' }, data: { status: 'FILLED', followerOrderId: 'o-1' } });
+    expect(transitions).toHaveLength(0);
+    expect(copyUpdates[0]).toMatchObject({ where: { id: 'c-1' }, data: { status: 'SUBMITTED', followerOrderId: 'o-1' } });
   });
 
-  it('a rejection marks the order REJECTED, rejects the intent via ack, and the copy execution never regresses from FILLED', async () => {
-    const { service, orderUpdates, copyUpdates, acks, transitions } = fakeRecorder(ORDER);
-    await service.recordResult(result({ outcome: 'REJECTED_LOCALLY', orderStatus: 'UNKNOWN', errorCode: 'VALIDATION_FAILED', message: 'tick' }));
-    expect(orderUpdates[0].data).toMatchObject({ status: 'REJECTED', rejectionCode: 'VALIDATION_FAILED', rejectionReason: 'tick' });
-    expect(acks[0]).toMatchObject({ status: 'REJECTED', providerErrorCode: 'VALIDATION_FAILED' });
+  it('does not treat an aggregate-only fill as a canonical position application', async () => {
+    const { service, orderUpdates, copyUpdates, transitions, acks } = fakeRecorder(ORDER);
+    expect(await service.recordResult(result())).toMatchObject({ kind: 'unknown' });
+    expect(orderUpdates[0].data).toMatchObject({ reconciliationState: 'UNKNOWN' });
+    expect(orderUpdates[0].data.status).toBeUndefined();
+    expect(acks).toHaveLength(0);
     expect(transitions).toHaveLength(0);
-    expect(copyUpdates[0].where).toMatchObject({ id: 'c-1', NOT: { status: 'FILLED' } });
-    expect(copyUpdates[0].data.status).toBe('REJECTED');
+    expect(copyUpdates).toHaveLength(0);
+  });
+
+  it('does not treat a retry refusal as proof of no earlier transmission', async () => {
+    const { service, orderUpdates, copyUpdates, acks } = fakeRecorder(ORDER);
+    expect(await service.recordResult(result({ outcome: 'REJECTED_LOCALLY', orderStatus: 'UNKNOWN', errorCode: 'VALIDATION_FAILED' })))
+      .toMatchObject({ kind: 'unknown' });
+    expect(orderUpdates[0].data).toMatchObject({ reconciliationState: 'UNKNOWN' });
+    expect(orderUpdates[0].data.status).toBeUndefined();
+    expect(acks).toHaveLength(0);
+    expect(copyUpdates).toHaveLength(0);
   });
 
   it('an UNKNOWN outcome leaves the order SUBMITTED and flags reconciliation - nothing is guessed', async () => {
@@ -252,23 +269,41 @@ describe('OrderSubmissionResultService', () => {
     expect(copyUpdates).toHaveLength(0);
   });
 
+  it.each([
+    { clientOrderId: 'different-client-order' },
+    { omsIntentId: 'different-intent' },
+    { omsIntentId: null },
+  ])('does not apply a receipt inconsistent with the canonical order: %j', async (patch) => {
+    const { service, orderUpdates, copyUpdates, acks, transitions } = fakeRecorder(ORDER);
+    expect(await service.recordResult(result(patch))).toMatchObject({ kind: 'unknown' });
+    expect(orderUpdates).toHaveLength(0);
+    expect(copyUpdates).toHaveLength(0);
+    expect(acks).toHaveLength(0);
+    expect(transitions).toHaveLength(0);
+  });
+
   it('a result for an order this tenant does not have is ignored', async () => {
     const { service, orderUpdates } = fakeRecorder(null);
     await service.recordResult(result());
     expect(orderUpdates).toHaveLength(0);
   });
 
-  it('a terminal job failure marks order FAILED, intent FAILED and copy execution FAILED', async () => {
-    const { service, orderUpdates, transitions, copyUpdates } = fakeRecorder(ORDER);
+  it('a failed job retains the unresolved order, intent and copy reservation for reconciliation', async () => {
+    const { service, prisma, orderUpdates, transitions, copyUpdates } = fakeRecorder(ORDER);
     await service.recordFailure({ tenantId: 't-1', clientOrderId: ORDER.clientOrderId, reason: 'ENGINE_UNREACHABLE' });
-    expect(orderUpdates[0].data).toMatchObject({ status: 'FAILED', rejectionCode: 'SUBMISSION_JOB_FAILED' });
-    expect(transitions[0]).toMatchObject({ intentId: 'i-1', toState: OrderIntentState.FAILED });
-    expect(copyUpdates[0].data).toMatchObject({ status: 'FAILED' });
+    expect(prisma.withTenantRls).toHaveBeenCalledWith('t-1', expect.any(Function));
+    expect(orderUpdates[0].where).toMatchObject({ tenantId: 't-1', clientOrderId: ORDER.clientOrderId,
+      status: { in: ['SUBMITTED', 'PENDING'] }, exchangeOrderId: null });
+    expect(orderUpdates[0].data).toEqual({ reconciliationState: 'UNKNOWN',
+      reconciliationDetail: 'Submission outcome is unconfirmed; reconcile the client order before retrying.' });
+    expect(transitions).toHaveLength(0);
+    expect(copyUpdates).toHaveLength(0);
   });
 
-  it('a failure for an already-resolved order changes nothing', async () => {
-    const { service, orderUpdates } = fakeRecorder({ ...ORDER, status: 'FILLED' });
-    await service.recordFailure({ tenantId: 't-1', clientOrderId: ORDER.clientOrderId, reason: 'late' });
+  it('does not attempt a cross-tenant lookup when the failed job has no tenant', async () => {
+    const { service, prisma, orderUpdates } = fakeRecorder(ORDER);
+    await service.recordFailure({ tenantId: null, clientOrderId: ORDER.clientOrderId, reason: 'unknown' });
+    expect(prisma.withTenantRls).not.toHaveBeenCalled();
     expect(orderUpdates).toHaveLength(0);
   });
 });
@@ -280,6 +315,7 @@ describe('Partial fill progression & remaining quantity (GAP-18)', () => {
     const transitions: any[] = [];
 
     const prisma: any = {
+      $queryRaw: jest.fn(async () => [{ id: 'locked' }]),
       withTenantRls: jest.fn(async (_tenantId: string, work: (tx: unknown) => Promise<unknown>) => work(prisma)),
       order: {
         findFirst: jest.fn(async () => ({ id: 'o-1', tenantId: 't-1', clientOrderId: 'oms-1', quantity: '1.0', venue: 'PAPER' })),

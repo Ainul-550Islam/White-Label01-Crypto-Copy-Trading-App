@@ -11,8 +11,9 @@ needs to judge it, from objects this process owns:
   raised to healthy only when this process has positively observed it;
 * the rate window is counted here, per tenant and account, not taken from the
   caller;
-* exposure comes from the API's canonical ledger and carries its own
-  ``complete`` flag, which maps straight onto ``RiskSnapshot.is_complete``.
+* the forwarded exposure and daily PnL are unverified claims. Without an
+  independently authenticated canonical evidence source this runtime refuses
+  admission, even if the caller marks those claims complete.
 
 Nothing here talks to a venue. The runtime's adapter is the paper simulator
 (build_runtime refuses EXECUTION_MODE=live), and this module never constructs
@@ -155,14 +156,18 @@ async def prepare_submission(
 
     # --- open orders from this runtime's store --------------------------------
     open_orders: tuple[Order, ...] = ()
-    store_ok = True
     try:
         open_orders = await runtime.store.list_open_orders(body.tenant_id, body.account_id)
     except Exception as error:  # an unreadable store is an unknown risk state
-        store_ok = False
         unknowns.append(f"order store unreadable: {type(error).__name__}")
 
     exposure = body.exposure
+    # The request is a job payload, not a source of independently verified
+    # account/strategy PnL or exposure. A supplied zero and complete=true can
+    # otherwise bypass daily-loss and exposure limits. This runtime has no
+    # authoritative evidence reader for either value; the numeric fields below
+    # are merely sentinels, and the snapshot MUST remain incomplete.
+    unknowns.append("independently verified exposure and daily PnL are unavailable")
     snapshot = RiskSnapshot(
         position_quantity=Decimal(exposure.position_quantity),
         symbol_exposure_notional=Decimal(exposure.symbol_exposure_notional),
@@ -171,19 +176,12 @@ async def prepare_submission(
         orders_in_last_minute=_orders_in_last_minute(
             runtime, (body.tenant_id, body.account_id), now
         ),
-        # The API's unified risk decision (named by riskDecisionId) owns the
-        # daily-loss limit; when it does not forward a figure the engine's own
-        # daily-loss rule sees zero and the API decision remains the gate.
-        realised_pnl_today=(
-            Decimal(exposure.realised_pnl_today)
-            if exposure.realised_pnl_today is not None
-            else Decimal(0)
-        ),
+        realised_pnl_today=Decimal(0),
         strategy_realised_pnl_today=Decimal(0),
         reference_price=reference_price,
         market_data_age_micros=0 if reference_price is not None else None,
         book_usable=reference_price is not None,
-        is_complete=bool(exposure.complete) and store_ok,
+        is_complete=False,
         known_client_order_ids=frozenset(order.client_order_id for order in open_orders),
     )
     if not exposure.complete:
@@ -206,9 +204,9 @@ async def prepare_submission(
 
     context = ExecutionContext(
         snapshot=snapshot,
-        # Kill switches are owned by the API's risk/kill-switch plane and are
-        # part of the decision named by riskDecisionId; this runtime holds no
-        # switch state of its own to add.
+        # No independently verified switch state is available here. The
+        # incomplete risk snapshot above prevents this sentinel from granting
+        # admission; a decision ID supplied by a caller is not proof.
         kill_switches=KillSwitchState(
             global_engaged=False,
             engaged_exchanges=frozenset(),

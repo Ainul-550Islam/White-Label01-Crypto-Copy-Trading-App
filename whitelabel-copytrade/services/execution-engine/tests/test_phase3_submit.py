@@ -6,16 +6,14 @@ What these tests pin:
 * the context is assembled server-side and fails closed - no reference price,
   an incomplete exposure ledger or a non-PAPER environment never produce an
   accepted order;
-* a redelivered job is idempotent (DUPLICATE, same order reported);
+* unsupported caller-supplied exposure/PnL claims cannot produce a fill;
 * the outcome rides in a 200 body, exactly as the cancel route's does.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import Any
 
-import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
@@ -53,6 +51,7 @@ def submit_body(**overrides: Any) -> dict[str, Any]:
             "positionQuantity": "0",
             "symbolExposureNotional": "0",
             "accountExposureNotional": "0",
+            "realisedPnlToday": "0",
             "complete": True,
         },
         "metadata": {"copyExecutionId": "copy-exec-1"},
@@ -61,14 +60,12 @@ def submit_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
-def post(
-    client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"
-) -> httpx2.Response:
+def post(client: TestClient, body: dict[str, Any], tenant: str = "tenant-a"):
     return client.post("/internal/v1/orders/submit", headers=auth_headers(tenant), json=body)
 
 
 @pytest.fixture
-def live_paper_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+def live_paper_client(monkeypatch: pytest.MonkeyPatch):
     """A runtime that actually fills against the paper book (dry run off)."""
     monkeypatch.setenv("EXECUTION_DRY_RUN", "false")
     get_settings.cache_clear()
@@ -86,35 +83,32 @@ class TestSubmitRoute:
     def test_default_runtime_simulates_and_transmits_nothing(
         self, client: TestClient
     ) -> None:
-        # EXECUTION_DRY_RUN guards TRANSMISSION; a paper order transmits nothing
-        # by construction, so the simulator still runs and the verdict is an
-        # honest simulated one - never a real order, never a fabricated fill.
         response = post(client, submit_body())
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["outcome"] in {"ACCEPTED", "DRY_RUN"}
+        assert body["outcome"] == "REJECTED_LOCALLY"
         assert body["transmitted"] is False
+        assert body["fillCount"] == 0
 
-    def test_paper_runtime_fills_a_market_order(self, live_paper_client: TestClient) -> None:
+    def test_forged_complete_exposure_and_zero_pnl_cannot_fill(
+        self, live_paper_client: TestClient
+    ) -> None:
         response = post(live_paper_client, submit_body())
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["outcome"] == "ACCEPTED"
-        assert body["isSimulated"] is True
+        assert body["outcome"] == "REJECTED_LOCALLY"
         assert body["transmitted"] is False
-        assert body["engineOrderId"]
-        assert body["orderStatus"] in {"FILLED", "PARTIALLY_FILLED", "ACKNOWLEDGED"}
-        assert body["fillCount"] >= 1
-        assert body["filledQuantity"] == "0.01"
-        assert body["averageFillPrice"] is not None
+        assert body["fillCount"] == 0
+        assert body["filledQuantity"] == "0"
 
-    def test_redelivery_is_duplicate_and_reports_the_same_order(
+    def test_redelivery_never_creates_a_fill_without_verified_evidence(
         self, live_paper_client: TestClient
     ) -> None:
         first = post(live_paper_client, submit_body()).json()
         second = post(live_paper_client, submit_body()).json()
-        assert second["outcome"] == "DUPLICATE"
-        assert second["engineOrderId"] == first["engineOrderId"]
+        assert first["outcome"] == "REJECTED_LOCALLY"
+        assert second["outcome"] == "REJECTED_LOCALLY"
+        assert first["fillCount"] == second["fillCount"] == 0
 
     def test_incomplete_exposure_is_refused_locally(self, live_paper_client: TestClient) -> None:
         body = submit_body(
@@ -129,6 +123,26 @@ class TestSubmitRoute:
         response = post(live_paper_client, body)
         assert response.status_code == 200
         assert response.json()["outcome"] == "REJECTED_LOCALLY"
+
+    def test_missing_daily_pnl_is_not_treated_as_zero(self, live_paper_client: TestClient) -> None:
+        body = submit_body(clientOrderId="oms-missing-pnl")
+        del body["exposure"]["realisedPnlToday"]
+        response = post(live_paper_client, body)
+        assert response.status_code == 200
+        result = response.json()
+        assert result["outcome"] == "REJECTED_LOCALLY"
+        assert result["transmitted"] is False
+        assert result["fillCount"] == 0
+
+    def test_known_daily_loss_at_limit_is_refused(self, live_paper_client: TestClient) -> None:
+        body = submit_body(clientOrderId="oms-loss-limit")
+        body["exposure"]["realisedPnlToday"] = "-1000000"
+        response = post(live_paper_client, body)
+        assert response.status_code == 200
+        result = response.json()
+        assert result["outcome"] == "REJECTED_LOCALLY"
+        assert result["transmitted"] is False
+        assert result["fillCount"] == 0
 
     def test_no_reference_price_is_refused_locally(
         self, monkeypatch: pytest.MonkeyPatch

@@ -1,0 +1,178 @@
+import 'package:flutter/widgets.dart';
+
+/// Feature copy follows the active app locale, including RTL through Flutter.
+class DepositAddressStrings {
+  const DepositAddressStrings._(this._values);
+  final Map<String, String> _values;
+  String operator [](String key) => _values[key] ?? _copy['en']![key]!;
+  static DepositAddressStrings of(BuildContext context) =>
+      DepositAddressStrings._(
+          _copy[Localizations.localeOf(context).languageCode] ?? _copy['en']!,);
+}
+
+const Map<String, Map<String, String>> _copy = <String, Map<String, String>>{
+  'en': <String, String>{
+    'open': 'Deposit address',
+    'title': 'Deposit address',
+    'loading': 'Checking available assets…',
+    'unavailable':
+        'The deposit address service is unavailable. Please try again.',
+    'retry': 'Try again',
+    'empty': 'No eligible asset is configured for this request.',
+    'asset': 'Asset and network',
+    'contract': 'Token contract',
+    'native': 'Native asset',
+    'noAddress': 'No verified address has been issued for this selection.',
+    'issue': 'Verify identity and issue address',
+    'verifyTitle': 'Confirm it is you',
+    'verifyHelp': 'This verification is used once, only to issue this address.',
+    'method': 'Verification method',
+    'password': 'Account password',
+    'totp': 'Authenticator code',
+    'recovery': 'Recovery code',
+    'submit': 'Verify and continue',
+    'working': 'Checking…',
+    'failed':
+        'Verification or issuance could not be confirmed. Check your details and try again.',
+    'verified': 'Provider-verified address',
+    'copy': 'Copy address',
+    'copied': 'Address copied.',
+    'copyFailed': 'Could not copy. Select the address to copy it.',
+    'cancel': 'Cancel',
+    'warning':
+        'Automatic deposit monitoring and credit are not connected to this address. Do not transfer funds until your institution confirms how your deposit will be recognized and credited.',
+    'pending':
+        'The address does not confirm a transfer, settlement, balance, or credit.',
+  },
+  'bn': <String, String>{
+    'open': 'জমার ঠিকানা',
+    'title': 'জমার ঠিকানা',
+    'loading': 'উপলব্ধ সম্পদ যাচাই করা হচ্ছে…',
+    'unavailable': 'জমার ঠিকানার সেবা পাওয়া যাচ্ছে না। আবার চেষ্টা করুন।',
+    'retry': 'আবার চেষ্টা করুন',
+    'empty': 'এই অনুরোধের জন্য উপযুক্ত কোনো সম্পদ কনফিগার করা নেই।',
+    'asset': 'সম্পদ ও নেটওয়ার্ক',
+    'contract': 'টোকেন চুক্তির ঠিকানা',
+    'native': 'নেটিভ সম্পদ',
+    'noAddress': 'এই নির্বাচনের জন্য যাচাইকৃত ঠিকানা এখনও তৈরি হয়নি।',
+    'issue': 'পরিচয় যাচাই করে ঠিকানা তৈরি করুন',
+    'verifyTitle': 'আপনার পরিচয় নিশ্চিত করুন',
+    'verifyHelp': 'এই যাচাই একবার এবং শুধু এই ঠিকানা তৈরির জন্য ব্যবহৃত হবে।',
+    'method': 'যাচাইয়ের পদ্ধতি',
+    'password': 'অ্যাকাউন্টের পাসওয়ার্ড',
+    'totp': 'অথেনটিকেটর কোড',
+    'recovery': 'রিকভারি কোড',
+    'submit': 'যাচাই করে এগিয়ে যান',
+    'working': 'যাচাই করা হচ্ছে…',
+    'failed':
+        'যাচাই বা ঠিকানা তৈরি নিশ্চিত করা যায়নি। তথ্য পরীক্ষা করে আবার চেষ্টা করুন।',
+    'verified': 'প্রদানকারী কর্তৃক যাচাইকৃত ঠিকানা',
+    'copy': 'ঠিকানা কপি করুন',
+    'copied': 'ঠিকানা কপি হয়েছে।',
+    'copyFailed': 'কপি করা যায়নি। ঠিকানা নির্বাচন করে কপি করুন।',
+    'cancel': 'বাতিল',
+    'warning':
+        'এই ঠিকানার সঙ্গে স্বয়ংক্রিয় জমা পর্যবেক্ষণ ও ক্রেডিট সংযুক্ত নেই। আপনার প্রতিষ্ঠান জমা কীভাবে শনাক্ত ও ক্রেডিট হবে তা নিশ্চিত না করা পর্যন্ত অর্থ পাঠাবেন না।',
+    'pending':
+        'এই ঠিকানা কোনো স্থানান্তর, নিষ্পত্তি, ব্যালেন্স বা ক্রেডিট নিশ্চিত করে না।',
+  },
+  'ar': <String, String>{
+    'open': 'عنوان الإيداع',
+    'title': 'عنوان الإيداع',
+    'loading': 'جارٍ التحقق من الأصول المتاحة…',
+    'unavailable': 'خدمة عنوان الإيداع غير متاحة. حاول مجددًا.',
+    'retry': 'إعادة المحاولة',
+    'empty': 'لم يُهيأ أصل مؤهل لهذا الطلب.',
+    'asset': 'الأصل والشبكة',
+    'contract': 'عقد الرمز',
+    'native': 'الأصل الأصلي',
+    'noAddress': 'لم يُصدر عنوان مُتحقق منه لهذا الاختيار بعد.',
+    'issue': 'تحقق من الهوية وأصدر العنوان',
+    'verifyTitle': 'أكد هويتك',
+    'verifyHelp': 'يُستخدم هذا التحقق مرة واحدة لإصدار هذا العنوان فقط.',
+    'method': 'طريقة التحقق',
+    'password': 'كلمة مرور الحساب',
+    'totp': 'رمز تطبيق المصادقة',
+    'recovery': 'رمز الاسترداد',
+    'submit': 'تحقق وتابع',
+    'working': 'جارٍ التحقق…',
+    'failed':
+        'تعذر تأكيد التحقق أو إصدار العنوان. تحقق من بياناتك وحاول مجددًا.',
+    'verified': 'عنوان تحقق منه المزود',
+    'copy': 'نسخ العنوان',
+    'copied': 'تم نسخ العنوان.',
+    'copyFailed': 'تعذر النسخ. حدد العنوان لنسخه.',
+    'cancel': 'إلغاء',
+    'warning':
+        'المراقبة التلقائية للإيداع والقيد غير متصلة بهذا العنوان. لا تحول الأموال حتى تؤكد مؤسستك كيفية التعرف على الإيداع وقيده.',
+    'pending': 'لا يثبت العنوان حدوث تحويل أو تسوية أو رصيد أو قيد.',
+  },
+  'es': <String, String>{
+    'open': 'Dirección de depósito',
+    'title': 'Dirección de depósito',
+    'loading': 'Comprobando activos disponibles…',
+    'unavailable':
+        'El servicio de direcciones de depósito no está disponible. Inténtalo de nuevo.',
+    'retry': 'Reintentar',
+    'empty': 'No hay activos aptos configurados para esta solicitud.',
+    'asset': 'Activo y red',
+    'contract': 'Contrato del token',
+    'native': 'Activo nativo',
+    'noAddress':
+        'Aún no se ha emitido una dirección verificada para esta selección.',
+    'issue': 'Verificar identidad y emitir dirección',
+    'verifyTitle': 'Confirma tu identidad',
+    'verifyHelp':
+        'Esta verificación se usa una sola vez y solo para emitir esta dirección.',
+    'method': 'Forma de verificación',
+    'password': 'Contraseña de la cuenta',
+    'totp': 'Código del autenticador',
+    'recovery': 'Código de recuperación',
+    'submit': 'Verificar y continuar',
+    'working': 'Comprobando…',
+    'failed':
+        'No se pudo confirmar la verificación o la emisión. Comprueba tus datos e inténtalo de nuevo.',
+    'verified': 'Dirección verificada por el proveedor',
+    'copy': 'Copiar dirección',
+    'copied': 'Dirección copiada.',
+    'copyFailed': 'No se pudo copiar. Selecciona la dirección para copiarla.',
+    'cancel': 'Cancelar',
+    'warning':
+        'La supervisión automática de depósitos y su abono no están conectados a esta dirección. No transfieras fondos hasta que tu entidad confirme cómo se reconocerá y abonará el depósito.',
+    'pending':
+        'La dirección no confirma ninguna transferencia, liquidación, saldo ni abono.',
+  },
+  'tr': <String, String>{
+    'open': 'Yatırma adresi',
+    'title': 'Yatırma adresi',
+    'loading': 'Kullanılabilir varlıklar kontrol ediliyor…',
+    'unavailable': 'Yatırma adresi hizmeti kullanılamıyor. Yeniden deneyin.',
+    'retry': 'Yeniden dene',
+    'empty': 'Bu istek için uygun bir varlık yapılandırılmamış.',
+    'asset': 'Varlık ve ağ',
+    'contract': 'Token sözleşmesi',
+    'native': 'Yerel varlık',
+    'noAddress': 'Bu seçim için henüz doğrulanmış bir adres oluşturulmadı.',
+    'issue': 'Kimliği doğrula ve adres oluştur',
+    'verifyTitle': 'Kimliğinizi doğrulayın',
+    'verifyHelp':
+        'Bu doğrulama bir kez ve yalnızca bu adresi oluşturmak için kullanılır.',
+    'method': 'Doğrulama yöntemi',
+    'password': 'Hesap parolası',
+    'totp': 'Doğrulayıcı kodu',
+    'recovery': 'Kurtarma kodu',
+    'submit': 'Doğrula ve devam et',
+    'working': 'Kontrol ediliyor…',
+    'failed':
+        'Doğrulama veya adres oluşturma onaylanamadı. Bilgilerinizi kontrol edip yeniden deneyin.',
+    'verified': 'Sağlayıcı tarafından doğrulanmış adres',
+    'copy': 'Adresi kopyala',
+    'copied': 'Adres kopyalandı.',
+    'copyFailed': 'Kopyalanamadı. Adresi seçip kopyalayın.',
+    'cancel': 'İptal',
+    'warning':
+        'Otomatik yatırma takibi ve hesaba geçirme bu adrese bağlı değil. Kurumunuz yatırmanın nasıl tanınacağını ve hesaba geçirileceğini doğrulayana kadar para göndermeyin.',
+    'pending':
+        'Adres, transferi, mutabakatı, bakiyeyi veya hesaba geçirmeyi doğrulamaz.',
+  },
+};

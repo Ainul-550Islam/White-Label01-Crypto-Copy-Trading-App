@@ -369,6 +369,7 @@ custodyWallets CustodyWallet[]
   leadTraderApplications LeadTraderApplication[]
   leaderFeePolicies      LeaderFeePolicy[]
   userPositionLimits     UserPositionLimit[]
+  loginDevices           LoginDevice[]
   @@index([status])
   @@index([deletedAt])
   @@index([createdAt])
@@ -511,6 +512,7 @@ model User {
   recoveryCodes      TwoFactorRecoveryCode[]
   verificationTokens VerificationToken[]
   loginAttempts      LoginAttempt[]
+  loginDevices       LoginDevice[]
   securityEvents     SecurityEvent[]
   notifications      Notification[]
   notificationPrefs  NotificationPreference[]
@@ -549,6 +551,8 @@ model User {
   /// Verified IdP subjects linked to this account (SSO login key).
   ssoIdentities SsoIdentity[]
 
+  // Composite ownership key used by tenant-bound authentication records.
+  @@unique([tenantId, id], map: "users_tenant_id_id_batch02_key")
   @@unique([tenantId, email])
   @@unique([tenantId, emailIndex])
   @@index([tenantId, status])
@@ -869,6 +873,27 @@ model VerificationToken {
   @@index([userId, type])
   @@index([expiresAt])
   @@map("verification_tokens")
+}
+
+/// Keyed device fingerprints only; raw IP addresses and fingerprints are never stored.
+model LoginDevice {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  fingerprintHash String   @map("fingerprint_hash") @db.VarChar(64)
+  countryCode     String?  @map("country_code") @db.Char(2)
+  lastLatitude    Decimal? @map("last_latitude") @db.Decimal(9, 6)
+  lastLongitude   Decimal? @map("last_longitude") @db.Decimal(9, 6)
+  lastSeenAt      DateTime @map("last_seen_at") @db.Timestamptz(6)
+  firstSeenAt     DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  trusted         Boolean  @default(false)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user User @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade, onUpdate: Restrict, map: "login_devices_tenant_user_batch02_fkey")
+
+  @@unique([tenantId, userId, fingerprintHash], map: "login_devices_tenant_id_user_id_fingerprint_hash_key")
+  @@index([tenantId, userId, lastSeenAt], map: "login_devices_tenant_id_user_id_last_seen_at_idx")
+  @@map("login_devices")
 }
 
 model LoginAttempt {

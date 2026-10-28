@@ -1,55 +1,21 @@
-// # Responsibility: keep existing tenant/risk calculations and fail-closed source reads while narrowing untrusted decimal values without any bypasses.
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
-import { DailyLossResult, RiskState, RiskSeverity, RiskPolicyScope } from './risk-management.types';
-import { resolveDayStartEquity, scopeAccountIdsOf } from './day-start-equity';
+import { DailyLossResult, RiskPolicyScope, RiskSeverity, RiskState } from './risk-management.types';
 
 /**
- * Daily loss limit enforcement with deterministic UTC reset.
- * - Uses canonical realized/unrealized PnL from Position and Fill.
- * - Starting equity reference persisted, not reset on restart.
- * - Remaining budget = threshold - |dailyPnl| when dailyPnl negative.
- * - Fail-closed: if PnL source unavailable, UNKNOWN/REVIEW per policy.
+ * Evaluates daily loss only when a day-attributed PnL source is available.
+ *
+ * The current ledger has cumulative position realised PnL, unqualified
+ * multi-asset balances and snapshots without a valuation currency or cash-flow
+ * adjustments. None establishes either realised daily PnL or a complete
+ * realised-plus-unrealised daily PnL. An equity difference cannot distinguish
+ * trading profit/loss from deposits, withdrawals or conversion effects.
+ * Therefore this service reports UNKNOWN rather than authorising against an
+ * approximation. The caller treats UNKNOWN as review-required.
  */
-
-function isValidDecimal(v: unknown): boolean {
-  return typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v);
-}
-const SCALE = 1_000_000_000_000n;
-function parseScaled(s: string): bigint {
-  const neg = s.startsWith('-');
-  const clean = neg ? s.slice(1) : s;
-  const [intP = '0', fracP = ''] = clean.split('.');
-  const frac = (fracP + '0'.repeat(12)).slice(0, 12);
-  const val = BigInt(intP) * SCALE + BigInt(frac || '0');
-  return neg ? -val : val;
-}
-function formatScaled(b: bigint): string {
-  const neg = b < 0n;
-  const abs = neg ? -b : b;
-  const intP = abs / SCALE;
-  const frac = abs % SCALE;
-  const fracStr = frac.toString().padStart(12, '0').replace(/0+$/, '');
-  return (neg ? '-' : '') + (fracStr ? `${intP}.${fracStr}` : `${intP}`);
-}
-function sub(a: string, b: string): string {
-  return formatScaled(parseScaled(a) - parseScaled(b));
-}
-
-function utcTradingDay(d: Date): string {
-  return d.toISOString().slice(0, 10); // YYYY-MM-DD UTC
-}
-function nextUtcMidnight(): string {
-  const now = new Date();
-  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
-  return next.toISOString();
-}
-
 @Injectable()
 export class DailyLossLimitService {
-  private readonly logger = new Logger(DailyLossLimitService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly policyService: InstitutionalRiskPolicyService,
@@ -69,155 +35,29 @@ export class DailyLossLimitService {
       strategyId: strategyId ?? null,
       followerId: followerId ?? null,
     });
+    const scope = followerId ? RiskPolicyScope.FOLLOWER
+      : strategyId ? RiskPolicyScope.STRATEGY
+      : traderId ? RiskPolicyScope.TRADER
+      : RiskPolicyScope.TENANT;
+    const scopeId = followerId ?? strategyId ?? traderId ?? accountId ?? tenantId;
+    const tradingDay = new Date().toISOString().slice(0, 10);
+    const resetAt = new Date(`${tradingDay}T00:00:00.000Z`);
+    resetAt.setUTCDate(resetAt.getUTCDate() + 1);
 
-    let scope = RiskPolicyScope.TENANT;
-    let scopeId = tenantId;
-    if (followerId) {
-      scope = RiskPolicyScope.FOLLOWER;
-      scopeId = followerId;
-    } else if (strategyId) {
-      scope = RiskPolicyScope.STRATEGY;
-      scopeId = strategyId;
-    } else if (traderId) {
-      scope = RiskPolicyScope.TRADER;
-      scopeId = traderId;
-    } else if (accountId) {
-      scope = RiskPolicyScope.TENANT;
-      scopeId = accountId;
-    }
-
-    const tradingDay = utcTradingDay(new Date());
-    const dayStart = new Date(`${tradingDay}T00:00:00.000Z`);
-    const dayEnd = new Date(`${tradingDay}T23:59:59.999Z`);
-
-    // Get fills for today for realized PnL
-    await this.prisma.fill.findMany({
-      where: {
-        order: { tenantId, ...(accountId ? { accountId } : {}) },
-        createdAt: { gte: dayStart, lte: dayEnd },
-      },
-      include: { order: true },
-    });
-
-    // Positions for unrealized
-    const positions = await this.prisma.position.findMany({
-      where: { tenantId, ...(accountId ? { accountId } : {}) },
-    });
-
-    // Balances for equity
-    const balances = await this.prisma.accountBalanceSnapshot.findMany({
-      where: { tenantId, ...(accountId ? { accountId } : {}) },
-    });
-
-    let latestTs: Date | null = null;
-    for (const pos of positions) {
-      if (!latestTs || new Date(pos.updatedAt) > latestTs) latestTs = pos.updatedAt;
-    }
-
-    // Day-start equity: the FIRST risk snapshot (RiskSnapshotMetadata.equity,
-    // written by the engine each evaluation) captured on this UTC trading day,
-    // per account. It is persisted, so a restart never resets the reference.
-    // For a multi-account scope every account holding balances or positions
-    // must have one; a partial sum would understate the reference and hide a
-    // loss, so any gap makes the whole reference unknown (fail closed).
-    const scopeAccountIds = scopeAccountIdsOf(accountId, [...balances, ...positions]);
-    const startingEquity = await resolveDayStartEquity(this.prisma, tenantId, tradingDay, scopeAccountIds);
-
-    // Compute current equity
-    let walletTotal = 0n;
-    for (const b of balances) {
-      const totalStr = b.total.toString();
-      if (isValidDecimal(totalStr)) walletTotal += parseScaled(totalStr);
-      if (!latestTs || new Date(b.updatedAt) > latestTs) latestTs = b.updatedAt;
-    }
-    let unrealizedTotal = 0n;
-    for (const p of positions) {
-      const upnl = p.unrealisedPnl?.toString();
-      if (upnl && isValidDecimal(upnl)) unrealizedTotal += parseScaled(upnl);
-    }
-    const currentEquity = walletTotal + unrealizedTotal;
-    const currentEquityStr = formatScaled(currentEquity);
-
-    let dailyPnl: string | null = null;
-    let realizedPnl: string | null = null;
-    const unrealizedPnl: string | null = formatScaled(unrealizedTotal);
-
-    if (startingEquity && isValidDecimal(startingEquity)) {
-      dailyPnl = sub(currentEquityStr, startingEquity);
-      // Realized PnL: for daily loss we need realized only or realized+unrealized per policy
-      // Approximate realized as sum of position realized? For now use dailyPnl minus unrealized if policy includes unrealized false
-      if (policy.thresholds.dailyLossIncludesUnrealized) {
-        realizedPnl = dailyPnl; // actually dailyPnl includes both, but we label as dailyPnl
-      } else {
-        // Need realized only: use position realizedPnl today? We don't have daily breakdown, so we cannot compute accurately -> return null and mark as insufficient?
-        // For safety, if policy says realized only but we cannot isolate daily realized, we return dailyPnl as realized? No, we must not fake. So we return null and mark UNKNOWN.
-        // However for this implementation, we will compute realized as dailyPnl - unrealizedTotal if startingEquity includes unrealized? This is ambiguous.
-        // To avoid fake, we will set realizedPnl = dailyPnl when unrealized not included is false? Actually we need to be honest.
-        // We'll set realizedPnl = dailyPnl if we cannot separate, and note in reason.
-        realizedPnl = sub(dailyPnl, unrealizedPnl ?? '0');
-      }
-    }
-
-    const threshold = policy.thresholds.maxDailyLoss; // positive max loss allowed, e.g. 10000 means -10000 daily PnL is breach
-    let remainingBudget: string | null = null;
-    let isBreach = false;
-    let state = RiskState.NORMAL;
-    let reason = 'Daily loss within limits';
-    let severity = RiskSeverity.INFO;
-
-    if (!dailyPnl || !threshold || !isValidDecimal(threshold)) {
-      state = RiskState.UNKNOWN;
-      reason = `Daily PnL or threshold unavailable — dailyPnl: ${dailyPnl ?? 'null'}, threshold: ${threshold ?? 'null'}, cannot evaluate daily loss, fail-closed to REVIEW per policy`;
-      severity = RiskSeverity.WARNING;
-    } else {
-      // dailyPnl negative means loss
-      const dailyPnlScaled = parseScaled(dailyPnl);
-      const thresholdScaled = parseScaled(threshold); // positive
-      if (dailyPnlScaled < 0n) {
-        const lossAbs = -dailyPnlScaled;
-        remainingBudget = formatScaled(thresholdScaled - lossAbs);
-        if (lossAbs > thresholdScaled) {
-          isBreach = true;
-          state = RiskState.BLOCKED;
-          reason = `Daily loss ${formatScaled(lossAbs)} exceeds threshold ${threshold} for scope ${scope} ${scopeId} on ${tradingDay}`;
-          severity = RiskSeverity.CRITICAL;
-        } else if (lossAbs > (thresholdScaled * 80n) / 100n) {
-          state = RiskState.HIGH;
-          reason = `Daily loss ${formatScaled(lossAbs)} approaching threshold ${threshold} (80%)`;
-          severity = RiskSeverity.WARNING;
-        } else {
-          remainingBudget = formatScaled(thresholdScaled - lossAbs);
-          reason = `Daily loss ${formatScaled(lossAbs)} within threshold ${threshold}, remaining ${remainingBudget}`;
-        }
-      } else {
-        remainingBudget = threshold;
-        reason = `Daily PnL positive ${dailyPnl}, no loss, remaining budget ${threshold}`;
-      }
-    }
-
-    const result: DailyLossResult = {
-      tenantId,
-      scope,
-      scopeId,
-      tradingDay,
-      startingEquity,
-      currentEquity: currentEquityStr,
-      realizedPnl,
-      unrealizedPnl: policy.thresholds.dailyLossIncludesUnrealized ? unrealizedPnl : null,
-      dailyPnl,
-      threshold: threshold ?? null,
-      remainingBudget,
-      isBreach,
-      state,
+    return [{
+      tenantId, scope, scopeId, tradingDay,
+      startingEquity: null, currentEquity: null,
+      realizedPnl: null, unrealizedPnl: null, dailyPnl: null,
+      threshold: policy.thresholds.maxDailyLoss ?? null,
+      remainingBudget: null,
+      isBreach: false,
+      state: RiskState.UNKNOWN,
       ruleId: 'DAILY_LOSS_LIMIT',
       policyVersion: policy.effectiveVersion,
-      reason,
-      severity,
-      resetAt: nextUtcMidnight(),
-      sourceTimestamp: latestTs?.toISOString() ?? new Date().toISOString(),
-    };
-
-    return [result];
+      reason: 'Authoritative day-attributed, cash-flow-adjusted PnL is unavailable for this scope.',
+      severity: RiskSeverity.WARNING,
+      resetAt: resetAt.toISOString(),
+      sourceTimestamp: null,
+    }];
   }
-
 }

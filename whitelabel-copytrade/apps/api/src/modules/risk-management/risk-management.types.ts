@@ -169,6 +169,8 @@ export interface PortfolioExposure {
   shortExposure: string;
   openOrderExposure: string;
   totalExposure: string; // gross + open orders or policy defined
+  /** Verified common quote asset; null if mixed or not established. */
+  valuationCurrency?: string | null;
   notionalUtilizationPercent: string | null;
   symbolExposures: SymbolExposure[];
   venueExposures: VenueExposure[];
@@ -590,6 +592,8 @@ export interface RiskEvent {
 // ---------- Effective policy ----------
 
 export interface RiskPolicyThresholds {
+  /** Explicit common quote asset for monetary exposure thresholds; never inferred from a number. */
+  notionalCurrency?: string | null;
   maxGrossExposure: string | null;
   maxNetExposure: string | null;
   maxSymbolExposure: string | null;

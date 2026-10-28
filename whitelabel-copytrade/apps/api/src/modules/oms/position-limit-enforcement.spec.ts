@@ -45,6 +45,8 @@ function limiterThat(verdict: 'ALLOW' | 'REFUSE') {
       })),
     },
     order: { create: jest.fn() },
+    complianceScreeningRequest: { findFirst: jest.fn(async () => null) },
+    securityThreatSignal: { findFirst: jest.fn(async () => null) },
   };
   const service = {
     persistOrderIntentWithLimits: jest.fn(
@@ -70,8 +72,8 @@ function limiterThat(verdict: 'ALLOW' | 'REFUSE') {
 function buildService(limiter: { persistOrderIntentWithLimits: jest.Mock }, prismaOverrides: Record<string, unknown> = {}) {
   const prisma = {
     tradingAccount: {
-      findFirst: jest.fn(async () => ({ id: ACCOUNT_ID, userId: 'user-1', status: 'ACTIVE', liveTradingEnabled: true })),
-      findUnique: jest.fn(async () => ({ id: ACCOUNT_ID, userId: 'user-1', status: 'ACTIVE', liveTradingEnabled: true })),
+      findFirst: jest.fn(async () => ({ id: ACCOUNT_ID, userId: 'user-1', exchangeId: 'exchange-1', marketType: 'SPOT', status: 'ACTIVE', liveTradingEnabled: true })),
+      findUnique: jest.fn(async () => ({ id: ACCOUNT_ID, userId: 'user-1', exchangeId: 'exchange-1', marketType: 'SPOT', status: 'ACTIVE', liveTradingEnabled: true })),
     },
     tradingSymbol: {
       findFirst: jest.fn(async () => ({
@@ -88,6 +90,7 @@ function buildService(limiter: { persistOrderIntentWithLimits: jest.Mock }, pris
     complianceScreeningRequest: { findFirst: jest.fn(async () => null) },
     securityThreatSignal: { findFirst: jest.fn(async () => null) },
     ...prismaOverrides,
+    withTenantRls: jest.fn(async (_tenant: string, run: (tx: unknown) => Promise<unknown>): Promise<unknown> => run(prisma)),
   };
   const riskDecisionService = {
     evaluateUnifiedRisk: jest.fn(async () => ({ decision: 'ALLOW', blockingReasons: [], policyVersion: 'v1' })),
@@ -163,6 +166,13 @@ describe('OrderIntentService routes every intent through the position-limit rese
     // Nothing was written anywhere: the refusal is a refusal, not a warning.
     expect(omsCreate).not.toHaveBeenCalled();
     expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it('requires the transactional budget and ownership gate for copy-sourced intents', async () => {
+    const limiter = limiterThat('ALLOW');
+    const { service } = buildService(limiter.service);
+    await service.createIntent({ ...(intentParams() as Record<string, unknown>), source: 'COPY_TRADING', followerId: 'user-1' } as never);
+    expect(limiter.service.persistOrderIntentWithLimits).toHaveBeenCalledWith(expect.objectContaining({ copyFollowerId: 'user-1' }));
   });
 
   it('reserves against the account the intent names, not a caller-supplied owner', async () => {

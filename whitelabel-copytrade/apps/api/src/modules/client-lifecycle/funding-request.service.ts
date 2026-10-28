@@ -1,6 +1,6 @@
 // # Responsibility: persist typed tenant funding workflows and transactional outbox events without treating requests as proof of funds movement.
 // # Integrates deposit address provisioning and deposit status transitions
-import { Injectable, Logger, BadRequestException, ConflictException, Optional } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ConflictException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { isDeepStrictEqual } from 'node:util';
 import { Prisma, FundingRequestState as StoredFundingState, type FundingRequest } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -8,7 +8,7 @@ import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { ClientPolicyService } from './client-policy.service';
 import { LifecycleAuditService } from './lifecycle-audit.service';
 import { AccountRestrictionService } from './account-restriction.service';
-import { deterministicIdempotencyKey, FundingRequestState, FUNDING_VALID_TRANSITIONS, isValidDecimal, isPositiveDecimal, AccountRestrictionType, lifecycleEnum, lifecycleMetadata } from './client-lifecycle.types';
+import { deterministicIdempotencyKey, FundingRequestState, FUNDING_VALID_TRANSITIONS, isValidDecimal, isPositiveDecimal, AccountRestrictionType, lifecycleEnum, lifecycleMetadata, redactPiiAndSecrets } from './client-lifecycle.types';
 
 /**
  * Creates and manages deposit/funding requests with explicit states, requested amount/currency,
@@ -196,7 +196,8 @@ export class FundingRequestService {
   }): Promise<FundingRequest> {
     const { tenantId, fundingRequestId, toState, operatorId = null, reason, approvedAmount = null, submittedAmount = null, confirmedAmount = null, settledAmount = null, externalReference = null, correlationId = null } = params;
 
-    const request = await this.prisma.fundingRequest.findFirst({ where: { id: fundingRequestId, tenantId } });
+    const request = await this.prisma.withTenantRls(tenantId, (tx) =>
+      tx.fundingRequest.findFirst({ where: { id: fundingRequestId, tenantId } }));
     if (!request) throw new BadRequestException('Funding request not found');
 
     const currentState = lifecycleEnum(Object.values(FundingRequestState), request.state, 'persisted funding state');
@@ -210,25 +211,21 @@ export class FundingRequestService {
       throw new BadRequestException('Invalid transition REQUESTED → CONFIRMED — must go through UNDER_REVIEW→APPROVED→SUBMITTED→CONFIRMED with external confirmation');
     }
 
-    // CONFIRMED only when authoritative external confirms — check externalReference or evidence
+    // A caller-supplied reference and amount do not prove provider settlement
+    // or a spendable customer credit. Do not publish funding.confirmed or
+    // change the workflow until an authoritative credit can commit atomically.
     if (toState === FundingRequestState.CONFIRMED) {
-      if (!request.externalReference && !externalReference) {
-        throw new BadRequestException('CONFIRMED state requires external reference from authoritative payment/custody/exchange');
-      }
-      // In real implementation, would verify external settlement via payment provider
-      // Here we require confirmedAmount and external reference
-      if (!confirmedAmount) {
-        throw new BadRequestException('CONFIRMED requires confirmedAmount from external settlement');
-      }
+      throw new ServiceUnavailableException('Customer credit has not been independently verified; funding cannot be confirmed.');
     }
-
-    // A rejected/blocked request must never be silently retried into success
-    if (currentState === FundingRequestState.FAILED && toState === FundingRequestState.CONFIRMED) {
-      throw new BadRequestException('Failed request cannot be directly transitioned to CONFIRMED — requires reversal and new request');
+    if (confirmedAmount !== null || settledAmount !== null) {
+      throw new BadRequestException('Confirmed and settled amounts require verified funding settlement.');
     }
-
-    if (toState === FundingRequestState.CONFIRMED && !this.outbox) {
-      throw new Error('Transactional outbox is unavailable; refusing funding confirmation without its funding.confirmed event');
+    for (const [field, value] of [['approvedAmount', approvedAmount], ['submittedAmount', submittedAmount]] as const) {
+      // These columns are strings. Validate without scaling/truncating an
+      // asset's smallest units or accepting an invalid amount as positive.
+      if (value !== null && (typeof value !== 'string' || value.length > 64 || !/^\d+(?:\.\d+)?$/.test(value) || !/[1-9]/.test(value))) {
+        throw new BadRequestException(`${field} must be a positive decimal string`);
+      }
     }
     const updated = await this.prisma.withTenantRls(tenantId, async (tx) => {
       const store = tx;
@@ -236,55 +233,30 @@ export class FundingRequestService {
       if (!current || current.state !== currentState) {
         throw new BadRequestException('Funding request changed during transition; reload and retry');
       }
-      const changed = await store.fundingRequest.update({
-        where: { id: fundingRequestId, tenantId },
+      const changed = await store.fundingRequest.updateMany({
+        where: { id: fundingRequestId, tenantId, state: current.state },
         data: {
           state: toState,
           ...(approvedAmount ? { approvedAmount } : {}),
           ...(submittedAmount ? { submittedAmount } : {}),
-          ...(confirmedAmount ? { confirmedAmount } : {}),
-          ...(settledAmount ? { settledAmount } : {}),
           ...(externalReference ? { externalReference } : {}),
           ...(toState === FundingRequestState.APPROVED ? { approvedAt: new Date(), approvedBy: operatorId } : {}),
           ...(toState === FundingRequestState.SUBMITTED ? { submittedAt: new Date() } : {}),
-          ...(toState === FundingRequestState.CONFIRMED ? { confirmedAt: new Date() } : {}),
           ...(toState === FundingRequestState.FAILED ? { failedAt: new Date(), failureReason: reason } : {}),
           ...(toState === FundingRequestState.REVERSED ? { reversalReason: reason } : {}),
         },
       });
-      if (toState === FundingRequestState.CONFIRMED) {
-        await this.outbox!.append(tx, {
-          tenantId,
-          aggregateType: 'funding_request',
-          aggregateId: changed.id,
-          eventType: 'funding.confirmed',
-          idempotencyKey: `funding-request:${changed.id}:confirmed`,
-          correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
-          occurredAt: changed.confirmedAt ?? changed.updatedAt,
-          payload: {
-            fundingRequestId: changed.id,
-            amount: changed.confirmedAmount,
-            currency: changed.currency,
-            status: changed.state,
-          },
-        });
-      }
-      return changed;
-    });
-
-    await this.auditService.log({
-      tenantId,
-      clientProfileId: request.clientProfileId,
-      accountId: request.accountId,
-      action: 'FUNDING_STATE_CHANGED',
-      entityType: 'FUNDING_REQUEST',
-      entityId: fundingRequestId,
-      actorId: operatorId,
-      fromState: currentState,
-      toState: toState,
-      reason: reason ?? null,
-      correlationId,
-      evidence: { fromState: currentState, toState, approvedAmount, confirmedAmount, externalReference },
+      if (changed.count !== 1) throw new BadRequestException('Funding request changed during transition; reload and retry');
+      const row = await store.fundingRequest.findFirstOrThrow({ where: { id: fundingRequestId, tenantId } });
+      await store.clientLifecycleAudit.create({ data: {
+        tenantId, clientProfileId: row.clientProfileId, accountId: row.accountId, action: 'FUNDING_STATE_CHANGED',
+        entityType: 'FUNDING_REQUEST', entityId: row.id, actorId: operatorId,
+        fromState: currentState, toState, reason: reason ? redactPiiAndSecrets(reason).slice(0, 1000) : null,
+        correlationId: correlationId && correlationId.length <= 64 ? correlationId : null,
+        // Do not duplicate external payment references in audit evidence.
+        evidence: { fromState: currentState, toState, approvedAmount, submittedAmount },
+      } });
+      return row;
     });
 
     return updated;

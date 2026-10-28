@@ -1,219 +1,172 @@
-// # Responsibility: customer settings surface for user-wide concurrent position-slot and open-order ceilings.
-
 'use client';
-import type { JSX } from 'react';
 
-import React, { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { userPositionLimitsApi } from '@/api/user-position-limits-api';
+import { useEffect, useId, useRef, useState, type FormEvent, type JSX } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { userPositionLimitsApi, type UpdateUserPositionLimitsInput, type UserPositionLimitsView } from '@/api/user-position-limits-api';
+import { stepUpApi, type StepUpMethod } from '@/api/security-api';
+import { useAuth } from '@/auth/auth.store';
+import { LocaleSelector } from '@/features/oauth/locale-selector';
+import { positionLimitCopy, type PositionLimitLocale } from './position-limit-copy';
 
 export const USER_POSITION_LIMITS_QUERY_KEY = ['user-position-limits', 'me'] as const;
-const MAX_LIMIT = 2_147_483_647;
+export const positionLimitsQueryKey = (tenantId: string, userId: string) => [...USER_POSITION_LIMITS_QUERY_KEY, tenantId, userId] as const;
+const MAX_INTEGER = 2_147_483_647;
+type Owner = { tenantId: string; userId: string };
+type CompleteUpdate = Required<UpdateUserPositionLimitsInput>;
 
-function parseLimitInput(value: string, label: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-  if (!/^\d+$/.test(trimmed)) {
-    throw new Error(`${label} must be a whole number, zero, or blank.`);
+/** Mount separately for each authenticated owner; cached settings never cross sessions. */
+export function PositionLimitSettings(): JSX.Element {
+  const { session } = useAuth();
+  if (!session) return <p role="status">{positionLimitCopy.en.signedOut}</p>;
+  const owner = { tenantId: session.tenant.id, userId: session.user.id };
+  return <PositionLimitsForOwner key={`${owner.tenantId}:${owner.userId}`} owner={owner} />;
+}
+
+function validCount(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= MAX_INTEGER);
+}
+function validateView(value: UserPositionLimitsView, owner: Owner): UserPositionLimitsView {
+  const validVersion = value?.updatedAt === null || (typeof value?.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt)) && new Date(value.updatedAt).toISOString() === value.updatedAt);
+  const usage = value?.usage;
+  if (!value || value.tenantId !== owner.tenantId || value.accountScope !== 'USER_OWNED_NON_DELETED_ACCOUNTS_INCLUDING_PAPER_AND_LIVE' ||
+      typeof value.configured !== 'boolean' || !validVersion || !Number.isFinite(Date.parse(value.asOf)) ||
+      !value.limits || !validCount(value.limits.maxConcurrentPositions) || !validCount(value.limits.maxOpenOrders) ||
+      value.configured !== (value.limits.maxConcurrentPositions !== null || value.limits.maxOpenOrders !== null) ||
+      !['CURRENT', 'UNKNOWN'].includes(value.usageState) || (value.usageState === 'UNKNOWN' && usage !== null) ||
+      (value.usageState === 'CURRENT' && (!usage || !Number.isSafeInteger(usage.ownedAccountCount) || usage.ownedAccountCount < 0 ||
+        !Number.isSafeInteger(usage.openPositionSlots) || usage.openPositionSlots < 0 || !Number.isSafeInteger(usage.openOrderCount) || usage.openOrderCount < 0))) {
+    throw new Error('Invalid limits response');
   }
-  const parsed = Number(trimmed);
-  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > MAX_LIMIT) {
-    throw new Error(`${label} must be between 0 and ${MAX_LIMIT}.`);
-  }
+  return value;
+}
+
+/** Persist the same intent key across ambiguous failures and page reloads. */
+async function retryKey(owner: Owner, input: CompleteUpdate): Promise<string> {
+  if (!window.crypto.subtle || typeof window.crypto.randomUUID !== 'function') throw new Error('Secure retry storage unavailable');
+  const fingerprint = JSON.stringify([owner.tenantId, owner.userId, input.maxConcurrentPositions, input.maxOpenOrders, input.expectedUpdatedAt]);
+  const hash = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(fingerprint));
+  const slot = `position-limits:${Array.from(new Uint8Array(hash), (n) => n.toString(16).padStart(2, '0')).join('')}`;
+  const existing = window.sessionStorage.getItem(slot);
+  if (existing && /^[A-Za-z0-9._:-]{8,128}$/.test(existing)) return existing;
+  if (existing) throw new Error('Invalid retry state');
+  const key = window.crypto.randomUUID();
+  window.sessionStorage.setItem(slot, key);
+  return key;
+}
+
+function parseLimit(value: string): number | null {
+  if (value === '') return null;
+  if (!/^\d+$/.test(value)) throw new Error('Invalid integer');
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > MAX_INTEGER) throw new Error('Invalid integer');
   return parsed;
 }
 
-function usageValue(value: number | undefined): string {
-  return value === undefined ? 'Unknown' : value.toLocaleString('en-US');
-}
+function PositionLimitsForOwner({ owner }: { owner: Owner }): JSX.Element {
+  const [locale, setLocale] = useState<PositionLimitLocale>('en');
+  const [positionsInput, setPositionsInput] = useState<string | null>(null), [ordersInput, setOrdersInput] = useState<string | null>(null);
+  // Capture the read version on the first edit; a later background refresh
+  // must not silently rebase a partly edited form onto someone else's change.
+  const [editVersion, setEditVersion] = useState<string | null | undefined>(undefined);
+  const [draft, setDraft] = useState<CompleteUpdate | null>(null);
+  const [method, setMethod] = useState<StepUpMethod>('PASSWORD'), [credential, setCredential] = useState('');
+  const [busy, setBusy] = useState(false), [failed, setFailed] = useState(false), [invalid, setInvalid] = useState(false), [saved, setSaved] = useState(false);
+  const credentialRef = useRef<HTMLInputElement>(null);
+  const id = useId(), cache = useQueryClient();
+  const key = positionLimitsQueryKey(owner.tenantId, owner.userId);
+  const query = useQuery({ queryKey: key, queryFn: async () => validateView(await userPositionLimitsApi.getMyLimits(), owner), retry: false, staleTime: 0 });
+  useEffect(() => {
+    const language = navigator.language.split('-')[0] as PositionLimitLocale;
+    if (Object.hasOwn(positionLimitCopy, language)) setLocale(language);
+  }, []);
+  useEffect(() => { if (draft) credentialRef.current?.focus(); }, [draft]);
+  const t = positionLimitCopy[locale], view = query.data;
+  const validCredential = method === 'TOTP' ? /^\d{6}$/.test(credential.trim()) : method === 'PASSWORD'
+    ? credential.length >= 8 && credential.length <= 256 : credential.trim().length >= 8 && credential.trim().length <= 64;
 
-export function PositionLimitSettings(): JSX.Element {
-  const queryClient = useQueryClient();
-  const limitsQuery = useQuery({
-    queryKey: USER_POSITION_LIMITS_QUERY_KEY,
-    queryFn: () => userPositionLimitsApi.getMyLimits(),
-    staleTime: 15_000,
-    retry: false,
-  });
-
-  const [draft, setDraft] = useState<Partial<{ maxConcurrentPositions: string; maxOpenOrders: string }>>({});
-  const maxConcurrentPositions = draft.maxConcurrentPositions ?? (
-    limitsQuery.data?.limits.maxConcurrentPositions == null
-      ? ''
-      : String(limitsQuery.data.limits.maxConcurrentPositions)
-  );
-  const maxOpenOrders = draft.maxOpenOrders ?? (
-    limitsQuery.data?.limits.maxOpenOrders == null
-      ? ''
-      : String(limitsQuery.data.limits.maxOpenOrders)
-  );
-
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      userPositionLimitsApi.updateMyLimits({
-        maxConcurrentPositions: parseLimitInput(maxConcurrentPositions, 'Maximum concurrent positions'),
-        maxOpenOrders: parseLimitInput(maxOpenOrders, 'Maximum open orders'),
-      }),
-    onSuccess: () => {
-      setDraft({});
-      void queryClient.invalidateQueries({ queryKey: USER_POSITION_LIMITS_QUERY_KEY });
-    },
-  });
-
-  if (limitsQuery.isLoading) {
-    return (
-      <section className="rounded-lg border bg-card p-5" data-testid="position-limit-settings-loading" aria-live="polite">
-        <p className="text-sm text-muted">Loading your position and order limits…</p>
-      </section>
-    );
+  function startUpdate(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    if (!view || busy || draft) return;
+    try {
+      setDraft({ maxConcurrentPositions: parseLimit(positionsInput ?? view.limits.maxConcurrentPositions?.toString() ?? ''),
+        maxOpenOrders: parseLimit(ordersInput ?? view.limits.maxOpenOrders?.toString() ?? ''),
+        expectedUpdatedAt: editVersion === undefined ? view.updatedAt : editVersion });
+      setCredential(''); setInvalid(false); setFailed(false); setSaved(false);
+    } catch { setInvalid(true); }
+  }
+  async function verifyAndSave(): Promise<void> {
+    if (!draft || busy || !validCredential) return;
+    setBusy(true); setFailed(false);
+    try {
+      const idempotencyKey = await retryKey(owner, draft);
+      const proof = await stepUpApi.issue({ action: 'USER_POSITION_LIMIT_UPDATE', method,
+        ...(method === 'PASSWORD' ? { password: credential } : method === 'TOTP' ? { code: credential.trim() } : { recoveryCode: credential.trim() }) });
+      setCredential('');
+      if (!proof || !proof.proofId || proof.action !== 'USER_POSITION_LIMIT_UPDATE' || proof.method !== method ||
+          !Number.isFinite(Date.parse(proof.expiresAt)) || Date.parse(proof.expiresAt) <= Date.now()) throw new Error('Invalid verification response');
+      const result = validateView(await userPositionLimitsApi.updateMyLimits(draft, idempotencyKey), owner);
+      // A replay after a later edit returns current state, never the older edit.
+      if (result.limits.maxConcurrentPositions !== draft.maxConcurrentPositions || result.limits.maxOpenOrders !== draft.maxOpenOrders) {
+        throw new Error('Settings changed');
+      }
+      cache.setQueryData(key, result);
+      setDraft(null); setSaved(true); setPositionsInput(null); setOrdersInput(null); setEditVersion(undefined);
+    } catch { setCredential(''); setFailed(true); }
+    finally { setBusy(false); }
+  }
+  async function refresh(): Promise<void> {
+    if (busy) return;
+    setDraft(null); setCredential(''); setFailed(false); setSaved(false); setPositionsInput(null); setOrdersInput(null); setEditVersion(undefined);
+    await query.refetch();
   }
 
-  if (limitsQuery.error || !limitsQuery.data) {
-    const message = limitsQuery.error instanceof Error ? limitsQuery.error.message : 'No limit settings were returned.';
-    return (
-      <section className="rounded-lg border border-red-300 bg-card p-5" data-testid="position-limit-settings-error" role="alert">
-        <h2 className="font-semibold">Position limits unavailable</h2>
-        <p className="mt-2 text-sm text-muted">{message}</p>
-        <button
-          type="button"
-          onClick={() => void limitsQuery.refetch()}
-          className="mt-4 rounded border px-3 py-2 text-sm font-medium"
-        >
-          Retry
-        </button>
-      </section>
-    );
-  }
-
-  const view = limitsQuery.data;
-  const usage = view.usageState === 'CURRENT' ? view.usage : null;
-  const errorMessage = saveMutation.error instanceof Error ? saveMutation.error.message : null;
-
-  return (
-    <section className="space-y-5" data-testid="position-limit-settings" aria-labelledby="position-limit-settings-heading">
-      <div className="rounded-lg border bg-card p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 id="position-limit-settings-heading" className="text-lg font-semibold">Concurrent position and order limits</h2>
-            <p className="mt-1 text-sm text-muted">
-              Optional integer ceilings applied across your non-deleted trading accounts, including PAPER and LIVE accounts.
-            </p>
+  return <section className="space-y-4" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+    <LocaleSelector locale={locale} onChange={setLocale} label={t.language} />
+    {query.isLoading ? <p role="status">{t.loading}</p> : query.isError || !view ? <div role="alert">{t.unavailable} <button type="button" className="underline" onClick={() => void query.refetch()}>{t.retry}</button></div> : <>
+      <div className="rounded border bg-card p-4 space-y-4">
+        <div><h1 className="text-xl font-semibold">{t.title}</h1><p className="text-sm text-muted-foreground">{t.intro}</p></div>
+        <span className="inline-block rounded border px-2 py-1 text-xs">{view.configured ? t.configured : t.noCeiling}</span>
+        <form onSubmit={startUpdate} className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1"><label htmlFor={`${id}-positions`} className="text-sm font-medium">{t.positions}</label>
+              <input id={`${id}-positions`} type="number" inputMode="numeric" min={0} max={MAX_INTEGER} step={1} value={positionsInput ?? view.limits.maxConcurrentPositions?.toString() ?? ''}
+                onChange={(event) => { if (editVersion === undefined) setEditVersion(view.updatedAt); setPositionsInput(event.target.value); }} disabled={busy || !!draft}
+                placeholder={t.noLimit} className="w-full rounded border bg-background px-2 py-1 text-sm" />
+              <p className="text-xs text-muted-foreground">{t.positionsHelp}</p></div>
+            <div className="space-y-1"><label htmlFor={`${id}-orders`} className="text-sm font-medium">{t.orders}</label>
+              <input id={`${id}-orders`} type="number" inputMode="numeric" min={0} max={MAX_INTEGER} step={1} value={ordersInput ?? view.limits.maxOpenOrders?.toString() ?? ''}
+                onChange={(event) => { if (editVersion === undefined) setEditVersion(view.updatedAt); setOrdersInput(event.target.value); }} disabled={busy || !!draft}
+                placeholder={t.noLimit} className="w-full rounded border bg-background px-2 py-1 text-sm" />
+              <p className="text-xs text-muted-foreground">{t.ordersHelp}</p></div>
           </div>
-          <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${view.configured ? 'border-emerald-300 text-emerald-700' : 'border-gray-300 text-muted'}`}>
-            {view.configured ? 'Configured' : 'No user-wide ceiling'}
-          </span>
-        </div>
-
-        <form
-          className="mt-5 space-y-5"
-          data-testid="position-limit-settings-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            saveMutation.mutate();
-          }}
-        >
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium">Maximum concurrent position slots</span>
-              <input
-                aria-label="Maximum concurrent position slots"
-                type="number"
-                min={0}
-                max={MAX_LIMIT}
-                step={1}
-                inputMode="numeric"
-                value={maxConcurrentPositions}
-                onChange={(event) => setDraft((current) => ({ ...current, maxConcurrentPositions: event.target.value }))}
-                placeholder="No limit"
-                className="w-full rounded-md border bg-background px-3 py-2"
-              />
-              <span className="block text-xs text-muted">
-                Counts distinct account/symbol exposure and pending OMS symbols without trusting a caller-supplied reduce-only flag to bypass the ceiling.
-              </span>
-            </label>
-
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium">Maximum open orders</span>
-              <input
-                aria-label="Maximum open orders"
-                type="number"
-                min={0}
-                max={MAX_LIMIT}
-                step={1}
-                inputMode="numeric"
-                value={maxOpenOrders}
-                onChange={(event) => setDraft((current) => ({ ...current, maxOpenOrders: event.target.value }))}
-                placeholder="No limit"
-                className="w-full rounded-md border bg-background px-3 py-2"
-              />
-              <span className="block text-xs text-muted">
-                Counts active OMS intents and recorded open orders once per client order ID, including cancellation requests.
-              </span>
-            </label>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={saveMutation.isPending}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-            >
-              {saveMutation.isPending ? 'Saving…' : 'Save limits'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setDraft((current) => ({ ...current, maxConcurrentPositions: '' }));
-                setDraft((current) => ({ ...current, maxOpenOrders: '' }));
-                saveMutation.reset();
-              }}
-              className="rounded-md border px-4 py-2 text-sm font-medium"
-            >
-              Clear fields
-            </button>
-            {saveMutation.isSuccess && <span className="text-sm text-emerald-700" role="status">Limits saved and audited.</span>}
-          </div>
-
-          {errorMessage && <p className="text-sm text-red-700" role="alert">Could not save limits: {errorMessage}</p>}
+          {!draft && <div className="flex flex-wrap gap-2"><button type="submit" className="rounded bg-primary px-3 py-2 text-sm text-primary-foreground">{t.save}</button>
+            <button type="button" className="rounded border px-3 py-2 text-sm" onClick={() => { if (editVersion === undefined) setEditVersion(view.updatedAt); setPositionsInput(''); setOrdersInput(''); setInvalid(false); }}>{t.clear}</button></div>}
+          {invalid && <p role="alert">{t.invalid}</p>}
+          {draft && <div className="grid max-w-xl gap-2 rounded border p-3">
+            <h2 className="font-semibold">{t.verifyTitle}</h2><p>{t.verifyHelp}</p>
+            <label htmlFor={`${id}-method`}>{t.method}</label><select id={`${id}-method`} className="rounded border bg-background p-2" value={method} disabled={busy}
+              onChange={(event) => { setMethod(event.target.value as StepUpMethod); setCredential(''); setFailed(false); }}>
+              <option value="PASSWORD">{t.password}</option><option value="TOTP">{t.totp}</option><option value="RECOVERY_CODE">{t.recovery}</option></select>
+            <label htmlFor={`${id}-credential`}>{method === 'PASSWORD' ? t.password : method === 'TOTP' ? t.totp : t.recovery}</label>
+            <input ref={credentialRef} id={`${id}-credential`} type="password" autoComplete={method === 'PASSWORD' ? 'current-password' : 'one-time-code'}
+              inputMode={method === 'TOTP' ? 'numeric' : 'text'} className="rounded border bg-background p-2" value={credential} disabled={busy} aria-invalid={failed}
+              onChange={(event) => setCredential(event.target.value)} />
+            {failed && <p role="alert">{t.failed}</p>}
+            <div className="flex flex-wrap gap-2"><button type="button" disabled={busy || !validCredential} onClick={() => void verifyAndSave()} className="rounded bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50">{busy ? t.working : t.verify}</button>
+              <button type="button" disabled={busy} onClick={() => { setDraft(null); setCredential(''); setFailed(false); }} className="rounded border px-3 py-2">{t.cancel}</button>
+              {failed && <button type="button" disabled={busy} onClick={() => void refresh()} className="rounded border px-3 py-2">{t.refresh}</button>}</div>
+          </div>}
+          {saved && <p role="status" aria-live="polite">{t.saved}</p>}
         </form>
       </div>
-
-      <div className="rounded-lg border bg-card p-5">
-        <h3 className="font-semibold">Current usage</h3>
-        {usage ? (
-          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3" data-testid="position-limit-usage">
-            <div className="rounded-md border p-3">
-              <dt className="text-muted">Position slots</dt>
-              <dd className="mt-1 font-mono text-lg font-semibold">{usageValue(usage.openPositionSlots)}</dd>
-            </div>
-            <div className="rounded-md border p-3">
-              <dt className="text-muted">Open orders</dt>
-              <dd className="mt-1 font-mono text-lg font-semibold">{usageValue(usage.openOrderCount)}</dd>
-            </div>
-            <div className="rounded-md border p-3">
-              <dt className="text-muted">Owned accounts included</dt>
-              <dd className="mt-1 font-mono text-lg font-semibold">{usageValue(usage.ownedAccountCount)}</dd>
-            </div>
-          </dl>
-        ) : (
-          <p className="mt-3 text-sm text-amber-700" role="status" data-testid="position-limit-usage-unknown">
-            Usage is unknown because one or more position or order records could not be read. The platform does not substitute zero.
-          </p>
-        )}
-        <p className="mt-3 text-xs text-muted">Usage sampled at {new Date(view.asOf).toISOString()} UTC.</p>
+      <div className="rounded border bg-card p-4 space-y-2"><h2 className="font-semibold">{t.usage}</h2>
+        {view.usage ? <dl className="grid gap-2 text-sm md:grid-cols-3"><div><dt>{t.slots}</dt><dd>{view.usage.openPositionSlots}</dd></div>
+          <div><dt>{t.openOrders}</dt><dd>{view.usage.openOrderCount}</dd></div><div><dt>{t.accounts}</dt><dd>{view.usage.ownedAccountCount}</dd></div></dl>
+          : <p role="status" className="text-sm text-muted-foreground">{t.unknown}</p>}
+        <p className="text-xs text-muted-foreground">{t.sampled} <time dateTime={view.asOf}>{new Date(view.asOf).toLocaleString(locale)}</time></p>
       </div>
-
-      <div className="rounded-lg border bg-card p-5 text-sm">
-        <h3 className="font-semibold">How enforcement works</h3>
-        <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
-          <li>Open OMS intents reserve slots before they are persisted; concurrent submissions are serialized per tenant and account owner.</li>
-          <li>Positions and active OMS trades hold a slot until their recorded lifecycle reports them closed. Orders in cancellation or reconciliation states remain counted.</li>
-          <li>A blank field means no user-wide ceiling; zero blocks new reservations. Lowering a limit does not cancel existing orders or positions.</li>
-          <li>These are count limits, not notional or balance limits. Existing account risk checks, live-trading enablement, exchange credentials, kill switches, and execution gates still apply.</li>
-          <li>Limits guard orders submitted through the platform OMS. Orders placed directly at an exchange cannot be blocked before they are synchronized into platform records.</li>
-        </ul>
-        <p className="mt-3 text-xs text-muted">The usage view unions non-zero positions, active OMS trades, and pending order symbols by account and symbol; active order rows are de-duplicated by client order ID.</p>
-      </div>
-    </section>
-  );
+      <div className="rounded border bg-card p-4 space-y-2 text-sm"><h2 className="font-semibold">{t.how}</h2>
+        <ul className="list-disc space-y-1 ps-5"><li>{t.how1}</li><li>{t.how2}</li><li>{t.how3}</li><li>{t.how4}</li><li>{t.how5}</li><li>{t.how6}</li></ul></div>
+    </>}
+  </section>;
 }

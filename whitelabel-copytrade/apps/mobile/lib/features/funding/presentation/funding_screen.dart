@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/di/feature_providers.dart';
+import '../../../core/di/providers.dart';
 import '../../../core/widgets/async_body.dart';
 import '../../../l10n/app_localizations.dart';
 import '../domain/funding_models.dart';
+import '../data/deposit_address_repository.dart';
+import 'deposit_address_screen.dart';
+import 'deposit_address_strings.dart';
 import 'withdrawal_destination_check_dialog.dart';
 
 /// Funding: the customer's accounts with "request deposit", and the history of
@@ -27,14 +31,17 @@ class FundingScreen extends ConsumerWidget {
               onPressed: () => showDialog<void>(
                 context: context,
                 builder: (_) => WithdrawalDestinationCheckDialog(
-                    repository: ref.read(fundingRepositoryProvider),),
+                  repository: ref.read(fundingRepositoryProvider),
+                ),
               ),
             ),
           ],
-          bottom: TabBar(tabs: <Widget>[
-            Tab(text: l10n.accountsTab),
-            Tab(text: l10n.transactionsTab),
-          ],),
+          bottom: TabBar(
+            tabs: <Widget>[
+              Tab(text: l10n.accountsTab),
+              Tab(text: l10n.transactionsTab),
+            ],
+          ),
         ),
         body: TabBarView(
           children: <Widget>[
@@ -53,21 +60,26 @@ class FundingScreen extends ConsumerWidget {
                         child: ListTile(
                           leading: const Icon(Icons.account_balance_outlined),
                           title: Text(a.label),
-                          subtitle: Text(a.canDeposit
-                              ? a.state
-                              : '${a.state} · ${l10n.depositsUnavailable}',),
+                          subtitle: Text(
+                            a.canDeposit
+                                ? a.state
+                                : '${a.state} · ${l10n.depositsUnavailable}',
+                          ),
                           trailing: a.canDeposit
                               ? FilledButton.tonal(
                                   onPressed: () =>
                                       _requestDeposit(context, ref, a),
-                                  child: Text(l10n.depositLabel),)
+                                  child: Text(l10n.depositLabel),
+                                )
                               : null,
                         ),
                       ),
                     Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Text(l10n.withdrawOnWebNotice,
-                          style: Theme.of(context).textTheme.bodySmall,),
+                      child: Text(
+                        l10n.withdrawOnWebNotice,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
                   ],
                 ),
@@ -88,8 +100,10 @@ class FundingScreen extends ConsumerWidget {
                     if (i == 0) {
                       return Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Text(l10n.pendingNotCompleted,
-                            style: Theme.of(context).textTheme.bodySmall,),
+                        child: Text(
+                          l10n.pendingNotCompleted,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
                       );
                     }
                     final FundingRequestSummary t = rows[i - 1];
@@ -102,17 +116,31 @@ class FundingScreen extends ConsumerWidget {
                       leading:
                           Icon(deposit ? Icons.south_west : Icons.north_east),
                       title: Text(
-                          '${deposit ? l10n.depositLabel : l10n.withdrawalLabel} · ${t.requestedAmount} ${t.currency}',),
+                        '${deposit ? l10n.depositLabel : l10n.withdrawalLabel} · ${t.requestedAmount} ${t.currency}',
+                      ),
                       subtitle: Text(
                         '${t.state.replaceAll('_', ' ')}$confirmed · ${formatTimestamp(t.requestedAt)}'
                         '${t.failureReason == null ? '' : '\n${t.failureReason}'}',
                       ),
                       isThreeLine: t.failureReason != null,
-                      trailing: t.isConfirmed
-                          ? const Icon(Icons.check_circle_outline)
-                          : t.isOpen
-                              ? const Icon(Icons.hourglass_empty)
-                              : const Icon(Icons.block_outlined),
+                      trailing: deposit && t.isOpen
+                          ? TextButton(
+                              onPressed: () => Navigator.of(context)
+                                  .push(MaterialPageRoute<void>(
+                                builder: (_) => DepositAddressScreen(
+                                  request: t,
+                                  repository: DepositAddressRepository(
+                                      apiClient: ref.read(apiClientProvider),),
+                                ),
+                              ),),
+                              child: Text(
+                                  DepositAddressStrings.of(context)['open'],),
+                            )
+                          : t.isConfirmed
+                              ? const Icon(Icons.check_circle_outline)
+                              : t.isOpen
+                                  ? const Icon(Icons.hourglass_empty)
+                                  : const Icon(Icons.block_outlined),
                     );
                   },
                 ),
@@ -124,8 +152,11 @@ class FundingScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _requestDeposit(BuildContext context, WidgetRef ref,
-      FundingAccountSummary account,) async {
+  Future<void> _requestDeposit(
+    BuildContext context,
+    WidgetRef ref,
+    FundingAccountSummary account,
+  ) async {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final _DepositDraft? draft = await showDialog<_DepositDraft>(
       context: context,
@@ -156,8 +187,11 @@ class FundingScreen extends ConsumerWidget {
 }
 
 class _DepositDraft {
-  const _DepositDraft(
-      {required this.amount, required this.currency, required this.reference,});
+  const _DepositDraft({
+    required this.amount,
+    required this.currency,
+    required this.reference,
+  });
 
   final String amount;
   final String currency;
@@ -191,9 +225,10 @@ class _DepositDialogState extends State<_DepositDialog> {
     if (_formKey.currentState?.validate() ?? false) {
       Navigator.of(context).pop(
         _DepositDraft(
-            amount: _amount.text.trim(),
-            currency: _currency.text.trim().toUpperCase(),
-            reference: _reference.text.trim(),),
+          amount: _amount.text.trim(),
+          currency: _currency.text.trim().toUpperCase(),
+          reference: _reference.text.trim(),
+        ),
       );
     }
   }
@@ -239,16 +274,19 @@ class _DepositDialogState extends State<_DepositDialog> {
                     : null,
               ),
               const SizedBox(height: 8),
-              Text(l10n.depositRequestNotice,
-                  style: Theme.of(context).textTheme.bodySmall,),
+              Text(
+                l10n.depositRequestNotice,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
         ),
       ),
       actions: <Widget>[
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(l10n.cancel),),
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.cancel),
+        ),
         FilledButton(onPressed: _submit, child: Text(l10n.requestDeposit)),
       ],
     );

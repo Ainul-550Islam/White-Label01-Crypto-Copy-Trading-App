@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
+import { validatedExposureCurrency } from './exposure-currency';
 import {
   PortfolioExposure,
   SymbolExposure,
@@ -61,7 +62,11 @@ function mul(a: string, b: string): string {
   // (a*1e12 * b*1e12)/1e12
   const av = parseScaled(a);
   const bv = parseScaled(b);
-  return formatScaled((av * bv) / SCALE);
+  const product = av * bv;
+  // All callers multiply non-negative quantity and price. Round a discarded
+  // fraction upwards so a capped order or position is never understated.
+  const rounded = product > 0n ? (product + SCALE - 1n) / SCALE : product / SCALE;
+  return formatScaled(rounded);
 }
 function cmp(a: string, b: string): number {
   const av = parseScaled(a);
@@ -87,8 +92,16 @@ export class PortfolioExposureService {
     strategyId?: string;
     followerId?: string;
     userId?: string;
+    candidateSymbol?: string;
+    /** Account providing the candidate market, without narrowing a tenant-wide aggregate. */
+    candidateAccountId?: string;
+    /** Existing intent being rechecked for routing; its candidate notional is projected separately. */
+    excludePendingIntentId?: string;
   }): Promise<PortfolioExposure> {
-    const { tenantId, accountId, traderId, strategyId, followerId } = params;
+    const { tenantId, accountId, traderId, strategyId, followerId, candidateSymbol, candidateAccountId, excludePendingIntentId } = params;
+    if (accountId && candidateAccountId && accountId !== candidateAccountId) {
+      throw new Error('Candidate account does not match the exposure scope');
+    }
 
     const policy = await this.policyService.resolveEffectivePolicy({
       tenantId,
@@ -97,36 +110,67 @@ export class PortfolioExposureService {
       followerId: followerId ?? null,
     });
 
-    // Canonical positions
-    const positions = await this.prisma.position.findMany({
-      where: {
-        tenantId,
-        ...(accountId ? { accountId } : {}),
-      },
-      include: { symbolRef: true },
-    });
-
-    // Canonical open orders
-    const openOrders = await this.prisma.order.findMany({
-      where: {
-        tenantId,
-        ...(accountId ? { accountId } : {}),
-        status: { in: ['PENDING', 'SUBMITTED', 'ACKNOWLEDGED', 'PARTIALLY_FILLED'] },
-      },
-    });
-
-    // Canonical balances (latest per account asset, but we have snapshot table)
-    const balances = await this.prisma.accountBalanceSnapshot.findMany({
-      where: { tenantId, ...(accountId ? { accountId } : {}) },
-    });
-
-    // Trading symbols for price metadata
-    const symbols = await this.prisma.tradingSymbol.findMany({
-      where: { tenantId },
-    });
-    const symbolMap = new Map(symbols.map((s) => [s.symbol, s]));
-
+    // Every read uses the same tenant-scoped transaction. An empty result from
+    // a forced-RLS connection without its tenant GUC is not evidence of zero
+    // positions or orders.
     const now = new Date();
+    const [positions, openOrders, balances, candles, candidateMarkets, pendingIntents] = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      // Read reservations first. If an intent transitions while this query is
+      // in flight, the later canonical-order read still sees the order it
+      // produced. An unmatched reservation cannot be priced as zero.
+      const pendingIntents = await tx.omsOrderIntent.findMany({
+        where: {
+          tenantId, ...(accountId ? { accountId } : {}),
+          ...(excludePendingIntentId ? { id: { not: excludePendingIntentId } } : {}),
+          state: { in: ['CREATED', 'VALIDATING', 'APPROVED', 'SUBMITTED', 'ACKNOWLEDGED', 'PARTIALLY_FILLED',
+            'CANCEL_REQUESTED', 'FAILED', 'RECONCILIATION_REQUIRED', 'REPLACED'] },
+        },
+        select: { clientOrderId: true, symbol: true },
+      });
+      const [positions, openOrders, balances] = await Promise.all([
+        tx.position.findMany({
+          where: { tenantId, ...(accountId ? { accountId } : {}) },
+          include: { symbolRef: true },
+        }),
+        tx.order.findMany({
+          where: {
+            tenantId,
+            ...(accountId ? { accountId } : {}),
+            // A requested cancellation is still open. Terminal-looking orders
+            // with reconciliation problems remain exposure too.
+            OR: [
+              { status: { in: ['PENDING', 'SUBMITTED', 'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'CANCEL_REQUESTED', 'FAILED'] } },
+              { reconciliationState: { not: 'IN_SYNC' } },
+            ],
+          },
+          include: { symbolRef: true },
+        }),
+        tx.accountBalanceSnapshot.findMany({ where: { tenantId, ...(accountId ? { accountId } : {}) } }),
+      ]);
+      const symbolIds = [...new Set(positions.map((position) => position.symbolId))];
+      const maxAge = policy.thresholds.marketDataMaxAgeMs;
+      const candles = symbolIds.length && Number.isFinite(maxAge) && maxAge > 0
+        ? await tx.marketDataRecord.findMany({
+          where: {
+            symbolId: { in: symbolIds }, interval: '1m', tradeCount: { gt: 0 },
+            closeTime: { lte: now, gte: new Date(now.getTime() - maxAge) },
+          },
+          orderBy: [{ symbolId: 'asc' }, { closeTime: 'desc' }],
+          distinct: ['symbolId'],
+          select: { symbolId: true, close: true, closeTime: true },
+        })
+        : [];
+      const candidateAccount = candidateAccountId ?? accountId;
+      const account = candidateSymbol && candidateAccount ? await tx.tradingAccount.findFirst({
+        where: { tenantId, id: candidateAccount, deletedAt: null }, select: { exchangeId: true, marketType: true },
+      }) : null;
+      const candidateMarkets = account && candidateSymbol ? await tx.tradingSymbol.findMany({
+        where: { tenantId, exchangeId: account.exchangeId, marketType: account.marketType, symbol: candidateSymbol },
+        select: { quoteAsset: true, marketType: true }, take: 2,
+      }) : [];
+      return [positions, openOrders, balances, candles, candidateMarkets, pendingIntents] as const;
+    });
+    const candleBySymbolId = new Map(candles.map((candle) => [candle.symbolId, candle]));
     const nowIso = now.toISOString();
     const staleSymbols: string[] = [];
     const unknownPrices: string[] = [];
@@ -134,89 +178,110 @@ export class PortfolioExposureService {
     // Aggregate per symbol
     const symbolAgg = new Map<string, { long: bigint; short: bigint; net: bigint; gross: bigint; openOrder: bigint; venue: string; base: string | null; quote: string | null; price: string | null; priceTs: string | null; isStale: boolean }>();
 
+    const unknown = (symbol: string) => {
+      if (!unknownPrices.includes(symbol)) unknownPrices.push(symbol);
+    };
+    const canonicalOrderIds = new Set(openOrders.map((order) => order.clientOrderId));
+    for (const intent of pendingIntents) {
+      if (!canonicalOrderIds.has(intent.clientOrderId)) unknown(intent.symbol);
+    }
+    const quotes = new Set<string>();
+    if (candidateSymbol) {
+      if (candidateMarkets.length !== 1 || candidateMarkets[0].marketType !== 'SPOT' || !candidateMarkets[0].quoteAsset) {
+        unknown(candidateSymbol);
+      } else {
+        quotes.add(candidateMarkets[0].quoteAsset);
+      }
+    }
     for (const pos of positions) {
       const sym = pos.symbol;
       const venue = pos.venue as string;
       const qtyStr = pos.quantity.toString();
-      if (!isValidDecimalString(qtyStr)) continue;
-      const markPrice = pos.markPrice?.toString() ?? pos.averageEntryPrice?.toString() ?? null;
-      const priceValid = isValidDecimalString(markPrice);
-      let notionalStr: string | null = null;
-      if (priceValid) {
-        notionalStr = mul(absStr(qtyStr), markPrice!);
-      } else {
-        unknownPrices.push(sym);
-      }
+      if (!isValidDecimalString(qtyStr)) { unknown(sym); continue; }
+      if (parseScaled(qtyStr) === 0n) continue;
+      const candle = candleBySymbolId.get(pos.symbolId);
+      const markPrice = candle?.close.toString() ?? null;
+      // Position.updatedAt is not a mark timestamp: fills or reconciliation
+      // can update it while retaining an old mark. Entry price is cost basis,
+      // not a valuation. Use only a recent, closed, traded market-data candle.
+      const priceValid = isValidDecimalString(markPrice) && parseScaled(markPrice!) > 0n;
+      const spot = pos.symbolRef?.marketType === 'SPOT';
+      const quote = pos.symbolRef?.quoteAsset ?? null;
+      if (!priceValid || !spot || !quote) unknown(sym);
+      if (quote) quotes.add(quote);
+      const notionalStr = priceValid && spot && quote ? mul(absStr(qtyStr), markPrice!) : null;
 
       let agg = symbolAgg.get(sym);
       if (!agg) {
         agg = {
-          long: 0n,
-          short: 0n,
-          net: 0n,
-          gross: 0n,
-          openOrder: 0n,
-          venue,
-          base: pos.symbolRef?.baseAsset ?? null,
-          quote: pos.symbolRef?.quoteAsset ?? null,
-          price: markPrice,
-          priceTs: pos.updatedAt?.toISOString() ?? null,
+          long: 0n, short: 0n, net: 0n, gross: 0n, openOrder: 0n,
+          venue, base: pos.symbolRef?.baseAsset ?? null, quote,
+          price: priceValid ? markPrice : null,
+          priceTs: priceValid ? (candle?.closeTime.toISOString() ?? null) : null,
           isStale: false,
         };
         symbolAgg.set(sym, agg);
+      } else if (agg.venue !== venue || agg.quote !== quote) {
+        // The public aggregate is symbol-keyed and cannot safely attribute
+        // different venues or quote units to a single symbol row.
+        unknown(sym);
       }
       if (notionalStr) {
         const signedQty = parseScaled(qtyStr);
-        if (signedQty >= 0n) {
-          agg.long += parseScaled(notionalStr);
-        } else {
-          agg.short += parseScaled(notionalStr);
-        }
-        agg.net += signedQty >= 0n ? parseScaled(notionalStr) : -parseScaled(notionalStr);
-        agg.gross += parseScaled(notionalStr);
-      }
-      // Check stale: if markPrice older than policy marketDataMaxAgeMs
-      const ageMs = now.getTime() - new Date(pos.updatedAt).getTime();
-      if (ageMs > policy.thresholds.marketDataMaxAgeMs) {
-        agg.isStale = true;
-        if (!staleSymbols.includes(sym)) staleSymbols.push(sym);
+        const notional = parseScaled(notionalStr);
+        if (signedQty >= 0n) agg.long += notional;
+        else agg.short += notional;
+        agg.net += signedQty >= 0n ? notional : -notional;
+        agg.gross += notional;
       }
     }
 
-    // Add open order notional per symbol
+    // An execution-price cap exists for a priced BUY LIMIT, not for a
+    // market order or a SELL limit (whose price is a floor). Count the full
+    // order size, even when partially filled, so a concurrent fill cannot be
+    // silently subtracted before its position is visible.
+    const boundedOrderNotional = (ord: (typeof openOrders)[number]): string | null => {
+      const qty = ord.quantity.toString();
+      const price = ord.price?.toString() ?? null;
+      if (ord.reconciliationState !== 'IN_SYNC' || ord.orderType !== 'LIMIT' || ord.side !== 'BUY' ||
+          ord.symbolRef?.marketType !== 'SPOT' || !ord.symbolRef?.quoteAsset ||
+          !isValidDecimalString(qty) || !isValidDecimalString(price) ||
+          parseScaled(qty) <= 0n || parseScaled(price!) <= 0n) return null;
+      return mul(qty, price!);
+    };
     for (const ord of openOrders) {
       const sym = ord.symbol;
-      const qtyStr = ord.quantity.toString();
-      const priceStr = ord.price?.toString() ?? null;
-      let notionalStr: string | null = null;
-      if (isValidDecimalString(qtyStr) && isValidDecimalString(priceStr)) {
-        notionalStr = mul(qtyStr, priceStr!);
-      } else if (isValidDecimalString(qtyStr)) {
-        // If market order without price, use mark price if available
-        const agg = symbolAgg.get(sym);
-        if (agg?.price && isValidDecimalString(agg.price)) {
-          notionalStr = mul(qtyStr, agg.price);
-        }
+      const quote = ord.symbolRef?.quoteAsset ?? null;
+      if (quote) quotes.add(quote);
+      const notionalStr = boundedOrderNotional(ord);
+      if (notionalStr === null) { unknown(sym); continue; }
+      let agg = symbolAgg.get(sym);
+      if (!agg) {
+        agg = {
+          long: 0n, short: 0n, net: 0n, gross: 0n, openOrder: 0n,
+          venue: ord.venue as string, base: ord.symbolRef?.baseAsset ?? null, quote,
+          price: null, priceTs: null, isStale: false,
+        };
+        symbolAgg.set(sym, agg);
+      } else if (agg.venue !== ord.venue || agg.quote !== quote) {
+        unknown(sym);
       }
-      if (notionalStr) {
-        let agg = symbolAgg.get(sym);
-        if (!agg) {
-          agg = {
-            long: 0n,
-            short: 0n,
-            net: 0n,
-            gross: 0n,
-            openOrder: 0n,
-            venue: ord.venue as string,
-            base: null,
-            quote: null,
-            price: null,
-            priceTs: null,
-            isStale: false,
-          };
-          symbolAgg.set(sym, agg);
-        }
-        agg.openOrder += parseScaled(notionalStr);
+      agg.openOrder += parseScaled(notionalStr);
+    }
+    if (quotes.size > 1) {
+      // No FX conversion source or base currency is carried by this
+      // aggregate. A sum of unlike quote units is diagnostic only.
+      for (const symbol of symbolAgg.keys()) unknown(symbol);
+      for (const ord of openOrders) unknown(ord.symbol);
+      if (candidateSymbol) unknown(candidateSymbol);
+    }
+    if (traderId || strategyId || followerId || policy.thresholds.maxStrategyExposure != null ||
+        policy.thresholds.maxTraderExposure != null || policy.thresholds.maxFollowerExposure != null) {
+      // Positions have no reliable strategy/trader/follower attribution in
+      // this ledger. Their account-level amounts cannot prove scope totals.
+      for (const pos of positions) {
+        const qty = pos.quantity.toString();
+        if (!isValidDecimalString(qty) || parseScaled(qty) !== 0n) unknown(pos.symbol);
       }
     }
 
@@ -304,44 +369,35 @@ export class PortfolioExposureService {
       });
     }
 
-    // Account exposures
+    // Account exposures use the same bounded orders and fresh candle marks as
+    // the portfolio aggregate. Unknown components are reflected in state.
     const accountMap = new Map<string, { venue: string; gross: bigint; net: bigint; long: bigint; short: bigint; openOrder: bigint; symbols: Set<string> }>();
     for (const pos of positions) {
       const qtyStr = pos.quantity.toString();
-      const markPrice = pos.markPrice?.toString() ?? pos.averageEntryPrice?.toString() ?? null;
-      let notional = 0n;
-      if (isValidDecimalString(qtyStr) && isValidDecimalString(markPrice)) {
-        notional = parseScaled(mul(absStr(qtyStr), markPrice!));
-      }
+      if (!isValidDecimalString(qtyStr) || parseScaled(qtyStr) === 0n) continue;
+      const markPrice = candleBySymbolId.get(pos.symbolId)?.close.toString() ?? null;
+      const priced = pos.symbolRef?.marketType === 'SPOT' && !!pos.symbolRef?.quoteAsset &&
+        isValidDecimalString(markPrice) && parseScaled(markPrice!) > 0n;
+      const notional = priced ? parseScaled(mul(absStr(qtyStr), markPrice!)) : 0n;
       let am = accountMap.get(pos.accountId);
       if (!am) {
         am = { venue: pos.venue as string, gross: 0n, net: 0n, long: 0n, short: 0n, openOrder: 0n, symbols: new Set() };
         accountMap.set(pos.accountId, am);
       }
       am.gross += notional;
-      const signed = parseScaled(qtyStr);
-      if (signed >= 0n) {
-        am.long += notional;
-        am.net += notional;
-      } else {
-        am.short += notional;
-        am.net -= notional;
-      }
+      if (parseScaled(qtyStr) >= 0n) { am.long += notional; am.net += notional; }
+      else { am.short += notional; am.net -= notional; }
       am.symbols.add(pos.symbol);
     }
     for (const ord of openOrders) {
-      const qtyStr = ord.quantity.toString();
-      const priceStr = ord.price?.toString() ?? null;
-      let notional = 0n;
-      if (isValidDecimalString(qtyStr) && isValidDecimalString(priceStr)) {
-        notional = parseScaled(mul(qtyStr, priceStr!));
-      }
+      const notionalStr = boundedOrderNotional(ord);
       let am = accountMap.get(ord.accountId);
       if (!am) {
         am = { venue: ord.venue as string, gross: 0n, net: 0n, long: 0n, short: 0n, openOrder: 0n, symbols: new Set() };
         accountMap.set(ord.accountId, am);
       }
-      am.openOrder += notional;
+      if (notionalStr !== null) am.openOrder += parseScaled(notionalStr);
+      am.symbols.add(ord.symbol);
     }
     const accountExposures: AccountExposure[] = [];
     for (const [accountId, am] of accountMap.entries()) {
@@ -370,11 +426,10 @@ export class PortfolioExposureService {
         sm = { gross: 0n, net: 0n, traderId: null };
         strategyMap.set(sid, sm);
       }
-      const qtyStr = o.quantity.toString();
-      const priceStr = o.price?.toString() ?? '0';
-      if (isValidDecimalString(qtyStr) && isValidDecimalString(priceStr)) {
-        const notional = parseScaled(mul(qtyStr, priceStr));
-        sm.gross += notional >= 0n ? notional : -notional;
+      const bound = boundedOrderNotional(o);
+      if (bound !== null) {
+        const notional = parseScaled(bound);
+        sm.gross += notional;
         sm.net += notional;
       }
     }
@@ -389,16 +444,26 @@ export class PortfolioExposureService {
     const traderExposures: PortfolioExposure['traderExposures'] = [];
     const followerExposures: PortfolioExposure['followerExposures'] = [];
 
+    // A single quote asset is evidence only for the values actually valued in
+    // that asset, not for the currency of an unrelated policy number. Every
+    // contributing policy scope must explicitly bind the same unit.
+    const onlyQuote = quotes.size === 1 ? [...quotes][0] : null;
+    const valuationCurrency = onlyQuote && /^[A-Z0-9]{2,16}$/.test(onlyQuote) ? onlyQuote : null;
+    if (policy.thresholds.maxGrossExposure != null) {
+      const limitCurrency = validatedExposureCurrency(policy);
+      if (!limitCurrency || (quotes.size > 0 && valuationCurrency !== limitCurrency)) unknown('POLICY_CURRENCY');
+    }
+
     // Notional utilization
     let notionalUtilizationPercent: string | null = null;
     if (policy.thresholds.maxGrossExposure && isValidDecimalString(policy.thresholds.maxGrossExposure)) {
       const maxGross = parseScaled(policy.thresholds.maxGrossExposure);
       if (maxGross > 0n) {
-        notionalUtilizationPercent = formatScaled((totalGross * 100n * SCALE) / maxGross);
+        notionalUtilizationPercent = unknownPrices.length ? null : formatScaled(((totalGross + totalOpenOrder) * 100n * SCALE) / maxGross);
       }
     }
 
-    const state = this.determineExposureState(totalGross, policy, staleSymbols);
+    const state = unknownPrices.length ? RiskState.UNKNOWN : this.determineExposureState(totalGross + totalOpenOrder, policy, staleSymbols);
 
     const sourceTimestamps: Record<string, string> = {
       positions: positions.length ? (positions[0].updatedAt?.toISOString() ?? nowIso) : nowIso,
@@ -417,6 +482,7 @@ export class PortfolioExposureService {
       shortExposure,
       openOrderExposure,
       totalExposure,
+      valuationCurrency,
       notionalUtilizationPercent,
       symbolExposures,
       venueExposures,
@@ -428,7 +494,7 @@ export class PortfolioExposureService {
       unknownPrices,
       sourceTimestamps,
       state,
-      warnings: [...(staleSymbols.length ? [`Stale market data for: ${staleSymbols.join(',')}`] : []), ...(unknownPrices.length ? [`Unknown prices for: ${unknownPrices.join(',')}`] : [])],
+      warnings: [...(staleSymbols.length ? [`Stale market data for: ${staleSymbols.join(',')}`] : []), ...(unknownPrices.length ? [`Exposure valuation or attribution unavailable for: ${unknownPrices.join(',')}`] : [])],
     };
   }
 

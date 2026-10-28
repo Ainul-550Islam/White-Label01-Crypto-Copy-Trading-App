@@ -1,5 +1,5 @@
 // # Responsibility: bridge complete custody confirmation evidence into tenant-bound submitted workflows atomically with audit; never swallow a required settlement failure.
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, type CustodyDeposit, type CustodyWithdrawal, type CustodyTransaction } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CustodyAuditAction, CustodySettlementState, cmp, custodyJsonInput, isValidDecimal } from './custody.types';
@@ -12,9 +12,12 @@ export class SettlementService {
 
   async finalizeDepositSettlement(params: {
     tenantId: string; depositId: string; operatorId?: string | null; correlationId?: string | null;
-  }): Promise<{ depositId: string; settled: true; transactionHash: string; settlementState: CustodySettlementState.SETTLED }> {
-    const { tenantId, depositId, operatorId = null, correlationId = null } = params;
-    const result = await this.prisma.$transaction(async (tx) => {
+  }): Promise<never> {
+    const { tenantId, depositId } = params;
+    return this.prisma.$transaction(async (tx) => {
+      // Custody and funding rows are tenant protected; a bare transaction on
+      // a non-bypass role would otherwise be unable to see either record.
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       const deposit = await tx.custodyDeposit.findFirst({ where: { id: depositId, tenantId } });
       if (!deposit) throw new BadRequestException('Deposit not found');
       this.assertConfirmation(deposit, 'Deposit');
@@ -35,24 +38,16 @@ export class SettlementService {
             || cmp(request.confirmedAmount, deposit.amount) !== 0 || cmp(request.settledAmount, deposit.amount) !== 0) {
             throw new BadRequestException('Conflicting previously confirmed funding evidence');
           }
-        } else {
-          if (request.state !== 'SUBMITTED' || request.submittedAmount === null || cmp(request.submittedAmount, deposit.amount) !== 0) {
-            throw new BadRequestException('Funding settlement requires a matching submitted amount/state');
-          }
-          const updated = await tx.fundingRequest.updateMany({ where: { id: request.id, tenantId, state: 'SUBMITTED', submittedAmount: request.submittedAmount },
-            data: { state: 'CONFIRMED', confirmedAt: deposit.confirmedAt, confirmedAmount: deposit.amount,
-              settledAmount: deposit.amount, externalReference: transactionHash } });
-          if (updated.count !== 1) throw new BadRequestException('Funding settlement changed concurrently');
+        } else if (request.state !== 'SUBMITTED' || request.submittedAmount === null || cmp(request.submittedAmount, deposit.amount) !== 0) {
+          throw new BadRequestException('Funding settlement requires a matching submitted amount/state');
         }
       }
-      await tx.custodyAudit.create({ data: { tenantId, walletId: deposit.walletId, action: CustodyAuditAction.SETTLEMENT_FINALIZED,
-        entityType: 'CUSTODY_DEPOSIT', entityId: depositId, actorId: operatorId, correlationId,
-        evidence: custodyJsonInput({ transactionHash, amount: deposit.amount, assetId: deposit.assetId, networkId: deposit.networkId,
-          fundingRequestId: deposit.fundingRequestId, transactionId: transaction?.id, note: 'Settlement references persisted provider confirmation evidence; no second finance ledger is created' }) } });
-      return { depositId, settled: true, transactionHash, settlementState: CustodySettlementState.SETTLED } as const;
+      // A custody state, transaction hash, confirmation count or portfolio
+      // reporting entry is not proof of a spendable customer-liability credit.
+      // Never mutate the request or claim SETTLED until a verified, atomic
+      // customer credit exists in the authoritative balance system.
+      throw new ServiceUnavailableException('Customer credit has not been independently verified; deposit settlement cannot be finalized.');
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    this.logger.log({ event: 'custody.settlement.deposit_finalized', tenantId, depositId });
-    return result;
   }
 
   async finalizeWithdrawalSettlement(params: {

@@ -552,7 +552,7 @@ describe('catalog domain producers persist schema-valid events with the real Out
     expect((harness.tx.clientLifecycleAudit as { create: jest.Mock }).create).toHaveBeenCalledTimes(1);
   });
 
-  it('persists funding.confirmed only after the submitted request has external settlement evidence', async () => {
+  it('does not publish funding.confirmed from an unverified caller-supplied reference', async () => {
     const harness = makeOutboxHarness();
     const request = {
       id: 'funding-confirmed',
@@ -590,23 +590,16 @@ describe('catalog domain producers persist schema-valid events with the real Out
       harness.service,
     );
 
-    await service.transitionFundingRequest({
+    await expect(service.transitionFundingRequest({
       tenantId: TENANT_ID,
       fundingRequestId: 'funding-confirmed',
       toState: FundingRequestState.CONFIRMED,
       confirmedAmount: '25.75',
       externalReference: 'provider-funding-1',
       correlationId: 'funding-confirm-request',
-    });
-
-    const event = expectStoredEvent(harness, 'funding.confirmed');
-    expect(event.payload).toEqual({
-      fundingRequestId: 'funding-confirmed',
-      amount: '25.75',
-      currency: 'USD',
-      status: FundingRequestState.CONFIRMED,
-    });
-    expect(harness.tx.outboxEvent.upsert).toHaveBeenCalledTimes(1);
+    })).rejects.toThrow('Customer credit has not been independently verified');
+    expect((harness.tx as any).fundingRequest.update).not.toHaveBeenCalled();
+    expect(harness.tx.outboxEvent.upsert).not.toHaveBeenCalled();
   });
 
   it('persists withdrawal.requested without trusting a client-side settlement claim', async () => {

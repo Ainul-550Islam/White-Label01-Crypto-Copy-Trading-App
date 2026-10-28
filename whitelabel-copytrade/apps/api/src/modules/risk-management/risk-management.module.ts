@@ -22,6 +22,8 @@ import { KillSwitchOrchestratorService } from './kill-switch-orchestrator.servic
 import { RiskDecisionService } from './risk-decision.service';
 import { RiskReconciliationService } from './risk-reconciliation.service';
 import { UserPositionLimitController } from './user-position-limit.controller';
+import { AccountOrderSizeLimitController } from './account-order-size-limit.controller';
+import { AccountOrderSizeLimitService } from './account-order-size-limit.service';
 import { PositionLimitService } from '../risk/position-limit.service';
 import { CustomerExposureService } from './customer-exposure.service';
 
@@ -49,6 +51,7 @@ import { CustomerExposureService } from './customer-exposure.service';
     // decorated for permissions, but was never listed here, so no route was mounted and a
     // customer's configured limit was unreachable.
     UserPositionLimitController,
+    AccountOrderSizeLimitController,
     // GAP-65: the customer's own liquidation buckets. Registered here because this
     // module owns the liquidation evaluator; the route prefix (`risk/liquidation-alerts`)
     // is what the customer app calls.
@@ -84,6 +87,7 @@ import { CustomerExposureService } from './customer-exposure.service';
     // exported so the order path reserves through the same service the settings route
     // writes to - a second instance would mean two locks for one policy.
     PositionLimitService,
+    AccountOrderSizeLimitService,
     // Owner-scoped customer exposure. It was implemented and unit-tested and in no module, so the
     // two routes below had nothing to inject.
     CustomerExposureService,

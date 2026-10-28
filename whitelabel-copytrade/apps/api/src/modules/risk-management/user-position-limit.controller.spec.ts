@@ -7,6 +7,7 @@ import { PERMISSIONS_KEY, PERMISSIONS_MODE_KEY } from '../../common/constants/me
 import { PositionLimitService } from '../risk/position-limit.service';
 import { UserPositionLimitController } from './user-position-limit.controller';
 import { UpdateUserPositionLimitDto } from './dto/user-position-limit.dto';
+import { REQUIRE_STEP_UP_KEY } from '../auth/step-up/require-step-up.decorator';
 
 const TENANT_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const USER_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3302';
@@ -52,24 +53,22 @@ describe('UserPositionLimitController', () => {
     const patch = Object.assign(new UpdateUserPositionLimitDto(), {
       maxConcurrentPositions: 4,
       maxOpenOrders: 9,
+      expectedUpdatedAt: null,
     });
 
     const result = await controller.updateMyLimits(
       {
         user: { tenantId: TENANT_ID, userId: USER_ID },
         requestId: 'position-limit-request-1',
-        headers: { 'x-tenant-id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+        headers: { 'x-tenant-id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'idempotency-key': 'limit-key-123' },
       },
       patch,
     );
 
-    expect(result).toEqual({ tenantId: TENANT_ID, userId: USER_ID, patch, requestId: 'position-limit-request-1' });
-    expect(service.updateMyLimits).toHaveBeenCalledWith({
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      patch,
-      requestId: 'position-limit-request-1',
-    });
+    const expected = { tenantId: TENANT_ID, userId: USER_ID, patch: { maxConcurrentPositions: 4, maxOpenOrders: 9 },
+      requestId: 'position-limit-request-1', idempotencyKey: 'limit-key-123', expectedUpdatedAt: null };
+    expect(result).toEqual(expected);
+    expect(service.updateMyLimits).toHaveBeenCalledWith(expected);
   });
 
   it('requires explicit risk-read or portfolio-read permission for reads and execution-submit or risk-config-update for writes', () => {
@@ -82,5 +81,14 @@ describe('UserPositionLimitController', () => {
     expect(getMode).toBe('any');
     expect(putPermissions).toEqual([Permission.EXECUTION_SUBMIT, Permission.RISK_CONFIG_UPDATE]);
     expect(putMode).toBe('any');
+    expect(Reflect.getMetadata(REQUIRE_STEP_UP_KEY, UserPositionLimitController.prototype.updateMyLimits)).toBe('USER_POSITION_LIMIT_UPDATE');
+  });
+
+  it('refuses an update without a retry key or observed version', async () => {
+    const service = { updateMyLimits: jest.fn() };
+    const controller = new UserPositionLimitController(service as unknown as PositionLimitService);
+    await expect(controller.updateMyLimits({ user: { tenantId: TENANT_ID, userId: USER_ID } }, { maxOpenOrders: 2, expectedUpdatedAt: null })).rejects.toThrow();
+    await expect(controller.updateMyLimits({ user: { tenantId: TENANT_ID, userId: USER_ID }, headers: { 'idempotency-key': 'limit-key-123' } }, { maxOpenOrders: 2 })).rejects.toThrow();
+    expect(service.updateMyLimits).not.toHaveBeenCalled();
   });
 });

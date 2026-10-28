@@ -10,7 +10,7 @@
 //   * Failures are counted from `login_attempts`, which already exists and is
 //     already written by the auth path. Re-deriving them here would give the
 //     platform two answers to "how many failures" and therefore no reliable one.
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type {
@@ -23,11 +23,11 @@ export class PrismaLoginAnomalyRepository implements LoginAnomalyRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async listDevices(input: { tenantId: string; userId: string }): Promise<KnownDevice[]> {
-    const rows = await this.prisma.loginDevice.findMany({
+    const rows = await this.prisma.withTenantRls(input.tenantId, (tx) => tx.loginDevice.findMany({
       where: { tenantId: input.tenantId, userId: input.userId },
       orderBy: { lastSeenAt: 'desc' },
       take: 100,
-    });
+    }));
     return rows.map((row) => ({
       fingerprintHash: row.fingerprintHash,
       countryCode: row.countryCode,
@@ -42,14 +42,14 @@ export class PrismaLoginAnomalyRepository implements LoginAnomalyRepository {
   }
 
   async countRecentFailures(input: { tenantId: string; userId: string; since: Date }): Promise<number> {
-    return this.prisma.loginAttempt.count({
+    return this.prisma.withTenantRls(input.tenantId, (tx) => tx.loginAttempt.count({
       where: {
         tenantId: input.tenantId,
         userId: input.userId,
         successful: false,
         createdAt: { gte: input.since },
       },
-    });
+    }));
   }
 
   async upsertDevice(input: {
@@ -62,34 +62,38 @@ export class PrismaLoginAnomalyRepository implements LoginAnomalyRepository {
     lastSeenAt: Date;
     trusted: boolean;
   }): Promise<void> {
-    await this.prisma.loginDevice.upsert({
-      where: {
-        tenantId_userId_fingerprintHash: {
+    await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const user = await tx.user.findFirst({ where: { id: input.userId, tenantId: input.tenantId }, select: { id: true } });
+      if (!user) throw new NotFoundException('User not found');
+      await tx.loginDevice.upsert({
+        where: {
+          tenantId_userId_fingerprintHash: {
+            tenantId: input.tenantId,
+            userId: input.userId,
+            fingerprintHash: input.fingerprintHash,
+          },
+        },
+        create: {
           tenantId: input.tenantId,
           userId: input.userId,
           fingerprintHash: input.fingerprintHash,
+          countryCode: input.countryCode,
+          lastLatitude: input.lastLatitude,
+          lastLongitude: input.lastLongitude,
+          lastSeenAt: input.lastSeenAt,
+          trusted: input.trusted,
         },
-      },
-      create: {
-        tenantId: input.tenantId,
-        userId: input.userId,
-        fingerprintHash: input.fingerprintHash,
-        countryCode: input.countryCode,
-        lastLatitude: input.lastLatitude,
-        lastLongitude: input.lastLongitude,
-        lastSeenAt: input.lastSeenAt,
-        trusted: input.trusted,
-      },
-      update: {
-        // Nulls in the input mean "not reported this time", so they must not
-        // overwrite a known value: losing the last known country would make the
-        // next sign-in look like a new country and produce a false alert.
-        ...(input.countryCode === null ? {} : { countryCode: input.countryCode }),
-        ...(input.lastLatitude === null ? {} : { lastLatitude: input.lastLatitude }),
-        ...(input.lastLongitude === null ? {} : { lastLongitude: input.lastLongitude }),
-        lastSeenAt: input.lastSeenAt,
-        trusted: input.trusted,
-      },
+        update: {
+          // Nulls in the input mean "not reported this time", so they must not
+          // overwrite a known value: losing the last known country would make the
+          // next sign-in look like a new country and produce a false alert.
+          ...(input.countryCode === null ? {} : { countryCode: input.countryCode }),
+          ...(input.lastLatitude === null ? {} : { lastLatitude: input.lastLatitude }),
+          ...(input.lastLongitude === null ? {} : { lastLongitude: input.lastLongitude }),
+          lastSeenAt: input.lastSeenAt,
+          trusted: input.trusted,
+        },
+      });
     });
   }
 }

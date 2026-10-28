@@ -917,6 +917,7 @@ describe('Part6 required native settlement evidence and transactional bridge', (
   let module: TestingModule; let deposit: CustodyDeposit | null; let withdrawal: CustodyWithdrawal | null;
   let transaction: CustodyTransaction | null; let funding: FundingRequest | null; let withdrawalRequest: WithdrawalRequest | null;
   const tx = {
+    $executeRaw: jest.fn<(...args: unknown[]) => Promise<number>>(),
     custodyDeposit: { findFirst: jest.fn<(args: Prisma.CustodyDepositFindFirstArgs) => Promise<CustodyDeposit | null>>(), updateMany: jest.fn<(args: Prisma.CustodyDepositUpdateManyArgs) => Promise<Prisma.BatchPayload>>() },
     custodyWithdrawal: { findFirst: jest.fn<(args: Prisma.CustodyWithdrawalFindFirstArgs) => Promise<CustodyWithdrawal | null>>(), updateMany: jest.fn<(args: Prisma.CustodyWithdrawalUpdateManyArgs) => Promise<Prisma.BatchPayload>>() },
     custodyTransaction: { findFirst: jest.fn<(args: Prisma.CustodyTransactionFindFirstArgs) => Promise<CustodyTransaction | null>>(), updateMany: jest.fn<(args: Prisma.CustodyTransactionUpdateManyArgs) => Promise<Prisma.BatchPayload>>() },
@@ -939,17 +940,18 @@ describe('Part6 required native settlement evidence and transactional bridge', (
     tx.custodyWallet.findFirst.mockReset().mockResolvedValue(walletRecord({ accountId: 'account-1' })); tx.custodyAsset.findFirst.mockReset().mockResolvedValue(assetRecord());
     for (const delegate of [tx.custodyDeposit, tx.custodyWithdrawal, tx.custodyTransaction, tx.fundingRequest, tx.withdrawalRequest]) delegate.updateMany.mockReset().mockResolvedValue({ count: 1 });
     tx.custodyAudit.create.mockReset().mockResolvedValue(auditRecord());
+    tx.$executeRaw.mockReset().mockResolvedValue(1);
     transact.mockReset().mockImplementation(async (work) => work(tx));
     module = await Test.createTestingModule({ providers: [SettlementService, { provide: PrismaService, useValue: { $transaction: transact } }] }).compile();
   });
   afterEach(async () => { await module.close(); });
   function service() { return module.get<SettlementService>(SettlementService); }
-  it('uses persisted matching transaction evidence and a serializable tenant-bound funding update', async () => {
-    expect(await service().finalizeDepositSettlement(depositParams)).toMatchObject({ settled: true, transactionHash: 'unit-chain-hash' });
+  it('does not claim settlement or mutate funding when a spendable customer credit is unverified', async () => {
+    await expect(service().finalizeDepositSettlement(depositParams)).rejects.toThrow(ServiceUnavailableException);
     expect(transact).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    expect(tx.fundingRequest.updateMany).toHaveBeenCalledWith({ where: { id: 'funding-1', tenantId: TENANT, state: 'SUBMITTED', submittedAmount: '2' },
-      data: { state: 'CONFIRMED', confirmedAt: NOW, confirmedAmount: '2', settledAmount: '2', externalReference: 'unit-chain-hash' } });
-    expect(tx.custodyAudit.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ tenantId: TENANT, action: 'SETTLEMENT_FINALIZED', entityId: 'deposit-1' }) }));
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.fundingRequest.updateMany).not.toHaveBeenCalled();
+    expect(tx.custodyAudit.create).not.toHaveBeenCalled();
   });
   it('propagates a linked funding read failure instead of returning settled true', async () => {
     const failure = new Error('funding unavailable'); tx.fundingRequest.findFirst.mockRejectedValueOnce(failure);
@@ -978,15 +980,17 @@ describe('Part6 required native settlement evidence and transactional bridge', (
     await expect(service().finalizeDepositSettlement(depositParams)).rejects.toThrow('complete provider confirmation evidence');
     expect(tx.fundingRequest.updateMany).not.toHaveBeenCalled();
   });
-  it('does not return settled when the conditional workflow update lost a race', async () => {
-    tx.fundingRequest.updateMany.mockResolvedValueOnce({ count: 0 });
-    await expect(service().finalizeDepositSettlement(depositParams)).rejects.toThrow('changed concurrently'); expect(tx.custodyAudit.create).not.toHaveBeenCalled();
+  it('does not treat a matching prior funding state as proof of a spendable credit', async () => {
+    funding = fundingRequestRecord({ state: 'CONFIRMED', confirmedAmount: '2', settledAmount: '2', externalReference: 'unit-chain-hash' });
+    await expect(service().finalizeDepositSettlement(depositParams)).rejects.toThrow(ServiceUnavailableException);
+    expect(tx.fundingRequest.updateMany).not.toHaveBeenCalled();
+    expect(tx.custodyAudit.create).not.toHaveBeenCalled();
   });
-  it('does not report settlement success if the required transactional audit write fails', async () => {
-    const failure = new Error('audit unavailable'); tx.custodyAudit.create.mockRejectedValueOnce(failure);
-    await expect(service().finalizeDepositSettlement(depositParams)).rejects.toBe(failure);
-    // This unit proves propagation and transaction placement, not a live PostgreSQL rollback.
-    expect(transact).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  it('also refuses to claim settlement for a deposit without a linked funding request', async () => {
+    deposit = custodyDepositRecord({ fundingRequestId: null });
+    await expect(service().finalizeDepositSettlement(depositParams)).rejects.toThrow(ServiceUnavailableException);
+    expect(tx.fundingRequest.updateMany).not.toHaveBeenCalled();
+    expect(tx.custodyAudit.create).not.toHaveBeenCalled();
   });
   it('does not reuse contradictory prior confirmation evidence as an idempotent success', async () => {
     funding = fundingRequestRecord({ state: 'CONFIRMED', confirmedAmount: '2', settledAmount: '2', externalReference: 'different-hash' });

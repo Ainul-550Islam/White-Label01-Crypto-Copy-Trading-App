@@ -38,6 +38,9 @@ describe('OrderIntentService user-position-limit integration', () => {
       id: ACCOUNT_ID,
       tenantId: TENANT_ID,
       status: 'ACTIVE',
+      userId: null,
+      exchangeId: 'exchange-1',
+      marketType: 'SPOT',
       liveTradingEnabled: false,
     };
     const prisma = {
@@ -69,6 +72,7 @@ describe('OrderIntentService user-position-limit integration', () => {
       securityThreatSignal: {
         findFirst: jest.fn(async () => null),
       },
+      withTenantRls: jest.fn(async (_tenant: string, run: (tx: unknown) => Promise<unknown>): Promise<unknown> => run(prisma)),
     };
     const riskDecisionService = {
       evaluateUnifiedRisk: jest.fn(async () => ({

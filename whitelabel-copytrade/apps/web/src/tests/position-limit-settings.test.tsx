@@ -4,10 +4,8 @@ import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { UserPositionLimitsView } from '@/api/user-position-limits-api';
-import {
-  PositionLimitSettings,
-  USER_POSITION_LIMITS_QUERY_KEY,
-} from '@/features/trading/position-limit-settings';
+import { AuthContext } from '@/auth/auth.store';
+import { PositionLimitSettings, positionLimitsQueryKey } from '@/features/trading/position-limit-settings';
 
 const baseView: UserPositionLimitsView = {
   tenantId: 'tenant-from-authenticated-api',
@@ -22,11 +20,13 @@ const baseView: UserPositionLimitsView = {
 
 function renderSettings(view: UserPositionLimitsView): string {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  queryClient.setQueryData(USER_POSITION_LIMITS_QUERY_KEY, view);
+  queryClient.setQueryData(positionLimitsQueryKey(view.tenantId, 'user-a'), view);
+  const session = { user: { id: 'user-a', tenantId: view.tenantId, email: 'a@example.test', roles: [], permissions: [] },
+    tenant: { id: view.tenantId, name: 'Tenant', slug: 'tenant' }, entitlements: {}, isAuthenticated: true };
   return renderToStaticMarkup(
-    <QueryClientProvider client={queryClient}>
-      <PositionLimitSettings />
-    </QueryClientProvider>,
+    <AuthContext.Provider value={{ session, isLoading: false, isAuthenticated: true, error: null, refreshSession: async () => {}, logout: async () => {} }}>
+      <QueryClientProvider client={queryClient}><PositionLimitSettings /></QueryClientProvider>
+    </AuthContext.Provider>,
   );
 }
 

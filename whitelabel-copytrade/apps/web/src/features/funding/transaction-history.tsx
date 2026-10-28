@@ -2,7 +2,8 @@
 
 import type { JSX } from 'react';
 import { useQuery } from "@tanstack/react-query";
-import { fundingApi } from "@/api/funding-api";
+import { fundingApi, OPEN_FUNDING_STATES } from "@/api/funding-api";
+import { DepositAddressPanel } from './deposit-address-panel';
 import { Money } from "@/components/money";
 import { FundingStatusBadge } from "@/components/status-badge";
 import { LoadingState } from "@/components/loading-state";
@@ -36,6 +37,7 @@ export function TransactionHistory(): JSX.Element {
               <th className="p-2 text-right">Confirmed</th>
               <th className="p-2">State</th>
               <th className="p-2 text-left">Requested at</th>
+              <th className="p-2 text-left">Address</th>
             </tr>
           </thead>
           <tbody>
@@ -67,11 +69,15 @@ export function TransactionHistory(): JSX.Element {
                     ? new Date(f.requestedAt).toLocaleString()
                     : "—"}
                 </td>
+                <td className="p-2">
+                  {f.type === 'DEPOSIT' && OPEN_FUNDING_STATES.includes(f.state) &&
+                    <DepositAddressPanel request={{ id: f.id, accountId: f.accountId, currency: f.currency }} />}
+                </td>
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-4 text-center text-xs text-muted">
+                <td colSpan={6} className="p-4 text-center text-xs text-muted">
                   No transactions
                 </td>
               </tr>

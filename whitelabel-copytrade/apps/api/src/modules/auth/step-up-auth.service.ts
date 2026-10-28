@@ -1,5 +1,6 @@
 // # Issues and atomically consumes action-bound, single-use step-up proofs for sensitive operations, reusing the existing password/TOTP/recovery verifiers and auditing every issuance, consumption and refusal.
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   AuditActorType,
   AuditOutcome,
@@ -136,12 +137,14 @@ export class StepUpAuthService {
     input: { method: StepUpMethod; action: StepUpAction; code?: string; password?: string; recoveryCode?: string },
     context: StepUpSecurityContext,
   ): Promise<IssuedStepUpProof> {
-    const [user, session] = await Promise.all([
-      this.prisma.user.findFirst({
+    // Both tables enforce tenant RLS. An unscoped lookup makes an active
+    // session invisible (or relies on an unsafe BYPASSRLS application role).
+    const [user, session] = await this.prisma.withTenantRls(actor.tenantId, (tx) => Promise.all([
+      tx.user.findFirst({
         where: { id: actor.userId, tenantId: actor.tenantId, deletedAt: null },
         select: { id: true, email: true, passwordHash: true, status: true },
       }),
-      this.prisma.userSession.findFirst({
+      tx.userSession.findFirst({
         where: {
           id: actor.sessionId,
           userId: actor.userId,
@@ -151,7 +154,7 @@ export class StepUpAuthService {
         },
         select: { id: true, deviceId: true },
       }),
-    ]);
+    ]));
     if (!user || user.status !== 'ACTIVE' || !session) {
       throw new AppException({
         code: ErrorCode.TOKEN_REVOKED,
@@ -207,7 +210,7 @@ export class StepUpAuthService {
 
     const now = Date.now();
     const ttlSeconds = this.config.stepUpTtlSeconds;
-    const proofId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const proofId = randomUUID();
     const proof: StepUpProof & { expiresAtMs: number } = {
       proofId,
       action: input.action,
@@ -225,7 +228,7 @@ export class StepUpAuthService {
     } catch (error) {
       // No proof -> no sensitive operation. Reporting success here would hand the
       // caller a proof id that verifies nothing.
-      this.logger.error(`Step-up proof store unavailable tenant=${actor.tenantId}: ${(error as Error)?.message ?? 'unknown error'}`);
+      this.logger.error(`Step-up proof store unavailable tenant=${actor.tenantId} (${error instanceof Error ? error.name : 'unknown error'})`);
       throw new AppException({
         code: ErrorCode.SERVICE_UNAVAILABLE,
         message: 'Step-up verification is unavailable; the action was not authorised.',
@@ -271,7 +274,7 @@ export class StepUpAuthService {
         String(Date.now()),
       );
     } catch (error) {
-      this.logger.warn(`Step-up store unavailable tenant=${actor.tenantId}: ${(error as Error)?.message ?? 'unknown error'}`);
+      this.logger.warn(`Step-up store unavailable tenant=${actor.tenantId} (${error instanceof Error ? error.name : 'unknown error'})`);
       return { consumed: false, action: null, reasonCode: 'STORE_UNAVAILABLE', proof: null };
     }
 

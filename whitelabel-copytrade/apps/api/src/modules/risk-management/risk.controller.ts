@@ -25,7 +25,8 @@ import type { CustomerRiskAnalysisView } from './customer-risk-analysis.types';
 import { RiskCheckDto } from './dto/risk-check.dto';
 import { UpsertRiskPolicyDto, RiskPolicyScopeDto } from './dto/risk-policy.dto';
 import { RiskPolicyScope, CircuitBreakerScope } from './risk-management.types';
-import { authTenantId, authUserIdOrNull, principal } from '../../common/guards/request-principal';
+import { authTenantId, authUserIdOrNull, isPlatformPrincipal, principal } from '../../common/guards/request-principal';
+import { RequireStepUp } from '../auth/step-up/require-step-up.decorator';
 
 /**
  * Institutional risk controller with RBAC:
@@ -85,9 +86,10 @@ export class RiskManagementController {
   }
 
   private checkTenantAccess(req: any, targetTenantId: string): void {
-    const userTenantId = req.user?.tenantId;
-    const isPlatform = req.user?.isPlatformUser || req.user?.roles?.includes('PLATFORM_ADMIN') || req.user?.permissions?.includes('PLATFORM_MANAGE');
-    if (!isPlatform && userTenantId && userTenantId !== targetTenantId) {
+    const userTenantId = this.getTenantId(req);
+    // Tenant-editable role names and permission labels never confer platform
+    // identity. Only the server-side principal flag permits cross-tenant work.
+    if (!isPlatformPrincipal(req) && userTenantId !== targetTenantId) {
       throw new ForbiddenException('Cross-tenant access denied');
     }
   }
@@ -447,19 +449,29 @@ export class RiskManagementController {
   }
 
   @Post('policy')
+  @RequireStepUp('INSTITUTIONAL_RISK_POLICY_UPDATE')
   async upsertPolicy(@Req() req: any, @Body() dto: UpsertRiskPolicyDto) {
     const tenantId = this.getTenantId(req);
-    const userId = this.getUserId(req);
-    const isPlatform = req.user?.isPlatformUser || req.user?.permissions?.includes('PLATFORM_MANAGE');
+    const userId = authUserIdOrNull(req);
+    if (!userId) throw new ForbiddenException('Authenticated user required');
+    const idempotencyKey = req.headers?.['idempotency-key'];
+    if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey) || dto.expectedVersion === undefined) {
+      throw new BadRequestException('A valid retry key and observed policy version are required.');
+    }
+    const isPlatform = isPlatformPrincipal(req) && principal(req).permissions.includes(Permission.PLATFORM_MANAGE);
 
     if (dto.scope === RiskPolicyScopeDto.PLATFORM && !isPlatform) {
       throw new ForbiddenException('PLATFORM scope requires PLATFORM_MANAGE');
     }
 
-    // Tenant admins can only manage own tenant scope
-    if (dto.scope === RiskPolicyScopeDto.TENANT) {
+    // Every non-platform scope is tenant-bound, not just TENANT policies.
+    // A forged trader/strategy/follower scope must not select another tenant.
+    if (dto.scope !== RiskPolicyScopeDto.PLATFORM) {
       const targetTenant = dto.tenantId ?? tenantId;
       this.checkTenantAccess(req, targetTenant);
+      if (dto.scope === RiskPolicyScopeDto.TENANT && dto.scopeId && dto.scopeId !== targetTenant) {
+        throw new BadRequestException('TENANT policy scope must match its tenant');
+      }
     }
 
     return this.policyService.upsertPolicy({
@@ -470,6 +482,8 @@ export class RiskManagementController {
       changeReason: dto.changeReason,
       changedByUserId: userId,
       actorTenantId: tenantId,
+      expectedVersion: dto.expectedVersion,
+      idempotencyKey,
     });
   }
 
@@ -539,7 +553,7 @@ export class RiskManagementController {
     const tenantId = this.getTenantId(req);
     const userId = this.getUserId(req);
     const policy = await this.policyService.resolveEffectivePolicy({ tenantId });
-    const isPlatform = req.user?.isPlatformUser || req.user?.permissions?.includes('PLATFORM_MANAGE');
+    const isPlatform = isPlatformPrincipal(req) && principal(req).permissions.includes(Permission.PLATFORM_MANAGE);
     if (body.scope === 'GLOBAL' && !isPlatform) {
       throw new ForbiddenException('GLOBAL kill-switch requires PLATFORM_MANAGE');
     }

@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
+import { Decimal } from '../../common/decimal-string';
 import { InstitutionalRiskPolicyService } from './risk-policy.service';
 import { PortfolioExposureService } from './portfolio-exposure.service';
+import { MONETARY_EXPOSURE_KEYS, validatedExposureCurrency } from './exposure-currency';
 import { PositionRiskService } from './position-risk.service';
 import { MarginRiskService } from './margin-risk.service';
 import { LeverageRiskService } from './leverage-risk.service';
@@ -76,6 +79,10 @@ export class RiskDecisionService {
     followerId?: string;
     strategyId?: string;
     orderIntent?: { side: 'BUY' | 'SELL'; quantity: string; price?: string | null; orderType: 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT' } | null;
+    /** Trusted OMS routing supplies the existing intent being rechecked. */
+    excludePendingIntentId?: string;
+    /** If supplied, reject a decision made for a different account owner. */
+    expectedAccountOwnerId?: string | null;
     environment?: 'PAPER' | 'LIVE';
     requestId?: string;
   }): Promise<UnifiedRiskDecision> {
@@ -89,6 +96,8 @@ export class RiskDecisionService {
       followerId,
       strategyId,
       orderIntent,
+      excludePendingIntentId,
+      expectedAccountOwnerId,
       environment = 'PAPER',
       requestId,
     } = params;
@@ -111,11 +120,104 @@ export class RiskDecisionService {
       if (d.isBlocking) blockingReasons.push(d.reason);
       if (d.isWarning) warnings.push(d.reason);
     };
+    const unavailable = (dimension: RiskDimension, ruleId: string, reason: string) => {
+      pushDetail({
+        dimension,
+        decision: RiskDecision.REVIEW_REQUIRED,
+        state: RiskState.UNKNOWN,
+        ruleId,
+        policyVersion: policy.effectiveVersion,
+        current: null,
+        threshold: null,
+        severity: RiskSeverity.WARNING,
+        reason,
+        timestamp: nowIso,
+        scope: RiskPolicyScope.TENANT,
+        scopeId: accountId ?? tenantId,
+        isBlocking: false,
+        isWarning: true,
+      });
+    };
+
+    const policyCurrency = validatedExposureCurrency(policy);
+    const hasMonetaryLimit = MONETARY_EXPOSURE_KEYS.some((key) => policy.thresholds[key] != null);
+    if (orderIntent && hasMonetaryLimit && !policyCurrency) {
+      unavailable(RiskDimension.EXPOSURE, 'POLICY_CURRENCY_UNAVAILABLE', 'The monetary risk policy has no verified, consistent currency.');
+    }
+    // The read-only projection below is not an atomic portfolio reservation.
+    // It can prove a breach, but cannot approve competing aggregate-cap orders.
+    if (orderIntent && [policy.thresholds.maxGrossExposure, policy.thresholds.maxNetExposure,
+      policy.thresholds.maxSymbolExposure, policy.thresholds.maxVenueExposure, policy.thresholds.maxAccountExposure,
+      policy.thresholds.maxStrategyExposure, policy.thresholds.maxTraderExposure, policy.thresholds.maxFollowerExposure,
+      policy.thresholds.maxPositionNotional].some((value) => value != null)) {
+      unavailable(RiskDimension.EXPOSURE, 'EXPOSURE_RESERVATION_UNAVAILABLE', 'An atomic exposure reservation is unavailable.');
+    }
+    if (orderIntent && policy.thresholds.maxAccountExposure != null && !accountId) {
+      unavailable(RiskDimension.EXPOSURE, 'ACCOUNT_EXPOSURE_UNAVAILABLE', 'An account is required to evaluate the account exposure limit.');
+    }
+
+    // Only a priced BUY limit order supplies an intrinsic upper bound on its
+    // quote notional. A market order has no execution-price ceiling; a SELL
+    // limit sets a floor, not a ceiling. Treat either as unknown when monetary
+    // limits need a projected amount rather than inventing a zero or using a
+    // potentially stale mark as a guaranteed maximum.
+    let orderNotionalUpperBound: Decimal | null = null;
+    if (orderIntent) {
+      const needsNotionalBound = [
+        policy.thresholds.maxOrderNotional, policy.thresholds.maxGrossExposure,
+        policy.thresholds.maxSymbolExposure, policy.thresholds.maxAccountExposure,
+        policy.thresholds.marginCriticalUtilization, policy.thresholds.maxLeverageGross,
+        policy.thresholds.maxLeverageNet, policy.thresholds.maxLeverageAccount,
+        policy.thresholds.maxLeverageSymbol,
+      ].some((value) => value != null);
+      const plainPositive = /^\d{1,40}(?:\.\d{1,18})?$/;
+      try {
+        if (orderIntent.side === 'BUY' && orderIntent.orderType === 'LIMIT' &&
+            typeof orderIntent.price === 'string' && plainPositive.test(orderIntent.price) &&
+            plainPositive.test(orderIntent.quantity)) {
+          const quantity = Decimal.parse(orderIntent.quantity);
+          const price = Decimal.parse(orderIntent.price);
+          if (!quantity.gt(Decimal.ZERO) || !price.gt(Decimal.ZERO)) throw new Error('non-positive order');
+          orderNotionalUpperBound = quantity.mul(price);
+        }
+        if (needsNotionalBound && orderNotionalUpperBound === null) {
+          unavailable(RiskDimension.EXPOSURE, 'ORDER_NOTIONAL_UNAVAILABLE', 'A safe order-notional upper bound is unavailable.');
+        }
+        // Comparison is deferred until the instrument quote is established
+        // independently by the exposure service.
+      } catch {
+        unavailable(RiskDimension.EXPOSURE, 'ORDER_NOTIONAL_UNAVAILABLE', 'Order-notional evidence is invalid or unavailable.');
+        orderNotionalUpperBound = null;
+      }
+    }
 
     // 1. Exposure
     try {
-      const exposure = await this.exposureService.calculateExposure({ tenantId, accountId, traderId, strategyId, followerId });
-      if (exposure.state === RiskState.BLOCKED) {
+      // maxGrossExposure and the symbol threshold below are tenant-scoped.
+      // Filtering the ledger to the candidate account understated a tenant
+      // that also holds positions/orders elsewhere. Resolve the candidate's
+      // market separately while aggregating the entire tenant.
+      const exposure = await this.exposureService.calculateExposure({ tenantId,
+        ...(orderIntent && symbol ? { candidateSymbol: symbol, ...(accountId ? { candidateAccountId: accountId } : {}) } : {}),
+        ...(excludePendingIntentId ? { excludePendingIntentId } : {}) });
+      const currencyMatches = !!policyCurrency && exposure.valuationCurrency === policyCurrency &&
+        exposure.state !== RiskState.UNKNOWN && exposure.state !== RiskState.STALE &&
+        Array.isArray(exposure.unknownPrices) && exposure.unknownPrices.length === 0;
+      if (orderIntent && hasMonetaryLimit && !currencyMatches) {
+        unavailable(RiskDimension.EXPOSURE, 'ORDER_CURRENCY_UNAVAILABLE', 'The order and exposure quote cannot be matched to the policy currency.');
+      }
+      if (orderIntent && currencyMatches && policy.thresholds.maxOrderNotional != null && orderNotionalUpperBound !== null) {
+        const limit = Decimal.parse(policy.thresholds.maxOrderNotional);
+        if (limit.isNegative()) throw new Error('invalid order-notional limit');
+        if (orderNotionalUpperBound.gt(limit)) pushDetail({
+          dimension: RiskDimension.EXPOSURE, decision: RiskDecision.BLOCK, state: RiskState.BLOCKED,
+          ruleId: 'MAX_ORDER_NOTIONAL', policyVersion: policy.effectiveVersion,
+          current: orderNotionalUpperBound.toString(), threshold: limit.toString(), severity: RiskSeverity.CRITICAL,
+          reason: 'The order notional exceeds its configured limit.', timestamp: nowIso,
+          scope: RiskPolicyScope.TENANT, scopeId: accountId ?? tenantId, isBlocking: true, isWarning: false,
+        });
+      }
+      if (exposure.state === RiskState.BLOCKED && (!orderIntent || currencyMatches)) {
         pushDetail({
           dimension: RiskDimension.EXPOSURE,
           decision: RiskDecision.BLOCK,
@@ -149,53 +251,113 @@ export class RiskDecisionService {
           isBlocking: environment === 'LIVE',
           isWarning: environment !== 'LIVE',
         });
+      } else if (exposure.state === RiskState.UNKNOWN) {
+        unavailable(RiskDimension.EXPOSURE, 'MAX_GROSS_EXPOSURE', 'Exposure evidence is unavailable.');
       }
-      // Check symbol exposure if order intent present
-      if (orderIntent && symbol) {
-        const symExp = exposure.symbolExposures.find((s) => s.symbol === symbol);
-        if (symExp && policy.thresholds.maxSymbolExposure) {
-          // Compare grossNotional vs threshold
-          const gross = symExp.grossNotional;
-          if (gross && policy.thresholds.maxSymbolExposure) {
-            const cmp = this.cmpDecimal(gross, policy.thresholds.maxSymbolExposure);
-            if (cmp > 0) {
-              pushDetail({
-                dimension: RiskDimension.EXPOSURE,
-                decision: RiskDecision.BLOCK,
-                state: RiskState.BLOCKED,
-                ruleId: 'MAX_SYMBOL_EXPOSURE',
-                policyVersion: policy.effectiveVersion,
-                current: gross,
-                threshold: policy.thresholds.maxSymbolExposure,
-                severity: RiskSeverity.CRITICAL,
-                reason: `Symbol exposure ${gross} for ${symbol} exceeds max ${policy.thresholds.maxSymbolExposure}`,
-                timestamp: nowIso,
-                scope: RiskPolicyScope.TENANT,
-                scopeId: tenantId,
-                isBlocking: true,
-                isWarning: false,
-              });
-            }
-          }
+      if (Array.isArray(exposure.unknownPrices) && exposure.unknownPrices.length > 0) {
+        unavailable(RiskDimension.EXPOSURE, 'EXPOSURE_PRICE_UNAVAILABLE', 'Some exposure valuation or attribution evidence is unavailable.');
+      }
+      // Open orders remain committed exposure. The proposed order is added
+      // conservatively rather than letting several individually-small orders
+      // pass the current-only check. These observations are not an atomic
+      // reservation and are not a substitute for a live exposure ledger.
+      if (orderIntent && currencyMatches && orderNotionalUpperBound !== null && policy.thresholds.maxGrossExposure != null) {
+        const committed = Decimal.parse(exposure.totalExposure);
+        const limit = Decimal.parse(policy.thresholds.maxGrossExposure);
+        if (committed.isNegative() || limit.isNegative()) throw new Error('invalid gross exposure');
+        const projected = committed.add(orderNotionalUpperBound);
+        if (projected.gt(limit) && exposure.state !== RiskState.BLOCKED) {
+          pushDetail({
+            dimension: RiskDimension.EXPOSURE,
+            decision: RiskDecision.BLOCK,
+            state: RiskState.BLOCKED,
+            ruleId: 'MAX_GROSS_EXPOSURE',
+            policyVersion: policy.effectiveVersion,
+            current: projected.toString(),
+            threshold: limit.toString(),
+            severity: RiskSeverity.CRITICAL,
+            reason: 'Projected gross exposure exceeds its configured limit.',
+            timestamp: nowIso,
+            scope: RiskPolicyScope.TENANT,
+            scopeId: tenantId,
+            isBlocking: true,
+            isWarning: false,
+          });
         }
       }
-    } catch (e) {
-      pushDetail({
-        dimension: RiskDimension.EXPOSURE,
-        decision: RiskDecision.REVIEW_REQUIRED,
-        state: RiskState.UNKNOWN,
-        ruleId: 'MAX_GROSS_EXPOSURE',
-        policyVersion: policy.effectiveVersion,
-        current: null,
-        threshold: policy.thresholds.maxGrossExposure,
-        severity: RiskSeverity.WARNING,
-        reason: `Exposure evaluation failed: ${(e as Error).message}, fail-closed to REVIEW_REQUIRED`,
-        timestamp: nowIso,
-        scope: RiskPolicyScope.TENANT,
-        scopeId: tenantId,
-        isBlocking: false,
-        isWarning: true,
-      });
+      if (orderIntent && currencyMatches && symbol && orderNotionalUpperBound !== null && policy.thresholds.maxSymbolExposure != null) {
+        const symExp = exposure.symbolExposures.find((s) => s.symbol === symbol);
+        const committed = Decimal.parse(symExp ? symExp.totalExposure : '0');
+        const limit = Decimal.parse(policy.thresholds.maxSymbolExposure);
+        if (committed.isNegative() || limit.isNegative()) throw new Error('invalid symbol exposure');
+        const projected = committed.add(orderNotionalUpperBound);
+        if (projected.gt(limit)) {
+          pushDetail({
+            dimension: RiskDimension.EXPOSURE,
+            decision: RiskDecision.BLOCK,
+            state: RiskState.BLOCKED,
+            ruleId: 'MAX_SYMBOL_EXPOSURE',
+            policyVersion: policy.effectiveVersion,
+            current: projected.toString(),
+            threshold: limit.toString(),
+            severity: RiskSeverity.CRITICAL,
+            reason: 'Projected symbol exposure exceeds its configured limit.',
+            timestamp: nowIso,
+            scope: RiskPolicyScope.TENANT,
+            scopeId: tenantId,
+            isBlocking: true,
+            isWarning: false,
+          });
+        }
+      }
+    } catch {
+      unavailable(RiskDimension.EXPOSURE, 'MAX_GROSS_EXPOSURE', 'Exposure evaluation is unavailable.');
+    }
+
+    // maxAccountExposure is a different scope and must not be compared with a
+    // tenant-wide number. Include all known account positions and outstanding
+    // orders, then conservatively project this candidate. Missing marks,
+    // unbounded orders or unmatched reservations require review, not approval.
+    if (accountId && policy.thresholds.maxAccountExposure != null) {
+      try {
+        const accountExposure = await this.exposureService.calculateExposure({ tenantId, accountId,
+          ...(orderIntent && symbol ? { candidateSymbol: symbol } : {}),
+          ...(excludePendingIntentId ? { excludePendingIntentId } : {}) });
+        if (accountExposure.state === RiskState.UNKNOWN || accountExposure.state === RiskState.STALE ||
+            (Array.isArray(accountExposure.unknownPrices) && accountExposure.unknownPrices.length > 0)) {
+          unavailable(RiskDimension.EXPOSURE, 'ACCOUNT_EXPOSURE_UNAVAILABLE', 'Account exposure evidence is incomplete or stale.');
+        }
+        const accountCurrencyMatches = !!policyCurrency && accountExposure.valuationCurrency === policyCurrency &&
+          accountExposure.state !== RiskState.UNKNOWN && accountExposure.state !== RiskState.STALE &&
+          Array.isArray(accountExposure.unknownPrices) && accountExposure.unknownPrices.length === 0;
+        if (!accountCurrencyMatches) {
+          unavailable(RiskDimension.EXPOSURE, 'ACCOUNT_EXPOSURE_CURRENCY_UNAVAILABLE', 'Account exposure and policy currencies cannot be matched.');
+        }
+        const committed = Decimal.parse(accountExposure.totalExposure);
+        const limit = Decimal.parse(policy.thresholds.maxAccountExposure);
+        if (committed.isNegative() || limit.isNegative()) throw new Error('invalid account exposure');
+        const projected = orderIntent && orderNotionalUpperBound !== null ? committed.add(orderNotionalUpperBound) : committed;
+        if (accountCurrencyMatches && projected.gt(limit)) {
+          pushDetail({
+            dimension: RiskDimension.EXPOSURE,
+            decision: RiskDecision.BLOCK,
+            state: RiskState.BLOCKED,
+            ruleId: 'MAX_ACCOUNT_EXPOSURE',
+            policyVersion: policy.effectiveVersion,
+            current: projected.toString(),
+            threshold: limit.toString(),
+            severity: RiskSeverity.CRITICAL,
+            reason: 'Projected account exposure exceeds its configured limit.',
+            timestamp: nowIso,
+            scope: RiskPolicyScope.TENANT,
+            scopeId: accountId,
+            isBlocking: true,
+            isWarning: false,
+          });
+        }
+      } catch {
+        unavailable(RiskDimension.EXPOSURE, 'ACCOUNT_EXPOSURE_UNAVAILABLE', 'Account exposure evaluation is unavailable.');
+      }
     }
 
     // 2. Position risk
@@ -238,14 +400,17 @@ export class RiskDecisionService {
           });
         }
       }
-    } catch (e) {
-      this.logger.warn(`Position risk failed: ${(e as Error).message}`);
+    } catch {
+      unavailable(RiskDimension.POSITION, 'POSITION_RISK_UNAVAILABLE', 'Position risk evaluation is unavailable.');
     }
 
     // 3. Margin
     if (accountId) {
       try {
         const marginResults = await this.marginService.evaluateMargin({ tenantId, accountId, orderIntent: orderIntent ? { symbol: symbol ?? '', quantity: orderIntent.quantity, price: orderIntent.price ?? null, side: orderIntent.side } : null });
+        if (policy.thresholds.marginCriticalUtilization != null && marginResults.length === 0) {
+          unavailable(RiskDimension.MARGIN, 'MARGIN_RISK_UNAVAILABLE', 'Margin risk evidence is unavailable.');
+        }
         for (const mr of marginResults) {
           if (mr.state === RiskState.BLOCKED || mr.state === RiskState.CRITICAL) {
             pushDetail({
@@ -264,10 +429,14 @@ export class RiskDecisionService {
               isBlocking: true,
               isWarning: false,
             });
+          } else if (mr.state === RiskState.UNKNOWN || mr.state === RiskState.STALE || mr.isStale ||
+              (policy.thresholds.marginCriticalUtilization != null &&
+               (mr.marginUtilizationPercent == null || (orderIntent != null && mr.projectedMarginUtilizationPercent == null)))) {
+            unavailable(RiskDimension.MARGIN, 'MARGIN_RISK_UNAVAILABLE', 'Margin risk evidence is incomplete or stale.');
           }
         }
-      } catch (e) {
-        this.logger.warn(`Margin risk failed: ${(e as Error).message}`);
+      } catch {
+        unavailable(RiskDimension.MARGIN, 'MARGIN_RISK_UNAVAILABLE', 'Margin risk evaluation is unavailable.');
       }
     }
 
@@ -280,6 +449,10 @@ export class RiskDecisionService {
           symbol,
           orderIntent: orderIntent ? { quantity: orderIntent.quantity, price: orderIntent.price ?? null, side: orderIntent.side } : null,
         });
+        if ((policy.thresholds.maxLeverageGross != null || policy.thresholds.maxLeverageNet != null ||
+            policy.thresholds.maxLeverageAccount != null || policy.thresholds.maxLeverageSymbol != null) && levResults.length === 0) {
+          unavailable(RiskDimension.LEVERAGE, 'LEVERAGE_RISK_UNAVAILABLE', 'Leverage evidence is unavailable.');
+        }
         for (const lr of levResults) {
           if (lr.isBreach) {
             pushDetail({
@@ -298,10 +471,13 @@ export class RiskDecisionService {
               isBlocking: true,
               isWarning: false,
             });
+          } else if (lr.state === RiskState.UNKNOWN || lr.state === RiskState.STALE ||
+              (lr.policyMaxLeverage != null && lr.grossLeverage == null)) {
+            unavailable(RiskDimension.LEVERAGE, 'LEVERAGE_RISK_UNAVAILABLE', 'Leverage evidence is incomplete or stale.');
           }
         }
-      } catch (e) {
-        this.logger.warn(`Leverage risk failed: ${(e as Error).message}`);
+      } catch {
+        unavailable(RiskDimension.LEVERAGE, 'LEVERAGE_RISK_UNAVAILABLE', 'Leverage risk evaluation is unavailable.');
       }
     }
 
@@ -343,10 +519,12 @@ export class RiskDecisionService {
             isBlocking: false,
             isWarning: true,
           });
+        } else if (l.state === RiskState.UNKNOWN || l.state === RiskState.STALE) {
+          unavailable(RiskDimension.LIQUIDATION, 'LIQUIDATION_RISK_UNAVAILABLE', 'Liquidation evidence is incomplete or stale.');
         }
       }
-    } catch (e) {
-      this.logger.warn(`Liquidation risk failed: ${(e as Error).message}`);
+    } catch {
+      unavailable(RiskDimension.LIQUIDATION, 'LIQUIDATION_RISK_UNAVAILABLE', 'Liquidation risk evaluation is unavailable.');
     }
 
     // 6. Concentration
@@ -377,13 +555,16 @@ export class RiskDecisionService {
           });
         }
       }
-    } catch (e) {
-      this.logger.warn(`Concentration risk failed: ${(e as Error).message}`);
+    } catch {
+      unavailable(RiskDimension.CONCENTRATION, 'CONCENTRATION_RISK_UNAVAILABLE', 'Concentration risk evaluation is unavailable.');
     }
 
     // 7. Drawdown
     try {
       const ddResults = await this.drawdownService.evaluateDrawdown({ tenantId, accountId, traderId, strategyId, followerId });
+      if ((policy.thresholds.maxDrawdownPercent != null || policy.thresholds.maxIntradayDrawdownPercent != null) && ddResults.length === 0) {
+        unavailable(RiskDimension.DRAWDOWN, 'DRAWDOWN_RISK_UNAVAILABLE', 'Drawdown evidence is unavailable.');
+      }
       for (const dd of ddResults) {
         if (dd.isBreach) {
           pushDetail({
@@ -402,15 +583,40 @@ export class RiskDecisionService {
             isBlocking: true,
             isWarning: false,
           });
+        } else if (dd.state === RiskState.UNKNOWN || dd.state === RiskState.STALE ||
+            (dd.thresholdPercent != null && dd.drawdownPercent == null) ||
+            (policy.thresholds.maxIntradayDrawdownPercent != null && dd.intradayDrawdownPercent == null)) {
+          unavailable(RiskDimension.DRAWDOWN, 'DRAWDOWN_RISK_UNAVAILABLE', 'Drawdown evidence is incomplete or stale.');
+        } else if (policy.thresholds.maxIntradayDrawdownPercent != null && dd.intradayDrawdownPercent != null &&
+            this.cmpDecimal(dd.intradayDrawdownPercent, policy.thresholds.maxIntradayDrawdownPercent) > 0) {
+          pushDetail({
+            dimension: RiskDimension.DRAWDOWN,
+            decision: RiskDecision.BLOCK,
+            state: RiskState.BLOCKED,
+            ruleId: 'MAX_INTRADAY_DRAWDOWN',
+            policyVersion: dd.policyVersion,
+            current: dd.intradayDrawdownPercent,
+            threshold: policy.thresholds.maxIntradayDrawdownPercent,
+            severity: RiskSeverity.CRITICAL,
+            reason: 'Intraday drawdown exceeds the configured limit.',
+            timestamp: nowIso,
+            scope: dd.scope,
+            scopeId: dd.scopeId,
+            isBlocking: true,
+            isWarning: false,
+          });
         }
       }
-    } catch (e) {
-      this.logger.warn(`Drawdown risk failed: ${(e as Error).message}`);
+    } catch {
+      unavailable(RiskDimension.DRAWDOWN, 'DRAWDOWN_RISK_UNAVAILABLE', 'Drawdown risk evaluation is unavailable.');
     }
 
     // 8. Daily loss
     try {
       const dlResults = await this.dailyLossService.evaluateDailyLoss({ tenantId, accountId, traderId, strategyId, followerId });
+      if (policy.thresholds.maxDailyLoss != null && dlResults.length === 0) {
+        unavailable(RiskDimension.DAILY_LOSS, 'DAILY_LOSS_UNAVAILABLE', 'Daily loss evidence is unavailable.');
+      }
       for (const dl of dlResults) {
         if (dl.isBreach) {
           pushDetail({
@@ -429,10 +635,15 @@ export class RiskDecisionService {
             isBlocking: true,
             isWarning: false,
           });
+        } else if (policy.thresholds.maxDailyLoss != null &&
+            (dl.state === RiskState.UNKNOWN || dl.state === RiskState.STALE || dl.dailyPnl == null)) {
+          unavailable(RiskDimension.DAILY_LOSS, 'DAILY_LOSS_UNAVAILABLE', 'Daily loss evidence is incomplete or stale.');
         }
       }
-    } catch (e) {
-      this.logger.warn(`Daily loss failed: ${(e as Error).message}`);
+    } catch {
+      if (policy.thresholds.maxDailyLoss != null) {
+        unavailable(RiskDimension.DAILY_LOSS, 'DAILY_LOSS_UNAVAILABLE', 'Daily loss evaluation is unavailable.');
+      }
     }
 
     // 9. Correlation (advisory, not blocking unless policy says)
@@ -458,8 +669,8 @@ export class RiskDecisionService {
           });
         }
       }
-    } catch (e) {
-      this.logger.warn(`Correlation risk failed: ${(e as Error).message}`);
+    } catch {
+      this.logger.warn('Correlation evaluation unavailable.');
     }
 
     // 10. VaR (advisory)
@@ -485,8 +696,8 @@ export class RiskDecisionService {
           });
         }
       }
-    } catch (e) {
-      this.logger.warn(`VaR failed: ${(e as Error).message}`);
+    } catch {
+      this.logger.warn('Value-at-risk evaluation unavailable.');
     }
 
     // 11. Stress (advisory)
@@ -512,18 +723,46 @@ export class RiskDecisionService {
           });
         }
       }
-    } catch (e) {
-      this.logger.warn(`Stress test failed: ${(e as Error).message}`);
+    } catch {
+      this.logger.warn('Stress evaluation unavailable.');
     }
 
-    // 12. Compliance — BLOCK prevents ALLOW
+    // An operator can act for another account. Screen both the actor and the
+    // account's actual owner, not just the actor supplied by the caller. House
+    // accounts may legitimately have no owner. An unreadable or missing
+    // account is not evidence that no owner exists.
+    const screeningSubjects = new Set<string>();
+    if (userId) screeningSubjects.add(userId);
+    if (accountId) {
+      try {
+        const account = await this.prisma.withTenantRls(tenantId, (tx) => tx.tradingAccount.findFirst({
+          where: { id: accountId, tenantId, deletedAt: null },
+          select: { userId: true },
+        }));
+        if (!account) {
+          unavailable(RiskDimension.EXCHANGE_HEALTH, 'EXCHANGE_HEALTH_UNAVAILABLE', 'Trading account ownership is unavailable.');
+        } else {
+          if (expectedAccountOwnerId !== undefined && (account.userId ?? null) !== expectedAccountOwnerId) {
+            unavailable(RiskDimension.EXCHANGE_HEALTH, 'ACCOUNT_OWNER_CHANGED', 'Trading account ownership changed during risk evaluation.');
+          }
+          if (account.userId) screeningSubjects.add(account.userId);
+        }
+      } catch {
+        unavailable(RiskDimension.EXCHANGE_HEALTH, 'EXCHANGE_HEALTH_UNAVAILABLE', 'Trading account ownership could not be checked.');
+      }
+    }
+
+    // 12. Compliance — a block for either subject prevents ALLOW.
     try {
-      if (userId) {
-        const blocked = await this.prisma.complianceScreeningRequest.findFirst({
-          where: { tenantId, userId, status: 'BLOCKED' },
+      for (const subjectId of screeningSubjects) {
+        const screening = await this.prisma.withTenantRls(tenantId, (tx) => tx.complianceScreeningRequest.findFirst({
+          where: { tenantId, userId: subjectId, OR: [
+            { status: { in: ['BLOCKED', 'REVIEW_REQUIRED'] } },
+            { decision: { in: ['BLOCK', 'RESTRICT', 'REVIEW_REQUIRED'] } },
+          ] },
           orderBy: { createdAt: 'desc' },
-        });
-        if (blocked) {
+        }));
+        if (screening?.status === 'BLOCKED' || screening?.decision === 'BLOCK') {
           pushDetail({
             dimension: RiskDimension.COMPLIANCE,
             decision: RiskDecision.BLOCK,
@@ -533,41 +772,28 @@ export class RiskDecisionService {
             current: null,
             threshold: null,
             severity: RiskSeverity.CRITICAL,
-            reason: `Compliance BLOCK for user ${userId} — screening ${blocked.id} blocked, decision ${blocked.decision}`,
+            reason: 'Compliance screening blocks trading.',
             timestamp: nowIso,
             scope: RiskPolicyScope.TENANT,
             scopeId: tenantId,
             isBlocking: true,
             isWarning: false,
           });
+        } else if (screening) {
+          unavailable(RiskDimension.COMPLIANCE, 'COMPLIANCE_REVIEW_REQUIRED', 'Compliance screening requires review.');
         }
       }
-    } catch (e) {
-      pushDetail({
-        dimension: RiskDimension.COMPLIANCE,
-        decision: RiskDecision.REVIEW_REQUIRED,
-        state: RiskState.UNKNOWN,
-        ruleId: 'COMPLIANCE_BLOCK',
-        policyVersion: policy.effectiveVersion,
-        current: null,
-        threshold: null,
-        severity: RiskSeverity.WARNING,
-        reason: `Compliance evaluation unavailable: ${(e as Error).message}, fail-closed to REVIEW_REQUIRED`,
-        timestamp: nowIso,
-        scope: RiskPolicyScope.TENANT,
-        scopeId: tenantId,
-        isBlocking: false,
-        isWarning: true,
-      });
+    } catch {
+      unavailable(RiskDimension.COMPLIANCE, 'COMPLIANCE_BLOCK', 'Compliance state could not be checked.');
     }
 
-    // 13. Security — BLOCK prevents ALLOW
+    // 13. Security — the account owner and the operator are both relevant.
     try {
-      if (userId) {
-        const threat = await this.prisma.securityThreatSignal.findFirst({
-          where: { tenantId, userId, resolved: false, riskLevel: { in: ['HIGH', 'CRITICAL'] } },
+      for (const subjectId of screeningSubjects) {
+        const threat = await this.prisma.withTenantRls(tenantId, (tx) => tx.securityThreatSignal.findFirst({
+          where: { tenantId, userId: subjectId, resolved: false, riskLevel: { in: ['HIGH', 'CRITICAL'] } },
           orderBy: { createdAt: 'desc' },
-        });
+        }));
         if (threat) {
           pushDetail({
             dimension: RiskDimension.SECURITY,
@@ -578,7 +804,7 @@ export class RiskDecisionService {
             current: null,
             threshold: null,
             severity: RiskSeverity.CRITICAL,
-            reason: `Security BLOCK for user ${userId} — threat ${threat.ruleId} level ${threat.riskLevel}`,
+            reason: 'A security signal blocks trading for an involved user.',
             timestamp: nowIso,
             scope: RiskPolicyScope.TENANT,
             scopeId: tenantId,
@@ -587,14 +813,14 @@ export class RiskDecisionService {
           });
         }
       }
-    } catch (e) {
-      this.logger.warn(`Security check failed: ${(e as Error).message}`);
+    } catch {
+      unavailable(RiskDimension.SECURITY, 'SECURITY_CHECK_UNAVAILABLE', 'Security state could not be checked.');
     }
 
     // 14. Exchange health — stale blocks live
     try {
       if (accountId) {
-        const acc = await this.prisma.tradingAccount.findFirst({ where: { id: accountId, tenantId } });
+        const acc = await this.prisma.withTenantRls(tenantId, (tx) => tx.tradingAccount.findFirst({ where: { id: accountId, tenantId } }));
         if (acc) {
           const ageMs = acc.lastVerifiedAt ? Date.now() - new Date(acc.lastVerifiedAt).getTime() : Infinity;
           if (ageMs > policy.thresholds.exchangeHealthMaxAgeMs) {
@@ -633,10 +859,12 @@ export class RiskDecisionService {
               isWarning: false,
             });
           }
+        } else {
+          unavailable(RiskDimension.EXCHANGE_HEALTH, 'EXCHANGE_HEALTH_UNAVAILABLE', 'Trading account health is unavailable.');
         }
       }
-    } catch (e) {
-      this.logger.warn(`Exchange health check failed: ${(e as Error).message}`);
+    } catch {
+      unavailable(RiskDimension.EXCHANGE_HEALTH, 'EXCHANGE_HEALTH_UNAVAILABLE', 'Exchange health could not be checked.');
     }
 
     // 15. Circuit breaker
@@ -670,8 +898,8 @@ export class RiskDecisionService {
           });
         }
       }
-    } catch (e) {
-      this.logger.warn(`Circuit breaker check failed: ${(e as Error).message}`);
+    } catch {
+      unavailable(RiskDimension.EXECUTION_HEALTH, 'CIRCUIT_BREAKER_UNAVAILABLE', 'Circuit-breaker state could not be checked.');
     }
 
     // 16. Kill-switch — BLOCKED/KILL_SWITCH never becomes ALLOW
@@ -704,8 +932,8 @@ export class RiskDecisionService {
           });
         }
       }
-    } catch (e) {
-      this.logger.warn(`Kill-switch check failed: ${(e as Error).message}`);
+    } catch {
+      unavailable(RiskDimension.EXECUTION_HEALTH, 'KILL_SWITCH_UNAVAILABLE', 'Kill-switch state could not be checked.');
     }
 
     // Finalize decision with explicit priority: BLOCKED/KILL_SWITCH never becomes ALLOW
@@ -752,7 +980,7 @@ export class RiskDecisionService {
     const ruleIds = Array.from(new Set(details.map((d) => d.ruleId)));
 
     const decision: UnifiedRiskDecision = {
-      id: `risk-dec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: randomUUID(),
       tenantId,
       userId: userId ?? null,
       accountId: accountId ?? null,
@@ -784,6 +1012,7 @@ export class RiskDecisionService {
     // tenant-RLS transaction. Other non-stop observations remain audit rows
     // only and do not masquerade as a triggered stop.
     const decisionData = {
+      id: decision.id,
       tenantId,
       userId: userId ?? null,
       accountId: accountId ?? null,
@@ -822,7 +1051,7 @@ export class RiskDecisionService {
         });
       });
     } else {
-      await this.prisma.riskDecisionRecord.create({ data: decisionData });
+      await this.prisma.withTenantRls(tenantId, (tx) => tx.riskDecisionRecord.create({ data: decisionData }));
     }
 
     // Emit event if blocked

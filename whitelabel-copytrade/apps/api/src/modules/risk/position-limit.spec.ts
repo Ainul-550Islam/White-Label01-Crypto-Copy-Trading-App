@@ -70,7 +70,9 @@ function makeState(overrides: Partial<TestState> = {}): TestState {
 
 function makeService(state: TestState) {
   const tx = {
-    $queryRaw: jest.fn(async (_strings: TemplateStringsArray, _lockName: string) => []),
+    $executeRaw: jest.fn(async (_strings: TemplateStringsArray) => 1),
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray, ..._params: string[]) =>
+      strings.join('?').includes('FROM "trading_accounts"') ? [state.account] : []),
     user: {
       findFirst: jest.fn(async () => (state.userExists ? { id: USER_ID } : null)),
     },
@@ -185,6 +187,20 @@ describe('PositionLimitService', () => {
     });
   });
 
+  it('keeps failed or reconciliation-required activity in the counted reservation set', async () => {
+    const { service, tx } = makeService(makeState());
+    await service.getMyLimits({ tenantId: TENANT_ID, userId: USER_ID });
+    expect(tx.omsOrderIntent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ state: { in: expect.arrayContaining(['FAILED', 'RECONCILIATION_REQUIRED']) } }),
+    }));
+    expect(tx.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { in: expect.arrayContaining(['FAILED']) } }),
+    }));
+    expect(tx.omsTrade.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ state: { in: expect.arrayContaining(['RECONCILIATION_REQUIRED']) } }),
+    }));
+  });
+
   it('blocks a new symbol when the per-user concurrent position ceiling is full', async () => {
     const state = makeState({
       policy: { maxConcurrentPositions: 1, maxOpenOrders: null },
@@ -223,8 +239,9 @@ describe('PositionLimitService', () => {
 
     expect(result).toEqual({ id: 'intent-btc' });
     expect(persist).toHaveBeenCalledTimes(1);
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
-    const lockCall = tx.$queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, string];
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect((tx.$queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join('?')).toContain('FOR SHARE');
+    const lockCall = tx.$queryRaw.mock.calls[1] as unknown as [TemplateStringsArray, string];
     expect(lockCall[0][0]).toContain('pg_advisory_xact_lock(hashtextextended(');
     expect(lockCall[1]).toBe(`user-position-limits:${TENANT_ID}:${USER_ID}`);
   });
@@ -264,7 +281,8 @@ describe('PositionLimitService', () => {
     });
 
     const createTransactionClient = (setRelease: (release: () => void) => void) => ({
-      $queryRaw: async (_strings: TemplateStringsArray, lockName: string) => {
+      $queryRaw: async (strings: TemplateStringsArray, lockName: string) => {
+        if (strings.join('?').includes('FROM "trading_accounts"')) return [{ id: ACCOUNT_A, userId: USER_ID }];
         expect(lockName).toBe(`user-position-limits:${TENANT_ID}:${USER_ID}`);
         const previous = lockTail;
         let releaseCurrent: () => void = () => undefined;

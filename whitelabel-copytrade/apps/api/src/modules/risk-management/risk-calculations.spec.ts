@@ -97,7 +97,7 @@ describe('resolveDayStartEquity', () => {
 });
 
 describe('DailyLossLimitService', () => {
-  test('uses day-start EQUITY (not gross exposure) and breaches on a real loss', async () => {
+  test('does not mistake an unadjusted equity movement for an authoritative daily loss', async () => {
     const d = today();
     const prisma = fakePrisma({
       metas: [{ accountId: ACC1, tradingDay: d, equity: '10000', capturedAt: new Date(`${d}T00:00:30Z`) }],
@@ -106,11 +106,12 @@ describe('DailyLossLimitService', () => {
     });
     const service = new DailyLossLimitService(prisma, fakePolicy({ maxDailyLoss: '1000', dailyLossIncludesUnrealized: true }));
     const [r] = await service.evaluateDailyLoss({ tenantId: TENANT, accountId: ACC1 });
-    expect(r.startingEquity).toBe('10000');
-    expect(r.currentEquity).toBe('8200');
-    expect(r.dailyPnl).toBe('-1800');
-    expect(r.isBreach).toBe(true);
-    expect(r.state).toBe(RiskState.BLOCKED);
+    expect(r.startingEquity).toBeNull();
+    expect(r.currentEquity).toBeNull();
+    expect(r.dailyPnl).toBeNull();
+    expect(r.remainingBudget).toBeNull();
+    expect(r.isBreach).toBe(false);
+    expect(r.state).toBe(RiskState.UNKNOWN);
   });
 
   test('no day-start snapshot => UNKNOWN, never a fabricated reference', async () => {
