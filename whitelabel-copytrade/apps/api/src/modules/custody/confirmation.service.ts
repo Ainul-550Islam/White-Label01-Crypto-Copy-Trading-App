@@ -1,8 +1,9 @@
 import { failClosedMoneyOperation } from '../../common/money-path-failure';
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CustodyPolicyService } from './custody-policy.service';
 import { CustodyAuditService } from './custody-audit.service';
+import { ChainObservationService } from './providers/chain-observation.service';
 import { CustodyConfirmationState, CustodyTransactionState, deterministicIdempotencyKey } from './custody.types';
 
 /**
@@ -18,6 +19,12 @@ export class ConfirmationService {
     private readonly prisma: PrismaService,
     private readonly custodyPolicyService: CustodyPolicyService,
     private readonly auditService: CustodyAuditService,
+    /**
+     * Batch 03: optional observation-only chain surface. Never required for
+     * the ledger path; when absent the refresh method below refuses instead
+     * of downgrading to ledger-derived confirmation claims.
+     */
+    @Optional() private readonly chainObservation?: ChainObservationService,
   ) {}
 
   async observeConfirmation(params: {
@@ -124,6 +131,76 @@ export class ConfirmationService {
     } catch (caughtErrorB1) { failClosedMoneyOperation(caughtErrorB1, { code: 'CUSTODY_CONFIRMATION_OPERATION_2_FAILED', tenantId: tenantId, entityId: 'UNAVAILABLE' }); }
 
     return confirmation;
+  }
+
+  /**
+   * Batch 03: refresh a transaction's confirmation state from real chain
+   * evidence. NEVER invents values: when the chain surface is disabled or
+   * the network has no provider, the typed refusal bubbles to the caller,
+   * the ledger row stays exactly as it was, and no transition happens. A
+   * CONFIRMED transaction whose chain head no longer contains the recorded
+   * blockHash is flipped REORGED through the standard observeConfirmation
+   * branch (that flips REORGED when the stored hash differs).
+   */
+  async refreshConfirmationsFromChain(params: {
+    tenantId: string;
+    transactionId: string;
+  }): Promise<{ refreshed: boolean; confirmationCount: number; state: string; reason?: string }> {
+    const { tenantId, transactionId } = params;
+
+    if (!this.chainObservation) {
+      throw new BadRequestException(
+        'chain observation surface is not configured on this service; refusing to fabricate a refresh',
+      );
+    }
+
+    const tx = await (this.prisma as any).custodyTransaction.findFirst({
+      where: { id: transactionId, tenantId },
+    });
+    if (!tx) throw new BadRequestException('Transaction not found');
+    if (!tx.networkId) {
+      throw new BadRequestException('transaction lacks networkId; observation requires explicit network context');
+    }
+    if (!tx.transactionHash) {
+      return { refreshed: false, confirmationCount: tx.confirmationCount ?? 0, state: tx.status, reason: 'no chain hash on record' };
+    }
+
+    const provider = this.chainObservation.getProviderForNetwork(tx.networkId);
+    if (!provider.getConfirmations) {
+      throw new BadRequestException(
+        `provider ${provider.providerId} cannot observe confirmations; refresh requires that evidence surface`,
+      );
+    }
+    const observation = await provider.getConfirmations({
+      transactionHash: tx.transactionHash,
+      networkId: tx.networkId,
+      assetId: tx.assetId,
+    });
+
+    const requiredConfirmations =
+      tx.requiredConfirmationCount ??
+      (await this.custodyPolicyService.getRequiredConfirmations({ tenantId, networkId: tx.networkId }));
+
+    await this.observeConfirmation({
+      tenantId,
+      transactionId,
+      blockHash: observation.blockHash ?? null,
+      blockNumber: observation.blockNumber ?? null,
+      confirmationCount: observation.confirmationCount,
+      requiredConfirmationCount: requiredConfirmations,
+      providerReference: (tx.providerReference as string | null) ?? null,
+    });
+
+    const state =
+      observation.confirmationCount >= requiredConfirmations * 2
+        ? CustodyConfirmationState.FINAL
+        : observation.confirmationCount >= requiredConfirmations
+          ? CustodyConfirmationState.CONFIRMED
+          : observation.confirmationCount > 0
+            ? CustodyConfirmationState.REQUIRED
+            : CustodyConfirmationState.OBSERVED;
+
+    return { refreshed: true, confirmationCount: observation.confirmationCount, state };
   }
 
   async getConfirmations(params: { tenantId: string; transactionId: string }): Promise<any[]> {

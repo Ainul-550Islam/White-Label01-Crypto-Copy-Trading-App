@@ -60,7 +60,9 @@ function setup() {
   return { service, prisma, wallet, rows, createAddress, audit, generate };
 }
 
-afterEach(() => jest.useRealTimers());
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 describe('deposit address ownership and provider evidence', () => {
   it('only reuses an active provider-issued row for the exact account and client', async () => {

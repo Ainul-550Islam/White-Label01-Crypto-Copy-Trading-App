@@ -78,6 +78,11 @@ STATUS_CONTRACT_KEYS: frozenset[str] = frozenset(
         "venueAttestation",
         # The Binance venue stack (testnet/live); additive, null when simulated.
         "venue",
+        # Batch 03: the USD-M futures venue stack; additive, null unless
+        # EXECUTION_VENUE_MARKET=usdm_futures. Landed in the same commit as
+        # StatusResponse.venue_futures so this literal, the schema and the
+        # TypeScript mirror cannot drift apart without one of them failing.
+        "venueFutures",
     }
 )
 

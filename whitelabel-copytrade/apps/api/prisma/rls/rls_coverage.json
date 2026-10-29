@@ -1,6 +1,6 @@
 {
   "schema": "part11-rls-coverage-v1",
-  "stamp": "20261220000000",
+  "stamp": "20261228000000",
   "policyName": "tenant_isolation",
   "functionName": "wlct_current_tenant_id",
   "covered": [
@@ -117,6 +117,10 @@
       "model": "ConsentRecord"
     },
     {
+      "table": "copy_budget_reduction_intents",
+      "model": "CopyBudgetReductionIntent"
+    },
+    {
       "table": "copy_budgets",
       "model": "CopyBudget"
     },
@@ -199,6 +203,10 @@
     {
       "table": "developer_event_subscriptions",
       "model": "DeveloperEventSubscription"
+    },
+    {
+      "table": "developer_mutation_intents",
+      "model": "DeveloperMutationIntent"
     },
     {
       "table": "developer_oauth_grants",
@@ -293,6 +301,10 @@
       "model": "GovernanceAction"
     },
     {
+      "table": "governance_audit_export_intents",
+      "model": "GovernanceAuditExportIntent"
+    },
+    {
       "table": "governance_audits",
       "model": "GovernanceAudit"
     },
@@ -351,6 +363,14 @@
     {
       "table": "mobile_crash_events",
       "model": "MobileCrashEvent"
+    },
+    {
+      "table": "mobile_push_attempts",
+      "model": "MobilePushAttempt"
+    },
+    {
+      "table": "mobile_push_devices",
+      "model": "MobilePushDevice"
     },
     {
       "table": "mobile_release_approvals",

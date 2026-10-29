@@ -233,7 +233,7 @@ const MODULES_ROOT = join(__dirname, '..', 'modules');
  * the list (so the list cannot drift from the code).
  */
 const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
-  'auth/account-recovery-mailer.service.ts': { count: 1, reason: 'SMTP verification failure reports delivery unavailable and does not claim an email was sent' },
+  'auth/account-recovery-mailer.service.ts': { count: 1, reason: 'SMTP readiness probe: verify()=false means not-ready and denies delivery, an exception maps to the same fail-closed answer' },
   'auth/step-up/step-up.service.ts': { count: 1, reason: 'unreadable proof or session means not fresh and denies the protected action' },
   'billing/analytics/analytics-cache.service.ts': { count: 4, reason: 'cache get/invalidate; a cache miss or failure falls back to computing the value' },
   'billing/analytics/revenue-cohort.service.ts': { count: 1, reason: 'cohort key derivation from a date (pure computation)' },
@@ -285,9 +285,7 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
  * None of them swallows a read the caller then treats as data.
  */
 const ALLOWED_PROMISE_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
-  'auth/account-recovery-runtime.service.ts': { count: 1, reason: 'post-commit lockout-cache cleanup; a failure retains the stricter lock until expiry' },
-  'client-lifecycle/customer-deposit-address.service.ts': { count: 1, reason: 'best-effort release of an issuance lease after verification failed; the caller still receives an error' },
-  'custody/fireblocks-vault.client.ts': { count: 1, reason: 'body reader cancellation after the size limit was exceeded; the response is then rejected' },
+  'auth/account-recovery-runtime.service.ts': { count: 1, reason: 'post-commit lockout cache invalidation; the database is the security boundary and a transient Redis failure leaves the old lockout until its TTL, it cannot undo the committed reset' },
   'billing/finance/vies-vat.client.ts': { count: 1, reason: 'parsing a provider response body' },
   'billing/notifications/email-notification.provider.ts': { count: 1, reason: 'optional nodemailer module import' },
   'billing/notifications/twilio-sms.provider.ts': { count: 1, reason: 'parsing a provider response body' },

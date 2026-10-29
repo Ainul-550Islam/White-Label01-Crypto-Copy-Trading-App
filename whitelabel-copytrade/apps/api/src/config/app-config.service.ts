@@ -1075,6 +1075,56 @@ export class AppConfigService {
     return this.configService.get<string>('METRICS_TOKEN') ?? undefined;
   }
 
+  // ---------------------------------------------------------------------------
+  // Custody chain observation (Batch 03)
+  // Boot validation (env.schema.ts) already refused contradictory shapes;
+  // these getters only surface the validated values.
+  get custodyChainProvidersEnabled(): boolean {
+    return this.configService.get<boolean>('CUSTODY_CHAIN_PROVIDERS_ENABLED', false);
+  }
+
+  get custodyChainEthereumRpcUrl(): string | undefined {
+    return this.blankToUndefined(this.configService.get<string>('CUSTODY_CHAIN_ETHEREUM_RPC_URL'));
+  }
+
+  get custodyChainBscRpcUrl(): string | undefined {
+    return this.blankToUndefined(this.configService.get<string>('CUSTODY_CHAIN_BSC_RPC_URL'));
+  }
+
+  get custodyChainPolygonRpcUrl(): string | undefined {
+    return this.blankToUndefined(this.configService.get<string>('CUSTODY_CHAIN_POLYGON_RPC_URL'));
+  }
+
+  get custodyChainArbitrumRpcUrl(): string | undefined {
+    return this.blankToUndefined(this.configService.get<string>('CUSTODY_CHAIN_ARBITRUM_RPC_URL'));
+  }
+
+  get custodyChainTronRpcUrl(): string | undefined {
+    return this.blankToUndefined(this.configService.get<string>('CUSTODY_CHAIN_TRON_RPC_URL'));
+  }
+
+  get custodyChainHostAllowlist(): string[] {
+    return this.configService.get<string[]>('CUSTODY_CHAIN_HOST_ALLOWLIST', []);
+  }
+
+  get custodyChainHttpTimeoutMs(): number {
+    return this.configService.get<number>('CUSTODY_CHAIN_HTTP_TIMEOUT_MS', 5_000);
+  }
+
+  get custodyChainMaxResponseBytes(): number {
+    return this.configService.get<number>('CUSTODY_CHAIN_MAX_RESPONSE_BYTES', 1_048_576);
+  }
+
+  get custodyChainBreakerThreshold(): number {
+    return this.configService.get<number>('CUSTODY_CHAIN_BREAKER_THRESHOLD', 5);
+  }
+
+  private blankToUndefined(value: string | undefined): string | undefined {
+    if (value === undefined) return undefined;
+    const trimmed = value.trim();
+    return trimmed === '' ? undefined : trimmed;
+  }
+
   get alertingEnabled(): boolean {
     return this.configService.get<boolean>('ALERTING_ENABLED', true);
   }

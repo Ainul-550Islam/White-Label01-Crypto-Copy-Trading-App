@@ -41,6 +41,7 @@ from app.schemas import (
     StatusResponse,
     SubmitOrderRequest,
     SubmitOrderResponse,
+    VenueFuturesStatusView,
     VenueStatusView,
     VerifyResponse,
 )
@@ -147,6 +148,14 @@ async def engine_status(
             None
             if wiring.get("venue") is None
             else VenueStatusView(**wiring["venue"])
+        ),
+        # Batch 03: futures stack, None unless the configured market is
+        # usdm_futures - the same "describe() publishes, this view validates"
+        # discipline as the venue block above.
+        venue_futures=(
+            None
+            if wiring.get("venueFutures") is None
+            else VenueFuturesStatusView(**wiring["venueFutures"])
         ),
         commands=[str(command) for command in wiring["commands"]],
     )

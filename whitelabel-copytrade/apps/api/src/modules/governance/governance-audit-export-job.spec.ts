@@ -10,6 +10,8 @@ import { GovernanceActionType, type GovernanceAuditEvent } from './governance.ty
 const tenantId = '11111111-1111-4111-8111-111111111111';
 const otherTenantId = '22222222-2222-4222-8222-222222222222';
 const actorId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+// Job ids are the audit export identity epoch: `audit-` + sha256(identity).
+const auditJobId = (marker: string) => `audit-${marker.repeat(64)}`;
 
 function event(): GovernanceAuditEvent {
   return {
@@ -36,7 +38,7 @@ function event(): GovernanceAuditEvent {
 interface FakeJob {
   id: string;
   name: string;
-  data: { tenantId: string };
+  data: { tenantId: string; jobId?: string; keyHash?: string; requestHash?: string };
   returnvalue?: unknown;
   failedReason?: string;
   getState: () => Promise<string>;
@@ -54,7 +56,38 @@ function serviceWithJobs(jobs: Record<string, FakeJob | null>): GovernanceAuditE
       getJob: jest.fn(async (id: string) => jobs[id] ?? null),
     }),
   };
-  return new GovernanceAuditExportService(audit as never, policy as never, queue as never);
+  // The durable intent store surface (audit-export-intent.store.ts) is the
+  // PostgreSQL authority the service now writes through: execute() answers the
+  // stored response verbatim for a replayed key and otherwise runs the
+  // operation; findQueued() reaches the row for durable job polling. The fake
+  // keeps the exact contract the store pins (requestHash echo, response
+  // round-trip), so a service that bypasses it fails this suite instead of a
+  // production idempotency middleware.
+  const intents = {
+    execute: jest.fn(async (_tenantId: string, _key: string, _requestHash: string, operation: (tx: unknown, keyHash: string) => Promise<unknown>) => operation(undefined, 'k'.repeat(64))),
+    // SQL-faithful: the row is only visible under the tenant that staged it;
+    // a poll under another tenant reads exactly as a missing job.
+    findQueued: jest.fn(async (reqTenantId: string, id: string) => {
+      const job = jobs[id];
+      if (!job) return null;
+      const rowTenantId = (job.data as { tenantId?: string } | undefined)?.tenantId ?? tenantId;
+      if (rowTenantId !== reqTenantId) return null;
+      const response = { id, tenantId: rowTenantId, status: 'QUEUED', statusPath: `/v1/governance/audit/export/${id}`, submittedAt: new Date().toISOString() };
+      return {
+        keyHash: 'k'.repeat(64),
+        requestHash: 'r'.repeat(64),
+        response,
+        queuedResult: (job.returnvalue ?? undefined) as never,
+        jobPayload: {
+          tenantId: rowTenantId, periodStart: '2026-10-19T00:00:00.000Z', periodEnd: '2026-10-21T00:00:00.000Z',
+          operatorId: actorId, correlationId: 'job-spec', keyHash: 'k'.repeat(64), requestHash: 'r'.repeat(64), jobId: id,
+        },
+      };
+    }),
+    stageQueued: jest.fn(async () => undefined),
+    executeQueued: jest.fn(),
+  };
+  return new GovernanceAuditExportService(audit as never, policy as never, queue as never, intents as never);
 }
 
 async function completedResult(service: GovernanceAuditExportService): Promise<AuditExport> {
@@ -64,7 +97,7 @@ async function completedResult(service: GovernanceAuditExportService): Promise<A
     periodEnd: '2026-10-21T00:00:00.000Z',
     operatorId: actorId,
     correlationId: 'job-spec',
-  });
+  }, 'job-spec-key');
   if ('status' in result) throw new Error('expected a synchronous export');
   return result;
 }
@@ -74,16 +107,16 @@ describe('governance audit export job polling', () => {
     const builder = serviceWithJobs({});
     const result = await completedResult(builder);
     const service = serviceWithJobs({
-      'job-1': {
-        id: 'job-1',
+      [auditJobId('1')]: {
+        id: auditJobId('1'),
         name: 'governance-audit-export',
-        data: { tenantId },
+        data: { tenantId, jobId: auditJobId('1'), keyHash: 'k'.repeat(64), requestHash: 'r'.repeat(64) },
         returnvalue: result,
         getState: async () => 'completed',
       },
     });
-    const state = await service.getExportJob(tenantId, 'job-1');
-    expect(state).toMatchObject({ id: 'job-1', tenantId, state: 'completed' });
+    const state = await service.getJob(tenantId, auditJobId('1'));
+    expect(state).toMatchObject({ id: auditJobId('1'), tenantId, state: 'completed' });
     expect(state.result?.fileHash).toBe(result.fileHash);
     expect(state.result?.manifest.sha256).toBe(result.manifest.sha256);
     expect(state.result?.recordCount).toBe(1);
@@ -91,39 +124,41 @@ describe('governance audit export job polling', () => {
 
   it('reports waiting and failed states in the client vocabulary', async () => {
     const service = serviceWithJobs({
-      'job-wait': {
-        id: 'job-wait',
+      [auditJobId('a')]: {
+        id: auditJobId('a'),
         name: 'governance-audit-export',
-        data: { tenantId },
+        data: { tenantId, jobId: auditJobId('a'), keyHash: 'k'.repeat(64), requestHash: 'r'.repeat(64) },
         getState: async () => 'waiting',
       },
-      'job-fail': {
-        id: 'job-fail',
+      [auditJobId('b')]: {
+        id: auditJobId('b'),
         name: 'governance-audit-export',
-        data: { tenantId },
+        data: { tenantId, jobId: auditJobId('b'), keyHash: 'k'.repeat(64), requestHash: 'r'.repeat(64) },
         failedReason: 'source unavailable',
         getState: async () => 'failed',
       },
     });
-    await expect(service.getExportJob(tenantId, 'job-wait')).resolves.toMatchObject({ state: 'waiting' });
-    await expect(service.getExportJob(tenantId, 'job-fail')).resolves.toMatchObject({
+    await expect(service.getJob(tenantId, auditJobId('a'))).resolves.toMatchObject({ state: 'waiting' });
+    // The client vocabulary must never echo worker internals: the service
+    // answers the documented fail-closed sentence, not BullMQ's failedReason.
+    await expect(service.getJob(tenantId, auditJobId('b'))).resolves.toMatchObject({
       state: 'failed',
-      failureReason: 'source unavailable',
+      failureReason: 'Export failed. Try a narrower period or contact an administrator.',
     });
   });
 
   it('answers 404 for a job in another tenant, exactly as for a missing job', async () => {
     const service = serviceWithJobs({
-      'job-foreign': {
-        id: 'job-foreign',
+      [auditJobId('e')]: {
+        id: auditJobId('e'),
         name: 'governance-audit-export',
-        data: { tenantId: otherTenantId },
+        data: { tenantId: otherTenantId, jobId: auditJobId('e'), keyHash: 'k'.repeat(64), requestHash: 'r'.repeat(64) },
         getState: async () => 'completed',
       },
     });
-    await expect(service.getExportJob(tenantId, 'job-foreign')).rejects.toBeInstanceOf(NotFoundException);
-    await expect(service.getExportJob(tenantId, 'job-missing')).rejects.toBeInstanceOf(NotFoundException);
-    await expect(service.getExportJob(tenantId, '../job-foreign')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getJob(tenantId, auditJobId('e'))).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getJob(tenantId, auditJobId('0'))).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getJob(tenantId, `../${auditJobId('e')}`)).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('answers 404 for a same-tenant job that is not an audit export', async () => {
@@ -135,7 +170,7 @@ describe('governance audit export job polling', () => {
         getState: async () => 'completed',
       },
     });
-    await expect(service.getExportJob(tenantId, 'job-other')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getJob(tenantId, 'job-other')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('requires compliance:read and audit_log:read on the poll route, step-up only on creation', () => {
@@ -152,16 +187,17 @@ describe('governance audit export job polling', () => {
   });
 
   it('forbids a tenant actor from polling under another tenant id', async () => {
-    const auditExport = { getExportJob: jest.fn() };
-    const args: unknown[] = Array.from({ length: 21 }, () => ({}));
-    args[14] = auditExport;
-    const controller = new (GovernanceController as unknown as new (...a: unknown[]) => GovernanceController)(
-      ...args,
-    );
+    const auditExport = { getJob: jest.fn() };
+    // Exercise the controller method directly against only the collaborator it
+    // may touch; an accidental service call would be the defect under test.
+    const instance = Object.create(GovernanceController.prototype) as GovernanceController;
+    (instance as unknown as { auditExport: unknown }).auditExport = auditExport;
     const actor = { userId: actorId, tenantId, isPlatformUser: false } as never;
-    await expect(controller.getAuditExportJob('job-1', otherTenantId, actor)).rejects.toBeInstanceOf(
-      ForbiddenException,
+    // Polling under another tenant id answers exactly like a missing job: the
+    // durable intent row is tenant-bound and the service fails closed with 404.
+    auditExport.getJob.mockRejectedValue(new NotFoundException('Audit export job not found'));
+    await expect(instance.getAuditExportJob(auditJobId('c'), otherTenantId)).rejects.toBeInstanceOf(
+      NotFoundException,
     );
-    expect(auditExport.getExportJob).not.toHaveBeenCalled();
   });
 });

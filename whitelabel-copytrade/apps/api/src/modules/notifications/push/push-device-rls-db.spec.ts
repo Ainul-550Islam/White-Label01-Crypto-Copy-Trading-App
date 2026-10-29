@@ -13,7 +13,16 @@ const adminUrl = process.env.BATCH02_TEST_DATABASE_URL, rlsUrl = process.env.BAT
   const otherActor = { tenantId: otherTenant, userId: otherUser, sessionId: otherSession } as never;
   let admin: PrismaService, db: PrismaService, service: PushDeviceService;
   const log = { info: jest.fn(), warn: jest.fn(), debug: jest.fn(), error: jest.fn() };
-  const fcm = { send: jest.fn(async () => ({ accepted: true, retryable: false, providerReference: 'projects/test/messages/123' })) };
+  const fcm = {
+    send: jest.fn(
+      async (_call: {
+        tenantId: string;
+        recipientUserId: string;
+        safePayload: { deviceToken: string };
+        correlationId?: string;
+      }) => ({ accepted: true, retryable: false, providerReference: 'projects/test/messages/123' }),
+    ),
+  };
   const prior = new Map<string, { relrowsecurity: boolean; relforcerowsecurity: boolean }>();
   const tables = ['user_sessions', 'users'];
   const client = (databaseUrl: string) => new PrismaService({ databaseUrl, isProduction: false, databaseReadEnabled: false } as never, log as never);

@@ -733,6 +733,18 @@ export const envSchema = z
     NOWPAYMENTS_API_KEY: z.string().optional(),
     NOWPAYMENTS_IPN_SECRET: z.string().optional(),
 
+    // Custody chain observation providers (Batch 03)
+    CUSTODY_CHAIN_PROVIDERS_ENABLED: booleanFromString.default(false),
+    CUSTODY_CHAIN_ETHEREUM_RPC_URL: z.string().default(""),
+    CUSTODY_CHAIN_BSC_RPC_URL: z.string().default(""),
+    CUSTODY_CHAIN_POLYGON_RPC_URL: z.string().default(""),
+    CUSTODY_CHAIN_ARBITRUM_RPC_URL: z.string().default(""),
+    CUSTODY_CHAIN_TRON_RPC_URL: z.string().default(""),
+    CUSTODY_CHAIN_HOST_ALLOWLIST: csv(""),
+    CUSTODY_CHAIN_HTTP_TIMEOUT_MS: intFromString(5000),
+    CUSTODY_CHAIN_MAX_RESPONSE_BYTES: intFromString(1048576),
+    CUSTODY_CHAIN_BREAKER_THRESHOLD: intFromString(5),
+
     // Seed
     SEED_SUPER_ADMIN_EMAIL: z
       .string()
@@ -1192,6 +1204,66 @@ export const envSchema = z
     }
   })
   // Part 9: chained onto the SAME schema rather than a standalone statement -
+  // Batch 03 (custody chain observation): providers enabled needs >=1 endpoint;
+  // endpoints must be https, credential-free, and host-allowlisted. Budgets bounded.
+  .superRefine((env, ctx) => {
+    const endpoints: Array<[string, string]> = [
+      ["CUSTODY_CHAIN_ETHEREUM_RPC_URL", env.CUSTODY_CHAIN_ETHEREUM_RPC_URL],
+      ["CUSTODY_CHAIN_BSC_RPC_URL", env.CUSTODY_CHAIN_BSC_RPC_URL],
+      ["CUSTODY_CHAIN_POLYGON_RPC_URL", env.CUSTODY_CHAIN_POLYGON_RPC_URL],
+      ["CUSTODY_CHAIN_ARBITRUM_RPC_URL", env.CUSTODY_CHAIN_ARBITRUM_RPC_URL],
+      ["CUSTODY_CHAIN_TRON_RPC_URL", env.CUSTODY_CHAIN_TRON_RPC_URL],
+    ];
+    const nonEmpty = endpoints.filter(([, value]) => value.trim() !== "");
+    const allowlist = new Set(env.CUSTODY_CHAIN_HOST_ALLOWLIST.map((h) => h.toLowerCase()));
+
+    if (env.CUSTODY_CHAIN_PROVIDERS_ENABLED && nonEmpty.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["CUSTODY_CHAIN_PROVIDERS_ENABLED"],
+        message:
+          "CUSTODY_CHAIN_PROVIDERS_ENABLED=true requires at least one CUSTODY_CHAIN_*_RPC_URL; an enabled surface with zero endpoints cannot answer honestly",
+      });
+    }
+
+    for (const [name, value] of nonEmpty) {
+      let url: URL;
+      try {
+        url = new URL(value);
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: `${name} must be a valid URL` });
+        continue;
+      }
+      if (url.protocol !== "https:") {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: `${name} must use https:` });
+      }
+      if (url.username !== "" || url.password !== "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [name],
+          message: `${name} must not embed userinfo credentials (they would end up in logs)`,
+        });
+      }
+      if (allowlist.size === 0 || !allowlist.has(url.host.toLowerCase())) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [name],
+          message: `${name} host is not listed in CUSTODY_CHAIN_HOST_ALLOWLIST`,
+        });
+      }
+    }
+
+    if (env.CUSTODY_CHAIN_HTTP_TIMEOUT_MS < 1000 || env.CUSTODY_CHAIN_HTTP_TIMEOUT_MS > 30_000) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["CUSTODY_CHAIN_HTTP_TIMEOUT_MS"], message: "must be within 1000..30000" });
+    }
+    if (env.CUSTODY_CHAIN_MAX_RESPONSE_BYTES < 16384 || env.CUSTODY_CHAIN_MAX_RESPONSE_BYTES > 16 * 1024 * 1024) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["CUSTODY_CHAIN_MAX_RESPONSE_BYTES"], message: "must be within 16384..16777216" });
+    }
+    if (env.CUSTODY_CHAIN_BREAKER_THRESHOLD < 1 || env.CUSTODY_CHAIN_BREAKER_THRESHOLD > 50) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["CUSTODY_CHAIN_BREAKER_THRESHOLD"], message: "must be within 1..50" });
+    }
+  })
+
   // zod's .superRefine returns a wrapper instead of mutating in place, so a
   // discarded expression would silently never run inside envSchema.safeParse.
   .superRefine((env, ctx) => {

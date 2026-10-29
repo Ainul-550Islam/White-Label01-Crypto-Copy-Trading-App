@@ -284,6 +284,13 @@
         "ruleId": "SLO_TELEMETRY_GAP",
         "severity": "WARNING",
         "title": "SLO measurement gap"
+      },
+      {
+        "blocksTrading": false,
+        "requiresRecovery": true,
+        "ruleId": "OUTBOX_LAG_HIGH",
+        "severity": "WARNING",
+        "title": "Transactional outbox lag"
       }
     ],
     "alert_severities": [
@@ -306,10 +313,13 @@
       "event_kind",
       "exchange",
       "feed_state",
+      "guard",
       "job_name",
       "market_type",
       "method",
+      "network",
       "pool_state",
+      "provider",
       "queue",
       "result",
       "risk_code",

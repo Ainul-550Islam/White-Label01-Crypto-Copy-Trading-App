@@ -98,7 +98,9 @@ def header(what: str, stamp: str) -> str:
 def prior_policy_tables(stamp: str) -> set[str]:
     """Return tables already covered by earlier additive Part 11 migrations."""
     covered: set[str] = set()
-    migration_pattern = re.compile(r"^(\d{14})_(?:part11_row_level_security|rls_policy_gap_close)$")
+    migration_pattern = re.compile(
+        r"^(\d{14})_(?:part11_row_level_security|rls_policy_gap_close|rls_coverage_reconcile)$"
+    )
     policy_pattern = re.compile(r'CREATE\s+POLICY\s+\w+\s+ON\s+"([^"]+)"', re.IGNORECASE)
     for migration_dir in MIGRATIONS.iterdir():
         if not migration_dir.is_dir():

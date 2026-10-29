@@ -369,7 +369,6 @@ custodyWallets CustodyWallet[]
   leadTraderApplications LeadTraderApplication[]
   leaderFeePolicies      LeaderFeePolicy[]
   userPositionLimits     UserPositionLimit[]
-  loginDevices           LoginDevice[]
   @@index([status])
   @@index([deletedAt])
   @@index([createdAt])
@@ -512,7 +511,6 @@ model User {
   recoveryCodes      TwoFactorRecoveryCode[]
   verificationTokens VerificationToken[]
   loginAttempts      LoginAttempt[]
-  loginDevices       LoginDevice[]
   securityEvents     SecurityEvent[]
   notifications      Notification[]
   notificationPrefs  NotificationPreference[]
@@ -551,8 +549,6 @@ model User {
   /// Verified IdP subjects linked to this account (SSO login key).
   ssoIdentities SsoIdentity[]
 
-  // Composite ownership key used by tenant-bound authentication records.
-  @@unique([tenantId, id], map: "users_tenant_id_id_batch02_key")
   @@unique([tenantId, email])
   @@unique([tenantId, emailIndex])
   @@index([tenantId, status])
@@ -873,27 +869,6 @@ model VerificationToken {
   @@index([userId, type])
   @@index([expiresAt])
   @@map("verification_tokens")
-}
-
-/// Keyed device fingerprints only; raw IP addresses and fingerprints are never stored.
-model LoginDevice {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  userId          String   @map("user_id") @db.Uuid
-  fingerprintHash String   @map("fingerprint_hash") @db.VarChar(64)
-  countryCode     String?  @map("country_code") @db.Char(2)
-  lastLatitude    Decimal? @map("last_latitude") @db.Decimal(9, 6)
-  lastLongitude   Decimal? @map("last_longitude") @db.Decimal(9, 6)
-  lastSeenAt      DateTime @map("last_seen_at") @db.Timestamptz(6)
-  firstSeenAt     DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
-  trusted         Boolean  @default(false)
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  user User @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade, onUpdate: Restrict, map: "login_devices_tenant_user_batch02_fkey")
-
-  @@unique([tenantId, userId, fingerprintHash], map: "login_devices_tenant_id_user_id_fingerprint_hash_key")
-  @@index([tenantId, userId, lastSeenAt], map: "login_devices_tenant_id_user_id_last_seen_at_idx")
-  @@map("login_devices")
 }
 
 model LoginAttempt {
@@ -12399,4 +12374,158 @@ model GovernanceAuditExportIntent {
   @@id([tenantId, keyHash])
   @@index([expiresAt], map: "governance_audit_export_intent_expiry_idx")
   @@map("governance_audit_export_intents")
+}
+
+// Batch 03 reconciliation models -------------------------------------------------
+// These tables were created by migrations 20261201000000_batch03_tables and
+// 20261215000000_batch04_tables, and their service layer (auth recovery, login
+// anomaly, billing statements, public shares, policy acceptance) is committed -
+// but the corresponding models were missing from this schema, which made the
+// drift traps (RLS coverage, persistence contract, ts-jest compile) fire on the
+// generated client. Batch 03 names the models exactly after the DDL columns so
+// the generated client, the migrations, and the RLS generator all agree by
+// construction. Rows stay gen_random_uuid()-keyed like their sibling batch
+// tables; per-batch04-notes the schema deliberately expresses no @relation to
+// User/Tenant for the FK columns (the DB constraint exists; the model graph
+// does not - see migrations/20261201000000_batch03_tables/migration.sql).
+
+enum ProfitShareStatementStatus {
+  DRAFT
+  FINALIZED
+  SUPERSEDED
+}
+
+model AccountRecoveryToken {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  /// Argon-style keyed hash; the raw token never touches the database.
+  tokenHash     String    @map("token_hash") @db.VarChar(64)
+  method        String    @default("EMAIL") @map("method") @db.VarChar(24)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  /// Replay marker: the update that sets it is the same statement that checks it.
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
+  requestIpHash String?   @map("request_ip_hash") @db.VarChar(64)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, tokenHash], map: "account_recovery_tokens_tenant_id_token_hash_key")
+  @@index([tenantId, userId, expiresAt], map: "account_recovery_tokens_tenant_id_user_id_expires_at_idx")
+  @@map("account_recovery_tokens")
+}
+
+model LoginDevice {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  fingerprintHash String   @map("fingerprint_hash") @db.VarChar(64)
+  countryCode     String?  @map("country_code") @db.Char(2)
+  lastLatitude    Decimal? @map("last_latitude") @db.Decimal(9, 6)
+  lastLongitude   Decimal? @map("last_longitude") @db.Decimal(9, 6)
+  lastSeenAt      DateTime @map("last_seen_at") @db.Timestamptz(6)
+  firstSeenAt     DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  trusted         Boolean  @default(false) @map("trusted")
+
+  @@unique([tenantId, userId, fingerprintHash], map: "login_devices_tenant_id_user_id_fingerprint_hash_key")
+  @@index([tenantId, userId, lastSeenAt], map: "login_devices_tenant_id_user_id_last_seen_at_idx")
+  @@map("login_devices")
+}
+
+enum PublicShareSubjectType {
+  TRADER
+  STRATEGY
+}
+
+model PublicShareLink {
+  id          String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String                 @map("tenant_id") @db.Uuid
+  ownerUserId String                 @map("owner_user_id") @db.Uuid
+  subjectType PublicShareSubjectType @map("subject_type")
+  subjectId   String                 @map("subject_id") @db.Uuid
+  tokenId     String                 @map("token_id") @db.Uuid
+  expiresAt   DateTime               @map("expires_at") @db.Timestamptz(6)
+  revokedAt   DateTime?              @map("revoked_at") @db.Timestamptz(6)
+  fieldsJson  Json                   @map("fields_json")
+  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, ownerUserId], map: "public_share_links_tenant_owner_idx")
+  @@unique([tokenId], map: "public_share_links_token_id_key")
+  @@map("public_share_links")
+}
+
+model PolicyAcceptance {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  document    String    @map("document") @db.VarChar(64)
+  version     String    @map("version") @db.VarChar(64)
+  contentHash String    @map("content_hash") @db.Char(64)
+  acceptedAt  DateTime  @default(now()) @map("accepted_at") @db.Timestamptz(6)
+  withdrawnAt DateTime? @map("withdrawn_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, userId, document, version, contentHash], map: "policy_acceptances_version_hash_key")
+  @@index([tenantId, userId, document, acceptedAt], map: "policy_acceptances_tenant_user_document_idx")
+  @@map("policy_acceptances")
+}
+
+model FeeScheduleVersion {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// NULL tenant_id is deliberate: platform-wide fee schedules apply to every
+  /// tenant; a tenant-specific override carries its tenant's UUID.
+  tenantId          String?   @map("tenant_id") @db.Uuid
+  version           Int       @map("version")
+  effectiveFrom     DateTime  @map("effective_from") @db.Timestamptz(6)
+  effectiveUntil    DateTime? @map("effective_until") @db.Timestamptz(6)
+  managementFeeRate String    @map("management_fee_rate") @db.VarChar(64)
+  profitShareRate   String    @map("profit_share_rate") @db.VarChar(64)
+  currency          String    @map("currency") @db.VarChar(3)
+  publishedBy       String    @map("published_by") @db.Uuid
+  publishedAt       DateTime  @default(now()) @map("published_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, version], map: "fee_schedule_versions_tenant_version_key")
+  @@index([tenantId, effectiveFrom, effectiveUntil], map: "fee_schedule_versions_tenant_effective_idx")
+  @@map("fee_schedule_versions")
+}
+
+model ProfitShareStatement {
+  id                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String                    @map("tenant_id") @db.Uuid
+  followerUserId    String                    @map("follower_user_id") @db.Uuid
+  traderUserId      String                    @map("trader_user_id") @db.Uuid
+  periodStart       DateTime                  @map("period_start") @db.Timestamptz(6)
+  periodEnd         DateTime                  @map("period_end") @db.Timestamptz(6)
+  version           Int                       @default(1) @map("version")
+  status            ProfitShareStatementStatus @default(DRAFT) @map("status")
+  currency          String                    @map("currency") @db.VarChar(3)
+  grossProfit       String                    @map("gross_profit") @db.VarChar(128)
+  profitShareAmount String                    @map("profit_share_amount") @db.VarChar(128)
+  highWaterMark     String                    @map("high_water_mark") @db.VarChar(128)
+  roundingRule      String                    @map("rounding_rule") @db.VarChar(64)
+  supersedesId      String?                   @map("supersedes_id") @db.Uuid
+  finalizedAt       DateTime?                 @map("finalized_at") @db.Timestamptz(6)
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lines  ProfitShareStatementLine[]
+
+  @@unique([tenantId, followerUserId, traderUserId, periodStart, periodEnd, currency, version], map: "profit_share_statement_period_currency_version_key")
+  @@index([tenantId, followerUserId, periodStart, periodEnd, status], map: "profit_share_statements_follower_period_idx")
+  @@map("profit_share_statements")
+}
+
+model ProfitShareStatementLine {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  statementId    String              @map("statement_id") @db.Uuid
+  sourceLedgerId String              @map("source_ledger_id") @db.VarChar(64)
+  sourceUserId   String              @map("source_user_id") @db.Uuid
+  currency       String              @map("currency") @db.VarChar(3)
+  profitAmount   String              @map("profit_amount") @db.VarChar(128)
+  feeAmount      String              @map("fee_amount") @db.VarChar(128)
+  postedAt       DateTime            @map("posted_at") @db.Timestamptz(6)
+
+  statement ProfitShareStatement @relation(fields: [statementId], references: [id], onDelete: Cascade, map: "profit_share_statement_lines_statement_fk")
+
+  @@unique([statementId, sourceLedgerId], map: "profit_share_statement_lines_statement_ledger_key")
+  @@index([sourceUserId, postedAt], map: "profit_share_statement_lines_source_posted_idx")
+  @@map("profit_share_statement_lines")
 }

@@ -17,10 +17,12 @@ CREATE TABLE "developer_mutation_intents" (
   CONSTRAINT "developer_mutation_intents_pkey" PRIMARY KEY ("tenant_id", "key_hash"),
   CONSTRAINT "developer_mutation_intents_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
-CREATE POLICY tenant_isolation ON "developer_mutation_intents"
-  AS PERMISSIVE FOR ALL TO PUBLIC
-  USING ("tenant_id" = wlct_current_tenant_id())
-  WITH CHECK ("tenant_id" = wlct_current_tenant_id());
+-- The tenant_isolation policy is deliberately NOT created here: Part 11's
+-- generated RLS sweep (and the batch-03 reconcile migration
+-- 20261228000000_rls_coverage_reconcile) owns policy creation so the policy
+-- body always matches the regenerated canonical text. This migration only
+-- creates the table and marks it RLS-protected; FORCE prevents the table
+-- owner from bypassing the policy once the sweep attaches it.
 ALTER TABLE "developer_mutation_intents" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "developer_mutation_intents" FORCE ROW LEVEL SECURITY;
 

@@ -30,10 +30,12 @@ import {
   CREDENTIAL_REGISTRY_VIEW_FIELDS,
   DISTRIBUTED_LOCK_WIRING_VIEW_FIELDS,
   ENGINE_STATUS_FIELDS,
+  FUTURES_GUARD_POLICY_VIEW_FIELDS,
   INCIDENT_SINK_VIEW_FIELDS,
   LIVE_ENABLEMENT_VIEW_FIELDS,
   PLACEMENT_VIEW_FIELDS,
   VENUE_ATTESTATION_VIEW_FIELDS,
+  VENUE_FUTURES_STATUS_VIEW_FIELDS,
   VENUE_STATUS_VIEW_FIELDS,
   VENUE_TRANSPORT_VIEW_FIELDS,
   type EngineStatusField,
@@ -112,6 +114,8 @@ const kindFor = (
     IncidentSinkView: 'incidentSinkView',
     VenueStatusView: 'venueStatusView',
     VenueTransportView: 'venueTransportView',
+    VenueFuturesStatusView: 'venueFuturesStatusView',
+    FuturesGuardPolicyView: 'futuresGuardPolicyView',
     'dict[str, object]': 'distributedLockWiringView',
   };
   // Name-based overrides for fields that share the same Python type but map to
@@ -274,13 +278,13 @@ const compare = (
 };
 
 describe('engine status contract - parity with the Python schema that defines it', () => {
-  it('mirrors StatusResponse exactly: 26 keys, same required set, same defaults', () => {
+  it('mirrors StatusResponse exactly: 27 keys, same required set, same defaults', () => {
     compare(
       ENGINE_STATUS_FIELDS,
       declaredFields(source, 'StatusResponse'),
       'StatusResponse',
     );
-    expect(ENGINE_STATUS_FIELDS).toHaveLength(26);
+    expect(ENGINE_STATUS_FIELDS).toHaveLength(27);
   });
 
   it('mirrors the sub-documents the status route validates through', () => {

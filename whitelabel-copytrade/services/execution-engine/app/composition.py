@@ -80,6 +80,10 @@ from app.venue import (
     build_binance_runtime,
     evaluate_live_gates,
 )
+from app.venue.binance_futures_runtime import (
+    BinanceFuturesVenueWiring,
+    build_binance_futures_runtime,
+)
 from app.venue_attestation import (
     VenueAttestationConfig,
     VenueAttestationError,
@@ -202,6 +206,12 @@ class EngineRuntime:
     #: venue adapter exists in the process at all. The lifespan owns its
     #: lifecycle (clock synchronisation loop, transport close).
     venue_wiring: BinanceVenueWiring | None = None
+    #: Batch 03: the USD-M futures venue stack, wired ONLY when
+    #: ``EXECUTION_VENUE_MARKET=usdm_futures`` and the mode is testnet/live.
+    #: Shares the deployment credential provider and (through the attestor's
+    #: restrictions reader) the spot stack's SAPI key-permission probe. None
+    #: in simulated mode and on the spot market, byte-identical to before.
+    futures_venue_wiring: BinanceFuturesVenueWiring | None = None
     #: Phase 3: the SAME book function the paper adapter prices against, so the
     #: submission route's reference price and the simulator's fill price can
     #: never disagree. ``None`` (or a provider returning ``None``) means "no
@@ -317,6 +327,11 @@ class EngineRuntime:
             # through describe() even when absent so /status keeps one shape.
             "venue": (
                 None if self.venue_wiring is None else self.venue_wiring.describe()
+            ),
+            "venueFutures": (
+                None
+                if self.futures_venue_wiring is None
+                else self.futures_venue_wiring.describe()
             ),
             "commands": sorted(SUPPORTED_COMMANDS),
         }
@@ -469,15 +484,43 @@ def build_runtime(
     # I/O and resolves no credentials; whether this stack may transmit is
     # decided below (engine settings) and, for live, by the gates.
     venue_wiring: BinanceVenueWiring | None = None
+    futures_venue_wiring: BinanceFuturesVenueWiring | None = None
     if settings.EXECUTION_MODE in ("testnet", "live"):
-        venue_wiring = build_binance_runtime(
-            settings,
-            credential_provider=credentials.provider,
-            testnet=settings.EXECUTION_MODE == "testnet",
-            transport_client=venue_transport_client,
-        )
-        trading: TradingAdapter = venue_wiring.trading_adapter
-        account: AccountAdapter = venue_wiring.account_adapter
+        if settings.EXECUTION_VENUE_MARKET == "usdm_futures":
+            # Batch 03: USD-M futures market. The futures stack carries the
+            # same one-transport/one-clock/one-budget assembly law as spot.
+            # Its key-permission attestation reads ``/sapi/v1/account/
+            # apiRestrictions`` - an endpoint served ONLY on the spot host,
+            # inside the futures transport allowlist's refusal zone - so the
+            # SPOT stack is built alongside and the futures attestor's
+            # restrictions reader is the spot adapter's own probe (same
+            # credentials provider, same clock discipline, one accounted
+            # budget). The spot runtime is read-only here: nothing routes a
+            # spot order through it.
+            venue_wiring = build_binance_runtime(
+                settings,
+                credential_provider=credentials.provider,
+                testnet=settings.EXECUTION_MODE == "testnet",
+                transport_client=venue_transport_client,
+            )
+            futures_venue_wiring = build_binance_futures_runtime(
+                settings,
+                credential_provider=credentials.provider,
+                testnet=settings.EXECUTION_MODE == "testnet",
+                restrictions_reader=venue_wiring.trading_adapter.fetch_key_restrictions,
+                transport_client=venue_transport_client,
+            )
+            trading = futures_venue_wiring.trading_adapter
+            account = futures_venue_wiring.account_adapter
+        else:
+            venue_wiring = build_binance_runtime(
+                settings,
+                credential_provider=credentials.provider,
+                testnet=settings.EXECUTION_MODE == "testnet",
+                transport_client=venue_transport_client,
+            )
+            trading: TradingAdapter = venue_wiring.trading_adapter
+            account: AccountAdapter = venue_wiring.account_adapter
         # A paper mid must never price a live submission's reference checks:
         # venue modes have no book here, so the submission route reports
         # market data down and refuses rather than inventing a price.
@@ -761,5 +804,6 @@ def build_runtime(
         venue_attestation_wiring=venue_attestation_wiring,
         credential_registry_wiring=credential_registry_wiring,
         venue_wiring=venue_wiring,
+        futures_venue_wiring=futures_venue_wiring,
         book_provider=book_provider,
     )

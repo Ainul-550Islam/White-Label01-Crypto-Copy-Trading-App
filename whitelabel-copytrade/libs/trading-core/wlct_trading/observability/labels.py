@@ -153,6 +153,12 @@ ALLOWED_LABEL_NAMES: frozenset[str] = frozenset(
         # for admitting a name to this list at all.
         "slo",
         "window_kind",
+        # Batch 03: custody chain observation (network/provider, in parity
+        # with apps/api metrics.registry.ts) and the futures guard-code axis
+        # for wlct_execution_futures_guard_events_total.
+        "network",
+        "provider",
+        "guard",
     }
 )
 

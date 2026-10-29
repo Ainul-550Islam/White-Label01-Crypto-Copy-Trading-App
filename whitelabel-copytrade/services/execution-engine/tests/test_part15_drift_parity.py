@@ -58,14 +58,18 @@ from app.schemas import EnablementRequest
 ROOT = Path(__file__).resolve().parents[3]
 RLS_DIR = ROOT / "apps" / "api" / "prisma" / "rls"
 MIGRATION_DIRECTORY = ROOT / "apps" / "api" / "prisma" / "migrations"
-# The policy history is BOTH stamp families: the part11 generations and the
+# The policy history is THREE stamp families: the part11 generations, the
 # gap-close generations the same generator emits when only a few tables are
-# missing policies. Stamp-prefixed directory names sort chronologically, so a
+# missing policies, and the batch-03 coverage reconcile generation
+# (20261228000000_rls_coverage_reconcile), which scripts/gen_part11_rls.py
+# already reads as prior policy history when picking up new tables.
+# Stamp-prefixed directory names sort chronologically, so a
 # plain path sort keeps the concatenation in application order.
 MIGRATION_FILES = sorted(
     [
         *MIGRATION_DIRECTORY.glob("*_part11_row_level_security/migration.sql"),
         *MIGRATION_DIRECTORY.glob("*_rls_policy_gap_close/migration.sql"),
+        *MIGRATION_DIRECTORY.glob("*_rls_coverage_reconcile/migration.sql"),
     ]
 )
 assert MIGRATION_FILES, "the Part 11 RLS migration history is missing"
@@ -189,12 +193,18 @@ class TestProbeTableSetMatchesTheArtifacts:
         # user_preferences, policy_acceptances - for 199, and fee_schedule_versions
         # (nullable tenant_id: platform-published schedule versions) took
         # exclusions to 31; the regeneration at stamp 20261220000000 picked all
-        # of them up. The current count is pinned
+        # of them up. Batch 03's reconcile stamp (20261228000000) then added the
+        # five tenant-owned tables the additive sweeps had missed -
+        # copy_budget_reduction_intents, developer_mutation_intents,
+        # governance_audit_export_intents, mobile_push_attempts and
+        # mobile_push_devices - for 204; the exclusion list stays 31, and the
+        # reconcile generation carries their policies, so no enabled table is
+        # without one. The current count is pinned
         # rather than derived because the pairing tests must detect disagreement
         # among enable.sql, disable.sql, rls_coverage.json and the stated count;
         # a pin that is stale by exactly one table is the signal that a migration
         # added a tenant table without anyone re-reading this file.
-        assert len(covered_tables(ENABLE)) == 199
+        assert len(covered_tables(ENABLE)) == 204
         assert len(manifest_tables(coverage_manifest(), "excluded")) == 31
 
     def test_every_covered_table_has_a_policy_in_the_migration_history(self) -> None:

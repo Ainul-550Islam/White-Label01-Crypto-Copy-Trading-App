@@ -237,10 +237,18 @@ export class FeatureFlagsService {
           orderBy: { currentPeriodStart: 'desc' },
           select: { plan: { select: { features: true, limits: true } } },
         });
+        // Entitlement has two lawful spellings and either alone suffices:
+        //   - the plan's feature list names the flag key (the amenities the
+        //     tenant is buying, e.g. 'live_trading'), or
+        //   - the plan's limits carry a strict boolean grant
+        //     `tenant_flag_grant_<key>: true` (a targeted override; the string
+        //     "true" or any other JSON value is NOT a grant).
+        const features = subscription?.plan.features;
+        const grantedByFeatures = Array.isArray(features) && features.includes(dto.key);
         const limits = subscription?.plan.limits;
-        const explicitGrant = limits && typeof limits === 'object' && !Array.isArray(limits)
-          && (limits as Record<string, unknown>)[`tenant_flag_grant_${dto.key}`] === true;
-        if (!explicitGrant) {
+        const grantedByLimits = !!(limits && typeof limits === 'object' && !Array.isArray(limits)
+          && (limits as Record<string, unknown>)[`tenant_flag_grant_${dto.key}`] === true);
+        if (!grantedByFeatures && !grantedByLimits) {
           throw new ForbiddenException('The current plan does not grant this feature.');
         }
       }

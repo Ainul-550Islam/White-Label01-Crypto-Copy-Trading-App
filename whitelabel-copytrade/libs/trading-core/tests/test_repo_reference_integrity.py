@@ -110,6 +110,14 @@ EXEMPT_PATHS: Final[tuple[tuple[str, str], ...]] = (
         "apps/admin-web/next-env.d.ts",
         "Next.js-generated references to route declarations created under .next during builds",
     ),
+    (
+        # The WEB app's owner of the same generated import lines. Apps/web is
+        # read-only for this batch, and the two imports it gained reference
+        # build-generated routes exactly like the admin twin this list already
+        # covers; exemption is the honest claim about a build artefact.
+        "apps/web/next-env.d.ts",
+        "Next.js-generated references to route declarations created under .next during builds",
+    ),
 )
 
 #: Files scanned as "prose only" - see the module docstring.

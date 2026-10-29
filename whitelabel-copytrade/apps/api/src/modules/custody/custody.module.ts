@@ -29,6 +29,7 @@ import { WithdrawalDestinationPolicyService } from './withdrawal-destination-pol
 import { PrismaWithdrawalDestinationRepository } from './withdrawal-destination-policy.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WithdrawalDestinationAdminController } from './withdrawal-destination-admin.controller';
+import { ChainObservationService } from './providers/chain-observation.service';
 
 @Module({
   imports: [PrismaModule],
@@ -40,6 +41,11 @@ import { WithdrawalDestinationAdminController } from './withdrawal-destination-a
     WithdrawalDestinationAdminController,
   ],
   providers: [
+    // Batch 03: chain observation gateway for the custody surface.
+    // CUSTODY_CHAIN_PROVIDERS_ENABLED=false (default) keeps it entirely
+    // refusing; the MetricsRegistry binding drops in only when the
+    // observability module's provider graph loads alongside custody.
+    ChainObservationService,
     CustodyPolicyService,
     AssetRegistryService,
     NetworkRegistryService,
@@ -79,6 +85,7 @@ import { WithdrawalDestinationAdminController } from './withdrawal-destination-a
     },
   ],
   exports: [
+    ChainObservationService,
     CustodyPolicyService,
     AssetRegistryService,
     NetworkRegistryService,

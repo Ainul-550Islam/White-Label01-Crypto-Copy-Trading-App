@@ -598,6 +598,12 @@ describe('copy execution stop lifecycle identity', () => {
       {} as never,
       {} as never,
       new OutboxService(),
+      // CopyBudgetService surface (Pick<., 'evaluate'>): a copy-budget allow
+      // the stop-lifecycle transition under test never consults, but the
+      // constructor position is required - omitting it desyncs the suite
+      // from the real dependency face (TS2554), which is itself the defect
+      // this battery catches.
+      { evaluate: jest.fn(async () => ({ accepted: true, reason: 'within-budget' })) } as never,
     );
     const transition = (service as unknown as {
       transitionSubscriptionWithOutbox(input: {

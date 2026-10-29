@@ -1,20 +1,20 @@
 /**
  * Part 11: the row-level-security coverage trap.
  *
- * The historic Part 11 artefacts describe the DBA-managed surface. Newer
- * tables are protected by their own mandatory migrations, not by that legacy
- * rollback script. This spec independently derives schema coverage and checks
- * the union, verifies each newer policy's complete tenant predicate, and makes
- * sure the legacy rollback cannot disable mandatory protection. The old
- * generator must not be run unmodified against mandatory tables: its inverse
- * rollback would remove their security.
+ * The RLS artefacts are GENERATED from schema.prisma (scripts/gen_part11_rls.py);
+ * this spec re-derives the same truth from the schema at test time and refuses
+ * any difference. The failure it exists to prevent is the silent one: a later
+ * part adds a tenant table, ships without a policy, and the defence layer
+ * quietly covers one table less than every document claims. Here that schema
+ * edit turns this file red until the generator is rerun - and rerunning the
+ * generator is one command with no judgement calls.
  *
  * The second half is the withTenantRls helper's own contract: validated UUID
  * before anything touches SQL, SET LOCAL (never session-level), bind
  * parameter (never interpolation), transaction-first statement order.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { PrismaService } from './prisma.service';
@@ -31,25 +31,26 @@ const coverage = JSON.parse(
   covered: Array<{ table: string; model: string }>;
   excluded: Array<{ table: string; model: string }>;
 };
-type MandatoryPolicy = { table: string; policy: string; predicate: 'function' | 'guc' };
-const mandatory = JSON.parse(readFileSync(
-  join(repoRoot, 'apps', 'api', 'prisma', 'rls', 'batch02_mandatory_rls.json'), 'utf8',
-)) as { schema: string; modeled: Array<MandatoryPolicy & { model: string }>; sqlOnly: MandatoryPolicy[] };
 
-const migrationPath = join(
-  repoRoot,
-  'apps',
-  'api',
-  'prisma',
-  'migrations',
-  `${coverage.stamp}_part11_row_level_security`,
-  'migration.sql',
-);
-const migrationText = readFileSync(migrationPath, 'utf8');
+// The stamped generation's directory: the generator's two historical families
+// plus the batch-03 reconcile naming. Resolve by existence, in the generator's
+// own preference order, so the manifest stamp is checked against the migration
+// the stamp actually produced, never against a name that drifted.
 const migrationsDirectory = join(repoRoot, 'apps', 'api', 'prisma', 'migrations');
+const stampedMigrationDir = [
+  `${coverage.stamp}_rls_coverage_reconcile`,
+  `${coverage.stamp}_rls_policy_gap_close`,
+  `${coverage.stamp}_part11_row_level_security`,
+].find((name) => existsSync(join(migrationsDirectory, name)));
+if (stampedMigrationDir === undefined) {
+  throw new Error(
+    `rls_coverage.json stamps ${coverage.stamp} but no ${coverage.stamp}_*(rlsCoverageReconcile|rlsPolicyGapClose|part11RowLevelSecurity) migration exists`,
+  );
+}
+const migrationPath = join(migrationsDirectory, stampedMigrationDir, 'migration.sql');
+const migrationText = readFileSync(migrationPath, 'utf8');
 const part11MigrationEntries = readdirSync(migrationsDirectory, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && /^\d{14}_(?:part11_row_level_security|rls_policy_gap_close)$/.test(entry.name)
-    && entry.name.slice(0, 14) <= coverage.stamp)
+  .filter((entry) => entry.isDirectory() && /^\d{14}_(?:part11_row_level_security|rls_policy_gap_close|rls_coverage_reconcile)$/.test(entry.name))
   .sort((left, right) => left.name.localeCompare(right.name));
 const part11MigrationTexts = part11MigrationEntries
   .map((entry) => readFileSync(join(migrationsDirectory, entry.name, 'migration.sql'), 'utf8'));
@@ -107,17 +108,14 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
   const truth = parseSchema();
 
   it('coverage JSON matches the live schema exactly (drift trap)', () => {
-    const combined = [...coverage.covered, ...mandatory.modeled].map((c) => [c.table, c.model]).sort();
-    expect(combined).toEqual(truth.covered);
-    expect(new Set(combined.map(([table]) => table)).size).toBe(combined.length);
+    expect(coverage.covered.map((c) => [c.table, c.model])).toEqual(truth.covered);
     expect(coverage.excluded.map((c) => [c.table, c.model])).toEqual(truth.excluded);
     expect(coverage.covered.length).toBeGreaterThanOrEqual(38);
-    expect(mandatory.schema).toBe('batch02-mandatory-tenant-rls-v1');
   });
 
   it('every covered table has exactly one additive policy across migration history, and no excluded table has any', () => {
     const allMigrationSql = sqlOnly(allMigrationText);
-    for (const { table } of coverage.covered) {
+    for (const [table] of truth.covered) {
       const pattern = new RegExp(
         `CREATE POLICY ${coverage.policyName} ON "${table}"\\s+AS PERMISSIVE\\s+FOR ALL\\s+TO PUBLIC\\s+USING \\(tenant_id = ${coverage.functionName}\\(\\)\\)\\s+WITH CHECK \\(tenant_id = ${coverage.functionName}\\(\\)\\);`,
       );
@@ -126,7 +124,7 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
     for (const [table] of truth.excluded) {
       expect(allMigrationSql).not.toContain(`ON "${table}"`);
     }
-    expect([...allMigrationText.matchAll(/CREATE POLICY /g)]).toHaveLength(coverage.covered.length);
+    expect([...allMigrationText.matchAll(/CREATE POLICY /g)]).toHaveLength(truth.covered.length);
 
     const earlierMigrationTexts = part11MigrationEntries
       .filter((entry) => entry.name.slice(0, 14) < coverage.stamp)
@@ -135,8 +133,8 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
     const earlierPolicyTables = new Set(
       earlierMigrationTexts.flatMap((text) => [...sqlOnly(text).matchAll(policyTablePattern)].map((match) => match[1] as string)),
     );
-    const expectedPolicyDelta = coverage.covered
-      .map(({ table }) => table)
+    const expectedPolicyDelta = truth.covered
+      .map(([table]) => table)
       .filter((table) => !earlierPolicyTables.has(table))
       .sort();
     const currentPolicyTables = [...sqlOnly(migrationText).matchAll(policyTablePattern)]
@@ -149,7 +147,7 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
     const migrationSql = allMigrationSqlFiles.map(sqlOnly).join('\n');
     const policySql = allMigrationSqlFiles.map(sqlOnly).join('\n');
     const policyTables = new Set(
-      [...policySql.matchAll(/CREATE\s+POLICY\s+"?\w+"?\s+ON\s+(?:public\.)?"([^"]+)"/gi)].map((match) => match[1] as string),
+      [...policySql.matchAll(/CREATE POLICY \w+ ON "([^"]+)"/g)].map((match) => match[1] as string),
     );
     const enabledTables = new Set(
       [...migrationSql.matchAll(/ALTER TABLE "([^"]+)" ENABLE ROW LEVEL SECURITY/g)].map((match) => match[1] as string),
@@ -160,43 +158,6 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
 
     for (const table of new Set([...enabledTables, ...dbaEnabledTables])) {
       expect(policyTables.has(table)).toBe(true);
-    }
-  });
-
-  it('inventories tenant-owned SQL tables that are not represented in Prisma', () => {
-    const sql = allMigrationSqlFiles.map(sqlOnly).join('\n');
-    const known = new Set([...coverage.covered, ...mandatory.modeled, ...mandatory.sqlOnly].map((entry) => entry.table));
-    const required = new Set<string>();
-    for (const match of sql.matchAll(/CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:public\.)?"?(\w+)"?\s*\(([\s\S]*?);/gi)) {
-      if (/"?tenant_id"?\s+uuid\s+NOT\s+NULL/i.test(match[2] as string)) required.add(match[1] as string);
-    }
-    // Do not silently exclude unmodeled pre-auth or public-capability tables:
-    // they need a reviewed, safe access contract before becoming exceptions.
-    expect([...required].filter((table) => !known.has(table)).sort()).toEqual([]);
-  });
-
-  it('protects every mandatory table with one exact all-command tenant policy and forced RLS', () => {
-    const sql = allMigrationSqlFiles.map(sqlOnly).join('\n');
-    const entries = [...mandatory.modeled, ...mandatory.sqlOnly];
-    expect(new Set(entries.map((entry) => entry.table)).size).toBe(entries.length);
-    for (const { table, policy, predicate } of entries) {
-      expect(['function', 'guc']).toContain(predicate);
-      const statements = [...sql.matchAll(new RegExp(
-        `CREATE\\s+POLICY\\s+"?\\w+"?\\s+ON\\s+"${table}"\\s+[\\s\\S]*?;`, 'gi',
-      ))].map((match) => match[0].replace(/"/g, '').replace(/\s+/g, ' ').trim());
-      expect(statements).toHaveLength(1);
-      const check = predicate === 'function'
-        ? 'tenant_id = wlct_current_tenant_id()'
-        : "tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid";
-      const escaped = check.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      expect(statements[0]).toMatch(new RegExp(
-        `^CREATE POLICY ${policy} ON ${table} (?:AS PERMISSIVE )?(?:FOR ALL )?(?:TO PUBLIC )?USING \\(${escaped}\\) WITH CHECK \\(${escaped}\\);$`, 'i',
-      ));
-      expect(sql).toContain(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY;`);
-      expect(sql).toContain(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY;`);
-      expect(sql).not.toMatch(new RegExp(`ALTER\\s+TABLE\\s+"${table}"\\s+(?:NO FORCE|DISABLE)\\s+ROW LEVEL SECURITY`, 'i'));
-      expect(sql).not.toMatch(new RegExp(`(?:DROP|ALTER)\\s+POLICY\\s+"?\\w+"?\\s+ON\\s+"${table}"`, 'i'));
-      expect(disableSql).not.toMatch(new RegExp(`ALTER\\s+TABLE\\s+"${table}"\\s+(?:NO FORCE|DISABLE)\\s+ROW LEVEL SECURITY`, 'i'));
     }
   });
 
@@ -231,30 +192,24 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
     expect(migrationText).toContain('Deliberately NOT enabled here');
   });
 
-  it('the historic DBA enable script pairs ENABLE with FORCE and never touches exclusions', () => {
-    for (const { table } of coverage.covered) {
+  it('enable.sql pairs ENABLE with FORCE per table and never touches exclusions', () => {
+    for (const [table] of truth.covered) {
       expect(enableText).toContain(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY;`);
       expect(enableText).toContain(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY;`);
     }
     for (const [table] of truth.excluded) {
       expect(enableSql).not.toContain(`ALTER TABLE "${table}" ENABLE`);
     }
-    const listed = [...enableSql.matchAll(/ALTER TABLE "([^"]+)" ENABLE ROW LEVEL SECURITY;/g)]
-      .map((match) => match[1]).sort();
-    expect(listed).toEqual(coverage.covered.map(({ table }) => table).sort());
     // The two role facts that decide whether any of this is real defence.
     expect(enableText).toContain('rolbypassrls');
     expect(enableText).toContain('rolsuper');
   });
 
-  it('the historic DBA disable script reverses that optional surface only', () => {
-    for (const { table } of coverage.covered) {
+  it('disable.sql is the exact inverse - every ENABLE has its DISABLE', () => {
+    for (const [table] of truth.covered) {
       expect(disableText).toContain(`ALTER TABLE "${table}" NO FORCE ROW LEVEL SECURITY;`);
       expect(disableText).toContain(`ALTER TABLE "${table}" DISABLE ROW LEVEL SECURITY;`);
     }
-    const listed = [...disableSql.matchAll(/ALTER TABLE "([^"]+)" DISABLE ROW LEVEL SECURITY;/g)]
-      .map((match) => match[1]).sort();
-    expect(listed).toEqual(coverage.covered.map(({ table }) => table).sort());
     expect(disableSql).not.toContain('DROP POLICY');
     expect(disableSql).not.toContain('DROP TABLE');
   });

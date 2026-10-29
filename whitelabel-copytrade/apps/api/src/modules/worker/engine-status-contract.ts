@@ -52,6 +52,8 @@ export type EngineStatusKind =
   | 'distributedLockWiringView'
   | 'venueAttestationView'
   | 'credentialRegistryView'
+  | 'futuresGuardPolicyView'
+  | 'venueFuturesStatusView'
   | 'venueStatusView'
   | 'venueTransportView';
 
@@ -265,6 +267,30 @@ export const VENUE_STATUS_VIEW_FIELDS: readonly EngineStatusField[] = Object.fre
   { key: 'transport', kind: 'venueTransportView', required: true },
 ]);
 
+// Batch 03: venueFutures.guardPolicy - the isolated accounting mandate as the
+// engine publishes it. Money numbers are decimal strings; the bps bounds are
+// platform integers, mirroring the Python VenueFuturesStatusView.
+export const FUTURES_GUARD_POLICY_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
+  { key: 'marginMode', kind: 'string', required: true },
+  { key: 'maxLeverage', kind: 'string', required: true },
+  { key: 'maxNotionalUsdt', kind: 'string', required: true },
+  { key: 'minLiquidationDistanceBps', kind: 'integer', required: true },
+  { key: 'maxFundingRateBps', kind: 'integer', required: true },
+]);
+
+// Batch 03: the futures venue stack shape, mirroring
+// services/execution-engine/app/schemas.py::VenueFuturesStatusView.
+export const VENUE_FUTURES_STATUS_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
+  { key: 'exchange', kind: 'string', required: true },
+  { key: 'market', kind: 'string', required: true },
+  { key: 'testnet', kind: 'boolean', required: true },
+  { key: 'wsBaseUrl', kind: 'string', required: true },
+  { key: 'attestorSource', kind: 'string', required: true },
+  { key: 'userStream', kind: 'string', required: true },
+  { key: 'guardPolicy', kind: 'futuresGuardPolicyView', required: true },
+  { key: 'transport', kind: 'venueTransportView', required: true },
+]);
+
 export const PLACEMENT_VIEW_FIELDS: readonly EngineStatusField[] = Object.freeze([
   { key: 'label', kind: 'string', required: true },
   { key: 'mode', kind: 'string', required: true },
@@ -329,6 +355,10 @@ export const ENGINE_STATUS_FIELDS: readonly EngineStatusField[] = Object.freeze(
   // null; a reply with no key at all predates the venue stack and reads the
   // same way, which is the schema's own default, copied.
   { key: 'venue', kind: 'venueStatusView', required: false, absentAs: null, nullable: true },
+  // Batch 03: the USD-M futures stack. Absent (an old engine) or null (this
+  // engine in spot/simulated mode) - the same absentAs convention as `venue`,
+  // pinned in the same parity spec.
+  { key: 'venueFutures', kind: 'venueFuturesStatusView', required: false, absentAs: null, nullable: true },
   { key: 'commands', kind: 'stringArray', required: true },
   { key: 'simulated', kind: 'boolean', required: false, absentAs: true },
 ]);
@@ -372,6 +402,8 @@ const checkOne = (kind: EngineStatusKind, value: unknown): boolean => {
     case 'credentialRegistryView':
     case 'venueStatusView':
     case 'venueTransportView':
+    case 'futuresGuardPolicyView':
+    case 'venueFuturesStatusView':
       return isRecord(value);
   }
 };
@@ -416,6 +448,8 @@ const viewFieldsFor = (kind: EngineStatusKind): readonly EngineStatusField[] | n
   if (kind === 'venueAttestationView') return VENUE_ATTESTATION_VIEW_FIELDS;
   if (kind === 'credentialRegistryView') return CREDENTIAL_REGISTRY_VIEW_FIELDS;
   if (kind === 'venueStatusView') return VENUE_STATUS_VIEW_FIELDS;
+  if (kind === 'venueFuturesStatusView') return VENUE_FUTURES_STATUS_VIEW_FIELDS;
+  if (kind === 'futuresGuardPolicyView') return FUTURES_GUARD_POLICY_VIEW_FIELDS;
   if (kind === 'venueTransportView') return VENUE_TRANSPORT_VIEW_FIELDS;
   return null;
 };

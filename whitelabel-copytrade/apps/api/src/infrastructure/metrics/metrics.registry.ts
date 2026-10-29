@@ -123,6 +123,13 @@ export const ALLOWED_LABEL_NAMES: ReadonlySet<string> = new Set([
   // and will fail the build if either side forgets the other.
   'slo',
   'window_kind',
+  // Batch 03: chain observation surface; the custody providers label per
+  // network/provider (never addresses, never hashes). Python parity:
+  // labels.py ALLOWED_LABEL_NAMES.
+  'network',
+  'provider',
+  // Batch 03 B: the futures guard refusal axis (guard code), parity with labels.py.
+  'guard',
 ]);
 
 /** Histogram buckets in SECONDS for HTTP-family latencies: 1ms .. 10s.

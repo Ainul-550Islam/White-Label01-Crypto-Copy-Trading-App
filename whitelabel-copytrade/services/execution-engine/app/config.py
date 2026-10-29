@@ -160,6 +160,40 @@ class Settings(BaseSettings):
     #: CachingPlacementAttestor (1000..3600000).
     EXECUTION_VENUE_ATTESTATION_CACHE_TTL_MS: int = 300_000
 
+    # --- USD-M futures market selection (batch 03, item B) --------------------
+    #: Which Binance market this runtime trades. ``spot`` (default) leaves every
+    #: spot behaviour byte-identical; ``usdm_futures`` swaps in the futures
+    #: venue stack (app.venue.binance_futures_runtime) against fapi.binance.com
+    #: in live mode or testnet.binancefuture.com in testnet mode. Futures in
+    #: ``simulated`` mode is a startup refusal: there is no simulated futures
+    #: book on this platform, and a paper engine that claims futures exposure
+    #: without a venue behind it is exactly the lie the mode exists to prevent.
+    EXECUTION_VENUE_MARKET: Literal["spot", "usdm_futures"] = "spot"
+    #: The platform-wide futures leverage ceiling. An order request above this
+    #: is refused before signature; the venue-side `set_leverage` call pins the
+    #: symbol at this cap rather than at whatever the account once used.
+    #: Default 3, the copy-trading mandate's ceiling. Range 1..20 because the
+    #: venue itself will not let an isolated BTCUSDT symbol above 125, and any
+    #: number we accept beyond 20 is a number a reviewer has not vetted.
+    EXECUTION_FUTURES_MAX_LEVERAGE: int = 3
+    #: Only ``ISOLATED`` margin mode is lawful. Cross-margin makes every open
+    #: position collateral for every other one; a copy-trading follower must not
+    #: inherit liquidation risk from an unrelated leader position.
+    EXECUTION_FUTURES_MARGIN_MODE: Literal["isolated"] = "isolated"
+    #: Per-symbol notional ceiling (quote currency, decimal string; Decimal
+    #: everywhere below). Hard cap on abs(price * quantity) per opening order.
+    EXECUTION_FUTURES_MAX_NOTIONAL_USDT: str = "250000"
+    #: Minimum mark-to-liquidation distance, in basis points of mark price,
+    #: required before any opening order sign-off. At 3x leverage a 250 bps
+    #: floor still permits positions whose buffer drains in one funding tick.
+    #: Bounds: 1..10000 bps (0.01%..100%); wider than 100% measures nothing.
+    EXECUTION_FUTURES_MIN_LIQUIDATION_DISTANCE_BPS: int = 250
+    #: Funding-rate sanity cap in basis points per 8h epoch. A venue whose
+    #: current funding print exceeds this ceases to be tradable for new opens
+    #: until the rate normalises - at 10 000% annualised tail numbers the venue
+    #: is telling you the book is broken.
+    EXECUTION_FUTURES_MAX_FUNDING_RATE_BPS: int = 75
+
     # --- Simulated venue shaping -------------------------------------------
     #: Fixed mid used as top-of-book for any symbol. Unset means the paper
     #: book is empty: submissions are refused for lack of price, which is
@@ -343,6 +377,51 @@ class Settings(BaseSettings):
             )
         return self
 
+    def _validate_futures_market(self) -> None:
+        """Fail-closed futures knob audit, called from the main validator.
+
+        Runs unconditionally - a deployment that never leaves spot gets the
+        same arithmetic validated, because knob drift caught at boot is knob
+        drift nobody trades against.
+        """
+        if not 1 <= self.EXECUTION_FUTURES_MAX_LEVERAGE <= 20:
+            raise ValueError(
+                "EXECUTION_FUTURES_MAX_LEVERAGE must be within 1..20: above 20 "
+                "the platform's own liquidation-buffer floor becomes arithmetic, "
+                "not policy"
+            )
+        if not 1 <= self.EXECUTION_FUTURES_MIN_LIQUIDATION_DISTANCE_BPS <= 10_000:
+            raise ValueError(
+                "EXECUTION_FUTURES_MIN_LIQUIDATION_DISTANCE_BPS must be within "
+                "1..10000 (0.01%..100% of mark price)"
+            )
+        if not 1 <= self.EXECUTION_FUTURES_MAX_FUNDING_RATE_BPS <= 10_000:
+            raise ValueError(
+                "EXECUTION_FUTURES_MAX_FUNDING_RATE_BPS must be within "
+                "1..10000 basis points per 8h epoch"
+            )
+        notional = _parse_decimal(
+            self.EXECUTION_FUTURES_MAX_NOTIONAL_USDT,
+            "EXECUTION_FUTURES_MAX_NOTIONAL_USDT",
+        )
+        if notional <= 0:
+            raise ValueError(
+                "EXECUTION_FUTURES_MAX_NOTIONAL_USDT must be a positive decimal "
+                "string; a zero ceiling refuses every opening order and a "
+                "negative one is nonsense"
+            )
+        if (
+            self.EXECUTION_VENUE_MARKET == "usdm_futures"
+            and self.EXECUTION_MODE == "simulated"
+        ):
+            raise ValueError(
+                "EXECUTION_VENUE_MARKET=usdm_futures with EXECUTION_MODE=simulated "
+                "is refused at startup: this platform has no simulated futures "
+                "book, and a paper engine that claims futures exposure without a "
+                "venue behind it is the lie the simulated mode exists to prevent. "
+                "Use EXECUTION_MODE=testnet for rehearsals."
+            )
+
     @model_validator(mode="after")
     def _validate(self) -> Settings:
         if self.EXECUTION_INTERNAL_TOKEN is None or not self.EXECUTION_INTERNAL_TOKEN.strip():
@@ -414,6 +493,7 @@ class Settings(BaseSettings):
                 )
         if self.EXECUTION_SIMULATED_MID is not None:
             _parse_decimal(self.EXECUTION_SIMULATED_MID, "EXECUTION_SIMULATED_MID")
+        self._validate_futures_market()
         for part in self.EXECUTION_PAPER_BALANCES.split(","):
             if part.strip() == "":
                 continue
@@ -812,6 +892,14 @@ class Settings(BaseSettings):
             "instanceId": self.EXECUTION_INSTANCE_ID,
             "servicePort": self.SERVICE_PORT,
             "mode": self.EXECUTION_MODE,
+            "venueMarket": self.EXECUTION_VENUE_MARKET,
+            # Futures knobs are configuration an operator must be able to
+            # audit from the status surface; none of them is a credential.
+            "futuresMaxLeverage": self.EXECUTION_FUTURES_MAX_LEVERAGE,
+            "futuresMarginMode": self.EXECUTION_FUTURES_MARGIN_MODE,
+            "futuresMaxNotionalUsdt": self.EXECUTION_FUTURES_MAX_NOTIONAL_USDT,
+            "futuresMinLiquidationDistanceBps": self.EXECUTION_FUTURES_MIN_LIQUIDATION_DISTANCE_BPS,
+            "futuresMaxFundingRateBps": self.EXECUTION_FUTURES_MAX_FUNDING_RATE_BPS,
             "dryRun": self.EXECUTION_DRY_RUN,
             "clockSyncIntervalSeconds": self.EXECUTION_CLOCK_SYNC_INTERVAL_SECONDS,
             "liveKillSwitchEngaged": self.EXECUTION_LIVE_KILL_SWITCH_ENGAGED,

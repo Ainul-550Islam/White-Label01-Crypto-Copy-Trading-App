@@ -402,6 +402,6 @@ describe('Governance controller uses verified actor identity, not body attestati
   });
   it('rejects an invalid audit action filter before an export can broaden its scope', async () => {
     await expect(controller().exportAudit({ tenantId: TENANT, operatorId: actor.userId, correlationId: 'unit-correlation', periodStart: reportDto.periodStart, periodEnd: reportDto.periodEnd,
-      filters: { actionType: 'UNRECOGNIZED' } }, actor)).rejects.toThrow('Invalid audit action type'); expect(exportPort.exportAuditTrail).not.toHaveBeenCalled();
+      filters: { actionType: 'UNRECOGNIZED' } }, actor, { headers: { 'idempotency-key': 'unit-export-key-0001' } } as never)).rejects.toThrow('Invalid audit action type'); expect(exportPort.exportAuditTrail).not.toHaveBeenCalled();
   });
 });

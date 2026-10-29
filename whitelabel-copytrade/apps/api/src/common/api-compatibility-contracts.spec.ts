@@ -885,7 +885,7 @@ describe('Typed lifecycle persistence boundaries', () => {
 
   function lifecycleDatabase() {
     return {
-      $queryRaw: jest.fn().mockResolvedValue([]),
+      $queryRaw: jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]),
       tenant: { findUnique: jest.fn<(args: Prisma.TenantFindUniqueArgs) => Promise<{ supportedCurrencies: string[]; defaultCurrency: string }>>()
         .mockResolvedValue({ supportedCurrencies: ['USD'], defaultCurrency: 'USD' }) },
       securityPolicy: { findFirst: jest.fn<(args: Prisma.SecurityPolicyFindFirstArgs) => Promise<null>>().mockResolvedValue(null) },

@@ -2,7 +2,6 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { APP_GUARD } from '@nestjs/core';
 
 import { AuthController } from './auth.controller';
 import { TwoFactorController } from './two-factor.controller';
@@ -57,7 +56,8 @@ import { CryptoService } from '../../infrastructure/crypto/crypto.service';
  * the custody module must be able to write `@RequireStepUp('CUSTODY_SWEEP')`
  * without importing anything from auth. The guard is a no-op on routes that carry
  * no such metadata, and it is registered through APP_GUARD so the decorator - not
- * the module graph - decides what is sensitive.
+ * the module graph - decides what is sensitive. (A2: the global registration
+ * itself lives in app.module.ts next to the auth/tenant chain.)
  */
 @Global()
 @Module({
@@ -92,7 +92,12 @@ import { CryptoService } from '../../infrastructure/crypto/crypto.service';
     SsoAuditService,
     StepUpAuthService,
     StepUpGuard,
-    { provide: APP_GUARD, useExisting: StepUpGuard },
+    // Batch 03 A2: StepUpGuard is a GLOBAL guard, registered exactly once -
+    // in app.module.ts's APP_GUARD chain, positioned after JwtAuthGuard,
+    // TenantGuard and PermissionsGuard. Re-registering it here (previously
+    // done through a second APP_GUARD binding) ran every step-up-metadated
+    // route through the verifier twice. The module still provides/ exports
+    // the class so app.module can bind it via useExisting.
     PrismaLoginAnomalyRepository,
     {
       provide: LoginAnomalyService,

@@ -1,0 +1,127 @@
+# # Responsibility: run the Live Spot/Futures testnet round-trip proof on demand and weekly.
+name: venue-testnet-proof
+
+# WHY THIS EXISTS
+# The money path's wire contract is proven offline on every push by the replay
+# suites and the mainnet refusal matrix (see docs/live/TESTNET_PROOF.md). That
+# is not the same claim as "a real venue answered": only the live step, against
+# testnet.binance.vision, proves that. This workflow runs that step twice —
+#   1. on demand (workflow_dispatch), when an operator wants a fresh proof;
+#   2. weekly on Monday 06:00 UTC, so bit-rot in the harness is caught even
+#      when nobody is watching.
+#
+# SAFETY LAWS (mirroring the suites themselves)
+#   * The suites only ever touch TESTNET base URLs. The harness origin check
+#     refuses any mainnet URL before the first request is sent — there is no
+#     flag, variable, or secret value here that can aim it at production.
+#   * The live order is a resting LIMIT buy priced far below the touch; the
+#     suite asserts filled_quantity == 0 and fails otherwise. This workflow
+#     spends nothing on the venue's production order book.
+#   * Credentials never reach the log: they arrive as env, are never echoed,
+#     and the JUnit upload goes through the redaction step below.
+#   * Forks never receive the secrets. This job is gated on github.repository
+#     below; on a fork the job is skipped, not failed silently-adapted, because
+#     a fork can't hold the repository's secrets anyway.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every Monday 06:00 UTC.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  testnet-roundtrip:
+    name: Venue testnet round-trip proof (spot + futures)
+    runs-on: ubuntu-24.04
+    # Never on forks: the secrets the payload needs live only on the origin
+    # repository, and a job that "passes offline by accident" is a false
+    # signal. Skip the whole job anywhere but the origin.
+    if: github.repository_owner == 'Ainul-550Islam'
+    env:
+      # Spot testnet key pair for the live step only (offline replay ignores
+      # them). read + spot trade; withdrawal permission must be off — the
+      # suite fails on can_withdraw.
+      BINANCE_TESTNET_API_KEY: ${{ secrets.BINANCE_TESTNET_KEY }}
+      BINANCE_TESTNET_API_SECRET: ${{ secrets.BINANCE_TESTNET_SECRET }}
+      # Futures testnet pair (separate venue surface).
+      BINANCE_FUTURES_TESTNET_API_KEY: ${{ secrets.BINANCE_FUTURES_TESTNET_KEY }}
+      BINANCE_FUTURES_TESTNET_API_SECRET: ${{ secrets.BINANCE_FUTURES_TESTNET_SECRET }}
+      WLCT_LIVE_TESTNET: "1"
+      PYTHON_JUNIT_XML: ".proof/junit.xml"
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install proof dependencies (trading-core editable + harness extras)
+        # The suites run against libs/trading-core as a package so the proof is
+        # the packaged artifact, not loose files on PYTHONPATH.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "libs/trading-core[live]" pytest pytest-asyncio
+
+      - name: Run the spot testnet round-trip suite
+        working-directory: libs/trading-core
+        # `-m live` selects JUST the live marker; the replay class is a subset
+        # of the same file and diseases the default profile under correction
+        # (`-m "not live"`) on every other CI run.
+        run: |
+          mkdir -p ../../../../.proof
+          python -m pytest -m live --junit-xml ../../../../.proof/junit-spot.xml \
+            tests/live_testnet/test_binance_testnet_roundtrip.py -ra -x
+
+      - name: Run the futures testnet round-trip suite
+        working-directory: libs/trading-core
+        run: |
+          python -m pytest -m live --junit-xml ../../../../.proof/junit-futures.xml \
+            tests/live_testnet/test_binance_futures_testnet_roundtrip.py -ra -x
+
+      - name: Redact credentials out of the JUnit uploads (defence in depth)
+        # The suites never log a request, but the upload is a public-surface
+        # artefact; strip anything that smells like a key before it leaves.
+        if: always()
+        run: |
+          python - <<'PY'
+          import os, re, pathlib
+          secrets = [
+              os.environ.get("BINANCE_TESTNET_API_KEY", ""),
+              os.environ.get("BINANCE_TESTNET_API_SECRET", ""),
+              os.environ.get("BINANCE_FUTURES_TESTNET_API_KEY", ""),
+              os.environ.get("BINANCE_FUTURES_TESTNET_API_SECRET", ""),
+          ]
+          for path in pathlib.Path(".proof").glob("*.xml"):
+              text = path.read_text()
+              for s in secrets:
+                  if s:
+                      text = text.replace(s, "<redacted>")
+              # generic key-shaped tokens (64 hex chars, base64-ish keys)
+              text = re.sub(r"[A-Za-z0-9]{48,64}", "<redacted>", text)
+              path.write_text(text)
+          PY
+
+      - name: Upload redacted JUnit evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: venue-testnet-proof-junit-${{ github.run_number }}
+          path: .proof/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Verify the JUnit contains the live marker and no credentials
+        if: always()
+        run: |
+          grep -q "testsuite" .proof/junit-spot.xml
+          grep -q "testsuite" .proof/junit-futures.xml
+          if grep -REq "$BINANCE_TESTNET_API_SECRET|$BINANCE_FUTURES_TESTNET_API_SECRET" .proof/ ; then
+            echo "credential leaked into JUnit after redaction" >&2
+            exit 1
+          fi

@@ -112,7 +112,7 @@ const rlsUrl = process.env.BATCH02_TEST_RLS_DATABASE_URL;
     const plan = await admin.subscriptionPlan.findFirstOrThrow({ where: { code: flagKey } });
     // Marketing text alone is not an entitlement; remove the explicit boolean grant.
     const original = { features: plan.features, limits: plan.limits };
-    await admin.subscriptionPlan.update({ where: { id: plan.id }, data: { features: [flagKey], limits: {} } });
+    await admin.subscriptionPlan.update({ where: { id: plan.id }, data: { features: [], limits: {} } });
     try {
       const before = await admin.auditLog.count({ where: { tenantId: tenantA, action: 'FEATURE_FLAG_UPDATED' } });
       await expect(service.setForTenant(tenantA, { key: flagKey, enabled: true }, context, 'flag-missing-plan-feature')).rejects.toMatchObject({ status: 403 });

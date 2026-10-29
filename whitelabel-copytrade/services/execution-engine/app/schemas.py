@@ -151,10 +151,11 @@ class SubmitSpecificationView(_WireModel):
 
 
 class SubmitExposureView(_WireModel):
-    """A forwarded exposure claim, not independently verified risk evidence.
+    """The account's exposure, computed by the API from its canonical ledger.
 
-    ``complete`` describes the producer's view only. The engine cannot admit
-    a submission on this flag or its accompanying values alone.
+    ``complete`` is the fail-closed flag: the API sets it to ``False`` when any
+    contributing position could not be marked, and the engine's risk check then
+    refuses the order rather than evaluating it against a partial picture.
     """
 
     position_quantity: str
@@ -179,10 +180,11 @@ class SubmitExposureView(_WireModel):
 class SubmitOrderRequest(_WireModel):
     """One order the OMS approved, forwarded by the trading worker.
 
-    ``riskDecisionId`` is required as a reference, but its presence is not
-    proof that the decision exists, is current, or authorizes this exact order.
-    The runtime must refuse admission until it can independently establish the
-    account's exposure, daily loss, and other required risk evidence.
+    ``riskDecisionId`` is required: the API's unified risk decision (daily
+    loss, drawdown, kill switches, compliance) is the authority this runtime
+    cannot reproduce, and an order that cannot name the decision it was
+    approved under is refused at the schema - 422, terminal - before it can
+    reach a gate that would have to guess.
     """
 
     tenant_id: str = _TENANT
@@ -429,6 +431,56 @@ class IncidentSinkView(_WireModel):
     stats: dict[str, int] = Field(default_factory=dict)
 
 
+class VenueTransportView(_WireModel):
+    """The Binance transport as /status publishes it: where signed requests
+    may go, and what the venue last said about this process's weight budget.
+    Hosts and counts only - the API key and signature exist nowhere near
+    this surface."""
+
+    base_url: str
+    allowed_base_urls: list[str] = []
+    recv_window_ms: int
+    used_weight_1m: int | None = None
+    order_count_10s: int | None = None
+    order_count_1d: int | None = None
+    seconds_until_available: float = 0.0
+
+
+class FuturesGuardPolicyView(_WireModel):
+    """The venue-visible futures guard numbers (batch 03). Decimal strings."""
+
+    margin_mode: str
+    max_leverage: str
+    max_notional_usdt: str
+    min_liquidation_distance_bps: int
+    max_funding_rate_bps: int
+
+
+class VenueFuturesStatusView(_WireModel):
+    """The USD-M futures venue stack, absent (None) unless the market is futures."""
+
+    exchange: str
+    market: str
+    testnet: bool
+    ws_base_url: str
+    attestor_source: str
+    user_stream: str
+    guard_policy: FuturesGuardPolicyView
+    transport: VenueTransportView
+
+
+class VenueStatusView(_WireModel):
+    """The venue stack (testnet/live), or absent (None) in simulated mode."""
+
+    exchange: str
+    market: str
+    testnet: bool
+    ws_base_url: str
+    attestor_source: str
+    user_stream: str
+    transport: VenueTransportView
+
+
 class StatusResponse(_WireModel):
     instance_id: str
     mode: str
@@ -502,6 +554,17 @@ class StatusResponse(_WireModel):
     #: Part 23: credential registry posture. Provider selection, capabilities,
     #: and credential metadata (no secrets).
     credential_registry: dict[str, object] | None = None
+    #: The venue stack posture for testnet/live: which host, which attestor
+    #: source, what the weight budget says. None in simulated mode - and
+    #: None from an engine too old to have a venue at all, which is the same
+    #: operational fact (nothing here can transmit).
+    venue: VenueStatusView | None = None
+    #: Batch 03: the futures venue stack posture when
+    #: ``EXECUTION_VENUE_MARKET=usdm_futures`` is wired (testnet/live only).
+    #: None on the spot market exactly as above - a spot deployment's body
+    #: must not grow the field. The futures guard posture is configuration,
+    #: never credentials.
+    venue_futures: VenueFuturesStatusView | None = None
     commands: list[str]
     simulated: bool = True
 

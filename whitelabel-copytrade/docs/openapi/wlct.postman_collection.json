@@ -1802,6 +1802,48 @@
               }
             }
           }
+        },
+        {
+          "name": "Update platform plan developer and tenant-feature grants",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/billing/plans/:id/grants",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "Update platform plan developer and tenant-feature grants",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -6702,6 +6744,42 @@
               }
             }
           }
+        },
+        {
+          "name": "CopyBudget_reduceBudget",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/copy-trading/budget/reduce",
+              "variable": []
+            },
+            "description": "POST /api/v1/copy-trading/budget/reduce",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -9730,6 +9808,160 @@
           }
         },
         {
+          "name": "Developer_activateApplication",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/applications/:id/activate",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/applications/{id}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Developer_applicationVersion",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/applications/:id/api-version",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "GET /api/v1/developer-platform/applications/{id}/api-version"
+          }
+        },
+        {
+          "name": "Developer_pinApplicationVersion",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/applications/:id/api-version",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "PUT /api/v1/developer-platform/applications/{id}/api-version",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Developer_approveApplicationReactivation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/applications/:id/approve-reactivation",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/applications/{id}/approve-reactivation",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Developer_createCredential",
           "request": {
             "method": "POST",
@@ -9878,6 +10110,11 @@
                 "key": "X-Tenant-Slug",
                 "value": "{{tenantSlug}}",
                 "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
               }
             ],
             "url": {
@@ -9890,7 +10127,100 @@
                 }
               ]
             },
-            "description": "POST /api/v1/developer-platform/applications/{id}/redirect-uris"
+            "description": "POST /api/v1/developer-platform/applications/{id}/redirect-uris",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Developer_requestApplicationReactivation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/applications/:id/request-reactivation",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/applications/{id}/request-reactivation",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Developer_revokeApplication",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/applications/:id/revoke",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/applications/{id}/revoke",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -9924,6 +10254,48 @@
               ]
             },
             "description": "PUT /api/v1/developer-platform/applications/{id}/scopes",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Developer_suspendApplication",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/applications/:id/suspend",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/applications/{id}/suspend",
             "body": {
               "mode": "raw",
               "raw": "{}",
@@ -10092,13 +10464,27 @@
                 "key": "X-Tenant-Slug",
                 "value": "{{tenantSlug}}",
                 "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
               }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/v1/developer-platform/oauth/code",
               "variable": []
             },
-            "description": "POST /api/v1/developer-platform/oauth/code"
+            "description": "POST /api/v1/developer-platform/oauth/code",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -10135,6 +10521,56 @@
                 }
               }
             }
+          }
+        },
+        {
+          "name": "Developer_oauthGrants",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/oauth/grants",
+              "variable": []
+            },
+            "description": "GET /api/v1/developer-platform/oauth/grants"
+          }
+        },
+        {
+          "name": "Developer_oauthRevokeGrant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/oauth/grants/:id/revoke",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/oauth/grants/{id}/revoke"
           }
         },
         {
@@ -10240,6 +10676,28 @@
           }
         },
         {
+          "name": "Developer_scopeCatalog",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/scope-catalog",
+              "variable": []
+            },
+            "description": "GET /api/v1/developer-platform/scope-catalog"
+          }
+        },
+        {
           "name": "Developer_usageReport",
           "request": {
             "method": "GET",
@@ -10296,13 +10754,27 @@
                 "key": "X-Tenant-Slug",
                 "value": "{{tenantSlug}}",
                 "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
               }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/v1/developer-platform/webhooks",
               "variable": []
             },
-            "description": "POST /api/v1/developer-platform/webhooks"
+            "description": "POST /api/v1/developer-platform/webhooks",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -10318,6 +10790,11 @@
                 "key": "X-Tenant-Slug",
                 "value": "{{tenantSlug}}",
                 "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
               }
             ],
             "url": {
@@ -10330,7 +10807,16 @@
                 }
               ]
             },
-            "description": "PATCH /api/v1/developer-platform/webhooks/{id}"
+            "description": "PATCH /api/v1/developer-platform/webhooks/{id}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -10404,6 +10890,48 @@
           }
         },
         {
+          "name": "Developer_pauseWebhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/webhooks/:id/pause",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/webhooks/{id}/pause",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Developer_replayWebhook",
           "request": {
             "method": "POST",
@@ -10446,6 +10974,90 @@
           }
         },
         {
+          "name": "Developer_resumeWebhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/webhooks/:id/resume",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/webhooks/{id}/resume",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Developer_revokeWebhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/webhooks/:id/revoke",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "set-id",
+                  "description": "Path parameter id"
+                }
+              ]
+            },
+            "description": "POST /api/v1/developer-platform/webhooks/{id}/revoke",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Developer_rotateWebhookSecret",
           "request": {
             "method": "POST",
@@ -10471,6 +11083,83 @@
               ]
             },
             "description": "POST /api/v1/developer-platform/webhooks/{id}/rotate-secret"
+          }
+        }
+      ]
+    },
+    {
+      "name": "DeveloperIntegration",
+      "item": [
+        {
+          "name": "DeveloperIntegration_client",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/integration/:environment/client",
+              "variable": [
+                {
+                  "key": "environment",
+                  "value": "set-environment",
+                  "description": "Path parameter environment"
+                }
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "set-version",
+                  "description": "Query parameter version",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/developer-platform/integration/{environment}/client"
+          }
+        },
+        {
+          "name": "DeveloperIntegration_profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/developer-platform/integration/:environment/profile",
+              "variable": [
+                {
+                  "key": "environment",
+                  "value": "set-environment",
+                  "description": "Path parameter environment"
+                }
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "set-version",
+                  "description": "Query parameter version",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/developer-platform/integration/{environment}/profile"
           }
         }
       ]
@@ -12735,42 +13424,6 @@
           }
         },
         {
-          "name": "Enable or disable a live-trading feature for the current organisation",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Tenant-Slug",
-                "value": "{{tenantSlug}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/feature-flags/live",
-              "variable": []
-            },
-            "description": "Live/mainnet switches only. Requires a fresh single-use step-up proof for FEATURE_FLAG_LIVE_TOGGLE plus plan entitlement to enable.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"enabled\": false,\n  \"key\": \"copy_trading\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          }
-        },
-        {
           "name": "Resolved flag map for the current organisation",
           "request": {
             "method": "GET",
@@ -12877,14 +13530,6 @@
                   "key": "jobId",
                   "value": "set-jobId",
                   "description": "Path parameter jobId"
-                }
-              ],
-              "query": [
-                {
-                  "key": "tenantId",
-                  "value": "set-tenantId",
-                  "description": "Query parameter tenantId",
-                  "disabled": false
                 }
               ]
             },
@@ -22143,6 +22788,69 @@
       ]
     },
     {
+      "name": "PushDevice",
+      "item": [
+        {
+          "name": "PushDevice_unregister",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/push-devices",
+              "variable": []
+            },
+            "description": "DELETE /api/v1/notifications/push-devices"
+          }
+        },
+        {
+          "name": "PushDevice_register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/push-devices",
+              "variable": []
+            },
+            "description": "POST /api/v1/notifications/push-devices",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "ReferralAbuseReview",
       "item": [
         {
@@ -28677,6 +29385,69 @@
       ]
     },
     {
+      "name": "UserPreferences",
+      "item": [
+        {
+          "name": "UserPreferences_get",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/preferences",
+              "variable": []
+            },
+            "description": "GET /api/v1/users/me/preferences"
+          }
+        },
+        {
+          "name": "UserPreferences_update",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/preferences",
+              "variable": []
+            },
+            "description": "PUT /api/v1/users/me/preferences",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Users",
       "item": [
         {
@@ -29371,6 +30142,47 @@
               ]
             },
             "description": "GET /api/v1/admin/custody/destinations"
+          }
+        }
+      ]
+    },
+    {
+      "name": "WithdrawalDestinationCheck",
+      "item": [
+        {
+          "name": "WithdrawalDestinationCheck_check",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/client-lifecycle/withdrawal-destination-check",
+              "variable": []
+            },
+            "description": "POST /api/v1/client-lifecycle/withdrawal-destination-check",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         }
       ]
