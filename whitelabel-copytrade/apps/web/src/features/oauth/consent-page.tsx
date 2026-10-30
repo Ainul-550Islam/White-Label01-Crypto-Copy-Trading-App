@@ -1,23 +1,30 @@
 'use client';
 import type { JSX } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useAuth } from '@/auth/auth.store';
 import { newIdempotencyKey } from '@/lib/idempotency-key';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 import { oauthApi, parseAuthorizationQuery, type AuthorizationInput, type AuthorizationRequest } from './oauth-api';
 import { oauthCopy, type OAuthLocale } from './oauth-copy';
 import { LocaleSelector } from './locale-selector';
 
+const subscribeToQuery = (): (() => void) => () => undefined;
+
 export default function ConsentPage(): JSX.Element {
   const auth = useAuth();
-  const [locale, setLocale] = useState<OAuthLocale>('en');
-  const [input, setInput] = useState<AuthorizationInput | null | undefined>();
+  const [locale, setLocale] = usePreferredLocale(oauthCopy, 'en');
+  // The authorization query string is read through the same hydration-safe snapshot path as the
+  // locale: `null` means "the server has no query string", which keeps the page in its loading
+  // state until the browser has been read, instead of flashing the invalid-request message.
+  const search = useSyncExternalStore<null | string>(subscribeToQuery, () => window.location.search, () => null);
+  const input = useMemo<AuthorizationInput | null | undefined>(
+    () => (search === null ? undefined : parseAuthorizationQuery(search)), [search]);
   const [request, setRequest] = useState<AuthorizationRequest | null>(null);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
   const keys = useRef({ authorize: newIdempotencyKey('authorize'), consent: newIdempotencyKey('consent'), code: newIdempotencyKey('code') });
   const t = oauthCopy[locale];
-  useEffect(() => { const language = navigator.language.split('-')[0] as OAuthLocale; if (language in oauthCopy) setLocale(language); setInput(parseAuthorizationQuery(window.location.search)); }, []);
   useEffect(() => {
     if (!auth.isAuthenticated || !input) return;
     let active = true;

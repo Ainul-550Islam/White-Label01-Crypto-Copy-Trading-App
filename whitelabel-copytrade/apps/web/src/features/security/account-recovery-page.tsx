@@ -1,6 +1,7 @@
 'use client';
 import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 import { accountRecoveryApi, type RecoveryCompleteResponse } from '@/api/security-api';
 import { ApiError } from '@/api/api-errors';
 import { newIdempotencyKey } from '@/lib/idempotency-key';
@@ -11,7 +12,7 @@ export interface AccountRecoveryPageProps { initialToken?: string; onRecovered?:
 type ErrorKey = 'unavailable' | 'invalid' | 'mismatch' | 'emailError' | 'rate' | 'policyError';
 
 export function AccountRecoveryPage({ initialToken, onRecovered }: AccountRecoveryPageProps): JSX.Element {
-  const [locale, setLocale] = useState<RecoveryLocale>('en');
+  const [locale, setLocale] = usePreferredLocale(recoveryCopy, 'en');
   const [step, setStep] = useState<RecoveryStep>(initialToken ? 'VERIFY' : 'REQUEST');
   const [email, setEmail] = useState('');
   const [token, setToken] = useState(initialToken ?? '');
@@ -26,10 +27,6 @@ export function AccountRecoveryPage({ initialToken, onRecovered }: AccountRecove
   const heading = useRef<HTMLHeadingElement>(null);
   const t = recoveryCopy[locale];
 
-  useEffect(() => {
-    const language = navigator.language.split('-')[0] as RecoveryLocale;
-    if (Object.prototype.hasOwnProperty.call(recoveryCopy, language)) setLocale(language);
-  }, []);
   useEffect(() => { heading.current?.focus(); }, [step]);
 
   function keyFor(ref: typeof requestIntent, intent: string): string {

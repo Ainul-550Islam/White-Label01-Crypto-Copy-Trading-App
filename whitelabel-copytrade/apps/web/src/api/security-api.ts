@@ -289,53 +289,16 @@ export const stepUpApi = {
     }),
 };
 
-/**
- * Withdrawal destinations: the customer's own address allowlist.
- *
- * `status` is the authority on whether an address may receive funds. A PENDING
- * address is NOT usable, and the UI must show the countdown rather than a
- * disabled checkbox the customer cannot explain.
- */
-export type WithdrawalDestinationStatus = 'PENDING' | 'ACTIVE' | 'REVOKED';
-
-export interface WithdrawalDestination {
-  id: string;
-  network: string;
-  address: string;
-  label: string;
-  status: WithdrawalDestinationStatus;
-  activatesAt: string;
-  revokedAt: string | null;
-  createdAt: string;
-  remainingCooldownMs: number;
-}
-
-export interface WithdrawalDestinationMutation {
-  ok: boolean;
-  code: string;
-  message: string;
-  destination?: WithdrawalDestination;
-  remainingCooldownMs?: number | null;
-}
-
-export const withdrawalDestinationApi = {
-  list: async (): Promise<WithdrawalDestination[]> => {
-    const page = await apiClient.get<{ data: WithdrawalDestination[]; total: number }>('/v1/custody/destinations');
-    if (!Array.isArray(page?.data) || page.data.some((row) => !row || typeof row.id !== 'string' || !row.id || typeof row.network !== 'string' || !row.network || typeof row.address !== 'string' || !row.address || typeof row.label !== 'string' || !['PENDING', 'ACTIVE', 'REVOKED'].includes(row.status) || typeof row.activatesAt !== 'string' || !Number.isFinite(Date.parse(row.activatesAt)))) {
-      throw new Error('Invalid destination response');
-    }
-    return page.data;
-  },
-
-  /** Requires a fresh step-up proof for PAYOUT_CREATE; call stepUpApi.issue first. */
-  add: (input: { network: string; address: string; label: string }, idempotencyKey?: string): Promise<WithdrawalDestinationMutation> =>
-    apiClient.post<WithdrawalDestinationMutation>('/v1/custody/destinations', input, { idempotencyKey }),
-
-  revoke: (id: string, reason?: string, idempotencyKey?: string): Promise<WithdrawalDestinationMutation> =>
-    apiClient.delete<WithdrawalDestinationMutation>(`/v1/custody/destinations/${encodeURIComponent(id)}`, {
-      ...(reason ? { body: { reason } } : {}), idempotencyKey,
-    }),
-};
+// The withdrawal-destination client now lives in its own module, beside the other customer custody
+// clients. It is re-exported here so every existing import keeps working and there is exactly one
+// implementation of the allowlist contract.
+export { withdrawalDestinationApi } from './withdrawal-destination-api';
+export type {
+  WithdrawalDestination,
+  WithdrawalDestinationMutation,
+  WithdrawalDestinationStatus,
+  WithdrawalNetwork,
+} from './withdrawal-destination-api';
 
 /**
  * Account recovery uses three fixed, same-origin public BFF routes. They do not

@@ -36,11 +36,16 @@ export function WebhookEndpointForm({ events, existing, onSaved, onSecret, onCan
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { if (existing) heading.current?.focus(); }, [existing]);
   const [appId, setAppId] = useState(existing?.applicationId ?? '');
-  useEffect(() => {
-    if (existing || applications.loading || applications.error) return;
-    const eligible = applications.rows.filter((app) => app.state === 'ACTIVE' && app.scopes.includes('webhooks:manage'));
-    setAppId((current) => eligible.some((app) => app.id === current) ? current : (eligible[0]?.id ?? ''));
-  }, [existing, applications.rows, applications.loading, applications.error]);
+  // The default application is chosen while rendering, not in an effect: when the loaded page of
+  // applications changes, an id that is no longer eligible is replaced with the first eligible one.
+  const [seenRows, setSeenRows] = useState(applications.rows);
+  if (seenRows !== applications.rows) {
+    setSeenRows(applications.rows);
+    if (!existing && !applications.loading && !applications.error) {
+      const eligible = applications.rows.filter((app) => app.state === 'ACTIVE' && app.scopes.includes('webhooks:manage'));
+      setAppId((current) => eligible.some((app) => app.id === current) ? current : (eligible[0]?.id ?? ''));
+    }
+  }
   const [endpoint, setEndpoint] = useState(existing?.endpointUrl ?? '');
   const [eventTypes, setEventTypes] = useState<string[]>(existing?.eventTypes ?? []);
   const [description, setDescription] = useState(existing?.description ?? '');

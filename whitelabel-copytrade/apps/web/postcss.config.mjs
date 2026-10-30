@@ -1,7 +1,9 @@
 // # Configures Tailwind CSS and Autoprefixer for the customer web application.
-export default {
+const config = {
   plugins: {
     tailwindcss: {},
     autoprefixer: {},
   },
 };
+
+export default config;

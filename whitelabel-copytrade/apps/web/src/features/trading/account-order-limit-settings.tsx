@@ -2,6 +2,7 @@
 
 // # Responsibility: owner-scoped account selection and verified, versioned order-size changes.
 import { useEffect, useId, useRef, useState, type FormEvent, type JSX } from 'react';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountOrderLimitsApi, type AccountOrderLimitAccount, type AccountOrderLimitPage, type AccountOrderLimitUpdate, type AccountOrderLimitView } from '@/api/account-order-limits-api';
 import { stepUpApi, type StepUpMethod } from '@/api/security-api';
@@ -71,15 +72,11 @@ function parseAmount(input: string): string | null {
 }
 
 function AccountOrderLimitsForOwner({ owner }: { owner: Owner }): JSX.Element {
-  const [locale, setLocale] = useState<AccountOrderLimitLocale>('en');
+  const [locale, setLocale] = usePreferredLocale(accountOrderLimitCopy, 'en');
   const [page, setPage] = useState(1), [accountId, setAccountId] = useState('');
   const [editorBusy, setEditorBusy] = useState(false);
   const id = useId();
   const list = useQuery({ queryKey: accountOrderListKey(owner, page), queryFn: async () => validatePage(await accountOrderLimitsApi.list(page), page), retry: false });
-  useEffect(() => {
-    const language = navigator.language.split('-')[0] as AccountOrderLimitLocale;
-    if (Object.hasOwn(accountOrderLimitCopy, language)) setLocale(language);
-  }, []);
   const t = accountOrderLimitCopy[locale];
   function changePage(nextPage: number): void { setAccountId(''); setPage(nextPage); }
   return <section className="space-y-4" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>

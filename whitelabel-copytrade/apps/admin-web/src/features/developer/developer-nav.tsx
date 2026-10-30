@@ -13,6 +13,7 @@ export function DeveloperNav({ canReconcile }: { canReconcile: boolean }): JSX.E
     <Link href="/developer/audit">{t.audit}</Link>
     {canReconcile && <Link href="/developer/reconciliation">{t.reconciliation}</Link>}
     <Link href="/developer/versions">{t.versions}</Link>
+    <Link href="/developer/integration">{t.integration}</Link>
     <label>{t.language}{' '}
       <select value={locale} onChange={(event) => setLocale(event.target.value as DeveloperLocale)}>
         <option value="en">English</option><option value="bn">বাংলা</option><option value="ar">العربية</option><option value="es">Español</option><option value="tr">Türkçe</option>

@@ -2,6 +2,7 @@
 
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { compareCopyBudgetDecimals, copyOpsApi, type CopyBudget } from '@/api/copy-ops-api';
 import { useAuth } from '@/auth/auth.store';
@@ -41,11 +42,7 @@ export function CopyBudgetSettings({ locale: controlledLocale }: { locale?: Copy
 }
 
 function BudgetForUser({ tenantId, userId, controlledLocale }: { tenantId: string; userId: string; controlledLocale?: CopyBudgetLocale }): JSX.Element {
-  const [localLocale, setLocale] = useState<CopyBudgetLocale>('en');
-  useEffect(() => {
-    const language = navigator.language.split('-')[0] as CopyBudgetLocale;
-    if (Object.hasOwn(copyBudgetCopy, language)) setLocale(language);
-  }, []);
+  const [localLocale, setLocale] = usePreferredLocale(copyBudgetCopy, 'en');
   const locale = controlledLocale ?? localLocale;
   const t = copyBudgetCopy[locale];
   const queryClient = useQueryClient();

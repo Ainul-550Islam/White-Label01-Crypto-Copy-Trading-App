@@ -1,0 +1,15 @@
+# Next.js writes this file on every `next dev` / `next build` and it is not a
+# source file: the committed copy imported `./.next/dev/types/routes.d.ts` and
+# `./.next/dev/types/root-params.d.ts`, which only exist after a dev run, so a
+# fresh clone failed `tsc` and the repo-integrity test. Ignoring it here keeps
+# the generated declarations on disk for the compiler without tracking them.
+next-env.d.ts
+
+# Next.js build output (the monorepo root ignores it too; repeated so the app
+# is self-contained when its folder is extracted on its own).
+.next/
+out/
+*.tsbuildinfo
+
+# Local build/coverage output
+coverage/

@@ -2,12 +2,13 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { newIdempotencyKey } from '@/lib/idempotency-key';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 import { oauthApi, type UserGrant } from './oauth-api';
 import { oauthCopy, type OAuthLocale } from './oauth-copy';
 import { LocaleSelector } from './locale-selector';
 
 export default function ConnectedAppsPage(): JSX.Element {
-  const [locale, setLocale] = useState<OAuthLocale>('en');
+  const [locale, setLocale] = usePreferredLocale(oauthCopy, 'en');
   const [rows, setRows] = useState<UserGrant[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const [history, setHistory] = useState<Array<string | undefined>>([]);
@@ -18,13 +19,14 @@ export default function ConnectedAppsPage(): JSX.Element {
   const [message, setMessage] = useState(false);
   const keys = useRef<Record<string, string>>({});
   const t = oauthCopy[locale];
-  useEffect(() => { const language = navigator.language.split('-')[0] as OAuthLocale; if (language in oauthCopy) setLocale(language); }, []);
-  const load = useCallback(async () => {
-    setLoading(true); setError(false);
-    try { const page = await oauthApi.grants(cursor); setRows(page.rows); setNext(page.nextCursor); }
-    catch { setRows([]); setNext(null); setError(true); }
-    finally { setLoading(false); }
-  }, [cursor]);
+  // A promise chain rather than an async function: this is called from the effect below, and React
+  // 19 rejects a function that writes state synchronously on the way in. Every write here happens in
+  // a settled callback. Paths that start a new page also set `loading` in their own event handler.
+  const load = useCallback((): Promise<void> => oauthApi.grants(cursor)
+    .then((page) => { setRows(page.rows); setNext(page.nextCursor); setError(false); })
+    .catch(() => { setRows([]); setNext(null); setError(true); })
+    .finally(() => { setLoading(false); }), [cursor]);
+  const go = useCallback((apply: () => void) => { setLoading(true); setError(false); apply(); }, []);
   useEffect(() => { void load(); }, [load]);
   async function revoke(row: UserGrant): Promise<void> {
     if (busyId || !window.confirm(t.confirm)) return;
@@ -43,7 +45,7 @@ export default function ConnectedAppsPage(): JSX.Element {
       <time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleDateString(locale)}</time><br/>
       <button className="mt-2 rounded border p-2" disabled={Boolean(busyId)} onClick={() => void revoke(row)} aria-label={`${t.revoke}: ${row.clientName}`}>{busyId === row.id ? t.working : t.revoke}</button>
     </li>)}</ul>}
-    <div className="flex gap-3">{history.length > 0 && <button className="rounded border p-2" onClick={() => { setCursor(history[history.length - 1]); setHistory(history.slice(0, -1)); }}>{t.back}</button>}
-      {next && <button className="rounded border p-2" onClick={() => { setHistory([...history, cursor]); setCursor(next); }}>{t.next}</button>}</div>
+    <div className="flex gap-3">{history.length > 0 && <button className="rounded border p-2" onClick={() => go(() => { setCursor(history[history.length - 1]); setHistory(history.slice(0, -1)); })}>{t.back}</button>}
+      {next && <button className="rounded border p-2" onClick={() => go(() => { setHistory([...history, cursor]); setCursor(next); })}>{t.next}</button>}</div>
   </section>;
 }

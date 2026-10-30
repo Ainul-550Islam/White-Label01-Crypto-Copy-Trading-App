@@ -16,10 +16,10 @@ function toHex(buffer: ArrayBuffer): string { return Array.from(new Uint8Array(b
 async function sha256(text: string): Promise<string> { return toHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))); }
 
 export default function AuditExportPanel(): JSX.Element {
-  const today = new Date().toISOString().slice(0, 10);
-  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(tomorrow);
+  // Read once, in a lazy initialiser: a clock read during render is an impure read, and React 19's
+  // lint rules refuse it. The defaults are "today" and "tomorrow" as of the moment the panel opened.
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState(() => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
   const [filters, setFilters] = useState(blankFilters);
   const [result, setResult] = useState<AuditExportResult | null>(null);
   const [busy, setBusy] = useState(false);

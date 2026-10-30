@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useId, useState, type FormEvent, type JSX } from 'react';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { depositAddressApi, type DepositAddress, type DepositAssetOption, type DepositObservation } from '@/api/deposit-address-api';
 import { ApiError } from '@/api/api-errors';
 import { stepUpApi, type StepUpMethod } from '@/api/security-api';
 import { useAuth } from '@/auth/auth.store';
 import { LocaleSelector } from '@/features/oauth/locale-selector';
-import { depositAddressCopy, type DepositAddressLocale } from './deposit-address-copy';
+import { depositAddressCopy } from './deposit-address-copy';
 
 interface FundingIdentity { id: string; accountId: string; currency: string }
 
@@ -34,7 +35,7 @@ async function retryKey(owner: { tenantId: string; userId: string }, requestId: 
 
 function DepositForOwner({ owner, request }: { owner: { tenantId: string; userId: string }; request: FundingIdentity }): JSX.Element {
   const [open, setOpen] = useState(false), [selected, setSelected] = useState('');
-  const [locale, setLocale] = useState<DepositAddressLocale>('en');
+  const [locale, setLocale] = usePreferredLocale(depositAddressCopy, 'en');
   const [verifyOpen, setVerifyOpen] = useState(false), [method, setMethod] = useState<StepUpMethod>('PASSWORD');
   const [credential, setCredential] = useState(''), [busy, setBusy] = useState(false), [failed, setFailed] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'copied' | 'failed' | null>(null);
@@ -44,10 +45,6 @@ function DepositForOwner({ owner, request }: { owner: { tenantId: string; userId
   const [observation, setObservation] = useState<DepositObservation | null>(null);
   const id = useId();
   const cache = useQueryClient();
-  useEffect(() => {
-    const language = navigator.language.split('-')[0] as DepositAddressLocale;
-    if (Object.hasOwn(depositAddressCopy, language)) setLocale(language);
-  }, []);
   const t = depositAddressCopy[locale];
   const assetsKey = ['deposit-address-assets', owner.tenantId, owner.userId, request.id] as const;
   const assets = useQuery({ queryKey: assetsKey, queryFn: () => depositAddressApi.listAssets(request.id), enabled: open, retry: false });

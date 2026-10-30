@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type JSX, type ReactNode } from 'react';
+import { createContext, useContext, type JSX, type ReactNode } from 'react';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 
 const en = {
   applicationPages:'Application pages', noEligibleOnPage:'No eligible application on this page.',
@@ -48,6 +49,17 @@ const en = {
   noEligibleApps: 'No returned application is eligible to manage webhooks.', denied: 'Developer data requires API key read permission.',
   paused: 'Paused', queued: 'Queued', delivering: 'Delivering', delivered: 'Delivered', deliveryFailed: 'Failed',
   retryScheduled: 'Retry scheduled', exhausted: 'Exhausted', cancelled: 'Cancelled',
+  integration: 'Integration console', integrationTitle: 'Integration console',
+  integrationIntro: 'These calls use the credential you supply against the tenant API origin, not the admin session, so you see exactly what an integrator sees. Every request is sent once per intent; a retry reuses its key.',
+  integrationRequest: 'Integration request', apiOrigin: 'Tenant API origin (https://...)', environmentLabel: 'Environment',
+  apiVersion: 'API version', credentialType: 'Credential', oauthToken: 'OAuth access token', apiKeyId: 'API key id', apiKeySecret: 'API key secret',
+  readClient: 'Read client descriptor', readProfile: 'Read developer profile', applicationStateTitle: 'Application state and redirect URIs',
+  targetState: 'Target state', reason: 'Reason (optional)', redirectUri: 'Redirect URI', addRedirectUri: 'Register redirect URI',
+  oauthTitle: 'OAuth code exchange and revocation', clientId: 'Client ID', authorizationCode: 'Authorization code',
+  codeVerifier: 'Code verifier', clientSecret: 'Client secret (optional)', exchangeCode: 'Exchange code for a token',
+  revokeToken: 'Revoke token', revokeAccepted: 'The token was revoked.',
+  tokenOnce: 'Copy the token you need now. It is held in this page only and is never stored.',
+  webhookActionTitle: 'Webhook subscription action', endpointId: 'Webhook endpoint id', runAction: 'Run action',
 } as const;
 type Key = keyof typeof en;
 type Locale = 'en' | 'bn' | 'ar' | 'es' | 'tr';
@@ -99,6 +111,7 @@ const translations: Record<Locale, Messages> = {
     scopeNotice:'সেবা আরও সীমিত নীতি প্রয়োগ না করলে কী অ্যাপ্লিকেশনের স্কোপ পায়।',
     noEligibleApps:'ফেরত দেওয়া কোনো অ্যাপ্লিকেশন ওয়েবহুক ব্যবস্থাপনার যোগ্য নয়।', denied:'ডেভেলপার তথ্য দেখতে এপিআই কী পড়ার অনুমতি প্রয়োজন।',
     paused:'বিরত', queued:'সারিতে', delivering:'পাঠানো হচ্ছে', delivered:'পৌঁছেছে', deliveryFailed:'ব্যর্থ', retryScheduled:'পুনঃপ্রচেষ্টা নির্ধারিত', exhausted:'প্রচেষ্টা শেষ', cancelled:'বাতিল',
+    integration:'ইন্টিগ্রেশন কনসোল', integrationTitle:'ইন্টিগ্রেশন কনসোল', integrationIntro:'এই কলগুলো আপনার দেওয়া ক্রেডেনশিয়াল দিয়ে টেন্যান্ট API অরিজিনে যায়, অ্যাডমিন সেশন দিয়ে নয় — তাই একজন ইন্টিগ্রেটর যা দেখে আপনি ঠিক তা-ই দেখেন।', integrationRequest:'ইন্টিগ্রেশন অনুরোধ', apiOrigin:'টেন্যান্ট API অরিজিন (https://...)', environmentLabel:'পরিবেশ', apiVersion:'API সংস্করণ', credentialType:'ক্রেডেনশিয়াল', oauthToken:'OAuth অ্যাক্সেস টোকেন', apiKeyId:'API কী আইডি', apiKeySecret:'API কী সিক্রেট', readClient:'ক্লায়েন্ট বিবরণ পড়ুন', readProfile:'ডেভেলপার প্রোফাইল পড়ুন', applicationStateTitle:'অ্যাপ্লিকেশনের অবস্থা ও রিডাইরেক্ট URI', targetState:'লক্ষ্য অবস্থা', reason:'কারণ (ঐচ্ছিক)', redirectUri:'রিডাইরেক্ট URI', addRedirectUri:'রিডাইরেক্ট URI নিবন্ধন করুন', oauthTitle:'OAuth কোড বিনিময় ও বাতিলকরণ', clientId:'ক্লায়েন্ট আইডি', authorizationCode:'অনুমোদন কোড', codeVerifier:'কোড ভেরিফায়ার', clientSecret:'ক্লায়েন্ট সিক্রেট (ঐচ্ছিক)', exchangeCode:'কোডের বিনিময়ে টোকেন নিন', revokeToken:'টোকেন বাতিল করুন', revokeAccepted:'টোকেনটি বাতিল হয়েছে।', tokenOnce:'প্রয়োজনীয় টোকেন এখনই কপি করুন। এটি কেবল এই পৃষ্ঠায় থাকে, কোথাও সংরক্ষিত হয় না।', webhookActionTitle:'ওয়েবহুক সাবস্ক্রিপশনের কাজ', endpointId:'ওয়েবহুক এন্ডপয়েন্ট আইডি', runAction:'কাজ চালান',
   },
   ar: {
     applicationPages:'صفحات التطبيقات', noEligibleOnPage:'لا يوجد تطبيق مؤهل في هذه الصفحة.',
@@ -145,6 +158,7 @@ const translations: Record<Locale, Messages> = {
     scopeNotice:'ترث المفاتيح نطاقات تطبيقها ما لم تفرض الخدمة سياسة أضيق.',
     noEligibleApps:'لا يوجد تطبيق مُرجع مؤهل لإدارة خطافات الويب.', denied:'تتطلب بيانات المطور إذن قراءة مفاتيح API.',
     paused:'متوقف مؤقتًا', queued:'في الانتظار', delivering:'جارٍ التسليم', delivered:'تم التسليم', deliveryFailed:'فشل', retryScheduled:'إعادة المحاولة مجدولة', exhausted:'نفدت المحاولات', cancelled:'أُلغي',
+    integration:'وحدة التكامل', integrationTitle:'وحدة التكامل', integrationIntro:'تستخدم هذه الاستدعاءات بيانات الاعتماد التي تُدخلها مع أصل واجهة المستأجر، لا جلسة المسؤول، لترى ما يراه المطوّر تمامًا.', integrationRequest:'طلب التكامل', apiOrigin:'أصل واجهة المستأجر (https://...)', environmentLabel:'البيئة', apiVersion:'إصدار الواجهة', credentialType:'بيانات الاعتماد', oauthToken:'رمز وصول OAuth', apiKeyId:'معرّف مفتاح الواجهة', apiKeySecret:'سر مفتاح الواجهة', readClient:'قراءة وصف العميل', readProfile:'قراءة ملف المطوّر', applicationStateTitle:'حالة التطبيق وعناوين إعادة التوجيه', targetState:'الحالة المستهدفة', reason:'السبب (اختياري)', redirectUri:'عنوان إعادة التوجيه', addRedirectUri:'تسجيل عنوان إعادة التوجيه', oauthTitle:'تبادل رمز OAuth وإلغاؤه', clientId:'معرّف العميل', authorizationCode:'رمز التفويض', codeVerifier:'مدقّق الرمز', clientSecret:'سر العميل (اختياري)', exchangeCode:'استبدال الرمز برمز وصول', revokeToken:'إلغاء الرمز', revokeAccepted:'تم إلغاء الرمز.', tokenOnce:'انسخ الرمز الذي تحتاجه الآن. يبقى في هذه الصفحة فقط ولا يُخزَّن.', webhookActionTitle:'إجراء اشتراك الويب هوك', endpointId:'معرّف نقطة الويب هوك', runAction:'تنفيذ الإجراء',
   },
   es: {
     applicationPages:'Páginas de aplicaciones', noEligibleOnPage:'No hay aplicaciones aptas en esta página.',
@@ -191,6 +205,7 @@ const translations: Record<Locale, Messages> = {
     scopeNotice:'Las claves heredan los permisos de la aplicación salvo que el servicio aplique una política más restrictiva.',
     noEligibleApps:'Ninguna aplicación devuelta puede administrar webhooks.', denied:'Los datos de desarrollador requieren permiso de lectura de claves API.',
     paused:'En pausa', queued:'En cola', delivering:'Enviando', delivered:'Entregado', deliveryFailed:'Fallido', retryScheduled:'Reintento programado', exhausted:'Agotado', cancelled:'Cancelado',
+    integration:'Consola de integración', integrationTitle:'Consola de integración', integrationIntro:'Estas llamadas usan la credencial que indicas contra el origen de la API del inquilino, no la sesión de administración, para que veas exactamente lo que ve un integrador.', integrationRequest:'Solicitud de integración', apiOrigin:'Origen de la API del inquilino (https://...)', environmentLabel:'Entorno', apiVersion:'Versión de la API', credentialType:'Credencial', oauthToken:'Token de acceso OAuth', apiKeyId:'Id de la clave de API', apiKeySecret:'Secreto de la clave de API', readClient:'Leer descriptor del cliente', readProfile:'Leer perfil del desarrollador', applicationStateTitle:'Estado de la aplicación y URIs de redirección', targetState:'Estado objetivo', reason:'Motivo (opcional)', redirectUri:'URI de redirección', addRedirectUri:'Registrar URI de redirección', oauthTitle:'Canje y revocación del código OAuth', clientId:'Id de cliente', authorizationCode:'Código de autorización', codeVerifier:'Verificador del código', clientSecret:'Secreto del cliente (opcional)', exchangeCode:'Canjear el código por un token', revokeToken:'Revocar token', revokeAccepted:'El token fue revocado.', tokenOnce:'Copia ahora el token que necesites. Solo se mantiene en esta página y nunca se almacena.', webhookActionTitle:'Acción sobre la suscripción de webhook', endpointId:'Id del endpoint de webhook', runAction:'Ejecutar acción',
   },
   tr: {
     applicationPages:'Uygulama sayfaları', noEligibleOnPage:'Bu sayfada uygun uygulama yok.',
@@ -237,6 +252,7 @@ const translations: Record<Locale, Messages> = {
     scopeNotice:'Hizmet daha dar bir politika uygulamadıkça anahtarlar uygulama kapsamlarını devralır.',
     noEligibleApps:'Döndürülen uygulamalardan hiçbiri webhook yönetimine uygun değil.', denied:'Geliştirici verileri için API anahtarı okuma yetkisi gerekir.',
     paused:'Duraklatıldı', queued:'Sırada', delivering:'Gönderiliyor', delivered:'Teslim edildi', deliveryFailed:'Başarısız', retryScheduled:'Yeniden deneme planlandı', exhausted:'Denemeler tükendi', cancelled:'İptal edildi',
+    integration:'Entegrasyon konsolu', integrationTitle:'Entegrasyon konsolu', integrationIntro:'Bu çağrılar yönetici oturumu yerine verdiğiniz kimlik bilgisiyle kiracı API kaynağına gider; böylece bir entegratörün gördüğünü görürsünüz.', integrationRequest:'Entegrasyon isteği', apiOrigin:'Kiracı API kaynağı (https://...)', environmentLabel:'Ortam', apiVersion:'API sürümü', credentialType:'Kimlik bilgisi', oauthToken:'OAuth erişim belirteci', apiKeyId:'API anahtarı kimliği', apiKeySecret:'API anahtarı sırrı', readClient:'İstemci tanımını oku', readProfile:'Geliştirici profilini oku', applicationStateTitle:'Uygulama durumu ve yönlendirme adresleri', targetState:'Hedef durum', reason:'Gerekçe (isteğe bağlı)', redirectUri:'Yönlendirme adresi', addRedirectUri:'Yönlendirme adresini kaydet', oauthTitle:'OAuth kodu değişimi ve iptali', clientId:'İstemci kimliği', authorizationCode:'Yetkilendirme kodu', codeVerifier:'Kod doğrulayıcı', clientSecret:'İstemci sırrı (isteğe bağlı)', exchangeCode:'Kodu belirteçle değiştir', revokeToken:'Belirteci iptal et', revokeAccepted:'Belirteç iptal edildi.', tokenOnce:'Gereken belirteci şimdi kopyalayın. Yalnızca bu sayfada tutulur, hiçbir yerde saklanmaz.', webhookActionTitle:'Webhook aboneliği işlemi', endpointId:'Webhook uç noktası kimliği', runAction:'İşlemi çalıştır',
   },
 };
 
@@ -245,11 +261,10 @@ const Context = createContext<{ t: Messages; locale: Locale; setLocale: (locale:
 });
 
 export function DeveloperI18n({ children }: { children: ReactNode }): JSX.Element {
-  const [locale, setLocale] = useState<Locale>('en');
-  useEffect(() => {
-    const candidate = navigator.language.toLowerCase().split('-')[0] as Locale;
-    if (Object.prototype.hasOwnProperty.call(translations, candidate)) setLocale(candidate);
-  }, []);
+  // The browser's language is read through a hydration-safe snapshot rather than a mount effect:
+  // an effect that calls setLocale renders the fallback first and then re-renders every mount, and
+  // React 19's lint rules reject the synchronous write outright.
+  const [locale, setLocale] = usePreferredLocale(translations, 'en');
   return <Context.Provider value={{ t: translations[locale], locale, setLocale }}><div lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>{children}</div></Context.Provider>;
 }
 export const useDeveloperI18n = () => useContext(Context);

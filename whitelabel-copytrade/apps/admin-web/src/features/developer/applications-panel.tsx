@@ -56,17 +56,19 @@ export function ApplicationsPanel({ canManage, canApprove }: { canManage: boolea
   const [detailLoading, setDetailLoading] = useState(false);
   const detailRequest = useRef(0);
 
-  const load = useCallback(async () => {
+  // A promise chain rather than an async function, because the effect below calls it and React 19
+  // refuses a function that writes state synchronously on the way in.
+  const load = useCallback((): Promise<void> => {
     const request = ++requestNumber.current;
-    setLoading(true);
-    try {
-      const [page, choices] = await Promise.all([
-        developerPlatformApi.listApplications({ limit: PAGE_SIZE, cursor }), developerPlatformApi.scopeCatalog(),
-      ]);
-      if (request !== requestNumber.current) return;
-      setRows(page.rows); setNextCursor(page.nextCursor ?? null); setCatalog(choices.scopes); setError('');
-    } catch { if (request === requestNumber.current) setError(t.failed); }
-    finally { if (request === requestNumber.current) setLoading(false); }
+    return Promise.all([
+      developerPlatformApi.listApplications({ limit: PAGE_SIZE, cursor }), developerPlatformApi.scopeCatalog(),
+    ])
+      .then(([page, choices]) => {
+        if (request !== requestNumber.current) return;
+        setRows(page.rows); setNextCursor(page.nextCursor ?? null); setCatalog(choices.scopes); setError('');
+      })
+      .catch(() => { if (request === requestNumber.current) setError(t.failed); })
+      .finally(() => { if (request === requestNumber.current) setLoading(false); });
   }, [cursor, t.failed]);
   useEffect(() => { void load(); return () => { requestNumber.current += 1; }; }, [load]);
 

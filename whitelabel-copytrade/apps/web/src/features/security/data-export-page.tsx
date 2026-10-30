@@ -20,11 +20,12 @@ export default function DataExportPage(): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<PrivacyExport | null>(null);
 
-  const refresh = useCallback(async () => {
-    setError(null);
-    try { setRequests(await apiClient.get<PrivacyRequest[]>('/v1/privacy/requests')); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Privacy requests could not be loaded.'); }
-  }, []);
+  // Kept as a promise chain rather than an async function: the effect below calls it on mount, and
+  // React 19 refuses a function that writes state synchronously on the way in. Here every write
+  // happens in a settled callback, which is both what the rule wants and what actually is true.
+  const refresh = useCallback((): Promise<void> => apiClient.get<PrivacyRequest[]>('/v1/privacy/requests')
+    .then((rows) => { setRequests(rows); setError(null); })
+    .catch((caught: unknown) => { setError(caught instanceof Error ? caught.message : 'Privacy requests could not be loaded.'); }), []);
   useEffect(() => { void refresh(); }, [refresh]);
 
   async function createRequest(requestType: 'ACCESS' | 'EXPORT' | 'DELETION'): Promise<void> {

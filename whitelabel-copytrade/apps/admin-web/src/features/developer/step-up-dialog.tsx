@@ -15,9 +15,13 @@ export function StepUpDialog({ description, busy, error, onCancel, onVerify }: {
   const [value, setValue] = useState('');
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    dialog.current?.showModal();
-    input.current?.focus();
-    return () => { dialog.current?.close(); previous?.focus(); };
+    // Held in local variables: by cleanup time the refs may have been detached from these elements,
+    // and closing or focusing whatever happens to be in the ref then is not the same operation.
+    const opened = dialog.current;
+    const focused = input.current;
+    opened?.showModal();
+    focused?.focus();
+    return () => { opened?.close(); previous?.focus(); };
   }, []);
   useEffect(() => {
     if (error && !busy) input.current?.focus();

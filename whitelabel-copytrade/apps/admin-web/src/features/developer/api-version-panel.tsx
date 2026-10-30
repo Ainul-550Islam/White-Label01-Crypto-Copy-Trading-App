@@ -14,40 +14,49 @@ export function ApiVersionPanel({ canManage }: { canManage: boolean }): JSX.Elem
   const intentKeys = useRef(new Map<string, string>());
   const [versions, setVersions] = useState<ApiVersion[] | null>(null);
   const [applicationId, setApplicationId] = useState('');
-  const [current, setCurrent] = useState('');
+  const [pin, setPin] = useState<{ applicationId: string; version: string } | null>(null);
+  const [pinFailed, setPinFailed] = useState(false);
   const [selected, setSelected] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [verificationError, setVerificationError] = useState('');
-  const [loadingPin, setLoadingPin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingPin | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [versionsAttempt, setVersionsAttempt] = useState(0);
   const selectedApp = applications.rows.find((app) => app.id === applicationId && app.state !== 'REVOKED');
+  const selectedAppId = selectedApp?.id ?? '';
 
   useEffect(() => {
     let live = true;
-    setVersions(null);
     developerPlatformApi.versions().then((result) => { if (live) setVersions(result.versions); })
       .catch(() => { if (live) setError(t.failed); });
     return () => { live = false; };
   }, [versionsAttempt, t.failed]);
+  // The selection follows the loaded page without an effect: when that page changes, an id that is no
+  // longer eligible is replaced with the first eligible one during the same render.
+  const [seenApplications, setSeenApplications] = useState(applications.rows);
+  if (seenApplications !== applications.rows) {
+    setSeenApplications(applications.rows);
+    if (!applications.loading && !applications.error) {
+      const eligible = applications.rows.filter((app) => app.state !== 'REVOKED');
+      setApplicationId((currentId) => eligible.some((app) => app.id === currentId) ? currentId : (eligible[0]?.id ?? ''));
+    }
+  }
   useEffect(() => {
-    if (applications.loading || applications.error) return;
-    const eligible = applications.rows.filter((app) => app.state !== 'REVOKED');
-    setApplicationId((currentId) => eligible.some((app) => app.id === currentId) ? currentId : (eligible[0]?.id ?? ''));
-  }, [applications.rows, applications.loading, applications.error]);
-  useEffect(() => {
-    if (!applicationId || !selectedApp) { setCurrent(''); setSelected(''); return; }
+    if (!applicationId || !selectedAppId) return;
     let live = true;
-    setCurrent(''); setSelected(''); setLoadingPin(true);
     developerPlatformApi.applicationVersion(applicationId).then((result) => {
-      if (live) { setCurrent(result.version); setSelected(result.version); }
-    }).catch(() => { if (live) setError(t.failed); })
-      .finally(() => { if (live) setLoadingPin(false); });
+      if (!live) return;
+      setPin({ applicationId, version: result.version }); setSelected(result.version); setPinFailed(false);
+    }).catch(() => { if (live) { setError(t.failed); setPinFailed(true); } });
     return () => { live = false; };
-  }, [applicationId, selectedApp?.id, attempt, t.failed]);
+  }, [applicationId, selectedAppId, attempt, t.failed]);
+
+  // The pinned version and its loading state are derived from which application the pin describes, so
+  // switching applications shows the spinner instead of the previous application's version.
+  const current = pin && pin.applicationId === applicationId ? pin.version : '';
+  const loadingPin = Boolean(applicationId && selectedAppId) && pin?.applicationId !== applicationId && !pinFailed;
 
   function prepare(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -77,7 +86,7 @@ export function ApiVersionPanel({ canManage }: { canManage: boolean }): JSX.Elem
 
   return <section className="dev-stack" aria-labelledby="api-versions-title">
     <h1 id="api-versions-title">{t.versions}</h1>
-    {error && <div role="alert">{error} <button type="button" className="dev-button" onClick={() => { setError(''); setAttempt((v) => v + 1); if (!versions) setVersionsAttempt((v) => v + 1); }}>{t.retry}</button></div>}
+    {error && <div role="alert">{error} <button type="button" className="dev-button" onClick={() => { setError(''); setPin(null); setPinFailed(false); setVersions(null); setAttempt((v) => v + 1); if (!versions) setVersionsAttempt((v) => v + 1); }}>{t.retry}</button></div>}
     {notice && <p role="status">{notice}</p>}
     {pending && <StepUpDialog description={t.confirmVersion} busy={busy} error={verificationError} onCancel={() => setPending(null)} onVerify={verify} />}
     {!versions && !error && <p role="status">{t.loading}</p>}

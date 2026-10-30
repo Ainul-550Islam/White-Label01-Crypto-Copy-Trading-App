@@ -45,7 +45,6 @@ export default function LocalizationSettingsPage(): JSX.Element {
 
   useEffect(() => {
     let active = true;
-    setLoading(true); setError(null);
     apiClient.get<unknown>('/v1/users/me/preferences')
       .then((result) => { if (active) setValue(parsePreferences(result)); })
       .catch(() => { if (active) { setValue(null); setError('load'); } })
@@ -78,7 +77,7 @@ export default function LocalizationSettingsPage(): JSX.Element {
   const preview = value ? formatMoney('12345678.90', value.displayCurrency, value.locale) : null;
   return <section className="mx-auto max-w-2xl space-y-5" aria-labelledby="localization-title" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
     <header><h1 id="localization-title" className="text-2xl font-bold">{t.title}</h1><p className="text-sm text-muted">{t.description}</p></header>
-    {loading ? <p role="status">{t.loading}</p> : error === 'load' ? <div role="alert"><p>{t.loadError}</p><button type="button" onClick={() => setRevision((n) => n + 1)} className="rounded border px-3 py-2">{t.retry}</button></div> : value && <form onSubmit={(event) => void save(event)} className="space-y-4 rounded border bg-card p-5">
+    {loading ? <p role="status">{t.loading}</p> : error === 'load' ? <div role="alert"><p>{t.loadError}</p><button type="button" onClick={() => { setLoading(true); setError(null); setRevision((n) => n + 1); }} className="rounded border px-3 py-2">{t.retry}</button></div> : value && <form onSubmit={(event) => void save(event)} className="space-y-4 rounded border bg-card p-5">
       <div><label htmlFor="locale" className="mb-1 block text-sm font-medium">{t.language}</label><select id="locale" disabled={pending} value={value.locale} onChange={(event) => change('locale', event.target.value as PreferenceLocale)} className="w-full rounded border bg-transparent p-2"><option value="en">English</option><option value="bn">বাংলা</option><option value="ar">العربية</option><option value="es">Español</option><option value="tr">Türkçe</option></select></div>
       <div><label htmlFor="currency" className="mb-1 block text-sm font-medium">{t.currency}</label><select id="currency" disabled={pending} value={value.displayCurrency} onChange={(event) => change('displayCurrency', event.target.value)} className="w-full rounded border bg-transparent p-2">{currencies.map((currency) => <option key={currency} value={currency}>{currency}</option>)}</select></div>
       <div><label htmlFor="timezone" className="mb-1 block text-sm font-medium">{t.timezone}</label><input id="timezone" dir="ltr" required maxLength={64} disabled={pending} value={value.timezone} onChange={(event) => change('timezone', event.target.value)} aria-describedby="timezone-help" className="w-full rounded border bg-transparent p-2"/><p id="timezone-help" className="text-sm text-muted">{t.timezoneHelp}</p></div>

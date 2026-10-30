@@ -29,15 +29,18 @@ export function WebhookList({ canManage }: { canManage: boolean }): JSX.Element 
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const cursor = cursors[cursors.length - 1];
-  const load = useCallback(async () => {
+  // A promise chain rather than an async function, because the effect below calls it and React 19
+  // refuses a function that writes state synchronously on the way in. Paging and retry set
+  // `loading` in their own handlers.
+  const load = useCallback((): Promise<void> => {
     const request = ++requestNumber.current;
-    setLoading(true);
-    try {
-      const [catalogue, list] = await Promise.all([developerPlatformApi.eventTypes(), developerPlatformApi.listWebhooks({ limit: 10, cursor })]);
-      if (request !== requestNumber.current) return;
-      setEvents(catalogue.eventTypes); setWebhooks(list.rows); setNextCursor(list.nextCursor ?? null); setError('');
-    } catch { if (request === requestNumber.current) setError(t.failed); }
-    finally { if (request === requestNumber.current) setLoading(false); }
+    return Promise.all([developerPlatformApi.eventTypes(), developerPlatformApi.listWebhooks({ limit: 10, cursor })])
+      .then(([catalogue, list]) => {
+        if (request !== requestNumber.current) return;
+        setEvents(catalogue.eventTypes); setWebhooks(list.rows); setNextCursor(list.nextCursor ?? null); setError('');
+      })
+      .catch(() => { if (request === requestNumber.current) setError(t.failed); })
+      .finally(() => { if (request === requestNumber.current) setLoading(false); });
   }, [t.failed, cursor]);
   useEffect(() => { void load(); return () => { requestNumber.current += 1; }; }, [load]);
 

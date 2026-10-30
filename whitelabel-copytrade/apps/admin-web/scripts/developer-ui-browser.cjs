@@ -161,7 +161,7 @@ async function main(){
  const deniedContext=await context(browser,[]);const denied=await deniedContext.newPage();await denied.goto(BASE+'/developer/api-keys');
  await denied.getByText('Developer data requires API key read permission.').waitFor();
  assert.equal(await denied.getByRole('heading',{name:'Create API key'}).count(),0);
- console.log('PASS: flags proof + recovery code + retry key; five locales/RTL; application creation/activation/scope change/details; audit redaction; reconciliation access/truncation; key create, one-time secret, revoke; webhook validation/create/rotation/pause/replay; cursor pagination for application selectors, keys and webhooks; overview uses analytics; persisted version pin with proof/retry; permission-gated UI.');
+ process.stdout.write('PASS: flags proof + recovery code + retry key; five locales/RTL; application creation/activation/scope change/details; audit redaction; reconciliation access/truncation; key create, one-time secret, revoke; webhook validation/create/rotation/pause/replay; cursor pagination for application selectors, keys and webhooks; overview uses analytics; persisted version pin with proof/retry; permission-gated UI.\n');
  await browser.close();
 }
 main().catch(e=>{console.error(e);process.exit(1)});

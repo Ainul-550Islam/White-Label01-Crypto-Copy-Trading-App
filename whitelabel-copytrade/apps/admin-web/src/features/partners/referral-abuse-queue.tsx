@@ -34,18 +34,13 @@ export default function ReferralAbuseQueue(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await apiClient.get<ReviewCase[]>('/v1/partner/referral-abuse/reviews', { searchParams: { limit: 100 } });
-      setCases(result);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Review queue could not be loaded.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // A promise chain rather than an async function, because the effect below calls it and React 19
+  // refuses a function that writes state synchronously on the way in. The retry button sets
+  // `loading` itself.
+  const refresh = useCallback((): Promise<void> => apiClient.get<ReviewCase[]>('/v1/partner/referral-abuse/reviews', { searchParams: { limit: 100 } })
+    .then((result) => { setCases(result); setError(null); })
+    .catch((caught: unknown) => { setError(caught instanceof Error ? caught.message : 'Review queue could not be loaded.'); })
+    .finally(() => { setLoading(false); }), []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 

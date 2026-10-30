@@ -884,8 +884,14 @@ export const tradingApi = {
       submittedAt: str(row.submittedAt), reviewedAt: strOrNull(row.reviewedAt), decisionReason: strOrNull(row.decisionReason) };
   },
 
-  previewAllocationRebalance: async (input: RebalancePreviewRequest): Promise<RebalancePreviewLine[]> => {
-    const response = obj(await apiClient.post<unknown>("/v1/copy-trading/allocation-rebalance/preview", input));
+  previewAllocationRebalance: async (input: RebalancePreviewRequest, idempotencyKey?: string): Promise<RebalancePreviewLine[]> => {
+    // A preview creates nothing, but it is still a POST: when the caller supplies a key the retry is
+    // recognisable as the same request. Without one the call is unchanged, which is what every existing
+    // caller (and their tests) already rely on.
+    const raw = idempotencyKey
+      ? await apiClient.post<unknown>("/v1/copy-trading/allocation-rebalance/preview", input, { idempotencyKey })
+      : await apiClient.post<unknown>("/v1/copy-trading/allocation-rebalance/preview", input);
+    const response = obj(raw);
     if (response.executable !== false || response.inputProvenance !== "CLIENT_SUPPLIED_UNVERIFIED" || !Array.isArray(response.lines)) {
       throw new Error("Allocation preview response violates the non-executable, unverified-input contract.");
     }

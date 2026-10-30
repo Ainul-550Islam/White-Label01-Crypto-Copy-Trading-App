@@ -30,12 +30,12 @@ function FlagConsole(): JSX.Element {
   const [verificationError, setVerificationError] = useState('');
   const [pending, setPending] = useState<Intent | null>(null);
   const keys = useRef(new Map<string, string>());
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try { setRows(await businessAdminApi.getTenantFeatureFlags()); setError(''); }
-    catch { setError(text.failed); }
-    finally { setLoading(false); }
-  }, [text.failed]);
+  // A promise chain rather than an async function, because the effect below calls it and React 19
+  // refuses a function that writes state synchronously on the way in.
+  const refresh = useCallback((): Promise<void> => businessAdminApi.getTenantFeatureFlags()
+    .then((flags) => { setRows(flags); setError(''); })
+    .catch(() => { setError(text.failed); })
+    .finally(() => { setLoading(false); }), [text.failed]);
   useEffect(() => { void refresh(); }, [refresh]);
   function prepare(flag: TenantFeatureFlagRow): void {
     if (busy) return;

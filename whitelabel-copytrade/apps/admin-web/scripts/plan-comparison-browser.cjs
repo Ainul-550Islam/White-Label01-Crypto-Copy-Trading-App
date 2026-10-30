@@ -36,7 +36,7 @@ async function main() {
     assert.equal(await page.getByText(/Plan change accepted/).count(), 0);
     mode = 'success'; await upgrade.click(); await page.getByText('Plan change accepted. Review the current plan below.').waitFor();
     assert.deepEqual(errors, []);
-    console.log('PASS: enforced PKCE label, missing checkout URL, stable checkout retry key, malformed acknowledgement and valid plan change (intercepted HTTP).');
+    process.stdout.write('PASS: enforced PKCE label, missing checkout URL, stable checkout retry key, malformed acknowledgement and valid plan change (intercepted HTTP).\n');
   } finally { await browser.close(); }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

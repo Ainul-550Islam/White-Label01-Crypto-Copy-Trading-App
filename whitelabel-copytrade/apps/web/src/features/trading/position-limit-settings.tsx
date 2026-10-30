@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type FormEvent, type JSX } from 'react';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { userPositionLimitsApi, type UpdateUserPositionLimitsInput, type UserPositionLimitsView } from '@/api/user-position-limits-api';
 import { stepUpApi, type StepUpMethod } from '@/api/security-api';
@@ -63,7 +64,7 @@ function parseLimit(value: string): number | null {
 }
 
 function PositionLimitsForOwner({ owner }: { owner: Owner }): JSX.Element {
-  const [locale, setLocale] = useState<PositionLimitLocale>('en');
+  const [locale, setLocale] = usePreferredLocale(positionLimitCopy, 'en');
   const [positionsInput, setPositionsInput] = useState<string | null>(null), [ordersInput, setOrdersInput] = useState<string | null>(null);
   // Capture the read version on the first edit; a later background refresh
   // must not silently rebase a partly edited form onto someone else's change.
@@ -75,10 +76,6 @@ function PositionLimitsForOwner({ owner }: { owner: Owner }): JSX.Element {
   const id = useId(), cache = useQueryClient();
   const key = positionLimitsQueryKey(owner.tenantId, owner.userId);
   const query = useQuery({ queryKey: key, queryFn: async () => validateView(await userPositionLimitsApi.getMyLimits(), owner), retry: false, staleTime: 0 });
-  useEffect(() => {
-    const language = navigator.language.split('-')[0] as PositionLimitLocale;
-    if (Object.hasOwn(positionLimitCopy, language)) setLocale(language);
-  }, []);
   useEffect(() => { if (draft) credentialRef.current?.focus(); }, [draft]);
   const t = positionLimitCopy[locale], view = query.data;
   const validCredential = method === 'TOTP' ? /^\d{6}$/.test(credential.trim()) : method === 'PASSWORD'

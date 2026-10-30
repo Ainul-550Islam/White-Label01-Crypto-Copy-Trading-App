@@ -44,23 +44,30 @@ export function ApiKeyTable({ canManage }: { canManage: boolean }): JSX.Element 
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const cursor = cursors[cursors.length - 1];
-  const load = useCallback(async () => {
+  // A promise chain rather than an async function, because the effect below calls it and React 19
+  // refuses a function that writes state synchronously on the way in.
+  const load = useCallback((): Promise<void> => {
     const request = ++requestNumber.current;
-    setLoading(true);
-    try {
-      const credentials = await developerPlatformApi.listCredentials({ kind: 'API_KEY', limit: PAGE_SIZE, cursor });
-      if (request !== requestNumber.current) return;
-      setKeys(credentials.rows.filter((credential) => credential.kind === 'API_KEY'));
-      setNextCursor(credentials.nextCursor ?? null); setError('');
-    } catch { if (request === requestNumber.current) setError(t.failed); }
-    finally { if (request === requestNumber.current) setLoading(false); }
+    return developerPlatformApi.listCredentials({ kind: 'API_KEY', limit: PAGE_SIZE, cursor })
+      .then((credentials) => {
+        if (request !== requestNumber.current) return;
+        setKeys(credentials.rows.filter((credential) => credential.kind === 'API_KEY'));
+        setNextCursor(credentials.nextCursor ?? null); setError('');
+      })
+      .catch(() => { if (request === requestNumber.current) setError(t.failed); })
+      .finally(() => { if (request === requestNumber.current) setLoading(false); });
   }, [t.failed, cursor]);
   useEffect(() => { void load(); return () => { requestNumber.current += 1; }; }, [load]);
-  useEffect(() => {
-    if (applications.loading || applications.error) return;
-    const eligible = applications.rows.filter((app) => app.state !== 'REVOKED');
-    setApplicationId((current) => eligible.some((app) => app.id === current) ? current : (eligible[0]?.id ?? ''));
-  }, [applications.rows, applications.loading, applications.error]);
+  // The selection follows the loaded page of applications without an effect: when that page changes,
+  // an id that is no longer on it is replaced with the first eligible one during the same render.
+  const [seenApplications, setSeenApplications] = useState(applications.rows);
+  if (seenApplications !== applications.rows) {
+    setSeenApplications(applications.rows);
+    if (!applications.loading && !applications.error) {
+      const eligible = applications.rows.filter((app) => app.state !== 'REVOKED');
+      setApplicationId((current) => eligible.some((app) => app.id === current) ? current : (eligible[0]?.id ?? ''));
+    }
+  }
   function prepareCreate(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (secret || busy || !applications.rows.some((app) => app.id === applicationId && app.state !== 'REVOKED') || label.trim().length < 3) return;

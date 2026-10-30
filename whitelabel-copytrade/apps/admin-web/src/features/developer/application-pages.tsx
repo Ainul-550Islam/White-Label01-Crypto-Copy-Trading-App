@@ -7,20 +7,26 @@ export function useApplicationPages(enabled = true) {
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [rows, setRows] = useState<DeveloperApplication[]>([]);
-  const [loading, setLoading] = useState(enabled);
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const cursor = cursors[cursors.length - 1];
+  // The request this render describes. A page is loading until a settled response carries this key,
+  // so paging and retry turn the spinner on by changing the key rather than by writing state on the
+  // way into an effect - the pattern React 19's lint rules reject, and one that costs an extra
+  // render besides.
+  const requestKey = `${cursor ?? ''}#${attempt}`;
   useEffect(() => {
-    if (!enabled) { setLoading(false); return; }
+    if (!enabled) return;
     let live = true;
-    setLoading(true); setError(false);
+    const key = `${cursor ?? ''}#${attempt}`;
     developerPlatformApi.listApplications({ limit: 100, cursor }).then((page) => {
-      if (live) { setRows(page.rows); setNextCursor(page.nextCursor ?? null); }
+      if (live) { setRows(page.rows); setNextCursor(page.nextCursor ?? null); setError(false); }
     }).catch(() => { if (live) { setRows([]); setNextCursor(null); setError(true); } })
-      .finally(() => { if (live) setLoading(false); });
+      .finally(() => { if (live) setSettledKey(key); });
     return () => { live = false; };
   }, [cursor, attempt, enabled]);
+  const loading = enabled && settledKey !== requestKey;
   return {
     rows, loading, error, page: cursors.length, hasPrevious: cursors.length > 1, hasNext: Boolean(nextCursor),
     previous: () => setCursors((value) => value.slice(0, -1)),

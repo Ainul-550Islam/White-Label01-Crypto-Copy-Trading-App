@@ -1,6 +1,5 @@
 'use client';
 import type { JSX } from 'react';
-import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AuthGuard } from '@/auth/auth.guard';
 import { useAuth } from '@/auth/auth.store';
@@ -11,14 +10,11 @@ import { CopyBudgetSettings } from '@/features/trading/copy-budget-settings';
 import { LiquidationRiskAlert } from '@/features/trading/liquidation-risk-alert';
 import { liquidationCopy, type LiquidationLocale } from '@/features/trading/liquidation-copy';
 import { copyOpsApi } from '@/api/copy-ops-api';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 
 export default function CopyTradingSettingsPage(): JSX.Element {
   const { session, isAuthenticated } = useAuth();
-  const [locale, setLocale] = useState<LiquidationLocale>('en');
-  useEffect(() => {
-    const language = navigator.language.split('-')[0] as LiquidationLocale;
-    if (Object.hasOwn(liquidationCopy, language)) setLocale(language);
-  }, []);
+  const [locale, setLocale] = usePreferredLocale(liquidationCopy, 'en');
   const t = liquidationCopy[locale];
   const tenantId = session?.tenant.id;
   const userId = session?.user.id;

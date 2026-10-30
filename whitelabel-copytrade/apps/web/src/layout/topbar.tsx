@@ -5,15 +5,16 @@ import { useAuth } from '@/auth/auth.store';
 import { useTenant } from '@/tenant/tenant-context';
 import { TenantLogo } from '@/tenant/tenant-branding';
 import { useEffect, useState } from 'react';
+import { usePreferredLocale } from '@/lib/preferred-locale';
 import { oauthCopy, type OAuthLocale } from '@/features/oauth/oauth-copy';
+import { BillingUnreadBadge } from '@/features/notifications/unread-badge';
 import Link from 'next/link';
 
 export function Topbar(): JSX.Element {
   const { session, logout } = useAuth();
   const { tenant } = useTenant();
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
-  const [locale, setLocale] = useState<OAuthLocale>('en');
-  useEffect(() => { const language = navigator.language.split('-')[0] as OAuthLocale; if (language in oauthCopy) setLocale(language); }, []);
+  const [locale] = usePreferredLocale(oauthCopy, 'en');
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b bg-card px-4">
@@ -24,7 +25,8 @@ export function Topbar(): JSX.Element {
 
       <div className="flex items-center gap-4">
         <Link href="/notifications" className="relative rounded p-2 hover:bg-accent" aria-label="Notifications">
-          🔔
+          <span aria-hidden>🔔</span>
+          <BillingUnreadBadge />
         </Link>
 
         <div className="relative">

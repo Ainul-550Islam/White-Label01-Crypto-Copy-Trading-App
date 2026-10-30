@@ -23,14 +23,16 @@ export function WebhookDeliveryTable({ endpointId, canManage }: { endpointId: st
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const cursor = cursors[page];
-  const load = useCallback(async () => {
+  // A promise chain rather than an async function, because the effect below calls it and React 19
+  // refuses a function that writes state synchronously on the way in.
+  const load = useCallback((): Promise<void> => {
     const request = ++requestNumber.current;
-    setLoading(true);
-    try {
-      const result = await developerPlatformApi.listDeliveries(endpointId, { ...(state ? { state } : {}), limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) });
-      if (request === requestNumber.current) { setRows(result.rows); setNextCursor(result.nextCursor ?? null); setError(''); }
-    } catch { if (request === requestNumber.current) { setRows([]); setNextCursor(null); setError(t.failed); } }
-    finally { if (request === requestNumber.current) setLoading(false); }
+    return developerPlatformApi.listDeliveries(endpointId, { ...(state ? { state } : {}), limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) })
+      .then((result) => {
+        if (request === requestNumber.current) { setRows(result.rows); setNextCursor(result.nextCursor ?? null); setError(''); }
+      })
+      .catch(() => { if (request === requestNumber.current) { setRows([]); setNextCursor(null); setError(t.failed); } })
+      .finally(() => { if (request === requestNumber.current) setLoading(false); });
   }, [endpointId, state, cursor, t.failed]);
   useEffect(() => { void load(); return () => { requestNumber.current += 1; }; }, [load]);
   function prepare(eventId: string): void {
