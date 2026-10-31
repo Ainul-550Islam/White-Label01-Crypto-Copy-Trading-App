@@ -1240,6 +1240,10 @@
         "properties": {},
         "type": "object"
       },
+      "DepositAddressSelectionDto": {
+        "properties": {},
+        "type": "object"
+      },
       "DeveloperEventPayload_compliance_review_required_v1": {
         "additionalProperties": false,
         "description": "A compliance review entered a state requiring operator review.",
@@ -4492,6 +4496,10 @@
         "properties": {},
         "type": "object"
       },
+      "SetCopyBudgetDefaultCapsDto": {
+        "properties": {},
+        "type": "object"
+      },
       "SetDegradationDto": {
         "properties": {},
         "type": "object"
@@ -5040,6 +5048,10 @@
         "type": "object"
       },
       "UnbindPortfolioDto": {
+        "properties": {},
+        "type": "object"
+      },
+      "UpdateAccountOrderSizeLimitDto": {
         "properties": {},
         "type": "object"
       },
@@ -5836,6 +5848,149 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/v1/admin/copy-trading/budget": {
+      "get": {
+        "operationId": "CopyBudgetAdmin_getDefaultCaps",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CopyBudgetAdmin"
+        ]
+      },
+      "put": {
+        "operationId": "CopyBudgetAdmin_setDefaultCaps",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCopyBudgetDefaultCapsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CopyBudgetAdmin"
+        ]
+      }
+    },
+    "/api/v1/admin/copy-trading/budget/over-cap": {
+      "get": {
+        "operationId": "CopyBudgetAdmin_listOverCapUsers",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CopyBudgetAdmin"
+        ]
+      }
+    },
     "/api/v1/admin/custody/destinations": {
       "get": {
         "operationId": "WithdrawalDestinationAdmin_list",
@@ -5939,6 +6094,99 @@
         },
         "tags": [
           "ExchangeUserStreamAdmin"
+        ]
+      }
+    },
+    "/api/v1/admin/exchanges/key-health": {
+      "get": {
+        "operationId": "ExchangeKeyHealthAdmin_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "venue",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "environment",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ExchangeKeyHealthAdmin"
         ]
       }
     },
@@ -19961,6 +20209,234 @@
         },
         "tags": [
           "ClientLifecycle"
+        ]
+      }
+    },
+    "/api/v1/client-lifecycle/funding/{fundingRequestId}/deposit-address": {
+      "get": {
+        "operationId": "CustomerDepositAddress_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fundingRequestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CustomerDepositAddress"
+        ]
+      },
+      "post": {
+        "operationId": "CustomerDepositAddress_issue",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fundingRequestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DepositAddressSelectionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CustomerDepositAddress"
+        ]
+      }
+    },
+    "/api/v1/client-lifecycle/funding/{fundingRequestId}/deposit-address/assets": {
+      "get": {
+        "operationId": "CustomerDepositAddress_listAssets",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fundingRequestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CustomerDepositAddress"
+        ]
+      }
+    },
+    "/api/v1/client-lifecycle/funding/{fundingRequestId}/deposit-address/transactions/{transactionHash}": {
+      "get": {
+        "operationId": "CustomerDepositAddress_observeTransfer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fundingRequestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transactionHash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CustomerDepositAddress"
         ]
       }
     },
@@ -60447,6 +60923,165 @@
         },
         "tags": [
           "RiskManagement"
+        ]
+      }
+    },
+    "/api/v1/risk-management/my-account-order-limits": {
+      "get": {
+        "operationId": "AccountOrderSizeLimit_list",
+        "parameters": [
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AccountOrderSizeLimit"
+        ]
+      }
+    },
+    "/api/v1/risk-management/my-account-order-limits/{accountId}": {
+      "get": {
+        "operationId": "AccountOrderSizeLimit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "accountId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AccountOrderSizeLimit"
+        ]
+      },
+      "put": {
+        "operationId": "AccountOrderSizeLimit_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "accountId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable per-installation device identifier used for session binding.",
+            "in": "header",
+            "name": "x-device-id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Client-supplied correlation id. Echoed back on every response.",
+            "in": "header",
+            "name": "x-request-id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Idempotency key for unsafe operations that must not be applied twice.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccountOrderSizeLimitDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AccountOrderSizeLimit"
         ]
       }
     },

@@ -39,6 +39,10 @@ function accountRecord(overrides: Partial<ExchangeAccountRecord> = {}): Exchange
     status: ExchangeAccountState.ACTIVE, environment: ExchangeEnvironment.LIVE, isSandbox: false, credentialSource: 'SECRET_MANAGER',
     credentialRef: 'unit-secret-reference', apiKeyLastFour: null, apiKeyBlindIndex: null, capabilities: [], healthState: ExchangeHealthState.HEALTHY,
     connectionState: ExchangeConnectionState.CONNECTED, lastVerifiedAt: now, lastSyncAt: now, lastErrorCode: null, lastErrorMessage: null,
+    // The record carries the persisted failure counter and the venue-published
+    // credential expiry: the capability matrix reads them, so a fixture that omits
+    // them would let the health service measure an account shape production never has.
+    credentialExpiresAt: null, consecutiveFailures: 0,
     liveTradingEnabled: false, privateStreamEnabled: false, createdAt: now, updatedAt: now, deletedAt: null, idempotencyKey: null, metadata: {}, ...overrides };
 }
 function connectivity(overrides: Partial<ExchangeConnectivityResult> = {}): ExchangeConnectivityResult {

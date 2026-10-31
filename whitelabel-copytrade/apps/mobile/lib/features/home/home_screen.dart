@@ -129,6 +129,10 @@ class HomeScreen extends ConsumerWidget {
                 _FeatureTile(icon: Icons.groups_outlined, title: l10n.copyTradingTitle, subtitle: l10n.copyTradingSubtitle, path: RoutePaths.copyTrading),
                 if (user.can('portfolio:read'))
                   _FeatureTile(icon: Icons.pie_chart_outline, title: l10n.portfolioTitle, subtitle: l10n.portfolioSubtitle, path: RoutePaths.portfolio),
+                if (user.can('exchange_account:read') || user.can('execution:read') || user.can('order:read'))
+                  // The same three permissions the API accepts on `GET venues/status`;
+                  // showing the tile to a user the route would refuse is a dead end.
+                  _FeatureTile(icon: Icons.public, title: l10n.venueStatusTitle, subtitle: l10n.venueStatusSubtitle, path: RoutePaths.venueStatus),
                 _FeatureTile(icon: Icons.account_balance_wallet_outlined, title: l10n.fundingTitle, subtitle: l10n.fundingSubtitle, path: RoutePaths.funding),
                 Card(
                   child: Padding(

@@ -18,6 +18,12 @@ class RoutePaths {
   static const String funding = '/funding';
   static const String portfolio = '/portfolio';
   static const String notifications = '/notifications';
+  static const String venueStatus = '/venues';
+  /// Nested under `/settings/security`; the router declares it as the relative
+  /// segment `alerts`, and this constant is the address a customer can be given.
+  static const String loginAlerts = '/settings/security/alerts';
+  static const String dataExport = '/settings/export';
+  static const String feeSchedule = '/fee-schedule';
 }
 
 class RouteNames {
@@ -36,4 +42,8 @@ class RouteNames {
   static const String funding = 'funding';
   static const String portfolio = 'portfolio';
   static const String notifications = 'notifications';
+  static const String venueStatus = 'venueStatus';
+  static const String loginAlerts = 'loginAlerts';
+  static const String dataExport = 'dataExport';
+  static const String feeSchedule = 'feeSchedule';
 }

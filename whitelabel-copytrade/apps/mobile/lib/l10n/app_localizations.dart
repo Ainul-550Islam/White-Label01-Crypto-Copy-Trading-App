@@ -1726,4 +1726,298 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
       'an issue with the localizations generation tool. Please file an issue '
       'on GitHub with a reproducible sample app and the gen-l10n configuration '
       'that was used.');
+
+  /// No description provided for @venueStatusTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Venue status'**
+  String get venueStatusTitle;
+
+  /// No description provided for @venueStatusEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No venues are listed for your account yet.'**
+  String get venueStatusEmpty;
+
+  /// No description provided for @venueStatusOperational.
+  ///
+  /// In en, this message translates to:
+  /// **'Operational'**
+  String get venueStatusOperational;
+
+  /// No description provided for @venueStatusDegraded.
+  ///
+  /// In en, this message translates to:
+  /// **'Degraded'**
+  String get venueStatusDegraded;
+
+  /// No description provided for @venueStatusMaintenance.
+  ///
+  /// In en, this message translates to:
+  /// **'Under maintenance'**
+  String get venueStatusMaintenance;
+
+  /// No description provided for @venueStatusOutage.
+  ///
+  /// In en, this message translates to:
+  /// **'Outage'**
+  String get venueStatusOutage;
+
+  /// No description provided for @venueStatusUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Status unknown'**
+  String get venueStatusUnknown;
+
+  /// No description provided for @venueStatusSince.
+  ///
+  /// In en, this message translates to:
+  /// **'Since'**
+  String get venueStatusSince;
+
+  /// No description provided for @venueStatusUnverified.
+  ///
+  /// In en, this message translates to:
+  /// **'Not confirmed by the platform just now — trading may still fail.'**
+  String get venueStatusUnverified;
+
+  /// No description provided for @venueStatusOperatorSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Set by an operator, not only by the venue\'s own feed.'**
+  String get venueStatusOperatorSet;
+
+  /// No description provided for @venueStatusChecked.
+  ///
+  /// In en, this message translates to:
+  /// **'Last checked'**
+  String get venueStatusChecked;
+
+  /// No description provided for @venueStatusSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Whether the exchanges you trade on are up right now'**
+  String get venueStatusSubtitle;
+
+  /// No description provided for @loginAlertsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in alerts'**
+  String get loginAlertsTitle;
+
+  /// No description provided for @loginAlertsAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get loginAlertsAll;
+
+  /// No description provided for @loginAlertsSignIns.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-ins'**
+  String get loginAlertsSignIns;
+
+  /// No description provided for @loginAlertsFailures.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed sign-ins'**
+  String get loginAlertsFailures;
+
+  /// No description provided for @loginAlertsNewDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'New device'**
+  String get loginAlertsNewDevice;
+
+  /// No description provided for @loginAlertsSuspicious.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspicious'**
+  String get loginAlertsSuspicious;
+
+  /// No description provided for @loginAlertsPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Password changes'**
+  String get loginAlertsPassword;
+
+  /// No description provided for @loginAlertsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No sign-in activity has been recorded for your account.'**
+  String get loginAlertsEmpty;
+
+  /// No description provided for @loginAlertsAdvice.
+  ///
+  /// In en, this message translates to:
+  /// **'If you do not recognise an event, change your password and review your active devices in the web security settings.'**
+  String get loginAlertsAdvice;
+
+  /// No description provided for @loginAlertsSeverityLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Severity'**
+  String get loginAlertsSeverityLabel;
+
+  /// No description provided for @loginAlertsDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Device'**
+  String get loginAlertsDevice;
+
+  /// No description provided for @dataExportTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your data'**
+  String get dataExportTitle;
+
+  /// No description provided for @dataExportAbout.
+  ///
+  /// In en, this message translates to:
+  /// **'Request a copy of your personal data. You will be told when it is ready and can then create a link that works once and expires.'**
+  String get dataExportAbout;
+
+  /// No description provided for @dataExportJurisdiction.
+  ///
+  /// In en, this message translates to:
+  /// **'Jurisdiction'**
+  String get dataExportJurisdiction;
+
+  /// No description provided for @dataExportRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Request a copy'**
+  String get dataExportRequest;
+
+  /// No description provided for @dataExportWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'Working…'**
+  String get dataExportWorking;
+
+  /// No description provided for @dataExportRequests.
+  ///
+  /// In en, this message translates to:
+  /// **'Your requests'**
+  String get dataExportRequests;
+
+  /// No description provided for @dataExportNone.
+  ///
+  /// In en, this message translates to:
+  /// **'You have not requested a copy of your data yet.'**
+  String get dataExportNone;
+
+  /// No description provided for @dataExportRequestedSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Request received. Its reference is'**
+  String get dataExportRequestedSent;
+
+  /// No description provided for @dataExportRequestedAtLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Requested'**
+  String get dataExportRequestedAtLabel;
+
+  /// No description provided for @dataExportNeedsYou.
+  ///
+  /// In en, this message translates to:
+  /// **'We need something from you before this can continue. Check your email.'**
+  String get dataExportNeedsYou;
+
+  /// No description provided for @dataExportRetention.
+  ///
+  /// In en, this message translates to:
+  /// **'Some records must be kept by law and cannot be deleted yet.'**
+  String get dataExportRetention;
+
+  /// No description provided for @dataExportLegalHold.
+  ///
+  /// In en, this message translates to:
+  /// **'These records are under a legal hold and cannot be deleted.'**
+  String get dataExportLegalHold;
+
+  /// No description provided for @dataExportGetLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Create download link'**
+  String get dataExportGetLink;
+
+  /// No description provided for @dataExportTokenIssued.
+  ///
+  /// In en, this message translates to:
+  /// **'A single-use link is ready until'**
+  String get dataExportTokenIssued;
+
+  /// No description provided for @dataExportTokenNoExpiry.
+  ///
+  /// In en, this message translates to:
+  /// **'A link was issued but its expiry could not be read. Request another one before relying on it.'**
+  String get dataExportTokenNoExpiry;
+
+  /// No description provided for @feeScheduleTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Fees'**
+  String get feeScheduleTitle;
+
+  /// No description provided for @feeScheduleEffective.
+  ///
+  /// In en, this message translates to:
+  /// **'In force now'**
+  String get feeScheduleEffective;
+
+  /// No description provided for @feeScheduleEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No fee schedule is published yet.'**
+  String get feeScheduleEmpty;
+
+  /// No description provided for @feeScheduleFromLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'From'**
+  String get feeScheduleFromLabel;
+
+  /// No description provided for @feeScheduleUntilLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Until'**
+  String get feeScheduleUntilLabel;
+
+  /// No description provided for @feeScheduleManagement.
+  ///
+  /// In en, this message translates to:
+  /// **'Management fee'**
+  String get feeScheduleManagement;
+
+  /// No description provided for @feeScheduleProfitShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Profit share'**
+  String get feeScheduleProfitShare;
+
+  /// No description provided for @feeScheduleCurrency.
+  ///
+  /// In en, this message translates to:
+  /// **'Currency'**
+  String get feeScheduleCurrency;
+
+  /// No description provided for @feeScheduleVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get feeScheduleVersion;
+
+  /// No description provided for @feeScheduleHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous versions'**
+  String get feeScheduleHistory;
+
+  /// No description provided for @feeScheduleOverride.
+  ///
+  /// In en, this message translates to:
+  /// **'This schedule is set by your operator and differs from the platform default.'**
+  String get feeScheduleOverride;
 }

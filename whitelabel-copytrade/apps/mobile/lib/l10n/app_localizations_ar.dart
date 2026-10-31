@@ -853,4 +853,161 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get copyBudgetEnforcementUnavailable =>
       'تُحظر أوامر النسخ ذات الميزانية المُعدّة حتى يمكن التحقق من التعرض الآني وحجوزات الأوامر.';
+
+  @override
+  String get venueStatusTitle => 'حالة المنصات';
+
+  @override
+  String get venueStatusEmpty => 'لا توجد منصات مُدرجة لحسابك بعد.';
+
+  @override
+  String get venueStatusOperational => 'تعمل بشكل طبيعي';
+
+  @override
+  String get venueStatusDegraded => 'أداء متدهور';
+
+  @override
+  String get venueStatusMaintenance => 'تحت الصيانة';
+
+  @override
+  String get venueStatusOutage => 'انقطاع';
+
+  @override
+  String get venueStatusUnknown => 'الحالة غير معروفة';
+
+  @override
+  String get venueStatusSince => 'منذ';
+
+  @override
+  String get venueStatusUnverified =>
+      'لم تؤكّدها المنصة الآن — قد يفشل التداول.';
+
+  @override
+  String get venueStatusOperatorSet =>
+      'محدَّدة من مشغّل، وليس من تغذية المنصة وحدها.';
+
+  @override
+  String get venueStatusChecked => 'آخر تحقّق';
+
+  @override
+  String get venueStatusSubtitle =>
+      'هل منصات التداول التي تتداول عليها تعمل الآن';
+
+  @override
+  String get loginAlertsTitle => 'تنبيهات تسجيل الدخول';
+
+  @override
+  String get loginAlertsAll => 'الكل';
+
+  @override
+  String get loginAlertsSignIns => 'عمليات تسجيل الدخول';
+
+  @override
+  String get loginAlertsFailures => 'محاولات فاشلة';
+
+  @override
+  String get loginAlertsNewDevice => 'جهاز جديد';
+
+  @override
+  String get loginAlertsSuspicious => 'مشبوهة';
+
+  @override
+  String get loginAlertsPassword => 'تغييرات كلمة المرور';
+
+  @override
+  String get loginAlertsEmpty => 'لم يُسجَّل أي نشاط تسجيل دخول على حسابك.';
+
+  @override
+  String get loginAlertsAdvice =>
+      'إذا لم تتعرّف على حدث، فغيّر كلمة المرور وراجع أجهزتك النشطة في إعدادات أمان الويب.';
+
+  @override
+  String get loginAlertsSeverityLabel => 'الخطورة';
+
+  @override
+  String get loginAlertsDevice => 'الجهاز';
+
+  @override
+  String get dataExportTitle => 'بياناتك';
+
+  @override
+  String get dataExportAbout =>
+      'اطلب نسخة من بياناتك الشخصية. سنُخبرك عند جاهزيتها ويمكنك حينها إنشاء رابط يعمل مرة واحدة وينتهي.';
+
+  @override
+  String get dataExportJurisdiction => 'الاختصاص القضائي';
+
+  @override
+  String get dataExportRequest => 'اطلب نسخة';
+
+  @override
+  String get dataExportWorking => 'جارٍ التنفيذ…';
+
+  @override
+  String get dataExportRequests => 'طلباتك';
+
+  @override
+  String get dataExportNone => 'لم تطلب نسخة من بياناتك بعد.';
+
+  @override
+  String get dataExportRequestedSent => 'تم استلام الطلب. مرجعه';
+
+  @override
+  String get dataExportRequestedAtLabel => 'تاريخ الطلب';
+
+  @override
+  String get dataExportNeedsYou =>
+      'نحتاج شيئًا منك قبل المتابعة. تحقّق من بريدك الإلكتروني.';
+
+  @override
+  String get dataExportRetention =>
+      'بعض السجلات يجب الاحتفاظ بها قانونًا ولا يمكن حذفها الآن.';
+
+  @override
+  String get dataExportLegalHold =>
+      'هذه السجلات تحت حجز قانوني ولا يمكن حذفها.';
+
+  @override
+  String get dataExportGetLink => 'إنشاء رابط التنزيل';
+
+  @override
+  String get dataExportTokenIssued => 'رابط للاستخدام مرة واحدة جاهز حتى';
+
+  @override
+  String get dataExportTokenNoExpiry =>
+      'صدر رابط لكن تعذّرت قراءة انتهائه. اطلب رابطًا آخر قبل الاعتماد عليه.';
+
+  @override
+  String get feeScheduleTitle => 'الرسوم';
+
+  @override
+  String get feeScheduleEffective => 'الساري الآن';
+
+  @override
+  String get feeScheduleEmpty => 'لم يُنشر جدول رسوم بعد.';
+
+  @override
+  String get feeScheduleFromLabel => 'من';
+
+  @override
+  String get feeScheduleUntilLabel => 'حتى';
+
+  @override
+  String get feeScheduleManagement => 'رسوم الإدارة';
+
+  @override
+  String get feeScheduleProfitShare => 'حصة الأرباح';
+
+  @override
+  String get feeScheduleCurrency => 'العملة';
+
+  @override
+  String get feeScheduleVersion => 'الإصدار';
+
+  @override
+  String get feeScheduleHistory => 'الإصدارات السابقة';
+
+  @override
+  String get feeScheduleOverride =>
+      'هذا الجدول محدَّد من مشغّلك ويختلف عن الافتراضي للمنصة.';
 }

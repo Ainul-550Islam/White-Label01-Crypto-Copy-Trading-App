@@ -114,6 +114,37 @@ export interface CopyBudgetView {
   updatedAt: string | null;
 }
 
+/** The tenant ceiling as an operator sees it, including why it may be unusable. */
+export interface TenantDefaultCapsView {
+  /** The configured ceiling, or null when none is usable. */
+  maxActiveExposure: string | null;
+  currency: string | null;
+  updatedAt: string | null;
+  status: 'CONFIGURED' | 'NOT_CONFIGURED' | 'CONFIGURATION_UNREADABLE';
+}
+
+/** One follower's position against their effective cap, for the operator console. */
+export interface OverCapUserRow {
+  userId: string;
+  /** The follower's email, or null when the account is deleted or unreadable. */
+  label: string | null;
+  currency: string | null;
+  maxActiveExposure: string;
+  perTraderCap: string | null;
+  tenantCeiling: string | null;
+  effectiveCap: string;
+  /** Null when the follower's subscriptions mix allocation units and cannot be summed. */
+  committed: string | null;
+  utilisationBps: number | null;
+  state: 'OVER' | 'NEAR' | 'UNMEASURABLE';
+}
+
+/** Page ceiling for the over-cap list: it is evaluated in memory, not by the database. */
+export const MAX_OVER_CAP_LIMIT = 200;
+
+/** "Near" means at or above 90% of the effective cap unless the caller says otherwise. */
+export const DEFAULT_NEAR_THRESHOLD_BPS = 9_000;
+
 /** Percentage allocations are ratios, not amounts; adding them to money is unsafe. */
 class UnverifiedAllocationUnitsError extends Error {}
 
@@ -360,6 +391,236 @@ export class CopyBudgetService {
         currency: ceiling?.currency ?? budgetCurrency ?? null,
       };
     });
+  }
+
+  /**
+   * The tenant ceiling as an operator sees it: the raw stored setting plus any
+   * reason it cannot be used. Unlike `loadLimits` this never throws for a
+   * follower who has no budget - an operator opening the console needs to know
+   * "nobody has a ceiling configured", not a 404.
+   *
+   * A ceiling row that exists but cannot be parsed is reported as
+   * `CONFIGURATION_UNREADABLE` rather than as `null`, because the two mean
+   * opposite things to the person about to edit it: one is "set it", the other is
+   * "somebody already set something and we cannot read it - do not overwrite it
+   * blind".
+   */
+  async getTenantDefaultCaps(tenantId: string): Promise<TenantDefaultCapsView> {
+    const { row, ceiling } = await this.prisma.withTenantRls(tenantId, async (tx) => {
+      const setting = await tx.tenantSetting.findFirst({
+        where: { tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY },
+        select: { value: true, isSecret: true, updatedAt: true },
+      });
+      return { row: setting, ceiling: readCeiling(setting?.value) };
+    });
+
+    if (!row) {
+      return { currency: null, maxActiveExposure: null, updatedAt: null, status: 'NOT_CONFIGURED' };
+    }
+    if (row.isSecret || !ceiling) {
+      return { currency: null, maxActiveExposure: null, updatedAt: row.updatedAt.toISOString(), status: 'CONFIGURATION_UNREADABLE' };
+    }
+    return {
+      currency: ceiling.currency,
+      maxActiveExposure: ceiling.amount,
+      updatedAt: row.updatedAt.toISOString(),
+      status: 'CONFIGURED',
+    };
+  }
+
+  /**
+   * Replaces the tenant ceiling.
+   *
+   * The write is the same one `upsertLimits` compares against
+   * (`tenant_settings[key=copy_budget.tenant_ceiling].value = {amount, currency}`)
+   * - there is deliberately no second representation of a ceiling. Two decisions
+   * are made here rather than by the caller:
+   *
+   *   * the advisory lock is the same shared lock every follower's cap write
+   *     takes on this key, so a ceiling change cannot interleave with a cap write
+   *     that reads it;
+   *   * a ceiling that is already configured in a different currency is refused
+   *     instead of silently re-denominating every follower's cap. `CopyBudget`
+   *     rows carry their own currency and `upsertLimits` rejects a cap whose
+   *     currency differs from the ceiling, so re-denominating the ceiling would
+   *     strand every existing cap. Moving a tenant to another quote asset is a
+   *     migration, not a console edit.
+   */
+  async setTenantDefaultCaps(input: {
+    tenantId: string;
+    maxActiveExposure: string;
+    perTraderCap?: string | null;
+    currency: string;
+    actorId: string;
+  }): Promise<TenantDefaultCapsView> {
+    const amount = Decimal.parse(input.maxActiveExposure).toString();
+    const perTraderCap =
+      input.perTraderCap === null || input.perTraderCap === undefined ? null : Decimal.parse(input.perTraderCap).toString();
+    if (perTraderCap !== null && Decimal.parse(perTraderCap).gt(Decimal.parse(amount))) {
+      // A per-trader cap above the tenant ceiling is not a policy anyone means to
+      // set; it would be silently capped at the tenant level and mislead later.
+      throw new UnprocessableEntityException('perTraderCap must not exceed maxActiveExposure');
+    }
+
+    await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const ceilingLock = `copy-budget-ceiling:${input.tenantId}`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ceilingLock}, 0))::text`;
+      const existing = await tx.tenantSetting.findFirst({
+        where: { tenantId: input.tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY },
+        select: { value: true, isSecret: true },
+      });
+      if (existing?.isSecret) {
+        throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      }
+      const current = readCeiling(existing?.value);
+      if (existing && !current) {
+        throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      }
+      if (current && current.currency !== input.currency) {
+        throw new UnprocessableEntityException(
+          `The tenant ceiling is configured in ${current.currency}; changing the quote asset is a data migration, not a setting update.`,
+        );
+      }
+      const value = perTraderCap === null ? { amount, currency: input.currency } : { amount, perTraderCap, currency: input.currency };
+      await tx.tenantSetting.upsert({
+        where: { tenantId_key: { tenantId: input.tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY } },
+        create: {
+          tenantId: input.tenantId,
+          key: COPY_BUDGET_TENANT_SETTING_KEY,
+          value,
+          category: 'copy_trading',
+          isSecret: false,
+          description: 'Copy-trading tenant ceiling: the maximum active exposure any follower cap may resolve to.',
+        },
+        update: { value, isSecret: false },
+      });
+    });
+
+    return this.getTenantDefaultCaps(input.tenantId);
+  }
+
+  /**
+   * Followers at or above a share of their effective cap, or above it.
+   *
+   * Each row is computed with the SAME primitives the execution path uses
+   * (`resolveEffectiveCap` over the follower's `CopyBudget` plus the tenant
+   * ceiling, and `sumActiveExposure` over the active subscription allocations), so
+   * the operator's list and the customer's "remaining" figure cannot disagree.
+   *
+   * `total` is the number of followers that matched before paging - it is counted
+   * after evaluation, not taken from a `count()` on a filter the database cannot
+   * express (the effective cap is the tighter of two numbers, one of them a JSON
+   * setting). The page therefore reads every matching `CopyBudget` row for the
+   * tenant; that is bounded by the number of followers with a configured budget,
+   * which is the only population this list can describe.
+   */
+  async listOverCapUsers(input: {
+    tenantId: string;
+    page?: number;
+    limit?: number;
+    utilisationBps?: number;
+    status?: 'OVER' | 'NEAR';
+  }): Promise<{ data: OverCapUserRow[]; total: number }> {
+    const page = input.page && input.page > 0 ? input.page : 1;
+    const limit = input.limit && input.limit > 0 ? Math.min(input.limit, MAX_OVER_CAP_LIMIT) : 20;
+    const thresholdBps = input.utilisationBps ?? DEFAULT_NEAR_THRESHOLD_BPS;
+
+    const { ceiling, budgets, exposures, labels } = await this.prisma.withTenantRls(input.tenantId, async (tx) => {
+      const setting = await tx.tenantSetting.findFirst({
+        where: { tenantId: input.tenantId, key: COPY_BUDGET_TENANT_SETTING_KEY },
+        select: { value: true, isSecret: true },
+      });
+      const parsedCeiling = readCeiling(setting?.value);
+      if (setting && (setting.isSecret || !parsedCeiling)) {
+        throw new ServiceUnavailableException('Copy budget configuration is unavailable.');
+      }
+      const rows = await tx.copyBudget.findMany({
+        where: { tenantId: input.tenantId },
+        select: { userId: true, maxActiveExposure: true, perTraderCap: true, currency: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      const userIds = rows.map((row) => row.userId);
+      if (userIds.length === 0) {
+        return { ceiling: parsedCeiling, budgets: [], exposures: [], labels: new Map<string, string>() };
+      }
+      const subscriptions = await tx.copySubscription.findMany({
+        where: { tenantId: input.tenantId, followerId: { in: userIds }, state: 'ACTIVE' },
+        select: { followerId: true, id: true, traderId: true, allocationAmount: true, allocationMode: true },
+      });
+      const users = await tx.user.findMany({
+        where: { tenantId: input.tenantId, id: { in: userIds }, deletedAt: null },
+        select: { id: true, email: true },
+      });
+      return {
+        ceiling: parsedCeiling,
+        budgets: rows,
+        exposures: subscriptions,
+        labels: new Map(users.map((user) => [user.id, user.email])),
+      };
+    });
+
+    const rows: OverCapUserRow[] = [];
+    for (const budget of budgets) {
+      const limits: CopyBudgetLimits = {
+        maxActiveExposure: String(budget.maxActiveExposure),
+        perTraderCap: budget.perTraderCap === null || budget.perTraderCap === undefined ? null : String(budget.perTraderCap),
+        tenantCeiling: ceiling?.amount ?? null,
+        currency: ceiling?.currency ?? budget.currency ?? null,
+      };
+      const effectiveCap = resolveEffectiveCap(limits);
+      if (effectiveCap === null || effectiveCap.isZero()) continue;
+
+      const own = exposures.filter((row) => row.followerId === budget.userId);
+      // Percentage allocations cannot be summed with fixed amounts; a follower
+      // whose subscriptions mix units is reported as unmeasurable rather than
+      // ranked on a number that is not comparable.
+      const measurable = own.every((row) => row.allocationMode === 'FIXED' || row.allocationMode === 'PROPORTIONAL');
+      let committed: Decimal | null = null;
+      if (measurable) {
+        try {
+          committed = sumActiveExposure(
+            own.map((row) => ({ subscriptionId: row.id, traderId: row.traderId, allocationAmount: String(row.allocationAmount) })),
+          );
+        } catch (error) {
+          if (!(error instanceof DecimalError)) throw error;
+          committed = null;
+        }
+      }
+      const utilisationBps =
+        committed === null
+          ? null
+          : Number(committed.mul(10_000).div(effectiveCap, 0, 'FLOOR').toString());
+      const over = committed !== null && committed.gt(effectiveCap);
+      const near = committed !== null && !over && utilisationBps !== null && utilisationBps >= thresholdBps;
+      if (input.status === 'OVER' && !over) continue;
+      if (input.status === 'NEAR' && !near) continue;
+      if (input.status === undefined && !over && !near) continue;
+
+      rows.push({
+        userId: budget.userId,
+        label: labels.get(budget.userId) ?? null,
+        currency: limits.currency,
+        // `CopyBudget.maxActiveExposure` is non-nullable, so the row's own cap is
+        // always present here; the null case can only come from a ceiling-only view.
+        maxActiveExposure: String(budget.maxActiveExposure),
+        perTraderCap: limits.perTraderCap,
+        tenantCeiling: limits.tenantCeiling,
+        effectiveCap: effectiveCap.toString(),
+        committed: committed === null ? null : committed.toString(),
+        utilisationBps: utilisationBps !== null && Number.isSafeInteger(utilisationBps) ? utilisationBps : null,
+        state: over ? 'OVER' : near ? 'NEAR' : 'UNMEASURABLE',
+      });
+    }
+
+    // Worst first: an over-cap follower needs attention before a near-cap one.
+    rows.sort((left, right) => {
+      const rank = (row: OverCapUserRow) => (row.state === 'OVER' ? 0 : row.state === 'NEAR' ? 1 : 2);
+      if (rank(left) !== rank(right)) return rank(left) - rank(right);
+      return (right.utilisationBps ?? -1) - (left.utilisationBps ?? -1);
+    });
+
+    const start = (page - 1) * limit;
+    return { data: rows.slice(start, start + limit), total: rows.length };
   }
 
   /** Every ACTIVE subscription's committed capital for one follower, tenant-scoped. */

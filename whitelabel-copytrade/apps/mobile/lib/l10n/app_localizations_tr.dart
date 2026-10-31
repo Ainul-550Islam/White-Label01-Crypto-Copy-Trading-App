@@ -862,4 +862,162 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get copyBudgetEnforcementUnavailable =>
       'Canlı maruziyet ve emir rezervasyonları doğrulanana kadar yapılandırılmış bütçeye sahip kopyalama emirleri engellenir.';
+
+  @override
+  String get venueStatusTitle => 'Borsa durumu';
+
+  @override
+  String get venueStatusEmpty => 'Hesabınız için henüz listelenmiş borsa yok.';
+
+  @override
+  String get venueStatusOperational => 'Çalışıyor';
+
+  @override
+  String get venueStatusDegraded => 'Kısıtlı çalışıyor';
+
+  @override
+  String get venueStatusMaintenance => 'Bakımda';
+
+  @override
+  String get venueStatusOutage => 'Kesinti';
+
+  @override
+  String get venueStatusUnknown => 'Durum bilinmiyor';
+
+  @override
+  String get venueStatusSince => 'Başlangıç';
+
+  @override
+  String get venueStatusUnverified =>
+      'Platform bunu şu anda doğrulamadı — işlem başarısız olabilir.';
+
+  @override
+  String get venueStatusOperatorSet =>
+      'Yalnızca borsanın kendi akışıyla değil, bir operatör tarafından belirlendi.';
+
+  @override
+  String get venueStatusChecked => 'Son kontrol';
+
+  @override
+  String get venueStatusSubtitle =>
+      'İşlem yaptığınız borsaların şu anda açık olup olmadığı';
+
+  @override
+  String get loginAlertsTitle => 'Giriş uyarıları';
+
+  @override
+  String get loginAlertsAll => 'Tümü';
+
+  @override
+  String get loginAlertsSignIns => 'Girişler';
+
+  @override
+  String get loginAlertsFailures => 'Başarısız girişler';
+
+  @override
+  String get loginAlertsNewDevice => 'Yeni cihaz';
+
+  @override
+  String get loginAlertsSuspicious => 'Şüpheli';
+
+  @override
+  String get loginAlertsPassword => 'Parola değişiklikleri';
+
+  @override
+  String get loginAlertsEmpty => 'Hesabınızda kayıtlı giriş etkinliği yok.';
+
+  @override
+  String get loginAlertsAdvice =>
+      'Tanımadığınız bir olay varsa parolanızı değiştirin ve web güvenlik ayarlarından etkin cihazlarınızı gözden geçirin.';
+
+  @override
+  String get loginAlertsSeverityLabel => 'Önem derecesi';
+
+  @override
+  String get loginAlertsDevice => 'Cihaz';
+
+  @override
+  String get dataExportTitle => 'Verileriniz';
+
+  @override
+  String get dataExportAbout =>
+      'Kişisel verilerinizin bir kopyasını isteyin. Hazır olduğunda bilgilendirileceksiniz; ardından bir kez çalışan ve süresi dolan bir bağlantı oluşturabilirsiniz.';
+
+  @override
+  String get dataExportJurisdiction => 'Yetki bölgesi';
+
+  @override
+  String get dataExportRequest => 'Kopya isteyin';
+
+  @override
+  String get dataExportWorking => 'İşleniyor…';
+
+  @override
+  String get dataExportRequests => 'Talepleriniz';
+
+  @override
+  String get dataExportNone => 'Henüz verilerinizin bir kopyasını istemediniz.';
+
+  @override
+  String get dataExportRequestedSent => 'Talep alındı. Referansı';
+
+  @override
+  String get dataExportRequestedAtLabel => 'Talep tarihi';
+
+  @override
+  String get dataExportNeedsYou =>
+      'Devam etmek için sizden bir şey gerekiyor. E-postanızı kontrol edin.';
+
+  @override
+  String get dataExportRetention =>
+      'Bazı kayıtlar yasa gereği saklanmalıdır ve şu anda silinemez.';
+
+  @override
+  String get dataExportLegalHold =>
+      'Bu kayıtlar yasal saklama altında ve silinemez.';
+
+  @override
+  String get dataExportGetLink => 'İndirme bağlantısı oluştur';
+
+  @override
+  String get dataExportTokenIssued =>
+      'Tek kullanımlık bağlantı şu ana kadar hazır:';
+
+  @override
+  String get dataExportTokenNoExpiry =>
+      'Bir bağlantı verildi ancak son kullanma zamanı okunamadı. Ona güvenmeden önce yenisini isteyin.';
+
+  @override
+  String get feeScheduleTitle => 'Ücretler';
+
+  @override
+  String get feeScheduleEffective => 'Şu anda yürürlükte';
+
+  @override
+  String get feeScheduleEmpty => 'Henüz bir ücret tarifesi yayımlanmadı.';
+
+  @override
+  String get feeScheduleFromLabel => 'Başlangıç';
+
+  @override
+  String get feeScheduleUntilLabel => 'Bitiş';
+
+  @override
+  String get feeScheduleManagement => 'Yönetim ücreti';
+
+  @override
+  String get feeScheduleProfitShare => 'Kâr payı';
+
+  @override
+  String get feeScheduleCurrency => 'Para birimi';
+
+  @override
+  String get feeScheduleVersion => 'Sürüm';
+
+  @override
+  String get feeScheduleHistory => 'Önceki sürümler';
+
+  @override
+  String get feeScheduleOverride =>
+      'Bu tarife operatörünüz tarafından belirlenmiştir ve platform varsayılanından farklıdır.';
 }

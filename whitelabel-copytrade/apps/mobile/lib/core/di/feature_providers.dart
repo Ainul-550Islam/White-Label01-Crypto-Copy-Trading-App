@@ -4,6 +4,14 @@ import '../../features/copy_trading/data/copy_trading_repository.dart';
 import '../../features/copy_trading/domain/copy_models.dart';
 import '../../features/exchange_accounts/data/exchange_account_repository.dart';
 import '../../features/exchange_accounts/domain/exchange_account_models.dart';
+import '../../features/fee_schedule/data/fee_schedule_repository.dart';
+import '../../features/fee_schedule/domain/fee_schedule_models.dart';
+import '../../features/privacy_export/data/data_export_repository.dart';
+import '../../features/privacy_export/domain/data_export_models.dart';
+import '../../features/security_alerts/data/login_alert_repository.dart';
+import '../../features/security_alerts/domain/login_alert_models.dart';
+import '../../features/venue_status/data/venue_status_repository.dart';
+import '../../features/venue_status/domain/venue_status_models.dart';
 import '../../features/funding/data/funding_repository.dart';
 import '../../features/funding/domain/funding_models.dart';
 import '../../features/notifications/data/notification_repository.dart';
@@ -95,4 +103,45 @@ final AutoDisposeFutureProvider<int> unreadNotificationCountProvider = FuturePro
 final AutoDisposeFutureProvider<List<NotificationPreference>> notificationPreferencesProvider =
     FutureProvider.autoDispose<List<NotificationPreference>>((Ref ref) {
   return ref.watch(notificationRepositoryProvider).fetchPreferences();
+});
+
+/// Batch 05 customer surfaces: venue status, sign-in alerts, data export and the
+/// public fee schedule. Same composition rule as above - one repository provider per
+/// feature, one autoDispose FutureProvider per read, so returning to a screen
+/// re-fetches instead of serving a cached copy that has since become wrong.
+final Provider<VenueStatusRepository> venueStatusRepositoryProvider = Provider<VenueStatusRepository>((Ref ref) {
+  return VenueStatusRepository(apiClient: ref.watch(apiClientProvider));
+});
+
+final AutoDisposeFutureProvider<List<VenueStatus>> venueStatusesProvider =
+    FutureProvider.autoDispose<List<VenueStatus>>((Ref ref) {
+  return ref.watch(venueStatusRepositoryProvider).fetchStatuses();
+});
+
+final Provider<LoginAlertRepository> loginAlertRepositoryProvider = Provider<LoginAlertRepository>((Ref ref) {
+  return LoginAlertRepository(apiClient: ref.watch(apiClientProvider));
+});
+
+/// The filter is part of the provider identity, so switching types refetches
+/// instead of silently showing the previous filter's rows.
+final AutoDisposeFutureProviderFamily<List<LoginAlert>, String> loginAlertsProvider =
+    FutureProvider.autoDispose.family<List<LoginAlert>, String>((Ref ref, String type) {
+  return ref.watch(loginAlertRepositoryProvider).fetchAlerts(type: type.isEmpty ? null : type);
+});
+
+final Provider<DataExportRepository> dataExportRepositoryProvider = Provider<DataExportRepository>((Ref ref) {
+  return DataExportRepository(apiClient: ref.watch(apiClientProvider));
+});
+
+final AutoDisposeFutureProvider<List<DataExportRequest>> dataExportRequestsProvider =
+    FutureProvider.autoDispose<List<DataExportRequest>>((Ref ref) {
+  return ref.watch(dataExportRepositoryProvider).fetchRequests();
+});
+
+final Provider<FeeScheduleRepository> feeScheduleRepositoryProvider = Provider<FeeScheduleRepository>((Ref ref) {
+  return FeeScheduleRepository(apiClient: ref.watch(apiClientProvider));
+});
+
+final AutoDisposeFutureProvider<FeeSchedule> feeScheduleProvider = FutureProvider.autoDispose<FeeSchedule>((Ref ref) {
+  return ref.watch(feeScheduleRepositoryProvider).fetchEffectiveSchedule();
 });

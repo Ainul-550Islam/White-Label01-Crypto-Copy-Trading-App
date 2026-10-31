@@ -862,4 +862,164 @@ class AppLocalizationsBn extends AppLocalizations {
   @override
   String get copyBudgetEnforcementUnavailable =>
       'বর্তমান এক্সপোজার ও অর্ডারের সংরক্ষণ যাচাই করা না যাওয়া পর্যন্ত নির্ধারিত বাজেটসহ কপি অর্ডার বন্ধ থাকবে।';
+
+  @override
+  String get venueStatusTitle => 'ভেন্যুর অবস্থা';
+
+  @override
+  String get venueStatusEmpty =>
+      'আপনার অ্যাকাউন্টের জন্য এখনো কোনো ভেন্যু তালিকাভুক্ত নেই।';
+
+  @override
+  String get venueStatusOperational => 'স্বাভাবিক চলছে';
+
+  @override
+  String get venueStatusDegraded => 'কর্মক্ষমতা কম';
+
+  @override
+  String get venueStatusMaintenance => 'রক্ষণাবেক্ষণে';
+
+  @override
+  String get venueStatusOutage => 'বিভ্রাট';
+
+  @override
+  String get venueStatusUnknown => 'অবস্থা অজানা';
+
+  @override
+  String get venueStatusSince => 'থেকে';
+
+  @override
+  String get venueStatusUnverified =>
+      'প্ল্যাটফর্ম এইমাত্র নিশ্চিত করেনি — ট্রেডিং ব্যর্থ হতে পারে।';
+
+  @override
+  String get venueStatusOperatorSet =>
+      'অপারেটর নির্ধারিত, কেবল ভেন্যুর নিজস্ব ফিড থেকে নয়।';
+
+  @override
+  String get venueStatusChecked => 'সর্বশেষ যাচাই';
+
+  @override
+  String get venueStatusSubtitle =>
+      'আপনি যে এক্সচেঞ্জে ট্রেড করেন সেগুলো এখন চালু আছে কি না';
+
+  @override
+  String get loginAlertsTitle => 'সাইন-ইন সতর্কতা';
+
+  @override
+  String get loginAlertsAll => 'সব';
+
+  @override
+  String get loginAlertsSignIns => 'সাইন-ইন';
+
+  @override
+  String get loginAlertsFailures => 'ব্যর্থ সাইন-ইন';
+
+  @override
+  String get loginAlertsNewDevice => 'নতুন ডিভাইস';
+
+  @override
+  String get loginAlertsSuspicious => 'সন্দেহজনক';
+
+  @override
+  String get loginAlertsPassword => 'পাসওয়ার্ড পরিবর্তন';
+
+  @override
+  String get loginAlertsEmpty =>
+      'আপনার অ্যাকাউন্টে কোনো সাইন-ইন কার্যকলাপ নথিভুক্ত হয়নি।';
+
+  @override
+  String get loginAlertsAdvice =>
+      'কোনো ঘটনা চিনতে না পারলে পাসওয়ার্ড পরিবর্তন করুন এবং ওয়েব নিরাপত্তা সেটিংসে আপনার সক্রিয় ডিভাইস পর্যালোচনা করুন।';
+
+  @override
+  String get loginAlertsSeverityLabel => 'তীব্রতা';
+
+  @override
+  String get loginAlertsDevice => 'ডিভাইস';
+
+  @override
+  String get dataExportTitle => 'আপনার ডেটা';
+
+  @override
+  String get dataExportAbout =>
+      'আপনার ব্যক্তিগত ডেটার একটি অনুলিপি অনুরোধ করুন। প্রস্তুত হলে জানানো হবে, এরপর আপনি একবার কাজ করে মেয়াদোত্তীর্ণ হয় এমন একটি লিংক তৈরি করতে পারবেন।';
+
+  @override
+  String get dataExportJurisdiction => 'এখতিয়ার';
+
+  @override
+  String get dataExportRequest => 'অনুলিপি অনুরোধ করুন';
+
+  @override
+  String get dataExportWorking => 'চলছে…';
+
+  @override
+  String get dataExportRequests => 'আপনার অনুরোধসমূহ';
+
+  @override
+  String get dataExportNone => 'আপনি এখনো আপনার ডেটার অনুলিপি অনুরোধ করেননি।';
+
+  @override
+  String get dataExportRequestedSent => 'অনুরোধ পাওয়া গেছে। এর রেফারেন্স';
+
+  @override
+  String get dataExportRequestedAtLabel => 'অনুরোধের সময়';
+
+  @override
+  String get dataExportNeedsYou =>
+      'এগিয়ে যাওয়ার আগে আপনার কাছ থেকে কিছু প্রয়োজন। আপনার ইমেইল দেখুন।';
+
+  @override
+  String get dataExportRetention =>
+      'কিছু রেকর্ড আইন অনুযায়ী রাখতে হয়, এখন মুছে ফেলা যাবে না।';
+
+  @override
+  String get dataExportLegalHold =>
+      'এই রেকর্ডগুলো আইনি হেফাজতে আছে, মুছে ফেলা যাবে না।';
+
+  @override
+  String get dataExportGetLink => 'ডাউনলোড লিংক তৈরি করুন';
+
+  @override
+  String get dataExportTokenIssued =>
+      'একবার ব্যবহারযোগ্য লিংক প্রস্তুত, মেয়াদ শেষ';
+
+  @override
+  String get dataExportTokenNoExpiry =>
+      'লিংক দেওয়া হয়েছে কিন্তু তার মেয়াদ পড়া যায়নি। নির্ভর করার আগে আরেকটি অনুরোধ করুন।';
+
+  @override
+  String get feeScheduleTitle => 'ফি';
+
+  @override
+  String get feeScheduleEffective => 'এখন কার্যকর';
+
+  @override
+  String get feeScheduleEmpty => 'এখনো কোনো ফি সূচি প্রকাশিত হয়নি।';
+
+  @override
+  String get feeScheduleFromLabel => 'শুরু';
+
+  @override
+  String get feeScheduleUntilLabel => 'শেষ';
+
+  @override
+  String get feeScheduleManagement => 'ব্যবস্থাপনা ফি';
+
+  @override
+  String get feeScheduleProfitShare => 'লাভের অংশ';
+
+  @override
+  String get feeScheduleCurrency => 'মুদ্রা';
+
+  @override
+  String get feeScheduleVersion => 'সংস্করণ';
+
+  @override
+  String get feeScheduleHistory => 'পূর্ববর্তী সংস্করণ';
+
+  @override
+  String get feeScheduleOverride =>
+      'এই সূচি আপনার অপারেটর নির্ধারিত এবং প্ল্যাটফর্ম ডিফল্ট থেকে আলাদা।';
 }

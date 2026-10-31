@@ -120,7 +120,26 @@ jobs:
       - name: Check rendered UI copy for developer notes
         run: npm run check:ui-copy-leaks
 
-      - name: Script unit tests (contract checker, DR manifest, retention)
+      # Step-up is a second factor: a route that names an action no proof can be
+      # issued for, or that sits on a GET, is silently unusable. This boots nothing;
+      # it reads every controller and every route decorator.
+      - name: Step-up route paths (single-use proof on mutating, permission-gated routes)
+        run: npm run check:step-up-paths
+
+      # A file and a directory with the same stem (or a Python module shadowed by a
+      # package) means one of the two implementations is unreachable and nothing in
+      # the build says which. Batch 04 left five such pairs; this is what stops the
+      # sixth from being added.
+      - name: Duplicate module check (file/dir stems, shadowed Python modules, compiled artefacts)
+        run: npm run check:no-duplicate-modules
+
+      # NEXT.md and the readiness document are generated from the parity scanner.
+      # Hand-edited counts drifted from the evidence for months; this fails when
+      # either document no longer matches what the scanner reports for this commit.
+      - name: Gap status documents match the parity scanner
+        run: npm run gap-status:check
+
+      - name: Script unit tests (contract checker, duplicate modules, gap status, DR manifest, retention)
         run: node --test scripts/
 
       - name: Typecheck (api, admin-web, web, notification-service)

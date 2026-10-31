@@ -11,6 +11,9 @@ import { FollowerRiskService } from './follower-risk.service';
 import { CopyExecutionService } from './copy-execution.service';
 import { CopyBudgetService } from './copy-budget.service';
 import { CopyBudgetController } from './copy-budget.controller';
+// GAP-61 operator surface: the tenant ceiling and the followers at or near it. Separate
+// controller because these routes act on the whole tenant, not on the caller's own budget.
+import { CopyBudgetAdminController } from './copy-budget-admin.controller';
 // GAP-94: signed, expiring, revocable public share links. The signing key is read
 // from the crypto service on first use, never at module construction, so a missing
 // secret fails the first share request instead of preventing the app from booting.
@@ -77,6 +80,7 @@ import { OperationsModule } from '../operations/operations.module';
     // GAP-61: the follower's global active-copy budget. Registered here so the route exists in a
     // running application and not only in a spec that constructs the controller by hand.
     CopyBudgetController,
+    CopyBudgetAdminController,
     // GAP-94: one controller for both the owner's routes and the single public
     // resolve route; the paths differ, the module does not.
     PublicShareController,

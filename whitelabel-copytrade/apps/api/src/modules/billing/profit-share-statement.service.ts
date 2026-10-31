@@ -128,7 +128,7 @@ export class ProfitShareStatementService {
         lines.push({ sourceLedgerId: entry.id, sourceUserId: input.followerUserId, currency, profitAmount: profit.toString(), feeAmount: feeDelta.toString(), postedAt: entry.effectiveAt });
       }
     }
-    let endingEquity = cumulative.add(gross); if (endingEquity.gt(highWater)) highWater = endingEquity;
+    const endingEquity = cumulative.add(gross); if (endingEquity.gt(highWater)) highWater = endingEquity;
     const statement = await this.prisma.$transaction(async (tx) => {
       const created = await tx.profitShareStatement.create({ data: { tenantId: input.tenantId, followerUserId: input.followerUserId, traderUserId: input.traderUserId, periodStart, periodEnd, currency, version, status: 'DRAFT', grossProfit: gross.toString(), profitShareAmount: postedFees.toFixed(8, 'HALF_EVEN'), highWaterMark: highWater.toString(), roundingRule: 'HALF_EVEN_8_PLACES_ONCE_AFTER_POSTED_LEDGER_SUM', supersedesId: latest?.id ?? null } });
       if (lines.length) await tx.profitShareStatementLine.createMany({ data: lines.map((line) => ({ statementId: created.id, ...line })) });

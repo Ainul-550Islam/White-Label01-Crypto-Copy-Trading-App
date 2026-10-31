@@ -16,6 +16,10 @@ import '../../features/exchange_accounts/presentation/exchange_accounts_screen.d
 import '../../features/funding/presentation/funding_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/portfolio/presentation/portfolio_screen.dart';
+import '../../features/venue_status/presentation/venue_status_screen.dart';
+import '../../features/security_alerts/presentation/login_alerts_screen.dart';
+import '../../features/privacy_export/presentation/data_export_screen.dart';
+import '../../features/fee_schedule/presentation/fee_schedule_screen.dart';
 import '../di/providers.dart';
 import 'route_paths.dart';
 
@@ -137,16 +141,36 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         builder: (BuildContext context, GoRouterState state) => const NotificationsScreen(),
       ),
       GoRoute(
+        path: RoutePaths.venueStatus,
+        name: RouteNames.venueStatus,
+        builder: (BuildContext context, GoRouterState state) => const VenueStatusScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.feeSchedule,
+        name: RouteNames.feeSchedule,
+        builder: (BuildContext context, GoRouterState state) => const FeeScheduleScreen(),
+      ),
+      GoRoute(
         path: RoutePaths.settings,
         name: RouteNames.settings,
         builder: (BuildContext context, GoRouterState state) => const SettingsScreen(),
-        routes: <RouteBase>[
-          GoRoute(
-            path: 'security',
-            name: RouteNames.security,
-            builder: (BuildContext context, GoRouterState state) => const SecurityScreen(),
-          ),
-        ],
+      ),
+      GoRoute(
+        path: RoutePaths.security,
+        name: RouteNames.security,
+        builder: (BuildContext context, GoRouterState state) => const SecurityScreen(),
+      ),
+      // Absolute sibling routes rather than children of `/settings`, because each
+      // path is already a full address and a child route would nest it twice.
+      GoRoute(
+        path: RoutePaths.loginAlerts,
+        name: RouteNames.loginAlerts,
+        builder: (BuildContext context, GoRouterState state) => const LoginAlertsScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.dataExport,
+        name: RouteNames.dataExport,
+        builder: (BuildContext context, GoRouterState state) => const DataExportScreen(),
       ),
     ],
     errorBuilder: (BuildContext context, GoRouterState state) => const _RouteNotFoundScreen(),

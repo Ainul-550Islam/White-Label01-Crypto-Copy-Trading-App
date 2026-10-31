@@ -31,6 +31,7 @@ import { VenueStatusService } from './venue-status.service';
 import { VenueStatusController } from './venue-status.controller';
 import { VenueStatusAdminController } from './venue-status-admin.controller';
 import { ExchangeUserStreamAdminController } from './exchange-user-stream-admin.controller';
+import { ExchangeKeyHealthAdminController } from './exchange-key-health-admin.controller';
 
 /**
  * NestJS module wiring for registry, providers, credential service, account repository/service, sync services, health, rate limits, symbols, routing, audit, DTOs, and integrations.
@@ -76,6 +77,9 @@ import { ExchangeUserStreamAdminController } from './exchange-user-stream-admin.
     VenueStatusController,
     VenueStatusAdminController,
     ExchangeUserStreamAdminController,
+    // GAP-73 operator surface. Registered here because AccountCapabilityHealthService is
+    // built by a factory in this module and is not exported.
+    ExchangeKeyHealthAdminController,
   ],
   exports: [
     ExchangeRegistryService,

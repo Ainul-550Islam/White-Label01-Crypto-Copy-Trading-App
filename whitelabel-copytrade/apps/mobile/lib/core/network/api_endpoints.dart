@@ -81,6 +81,18 @@ class ApiEndpoints {
   static const String withdrawalDestinationCheck =
       '/client-lifecycle/withdrawal-destination-check';
 
+  /// Batch 05 customer surfaces. Each path is the controller's own prefix:
+  /// `venues/status` (customer read), `security/events` (the caller's own events,
+  /// tenant-scoped server side), `privacy/requests` (self-service, scoped to the
+  /// authenticated user) and `public/fee-schedule` (public, resolved by host).
+  static const String venueStatus = '/venues/status';
+  static const String securityEvents = '/security/events';
+  static const String privacyRequests = '/privacy/requests';
+  static String privacyRequest(String requestId) => '/privacy/requests/$requestId';
+  static String privacyRequestDownloadToken(String requestId) =>
+      '/privacy/requests/$requestId/download-token';
+  static const String publicFeeSchedule = '/public/fee-schedule';
+
   /// Phase 3: portfolio accounting (read-only).
   static const String portfolioProfiles = '/portfolio-accounting/profiles';
   static const String portfolioHoldings = '/portfolio-accounting/holdings';

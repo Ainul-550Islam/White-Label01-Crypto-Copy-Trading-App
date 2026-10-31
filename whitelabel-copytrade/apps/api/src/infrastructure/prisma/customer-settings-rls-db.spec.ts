@@ -2,6 +2,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaService } from './prisma.service';
 
+// The mandatory-policy manifest lives beside this spec, not in apps/api/prisma/rls/.
+// That directory is rendered wholesale by scripts/gen_part11_rls.py, and
+// libs/trading-core/tests/test_repo_reference_integrity.py asserts its exact
+// membership for that reason: a hand-written file there is the one file a generator
+// rerun neither overwrites nor notices. A test fixture belongs in the test tree.
+const manifestPath = join(__dirname, 'fixtures', 'batch02_mandatory_rls.json');
+
 const databaseUrl = process.env.BATCH02_TEST_DATABASE_URL;
 
 (databaseUrl ? describe : describe.skip)('mandatory customer-settings RLS', () => {
@@ -33,7 +40,7 @@ const databaseUrl = process.env.BATCH02_TEST_DATABASE_URL;
   });
 
   it('checks the live catalog for all modeled and SQL-only mandatory tenant policies', async () => {
-    const manifest = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'prisma', 'rls', 'batch02_mandatory_rls.json'), 'utf8')) as {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       modeled: Array<{ table: string; policy: string; predicate: string }>;
       sqlOnly: Array<{ table: string; policy: string; predicate: string }>;
     };
@@ -59,7 +66,7 @@ const databaseUrl = process.env.BATCH02_TEST_DATABASE_URL;
 
   it('does not let the older Part 11 rollback disable newer mandatory tenant tables', () => {
     const rollback = readFileSync(join(__dirname, '..', '..', '..', 'prisma', 'rls', 'disable.sql'), 'utf8');
-    const manifest = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'prisma', 'rls', 'batch02_mandatory_rls.json'), 'utf8')) as {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       modeled: Array<{ table: string }>; sqlOnly: Array<{ table: string }>;
     };
     for (const table of [...manifest.modeled, ...manifest.sqlOnly].map((entry) => entry.table).concat('institutional_risk_policies')) {

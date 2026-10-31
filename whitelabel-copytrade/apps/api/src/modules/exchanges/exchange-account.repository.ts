@@ -39,6 +39,17 @@ export interface ExchangeAccountRecord {
   healthState: ExchangeHealthState;
   connectionState: ExchangeConnectionState;
   lastVerifiedAt: Date | null;
+  /**
+   * Credential expiry as stored on the account. Null when the venue does not
+   * publish one - distinct from "does not expire", which no venue asserts here.
+   */
+  credentialExpiresAt: Date | null;
+  /**
+   * The persisted failure counter. Exposed because the capability matrix turns
+   * this count into "reconnect this key" advice; a caller that cannot read it
+   * has to guess, and a guessed zero hides a key that is failing every call.
+   */
+  consecutiveFailures: number;
   lastSyncAt: Date | null;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;
@@ -506,6 +517,8 @@ export class ExchangeAccountRepository {
       healthState,
       connectionState,
       lastVerifiedAt: row.lastVerifiedAt || null,
+      credentialExpiresAt: row.credentialExpiresAt || null,
+      consecutiveFailures: row.consecutiveFailures ?? 0,
       // The schema has no durable sync timestamp; credential verification is not an account-data synchronization.
       lastSyncAt: null,
       lastErrorCode: row.lastFailureCode || null,

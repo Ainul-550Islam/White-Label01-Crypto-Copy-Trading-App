@@ -34,6 +34,103 @@
   ],
   "item": [
     {
+      "name": "AccountOrderSizeLimit",
+      "item": [
+        {
+          "name": "AccountOrderSizeLimit_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/risk-management/my-account-order-limits",
+              "variable": []
+            },
+            "description": "GET /api/v1/risk-management/my-account-order-limits"
+          }
+        },
+        {
+          "name": "AccountOrderSizeLimit_get",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/risk-management/my-account-order-limits/:accountId",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "set-accountId",
+                  "description": "Path parameter accountId"
+                }
+              ]
+            },
+            "description": "GET /api/v1/risk-management/my-account-order-limits/{accountId}"
+          }
+        },
+        {
+          "name": "AccountOrderSizeLimit_update",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/risk-management/my-account-order-limits/:accountId",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "set-accountId",
+                  "description": "Path parameter accountId"
+                }
+              ]
+            },
+            "description": "PUT /api/v1/risk-management/my-account-order-limits/{accountId}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "AccountRecovery",
       "item": [
         {
@@ -6784,6 +6881,91 @@
       ]
     },
     {
+      "name": "CopyBudgetAdmin",
+      "item": [
+        {
+          "name": "CopyBudgetAdmin_getDefaultCaps",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/copy-trading/budget",
+              "variable": []
+            },
+            "description": "GET /api/v1/admin/copy-trading/budget"
+          }
+        },
+        {
+          "name": "CopyBudgetAdmin_setDefaultCaps",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/copy-trading/budget",
+              "variable": []
+            },
+            "description": "PUT /api/v1/admin/copy-trading/budget",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CopyBudgetAdmin_listOverCapUsers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/copy-trading/budget/over-cap",
+              "variable": []
+            },
+            "description": "GET /api/v1/admin/copy-trading/budget/over-cap"
+          }
+        }
+      ]
+    },
+    {
       "name": "CopyExecutionTimeline",
       "item": [
         {
@@ -8918,6 +9100,142 @@
               "variable": []
             },
             "description": "POST /api/v1/custody/withdrawals/submit"
+          }
+        }
+      ]
+    },
+    {
+      "name": "CustomerDepositAddress",
+      "item": [
+        {
+          "name": "CustomerDepositAddress_get",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/client-lifecycle/funding/:fundingRequestId/deposit-address",
+              "variable": [
+                {
+                  "key": "fundingRequestId",
+                  "value": "set-fundingRequestId",
+                  "description": "Path parameter fundingRequestId"
+                }
+              ]
+            },
+            "description": "GET /api/v1/client-lifecycle/funding/{fundingRequestId}/deposit-address"
+          }
+        },
+        {
+          "name": "CustomerDepositAddress_issue",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/client-lifecycle/funding/:fundingRequestId/deposit-address",
+              "variable": [
+                {
+                  "key": "fundingRequestId",
+                  "value": "set-fundingRequestId",
+                  "description": "Path parameter fundingRequestId"
+                }
+              ]
+            },
+            "description": "POST /api/v1/client-lifecycle/funding/{fundingRequestId}/deposit-address",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CustomerDepositAddress_listAssets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/client-lifecycle/funding/:fundingRequestId/deposit-address/assets",
+              "variable": [
+                {
+                  "key": "fundingRequestId",
+                  "value": "set-fundingRequestId",
+                  "description": "Path parameter fundingRequestId"
+                }
+              ]
+            },
+            "description": "GET /api/v1/client-lifecycle/funding/{fundingRequestId}/deposit-address/assets"
+          }
+        },
+        {
+          "name": "CustomerDepositAddress_observeTransfer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/client-lifecycle/funding/:fundingRequestId/deposit-address/transactions/:transactionHash",
+              "variable": [
+                {
+                  "key": "fundingRequestId",
+                  "value": "set-fundingRequestId",
+                  "description": "Path parameter fundingRequestId"
+                },
+                {
+                  "key": "transactionHash",
+                  "value": "set-transactionHash",
+                  "description": "Path parameter transactionHash"
+                }
+              ]
+            },
+            "description": "GET /api/v1/client-lifecycle/funding/{fundingRequestId}/deposit-address/transactions/{transactionHash}"
           }
         }
       ]
@@ -11160,6 +11478,71 @@
               ]
             },
             "description": "GET /api/v1/developer-platform/integration/{environment}/profile"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ExchangeKeyHealthAdmin",
+      "item": [
+        {
+          "name": "ExchangeKeyHealthAdmin_list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Slug",
+                "value": "{{tenantSlug}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/exchanges/key-health",
+              "variable": [],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "set-page",
+                  "description": "Query parameter page",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "set-limit",
+                  "description": "Query parameter limit",
+                  "disabled": false
+                },
+                {
+                  "key": "venue",
+                  "value": "set-venue",
+                  "description": "Query parameter venue",
+                  "disabled": false
+                },
+                {
+                  "key": "status",
+                  "value": "set-status",
+                  "description": "Query parameter status",
+                  "disabled": false
+                },
+                {
+                  "key": "userId",
+                  "value": "set-userId",
+                  "description": "Query parameter userId",
+                  "disabled": false
+                },
+                {
+                  "key": "environment",
+                  "value": "set-environment",
+                  "description": "Query parameter environment",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "GET /api/v1/admin/exchanges/key-health"
           }
         }
       ]

@@ -34,6 +34,26 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.push(RoutePaths.security),
           ),
+          // Sign-in alerts and the data export both hang off the security and
+          // privacy surfaces the customer already expects under Settings.
+          ListTile(
+            title: Text(l10n.loginAlertsTitle),
+            leading: const Icon(Icons.gpp_maybe_outlined),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(RoutePaths.loginAlerts),
+          ),
+          ListTile(
+            title: Text(l10n.dataExportTitle),
+            leading: const Icon(Icons.folder_shared_outlined),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(RoutePaths.dataExport),
+          ),
+          ListTile(
+            title: Text(l10n.feeScheduleTitle),
+            leading: const Icon(Icons.receipt_long_outlined),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(RoutePaths.feeSchedule),
+          ),
           if (state.isAuthenticated)
             ref.watch(userPreferencesProvider).when(
                   data: (preferences) => preferences == null

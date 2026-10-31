@@ -146,8 +146,12 @@ describe('Part 11 RLS coverage - the schema is the source of truth', () => {
   it('requires a policy for every table enabled by a migration or the DBA enable script', () => {
     const migrationSql = allMigrationSqlFiles.map(sqlOnly).join('\n');
     const policySql = allMigrationSqlFiles.map(sqlOnly).join('\n');
+    // A policy name is a Postgres identifier, so it may be written `tenant_isolation`
+    // or `"customer_deposit_issuance_tenant_isolation"` and both are the same kind of
+    // statement. Matching only the bare form made nine correctly quoted policies
+    // invisible, so their three tables looked unprotected while being protected.
     const policyTables = new Set(
-      [...policySql.matchAll(/CREATE POLICY \w+ ON "([^"]+)"/g)].map((match) => match[1] as string),
+      [...policySql.matchAll(/CREATE POLICY "?\w+"? ON "([^"]+)"/g)].map((match) => match[1] as string),
     );
     const enabledTables = new Set(
       [...migrationSql.matchAll(/ALTER TABLE "([^"]+)" ENABLE ROW LEVEL SECURITY/g)].map((match) => match[1] as string),

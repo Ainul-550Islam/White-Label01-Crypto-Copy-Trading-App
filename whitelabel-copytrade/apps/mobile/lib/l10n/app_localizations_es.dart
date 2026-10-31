@@ -879,4 +879,165 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get copyBudgetEnforcementUnavailable =>
       'Las órdenes de copia con un presupuesto configurado se bloquean hasta poder verificar la exposición en vivo y las reservas de órdenes.';
+
+  @override
+  String get venueStatusTitle => 'Estado de los mercados';
+
+  @override
+  String get venueStatusEmpty =>
+      'Todavía no hay mercados asociados a su cuenta.';
+
+  @override
+  String get venueStatusOperational => 'Operativo';
+
+  @override
+  String get venueStatusDegraded => 'Degradado';
+
+  @override
+  String get venueStatusMaintenance => 'En mantenimiento';
+
+  @override
+  String get venueStatusOutage => 'Interrupción';
+
+  @override
+  String get venueStatusUnknown => 'Estado desconocido';
+
+  @override
+  String get venueStatusSince => 'Desde';
+
+  @override
+  String get venueStatusUnverified =>
+      'La plataforma no lo ha confirmado ahora mismo: la negociación puede fallar.';
+
+  @override
+  String get venueStatusOperatorSet =>
+      'Fijado por un operador, no solo por el canal del mercado.';
+
+  @override
+  String get venueStatusChecked => 'Última comprobación';
+
+  @override
+  String get venueStatusSubtitle =>
+      'Si los mercados en los que opera están disponibles ahora';
+
+  @override
+  String get loginAlertsTitle => 'Alertas de inicio de sesión';
+
+  @override
+  String get loginAlertsAll => 'Todas';
+
+  @override
+  String get loginAlertsSignIns => 'Inicios de sesión';
+
+  @override
+  String get loginAlertsFailures => 'Inicios fallidos';
+
+  @override
+  String get loginAlertsNewDevice => 'Dispositivo nuevo';
+
+  @override
+  String get loginAlertsSuspicious => 'Sospechosos';
+
+  @override
+  String get loginAlertsPassword => 'Cambios de contraseña';
+
+  @override
+  String get loginAlertsEmpty =>
+      'No se ha registrado actividad de inicio de sesión en su cuenta.';
+
+  @override
+  String get loginAlertsAdvice =>
+      'Si no reconoce un evento, cambie su contraseña y revise sus dispositivos activos en la configuración de seguridad web.';
+
+  @override
+  String get loginAlertsSeverityLabel => 'Gravedad';
+
+  @override
+  String get loginAlertsDevice => 'Dispositivo';
+
+  @override
+  String get dataExportTitle => 'Sus datos';
+
+  @override
+  String get dataExportAbout =>
+      'Solicite una copia de sus datos personales. Le avisaremos cuando esté lista y entonces podrá crear un enlace de un solo uso que caduca.';
+
+  @override
+  String get dataExportJurisdiction => 'Jurisdicción';
+
+  @override
+  String get dataExportRequest => 'Solicitar una copia';
+
+  @override
+  String get dataExportWorking => 'Procesando…';
+
+  @override
+  String get dataExportRequests => 'Sus solicitudes';
+
+  @override
+  String get dataExportNone => 'Aún no ha solicitado una copia de sus datos.';
+
+  @override
+  String get dataExportRequestedSent => 'Solicitud recibida. Su referencia es';
+
+  @override
+  String get dataExportRequestedAtLabel => 'Solicitada';
+
+  @override
+  String get dataExportNeedsYou =>
+      'Necesitamos algo de usted para continuar. Revise su correo electrónico.';
+
+  @override
+  String get dataExportRetention =>
+      'Algunos registros deben conservarse por ley y aún no pueden eliminarse.';
+
+  @override
+  String get dataExportLegalHold =>
+      'Estos registros están bajo retención legal y no pueden eliminarse.';
+
+  @override
+  String get dataExportGetLink => 'Crear enlace de descarga';
+
+  @override
+  String get dataExportTokenIssued =>
+      'Hay un enlace de un solo uso disponible hasta';
+
+  @override
+  String get dataExportTokenNoExpiry =>
+      'Se emitió un enlace pero no se pudo leer su caducidad. Solicite otro antes de confiar en él.';
+
+  @override
+  String get feeScheduleTitle => 'Comisiones';
+
+  @override
+  String get feeScheduleEffective => 'En vigor ahora';
+
+  @override
+  String get feeScheduleEmpty =>
+      'Todavía no se ha publicado ninguna tabla de comisiones.';
+
+  @override
+  String get feeScheduleFromLabel => 'Desde';
+
+  @override
+  String get feeScheduleUntilLabel => 'Hasta';
+
+  @override
+  String get feeScheduleManagement => 'Comisión de gestión';
+
+  @override
+  String get feeScheduleProfitShare => 'Reparto de beneficios';
+
+  @override
+  String get feeScheduleCurrency => 'Moneda';
+
+  @override
+  String get feeScheduleVersion => 'Versión';
+
+  @override
+  String get feeScheduleHistory => 'Versiones anteriores';
+
+  @override
+  String get feeScheduleOverride =>
+      'Esta tabla la fija su operador y difiere de la predeterminada de la plataforma.';
 }

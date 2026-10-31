@@ -234,7 +234,6 @@ const MODULES_ROOT = join(__dirname, '..', 'modules');
  */
 const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }> = {
   'auth/account-recovery-mailer.service.ts': { count: 1, reason: 'SMTP readiness probe: verify()=false means not-ready and denies delivery, an exception maps to the same fail-closed answer' },
-  'auth/step-up/step-up.service.ts': { count: 1, reason: 'unreadable proof or session means not fresh and denies the protected action' },
   'billing/analytics/analytics-cache.service.ts': { count: 4, reason: 'cache get/invalidate; a cache miss or failure falls back to computing the value' },
   'billing/analytics/revenue-cohort.service.ts': { count: 1, reason: 'cohort key derivation from a date (pure computation)' },
   'billing/entitlements/entitlement.resolver.ts': { count: 3, reason: 'EntitlementResolver is exported but not registered in any Nest module (no route reaches it)' },
@@ -291,6 +290,8 @@ const ALLOWED_PROMISE_CATCH_EMPTY: Record<string, { count: number; reason: strin
   'billing/notifications/twilio-sms.provider.ts': { count: 1, reason: 'parsing a provider response body' },
   'billing/payments/checkout.service.ts': { count: 1, reason: 'secondary mark-failed write inside an error path that then reports the failure' },
   'billing/saas-admin/tenant-feature-access.service.ts': { count: 1, reason: 'best-effort audit of a read-only feature check' },
+  'client-lifecycle/customer-deposit-address.service.ts': { count: 1, reason: 'release-and-record write in the error path of an address verification that then throws ServiceUnavailable; the lease expires on its own so a lost write cannot strand the row' },
+  'custody/fireblocks-vault.client.ts': { count: 1, reason: 'cancelling a response body reader after refusing an oversized provider reply; the refusal is raised immediately afterwards, so the cancelled stream cannot change the answer' },
   'datasets/dataset-ingestion.service.ts': { count: 2, reason: 'secondary writes inside an error path that then throws ServiceUnavailable' },
   'exchanges/secret-store.ts': { count: 2, reason: 'parsing a Vault response body' },
   'oms/fill-management.service.ts': { count: 1, reason: 'canonical-order fallback path (round 7 item B), not the primary read' },

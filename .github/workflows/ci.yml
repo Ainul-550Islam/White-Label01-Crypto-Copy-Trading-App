@@ -130,6 +130,21 @@ jobs:
       - name: Script unit tests (contract checker, DR manifest, retention)
         run: node --test scripts/
 
+      # Batch 05 gates. Each of these existed as an npm script in the project's
+      # package.json before this step existed, which is exactly the failure mode the
+      # two "these three checks ran in no workflow" entries above already describe:
+      # a gate nobody runs is not a gate. They run here, in the job GitHub executes,
+      # and in the same order as whitelabel-copytrade/.github/workflows/ci.yml so the
+      # two files cannot disagree about what "green" means.
+      - name: No duplicate modules (one implementation per module name)
+        run: npm run check:no-duplicate-modules   # scripts/check-no-duplicate-modules.mjs
+
+      # Regenerates NEXT.md and the readiness doc from the scanners and fails if the
+      # committed copies differ, so the readiness numbers cannot drift away from the
+      # code they describe.
+      - name: Gap status is current (NEXT.md and readiness doc match the scanners)
+        run: npm run gap-status:check   # scripts/gen-gap-status.mjs --check
+
       - name: Typecheck (api, admin-web, web, notification-service)
         run: npm run typecheck
         env:

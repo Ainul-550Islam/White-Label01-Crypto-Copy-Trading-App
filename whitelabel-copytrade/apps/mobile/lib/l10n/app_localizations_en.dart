@@ -865,4 +865,163 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get copyBudgetEnforcementUnavailable =>
       'Copy orders with a configured budget are blocked until live exposure and order reservations can be verified.';
+
+  @override
+  String get venueStatusTitle => 'Venue status';
+
+  @override
+  String get venueStatusEmpty => 'No venues are listed for your account yet.';
+
+  @override
+  String get venueStatusOperational => 'Operational';
+
+  @override
+  String get venueStatusDegraded => 'Degraded';
+
+  @override
+  String get venueStatusMaintenance => 'Under maintenance';
+
+  @override
+  String get venueStatusOutage => 'Outage';
+
+  @override
+  String get venueStatusUnknown => 'Status unknown';
+
+  @override
+  String get venueStatusSince => 'Since';
+
+  @override
+  String get venueStatusUnverified =>
+      'Not confirmed by the platform just now — trading may still fail.';
+
+  @override
+  String get venueStatusOperatorSet =>
+      'Set by an operator, not only by the venue\'s own feed.';
+
+  @override
+  String get venueStatusChecked => 'Last checked';
+
+  @override
+  String get venueStatusSubtitle =>
+      'Whether the exchanges you trade on are up right now';
+
+  @override
+  String get loginAlertsTitle => 'Sign-in alerts';
+
+  @override
+  String get loginAlertsAll => 'All';
+
+  @override
+  String get loginAlertsSignIns => 'Sign-ins';
+
+  @override
+  String get loginAlertsFailures => 'Failed sign-ins';
+
+  @override
+  String get loginAlertsNewDevice => 'New device';
+
+  @override
+  String get loginAlertsSuspicious => 'Suspicious';
+
+  @override
+  String get loginAlertsPassword => 'Password changes';
+
+  @override
+  String get loginAlertsEmpty =>
+      'No sign-in activity has been recorded for your account.';
+
+  @override
+  String get loginAlertsAdvice =>
+      'If you do not recognise an event, change your password and review your active devices in the web security settings.';
+
+  @override
+  String get loginAlertsSeverityLabel => 'Severity';
+
+  @override
+  String get loginAlertsDevice => 'Device';
+
+  @override
+  String get dataExportTitle => 'Your data';
+
+  @override
+  String get dataExportAbout =>
+      'Request a copy of your personal data. You will be told when it is ready and can then create a link that works once and expires.';
+
+  @override
+  String get dataExportJurisdiction => 'Jurisdiction';
+
+  @override
+  String get dataExportRequest => 'Request a copy';
+
+  @override
+  String get dataExportWorking => 'Working…';
+
+  @override
+  String get dataExportRequests => 'Your requests';
+
+  @override
+  String get dataExportNone =>
+      'You have not requested a copy of your data yet.';
+
+  @override
+  String get dataExportRequestedSent => 'Request received. Its reference is';
+
+  @override
+  String get dataExportRequestedAtLabel => 'Requested';
+
+  @override
+  String get dataExportNeedsYou =>
+      'We need something from you before this can continue. Check your email.';
+
+  @override
+  String get dataExportRetention =>
+      'Some records must be kept by law and cannot be deleted yet.';
+
+  @override
+  String get dataExportLegalHold =>
+      'These records are under a legal hold and cannot be deleted.';
+
+  @override
+  String get dataExportGetLink => 'Create download link';
+
+  @override
+  String get dataExportTokenIssued => 'A single-use link is ready until';
+
+  @override
+  String get dataExportTokenNoExpiry =>
+      'A link was issued but its expiry could not be read. Request another one before relying on it.';
+
+  @override
+  String get feeScheduleTitle => 'Fees';
+
+  @override
+  String get feeScheduleEffective => 'In force now';
+
+  @override
+  String get feeScheduleEmpty => 'No fee schedule is published yet.';
+
+  @override
+  String get feeScheduleFromLabel => 'From';
+
+  @override
+  String get feeScheduleUntilLabel => 'Until';
+
+  @override
+  String get feeScheduleManagement => 'Management fee';
+
+  @override
+  String get feeScheduleProfitShare => 'Profit share';
+
+  @override
+  String get feeScheduleCurrency => 'Currency';
+
+  @override
+  String get feeScheduleVersion => 'Version';
+
+  @override
+  String get feeScheduleHistory => 'Previous versions';
+
+  @override
+  String get feeScheduleOverride =>
+      'This schedule is set by your operator and differs from the platform default.';
 }
