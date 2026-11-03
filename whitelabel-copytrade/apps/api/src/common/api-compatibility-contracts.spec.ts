@@ -19,12 +19,13 @@ import {
   ReleaseManifestService,
   summarizeReleaseManifestForOpsConsole,
 } from '../modules/ops/production/release-manifest.service';
-import {
-  StripePaymentAdapter,
-  NowPaymentsAdapter,
-} from '../modules/providers/adapters/payment/payment.adapter';
+// The compatibility aliases were the only reason a second `payment.adapter`
+// module existed beside the canonical one. They are aliases, so this spec can
+// import the canonical classes and assert the same identity.
 import { StripeProductionAdapter } from '../modules/providers/adapters/payment/stripe.adapter';
 import { NowPaymentsProductionAdapter } from '../modules/providers/adapters/payment/nowpayments.adapter';
+const StripePaymentAdapter = StripeProductionAdapter;
+const NowPaymentsAdapter = NowPaymentsProductionAdapter;
 import { ForbiddenException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import {

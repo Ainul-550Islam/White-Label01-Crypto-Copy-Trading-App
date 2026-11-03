@@ -2,7 +2,7 @@
 import {
   normalizePaymentWebhookPayload,
   type PaymentWebhookPayloadInput,
-} from '../payment.adapter';
+} from '../../payment.adapter';
 
 describe('Canonical payment webhook normalizer', () => {
   const input = (overrides: Partial<PaymentWebhookPayloadInput> = {}): PaymentWebhookPayloadInput => ({

@@ -155,3 +155,41 @@ export function normalizePaymentWebhookPayload(
     occurredAtIso: normalizeTimestamp(raw.timestamp),
   };
 }
+
+/**
+ * Result of verifying a provider webhook signature header. It is a result, not an
+ * exception, because the caller (webhook.service) turns an unverified delivery into
+ * an audited rejection rather than a 500.
+ */
+export interface PaymentWebhookVerificationResult {
+  verified: boolean;
+  provider: PaymentWebhookProvider;
+  errorReason?: string;
+}
+
+/**
+ * Fails closed: a missing signing secret or a missing signature header is
+ * `verified: false`, never a pass. The actual cryptographic comparison happens in
+ * each provider adapter; this is the shared precondition every provider enforces.
+ */
+export function verifyPaymentWebhookSignatureHeader(params: {
+  provider: PaymentWebhookProvider;
+  signatureHeader?: string | null;
+  configuredSecret?: string | null;
+}): PaymentWebhookVerificationResult {
+  if (!params.configuredSecret || !params.configuredSecret.trim()) {
+    return {
+      verified: false,
+      provider: params.provider,
+      errorReason: 'Webhook signing secret is not configured; failing closed.',
+    };
+  }
+  if (!params.signatureHeader || !params.signatureHeader.trim()) {
+    return {
+      verified: false,
+      provider: params.provider,
+      errorReason: 'Missing webhook signature header.',
+    };
+  }
+  return { verified: true, provider: params.provider };
+}

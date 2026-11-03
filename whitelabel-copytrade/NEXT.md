@@ -8,13 +8,13 @@ differs from what the scanner reports for this commit.
 - Static evidence: 199/199 criteria (50 fully evidenced, 0 partial, 0 with no evidence).
 - Weighted commercial-parity evidence: 100.00% (229 total weight).
 - Production-critical evidence: 100.00% (31 declared critical gaps).
-- Cumulative evidence proxies (50/50 accepted baseline): product 100.00%, production 100.00%, commercial 100.00%.
+- Cumulative evidence proxies (accepted 50/50 baseline): product 100.00%, production 100.00%, commercial 100.00%.
 
 These are static repository-evidence proxies. The scanner reads files; it does not run tests, contact a venue, or certify commercial readiness. A satisfied criterion means the evidence the rubric asks for is present at the named paths, not that the behaviour was exercised here.
 
 ## Next
 
-No gap in this batch has an unmet evidence criterion: 199/199 criteria are satisfied and none are outstanding.
+None in this batch: 199/199 evidence criteria are satisfied and every gap is fully evidenced.
 
 The work that remains is not a scanner result: execute the CI workflow on this commit,
 exercise the surfaces against a real Postgres and a venue testnet, and keep LIVE trading

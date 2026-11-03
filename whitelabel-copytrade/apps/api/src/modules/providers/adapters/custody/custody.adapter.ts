@@ -21,6 +21,17 @@ import { ProviderPolicyService } from '../../provider-policy.service';
 import { ProviderRequestService } from '../../provider-request.service';
 import { ProviderObservationService } from '../../provider-observation.service';
 
+/** A custody provider response is money: a non-exact decimal is a hard error, never a coercion. */
+class CustodyResponseValidationError extends Error {}
+
+function requireExactDecimalString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value)) {
+    throw new CustodyResponseValidationError(`Custody provider returned a non-exact ${field} decimal string`);
+  }
+  return value;
+}
+
+
 export interface CustodyTransactionInput {
   assetId: string;
   assetSymbol: string;

@@ -19,7 +19,7 @@ export * from './adapters/exchange/coinbase.adapter';
 export * from './adapters/kyc/kyc.adapter';
 export * from './adapters/aml/aml.adapter';
 export * from './adapters/payout/payout.adapter';
-export * from './adapters/custody.adapter';
+export * from './adapters/custody/custody.adapter';
 export * from './adapters/notification/notification.adapter';
 export * from './dto/provider-query.dto';
 export * from './dto/provider-action.dto';

@@ -6,7 +6,7 @@ differs from what the scanner reports for this commit.
 
 ## Evidence-based position
 
-- Static evidence: 199/199 criteria.
+- Static evidence: 199/199 criteria (50 fully evidenced, 0 partial, 0 with no evidence).
 - Status counts: 50 fully evidenced, 0 partial, 0 no evidence.
 - Weighted commercial-parity evidence: 100.00% (229 total weight).
 - Production-critical evidence: 100.00% (31 declared critical gaps).

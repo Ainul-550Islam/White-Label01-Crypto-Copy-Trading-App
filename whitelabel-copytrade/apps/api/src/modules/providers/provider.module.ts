@@ -61,7 +61,7 @@ import { CoinbaseProductionAdapter } from './adapters/exchange/coinbase.adapter'
 import { KycProductionAdapter } from './adapters/kyc/kyc.adapter';
 import { AmlProductionAdapter } from './adapters/aml/aml.adapter';
 import { PayoutProductionAdapter } from './adapters/payout/payout.adapter';
-import { CustodyProductionAdapter } from './adapters/custody.adapter';
+import { CustodyProductionAdapter } from './adapters/custody/custody.adapter';
 import { NotificationProductionAdapter } from './adapters/notification/notification.adapter';
 
 @Module({

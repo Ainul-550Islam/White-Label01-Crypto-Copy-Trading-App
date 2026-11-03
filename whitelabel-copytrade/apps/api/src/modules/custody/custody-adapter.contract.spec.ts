@@ -7,7 +7,7 @@ import {
 import { ProviderPolicyService } from '../providers/provider-policy.service';
 import { ProviderRequestService } from '../providers/provider-request.service';
 import { ProviderObservationService } from '../providers/provider-observation.service';
-import { CustodyProductionAdapter } from '../providers/adapters/custody.adapter';
+import { CustodyProductionAdapter } from '../providers/adapters/custody/custody.adapter';
 
 describe('Custody Adapter Contract & Signature Verification (GAP-29)', () => {
   let policyService: ProviderPolicyService;
