@@ -48,6 +48,11 @@ export class AddEvidenceDto {
   @IsString()
   @MaxLength(1000)
   safeDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  idempotencyKey?: string;
 }
 
 export class AddNoteDto {
@@ -55,6 +60,11 @@ export class AddNoteDto {
   @IsNotEmpty()
   @MaxLength(2000)
   safeNote: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  idempotencyKey?: string;
 }
 
 export class MakeDecisionDto {
@@ -83,6 +93,11 @@ export class RequestEDDDto {
   reason: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  idempotencyKey?: string;
+
+  @IsOptional()
   @IsString({ each: true })
   requiredDocuments?: string[];
 
@@ -96,6 +111,11 @@ export class RequestReverificationDto {
   @IsNotEmpty()
   @MaxLength(1000)
   reason: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  idempotencyKey?: string;
 
   @IsOptional()
   @IsString()
@@ -155,6 +175,11 @@ export class CloseCaseDto {
   @IsNotEmpty()
   @MaxLength(1000)
   reason: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  idempotencyKey?: string;
 }
 
 export class EvaluateTransactionDto {

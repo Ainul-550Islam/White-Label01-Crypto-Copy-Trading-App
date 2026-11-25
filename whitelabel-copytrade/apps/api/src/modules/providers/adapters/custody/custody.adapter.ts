@@ -124,14 +124,19 @@ export class CustodyProductionAdapter {
 
       const data = response.data;
 
+      const amount = requireExactDecimalString(data.amount, 'amount');
+      const providerFee = data.fee ?? data.actualFee;
+      const fee = providerFee === undefined || providerFee === null
+        ? null
+        : requireExactDecimalString(providerFee, 'fee');
       const normalized: NormalizedCustodyResult = {
         transactionHash: data.hash || data.transactionHash || input.transactionHash,
         providerReference: data.id || data.providerReference || input.transactionHash,
         networkId: data.networkId || input.networkId,
         assetId: data.assetId || input.assetId,
         assetSymbol: data.assetSymbol || data.symbol || 'UNKNOWN',
-        amount: data.amount?.toString() || '0',
-        fee: data.fee?.toString() || data.actualFee?.toString() || null,
+        amount,
+        fee,
         confirmationCount: data.confirmations || data.confirmationCount || 0,
         requiredConfirmations: data.requiredConfirmations || 6,
         blockNumber: data.blockNumber?.toString() || null,
@@ -180,7 +185,9 @@ export class CustodyProductionAdapter {
         rawStatus: data.status,
       };
     } catch (error) {
-      const err = (error as any).code ? error : this.requestService.normalizeError(error as Error, this.provider, this.domain, input.correlationId);
+      const err = error instanceof CustodyResponseValidationError
+        ? { code: ProviderErrorCode.VALIDATION_ERROR, message: error.message, provider: this.provider, domain: this.domain, isRetryable: false, retryClassification: RetryClassification.NO_RETRY, correlationId: input.correlationId }
+        : (error as any).code ? error : this.requestService.normalizeError(error as Error, this.provider, this.domain, input.correlationId);
       return {
         success: false,
         provider: this.provider,
@@ -221,6 +228,8 @@ export class CustodyProductionAdapter {
     const apiKey = process.env['CUSTODY_PROVIDER_API_KEY']!;
 
     try {
+      requireExactDecimalString(input.amount, 'amount');
+      if (input.fee !== undefined && input.fee !== null) requireExactDecimalString(input.fee, 'fee');
       const response = await this.requestService.request<any>({
         method: 'POST',
         url: `${baseUrl}/v1/networks/${input.networkId}/transactions`,
@@ -258,7 +267,9 @@ export class CustodyProductionAdapter {
         assetId: input.assetId,
         assetSymbol: input.assetSymbol,
         amount: input.amount,
-        fee: data.estimatedFee?.toString() || input.fee || null,
+        fee: data.estimatedFee === undefined || data.estimatedFee === null
+          ? input.fee ?? null
+          : requireExactDecimalString(data.estimatedFee, 'fee'),
         confirmationCount: 0,
         requiredConfirmations: data.requiredConfirmations || 6,
         blockNumber: null,
@@ -305,7 +316,9 @@ export class CustodyProductionAdapter {
         rawStatus: 'SUBMITTED',
       };
     } catch (error) {
-      const err = (error as any).code ? error : this.requestService.normalizeError(error as Error, this.provider, this.domain, input.correlationId);
+      const err = error instanceof CustodyResponseValidationError
+        ? { code: ProviderErrorCode.VALIDATION_ERROR, message: error.message, provider: this.provider, domain: this.domain, isRetryable: false, retryClassification: RetryClassification.NO_RETRY, correlationId: input.correlationId }
+        : (error as any).code ? error : this.requestService.normalizeError(error as Error, this.provider, this.domain, input.correlationId);
       return {
         success: false,
         provider: this.provider,

@@ -57,13 +57,16 @@ describe('step-up routes and permission metadata', () => {
     expect(feeLine).toBeDefined();
     expect(feeLine).toContain('@RequirePermissions(Permission.PLATFORM_MANAGE)');
 
-    const statements = readFileSync(join(__dirname, 'profit-share-statement.controller.ts'), 'utf8');
-    const statementLines = statements
-      .split('\n')
-      .filter((line) => line.includes("@RequireStepUp('STATEMENT_REGENERATE')"));
-    expect(statementLines).toHaveLength(2);
-    for (const line of statementLines) {
-      expect(line).toContain('@RequirePermissions(Permission.PLATFORM_MANAGE)');
+    const statements = [
+      'profit-share-statement.controller.ts',
+      'admin-profit-share-statement.controller.ts',
+    ].map((file) => readFileSync(join(__dirname, file), 'utf8')).join('\n');
+    const statementHandlerBlocks = statements
+      .split(/(?=^[\\t ]*@Post)/m)
+      .filter((block) => block.includes("@RequireStepUp('STATEMENT_REGENERATE')"));
+    expect(statementHandlerBlocks).toHaveLength(2);
+    for (const block of statementHandlerBlocks) {
+      expect(block).toContain('@RequirePermissions(Permission.PLATFORM_MANAGE)');
     }
   });
 

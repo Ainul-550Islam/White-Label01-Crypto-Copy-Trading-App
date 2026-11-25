@@ -152,7 +152,7 @@ export class IdentityVerificationService {
     }
 
     // Safe PII: only hash
-    const emailHash = hashPii(params.email.toLowerCase());
+    const emailHash = hashPii(params.email.toLowerCase(), 'kyc:identity:email');
 
     try {
       const result = await provider.createVerificationSession({

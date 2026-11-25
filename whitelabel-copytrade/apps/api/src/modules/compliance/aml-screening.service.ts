@@ -75,10 +75,10 @@ export class AmlScreeningService {
     try {
       const result = await provider.screenPerson({
         tenantId: params.tenantId, userId: params.userId,
-        firstNameHash: params.firstName ? hashPii(params.firstName.toLowerCase()) : undefined,
-        lastNameHash: params.lastName ? hashPii(params.lastName.toLowerCase()) : undefined,
+        firstNameHash: params.firstName ? hashPii(params.firstName.toLowerCase(), 'aml:person:first-name') : undefined,
+        lastNameHash: params.lastName ? hashPii(params.lastName.toLowerCase(), 'aml:person:last-name') : undefined,
         countryCode: params.countryCode,
-        dateOfBirthHash: params.dateOfBirth ? hashPii(params.dateOfBirth) : undefined,
+        dateOfBirthHash: params.dateOfBirth ? hashPii(params.dateOfBirth, 'aml:person:date-of-birth') : undefined,
         jurisdiction, idempotencyKey, safeMetadata: { jurisdiction },
       });
       this.validateProviderResult(result);
@@ -147,7 +147,7 @@ export class AmlScreeningService {
     const result = await provider.screenTransaction({ tenantId: params.tenantId, userId: params.userId,
       transactionId: params.transactionId, transactionType: params.transactionType, amount: params.amount, currency: params.currency,
       jurisdiction, idempotencyKey,
-      counterpartyHash: params.counterparty ? hashPii(params.counterparty) : undefined,
+      counterpartyHash: params.counterparty ? hashPii(params.counterparty, 'aml:transaction:counterparty') : undefined,
       safeMetadata: { transactionType: params.transactionType, currency: params.currency } });
     this.validateProviderResult(result);
     if ([AmlState.MATCH, AmlState.BLOCKED].includes(result.status)) {

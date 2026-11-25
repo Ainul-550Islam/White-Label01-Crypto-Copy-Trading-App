@@ -1222,6 +1222,7 @@ enum TradingVenue {
   BINANCE
   BYBIT
   OKX
+  BITGET
   KRAKEN
   /// Simulated venue. Fills produced against it are always flagged simulated.
   PAPER
@@ -1523,6 +1524,9 @@ model TradingAccount {
   /// env safeguards to agree; this column alone is never sufficient.
   tradingMode TradingModeSetting @default(PAPER) @map("trading_mode")
 
+  /// The precise venue environment. `isSandbox` is retained as a redundant
+  /// safety assertion, but cannot distinguish TESTNET from SANDBOX by itself.
+  environment ExchangeAccountEnvironment @default(TESTNET)
   isSandbox Boolean @default(true) @map("is_sandbox")
 
   // --- encrypted credential material -------------------------------------
@@ -1576,6 +1580,9 @@ model TradingAccount {
   verifiedPermissions String[] @default([]) @map("verified_permissions")
 
   credentialRotatedAt DateTime? @map("credential_rotated_at") @db.Timestamptz(6)
+  /// Monotonic credential generation. Candidate promotion compares this value
+  /// atomically so concurrent rotations cannot overwrite one another.
+  credentialVersion Int @default(1) @map("credential_version")
   /// Set when the venue key has a known expiry. Signing is refused past it.
   credentialExpiresAt DateTime? @map("credential_expires_at") @db.Timestamptz(6)
 
@@ -1610,6 +1617,7 @@ model TradingAccount {
   executionIncidents ExecutionIncident[]
   copySubscriptions  CopySubscription[]
   copyExecutions     CopyExecution[]
+  credentialRotations ExchangeCredentialRotation[]
 
   @@unique([tenantId, apiKeyBlindIndex])
   @@index([tenantId, status])
@@ -1617,6 +1625,43 @@ model TradingAccount {
   @@index([exchangeId])
   @@index([deletedAt])
   @@map("trading_accounts")
+}
+
+/// A candidate credential verified against the venue while the account's
+/// current credential remains live. The row contains only envelope-encrypted
+/// material and is consumed by exactly one conditional promotion.
+model ExchangeCredentialRotation {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  actorId   String @map("actor_id") @db.Uuid
+  sessionId String @map("session_id") @db.Uuid
+
+  /// Account generation observed while the candidate was verified.
+  expectedCredentialVersion Int @map("expected_credential_version")
+  credentialSource          CredentialSource @map("credential_source")
+  apiKeyCiphertext          String? @map("api_key_ciphertext") @db.Text
+  apiSecretCiphertext       String? @map("api_secret_ciphertext") @db.Text
+  passphraseCiphertext      String? @map("passphrase_ciphertext") @db.Text
+  encryptedDataKey          String? @map("encrypted_data_key") @db.Text
+  encryptionKeyId           String? @map("encryption_key_id") @db.VarChar(64)
+  apiKeyBlindIndex          String? @map("api_key_blind_index") @db.VarChar(64)
+  apiKeyLastFour            String? @map("api_key_last_four") @db.VarChar(4)
+  verifiedPermissions       String[] @default([]) @map("verified_permissions")
+
+  status      ExchangeCredentialRotationStatus @default(CANDIDATE_VERIFIED)
+  verifiedAt  DateTime @map("verified_at") @db.Timestamptz(6)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, accountId, actorId, status, expiresAt])
+  @@index([tenantId, expiresAt])
+  @@map("exchange_credential_rotations")
 }
 
 // -----------------------------------------------------------------------------
@@ -2346,6 +2391,25 @@ enum CredentialSource {
   /// Process environment. Development only - it does not scale past one tenant
   /// and cannot be rotated per customer.
   ENVIRONMENT
+}
+
+/// The exact venue endpoint class an account credential is bound to.
+/// `isSandbox` remains a derived safety flag, while this value preserves the
+/// testnet-versus-sandbox distinction required for endpoint selection.
+enum ExchangeAccountEnvironment {
+  LIVE
+  TESTNET
+  SANDBOX
+}
+
+/// Lifecycle of an encrypted, verified candidate key. A candidate becomes
+/// live only through the version-guarded CONFIRMED transition.
+enum ExchangeCredentialRotationStatus {
+  CANDIDATE_VERIFIED
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+  SUPERSEDED
 }
 
 /// How much the local record of an order can be trusted.
@@ -5144,14 +5208,18 @@ model ComplianceReview {
   fromState   ComplianceCaseState? @map("from_state")
   toState     ComplianceCaseState? @map("to_state")
   decision    ComplianceDecision?
-  reason      String @db.VarChar(1000)
-  safeNote    String? @map("safe_note") @db.VarChar(2000)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  reason             String @db.VarChar(1000)
+  safeNote           String? @map("safe_note") @db.VarChar(2000)
+  idempotencyKey     String? @map("idempotency_key") @db.VarChar(128)
+  requestFingerprint String? @map("request_fingerprint") @db.VarChar(64)
+  resultReferenceId  String? @map("result_reference_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   caseRecord  ComplianceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
   @@index([caseId, createdAt])
   @@index([tenantId, reviewerId])
+  @@unique([tenantId, reviewerId, idempotencyKey], map: "compliance_reviews_tenant_id_reviewer_id_idempotency_key_key")
   @@map("compliance_reviews")
 }
 

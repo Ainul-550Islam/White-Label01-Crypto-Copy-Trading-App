@@ -1,9 +1,69 @@
 // # Persists compliance cases, notes, and decisions
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
-import { ComplianceCaseState, ComplianceCaseType, RiskLevel, ComplianceDecision } from './compliance.types';
-import { randomUUID } from 'crypto';
+import { ComplianceCaseState, ComplianceCaseType, ComplianceDecision, ComplianceReviewAction, RiskLevel, sanitizeMetadata } from './compliance.types';
+
+type ReviewResponseKind = 'CASE' | 'REVIEW' | 'EVIDENCE';
+
+interface ReviewActionOutput<T> {
+  response?: T;
+  fromState?: ComplianceCaseState | null;
+  toState?: ComplianceCaseState | null;
+  decision?: ComplianceDecision | null;
+  resultReferenceId?: string | null;
+}
+
+interface ReviewTransitionOptions {
+  action?: ComplianceReviewAction;
+  auditAction?: string;
+  allowedFromStates?: ComplianceCaseState[];
+  allowSameState?: boolean;
+}
+
+interface ReviewActionInput<T> {
+  tenantId: string;
+  caseId: string;
+  actorId: string;
+  action: ComplianceReviewAction;
+  auditAction: string;
+  idempotencyKey?: string;
+  reason: string;
+  safeNote?: string;
+  payload: unknown;
+  responseKind: ReviewResponseKind;
+  auditMetadata?: Record<string, unknown>;
+  perform: (tx: any, current: any, now: Date) => Promise<ReviewActionOutput<T>>;
+}
+
+function canonicalizeForFingerprint(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeForFingerprint);
+  if (value instanceof Date) return value.toISOString();
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record).sort().map((key) => [key, canonicalizeForFingerprint(record[key])]),
+    );
+  }
+  return value;
+}
+
+function reviewActionFingerprint(input: Pick<ReviewActionInput<unknown>, 'tenantId' | 'caseId' | 'actorId' | 'action' | 'payload'>): string {
+  const canonical = canonicalizeForFingerprint({
+    domain: 'wlct:compliance-review-action:v1',
+    tenantId: input.tenantId,
+    caseId: input.caseId,
+    actorId: input.actorId,
+    action: input.action,
+    payload: input.payload,
+  });
+  return createHash('sha256').update(JSON.stringify(canonical) ?? 'null').digest('hex');
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return error !== null && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 'P2002';
+}
 
 /**
  * Persistence abstraction for cases, reviews, state transitions, assignments, idempotency, and tenant isolation.
@@ -185,146 +245,327 @@ export class ComplianceCaseRepository {
     return { data, total };
   }
 
-  async assignReviewer(caseId: string, tenantId: string, reviewerId: string, assignedBy: string, idempotencyKey?: string): Promise<any | null> {
-    try {
-      // Idempotency for assignment
-      if (idempotencyKey) {
-        const existingReview = await (this.prisma as any).complianceReview?.findFirst({ where: { caseId, reviewerId, action: 'ASSIGN' } });
-        if (existingReview) {
-          this.logger.log(`Idempotent assignment return case=${caseId} reviewer=${reviewerId}`);
-          return this.findById(caseId, tenantId);
+  private async executeReviewAction<T>(input: ReviewActionInput<T>): Promise<T> {
+    if (input.idempotencyKey !== undefined && !input.idempotencyKey.trim()) {
+      throw new BadRequestException('Compliance review idempotency key must not be blank');
+    }
+    const idempotencyKey = input.idempotencyKey?.trim();
+    if (idempotencyKey && idempotencyKey.length > 128) {
+      throw new BadRequestException('Compliance review idempotency key must be at most 128 characters');
+    }
+    const fingerprint = idempotencyKey ? reviewActionFingerprint(input) : null;
+
+    const findExisting = (tx: any) => tx.complianceReview.findFirst({
+      where: { tenantId: input.tenantId, reviewerId: input.actorId, idempotencyKey },
+    });
+    const replay = async (tx: any, existing: any): Promise<T> => {
+      if (
+        !fingerprint ||
+        existing.caseId !== input.caseId ||
+        existing.action !== input.action ||
+        existing.requestFingerprint !== fingerprint
+      ) {
+        throw new ConflictException('Compliance review idempotency key was already used for a different action payload');
+      }
+      if (input.responseKind === 'REVIEW') return existing as T;
+      if (input.responseKind === 'EVIDENCE') {
+        if (!existing.resultReferenceId) {
+          throw new Error('Compliance evidence replay receipt is missing its result reference');
         }
+        const evidence = await tx.complianceEvidence.findFirst({
+          where: { id: existing.resultReferenceId, tenantId: input.tenantId, caseId: input.caseId },
+        });
+        if (!evidence) throw new Error('Compliance evidence referenced by the replay receipt is unavailable');
+        return evidence as T;
+      }
+      const complianceCase = await tx.complianceCase.findFirst({
+        where: { id: input.caseId, tenantId: input.tenantId },
+        include: {
+          reviews: { orderBy: { createdAt: 'asc' } },
+          evidences: true,
+          auditLogs: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+      if (!complianceCase) throw new NotFoundException('Compliance case not found');
+      return complianceCase as T;
+    };
+
+    const transact = async (tx: any): Promise<T> => {
+      if (idempotencyKey) {
+        const existing = await findExisting(tx);
+        if (existing) return replay(tx, existing);
       }
 
-      const updated = await (this.prisma as any).complianceCase?.update({
-        where: { id: caseId },
+      const current = await tx.complianceCase.findFirst({
+        where: { id: input.caseId, tenantId: input.tenantId },
+      });
+      if (!current) throw new NotFoundException('Compliance case not found');
+
+      const now = new Date();
+      const reviewId = randomUUID();
+      // Claim the key in the same transaction before changing case/evidence.
+      // A concurrent duplicate blocks here, then replays the committed receipt;
+      // a failed action rolls this claim back with the transaction.
+      await tx.complianceReview.create({
         data: {
-          assignedTo: reviewerId,
-          assignedAt: new Date(),
-          state: ComplianceCaseState.IN_REVIEW,
-          updatedAt: new Date(),
+          id: reviewId,
+          caseId: input.caseId,
+          tenantId: input.tenantId,
+          reviewerId: input.actorId,
+          action: input.action,
+          fromState: current.state,
+          toState: current.state,
+          decision: null,
+          reason: input.reason.substring(0, 1000),
+          safeNote: input.safeNote?.substring(0, 2000) ?? null,
+          idempotencyKey: idempotencyKey ?? null,
+          requestFingerprint: fingerprint,
+          resultReferenceId: null,
+          createdAt: now,
         },
       });
 
-      // Create immutable review record
-      try {
-        await (this.prisma as any).complianceReview?.create({
+      const result = await input.perform(tx, current, now);
+      const review = await tx.complianceReview.update({
+        where: { id: reviewId },
+        data: {
+          fromState: result.fromState ?? current.state,
+          toState: result.toState ?? current.state,
+          decision: result.decision ?? null,
+          resultReferenceId: result.resultReferenceId ?? null,
+        },
+      });
+
+      const idempotencyMetadata = idempotencyKey
+        ? { idempotencyKeyDigest: createHash('sha256').update(idempotencyKey).digest('hex') }
+        : {};
+      await tx.complianceAuditLog.create({
+        data: {
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          caseId: input.caseId,
+          userId: null,
+          action: input.auditAction,
+          actorId: input.actorId,
+          actorType: 'USER',
+          outcome: 'SUCCESS',
+          safeMetadata: sanitizeMetadata({
+            reviewId,
+            reviewAction: input.action,
+            ...idempotencyMetadata,
+            ...(input.auditMetadata ?? {}),
+          }),
+          ipHash: null,
+          requestId: null,
+          createdAt: now,
+        },
+      });
+
+      if (input.responseKind === 'REVIEW') return review as T;
+      if (input.responseKind === 'EVIDENCE') {
+        if (!result.response) throw new Error('Compliance evidence action did not return a durable record');
+        return result.response;
+      }
+      const complianceCase = await tx.complianceCase.findFirst({
+        where: { id: input.caseId, tenantId: input.tenantId },
+        include: {
+          reviews: { orderBy: { createdAt: 'asc' } },
+          evidences: true,
+          auditLogs: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+      if (!complianceCase) throw new NotFoundException('Compliance case not found after review action');
+      return complianceCase as T;
+    };
+
+    try {
+      return await this.prisma.withTenantRls(input.tenantId, transact);
+    } catch (error) {
+      if (!idempotencyKey || !isUniqueViolation(error)) throw error;
+      return this.prisma.withTenantRls(input.tenantId, async (tx) => {
+        const existing = await findExisting(tx);
+        if (!existing) throw error;
+        return replay(tx, existing);
+      });
+    }
+  }
+
+  async assignReviewer(
+    caseId: string,
+    tenantId: string,
+    reviewerId: string,
+    assignedBy: string,
+    idempotencyKey?: string,
+    reason?: string,
+  ): Promise<any> {
+    const actionReason = reason?.trim() || `Assigned to reviewer ${reviewerId}`;
+    return this.executeReviewAction({
+      tenantId,
+      caseId,
+      actorId: assignedBy,
+      action: ComplianceReviewAction.ASSIGN,
+      auditAction: 'COMPLIANCE_CASE_ASSIGNED',
+      idempotencyKey,
+      reason: actionReason,
+      payload: { reviewerId, reason: actionReason },
+      responseKind: 'CASE',
+      auditMetadata: { assignedReviewerId: reviewerId },
+      perform: async (tx, current, now) => {
+        const fromState = current.state as ComplianceCaseState;
+        if (![ComplianceCaseState.OPEN, ComplianceCaseState.ESCALATED].includes(fromState)) {
+          throw new BadRequestException(`Cannot assign case in state ${fromState}`);
+        }
+        const updated = await tx.complianceCase.updateMany({
+          where: { id: caseId, tenantId, state: fromState },
+          data: {
+            assignedTo: reviewerId,
+            assignedAt: now,
+            state: ComplianceCaseState.IN_REVIEW,
+            updatedAt: now,
+          },
+        });
+        if (updated.count !== 1) throw new ConflictException('Compliance case changed during assignment');
+        return { fromState, toState: ComplianceCaseState.IN_REVIEW };
+      },
+    });
+  }
+
+  async transitionState(
+    caseId: string,
+    tenantId: string,
+    toState: ComplianceCaseState,
+    reviewerId: string,
+    reason: string,
+    decision?: ComplianceDecision,
+    idempotencyKey?: string,
+    options: ReviewTransitionOptions = {},
+  ): Promise<any> {
+    const action = options.action ?? this.actionForTransition(toState);
+    const actionReason = reason.trim().substring(0, 1000);
+    return this.executeReviewAction({
+      tenantId,
+      caseId,
+      actorId: reviewerId,
+      action,
+      auditAction: options.auditAction ?? `COMPLIANCE_CASE_${action}`,
+      idempotencyKey,
+      reason: actionReason,
+      payload: { toState, decision: decision ?? null, reason: actionReason },
+      responseKind: 'CASE',
+      auditMetadata: { fromAction: action, toState, ...(decision ? { decision } : {}) },
+      perform: async (tx, current, now) => {
+        const fromState = current.state as ComplianceCaseState;
+        if (options.allowedFromStates && !options.allowedFromStates.includes(fromState)) {
+          throw new BadRequestException(`Cannot perform ${action} on compliance case in state ${fromState}`);
+        }
+        if (fromState === toState ? !options.allowSameState : !this.isValidTransition(fromState, toState)) {
+          throw new BadRequestException(`Invalid compliance case transition ${fromState} -> ${toState}`);
+        }
+        const updateData: Record<string, unknown> = { state: toState, updatedAt: now };
+        if (toState === ComplianceCaseState.ESCALATED) updateData.escalatedAt = now;
+        if (toState === ComplianceCaseState.RESOLVED) updateData.resolvedAt = now;
+        if (toState === ComplianceCaseState.CLOSED) updateData.closedAt = now;
+        if (decision) updateData.decision = decision;
+        const updated = await tx.complianceCase.updateMany({
+          where: { id: caseId, tenantId, state: fromState },
+          data: updateData,
+        });
+        if (updated.count !== 1) throw new ConflictException('Compliance case changed during state transition');
+        return { fromState, toState, decision: decision ?? null };
+      },
+    });
+  }
+
+  async addEvidence(
+    caseId: string,
+    tenantId: string,
+    input: {
+      evidenceType: string;
+      referenceId: string;
+      referenceType: string;
+      safeDescription?: string;
+      addedBy: string;
+      idempotencyKey?: string;
+    },
+  ): Promise<any> {
+    const safeDescription = input.safeDescription?.trim().substring(0, 1000) || undefined;
+    return this.executeReviewAction({
+      tenantId,
+      caseId,
+      actorId: input.addedBy,
+      action: ComplianceReviewAction.ADD_EVIDENCE,
+      auditAction: 'COMPLIANCE_EVIDENCE_ADDED',
+      idempotencyKey: input.idempotencyKey,
+      reason: `Evidence added: ${input.evidenceType}`,
+      safeNote: safeDescription,
+      payload: {
+        evidenceType: input.evidenceType,
+        referenceId: input.referenceId,
+        referenceType: input.referenceType,
+        safeDescription: safeDescription ?? null,
+      },
+      responseKind: 'EVIDENCE',
+      auditMetadata: { evidenceType: input.evidenceType, referenceType: input.referenceType },
+      perform: async (tx, _current, now) => {
+        const evidence = await tx.complianceEvidence.create({
           data: {
             id: randomUUID(),
             caseId,
             tenantId,
-            reviewerId: assignedBy,
-            action: 'ASSIGN',
-            fromState: ComplianceCaseState.OPEN,
-            toState: ComplianceCaseState.IN_REVIEW,
-            reason: `Assigned to reviewer ${reviewerId}`,
-            createdAt: new Date(),
+            evidenceType: input.evidenceType,
+            referenceId: input.referenceId,
+            referenceType: input.referenceType,
+            safeDescription: safeDescription ?? null,
+            addedBy: input.addedBy,
+            createdAt: now,
           },
         });
-      } catch {}
-
-      return updated || null;
-    } catch (e: any) {
-      this.logger.warn(`Assign reviewer failed: ${e.message}`);
-      return null;
-    }
+        if (!evidence?.id) throw new Error('Compliance evidence persistence returned no durable record');
+        return { response: evidence, resultReferenceId: evidence.id };
+      },
+    });
   }
 
-  async transitionState(caseId: string, tenantId: string, toState: ComplianceCaseState, reviewerId: string, reason: string, decision?: ComplianceDecision, idempotencyKey?: string): Promise<any | null> {
-    try {
-      const current = await this.findById(caseId, tenantId);
-      if (!current) return null;
-
-      const fromState = current.state as ComplianceCaseState;
-
-      // Validate transition
-      if (!this.isValidTransition(fromState, toState)) {
-        throw new Error(`Invalid state transition ${fromState} -> ${toState}`);
-      }
-
-      const updateData: any = {
-        state: toState,
-        updatedAt: new Date(),
-      };
-
-      if (toState === ComplianceCaseState.ESCALATED) updateData.escalatedAt = new Date();
-      if (toState === ComplianceCaseState.RESOLVED) updateData.resolvedAt = new Date();
-      if (toState === ComplianceCaseState.CLOSED) updateData.closedAt = new Date();
-      if (decision) updateData.decision = decision;
-
-      const updated = await (this.prisma as any).complianceCase?.update({
-        where: { id: caseId },
-        data: updateData,
-      });
-
-      // Immutable review record
-      try {
-        await (this.prisma as any).complianceReview?.create({
-          data: {
-            id: randomUUID(),
-            caseId,
-            tenantId,
-            reviewerId,
-            action: this.actionForTransition(toState),
-            fromState,
-            toState,
-            decision: decision || null,
-            reason: reason.substring(0, 1000),
-            createdAt: new Date(),
-          },
-        });
-      } catch {}
-
-      return updated || null;
-    } catch (e: any) {
-      this.logger.warn(`Transition state failed: ${e.message}`);
-      throw e;
-    }
-  }
-
-  async addEvidence(caseId: string, tenantId: string, input: { evidenceType: string; referenceId: string; referenceType: string; safeDescription?: string; addedBy: string }): Promise<any> {
-    const id = randomUUID();
-    try {
-      const evidence = await (this.prisma as any).complianceEvidence?.create({
-        data: {
-          id,
-          caseId,
-          tenantId,
-          evidenceType: input.evidenceType,
-          referenceId: input.referenceId,
-          referenceType: input.referenceType,
-          safeDescription: input.safeDescription?.substring(0, 1000) || null,
-          addedBy: input.addedBy,
-          createdAt: new Date(),
-        },
-      });
-      return evidence || { id, caseId, tenantId, ...input, createdAt: new Date().toISOString() };
-    } catch (e: any) {
-      this.logger.warn(`Add evidence failed: ${e.message}`);
-      return { id, caseId, tenantId, ...input, createdAt: new Date().toISOString() };
-    }
-  }
-
-  async addReviewNote(caseId: string, tenantId: string, reviewerId: string, safeNote: string, action: string = 'ADD_NOTE'): Promise<any> {
-    const id = randomUUID();
-    try {
-      const review = await (this.prisma as any).complianceReview?.create({
-        data: {
-          id,
-          caseId,
-          tenantId,
-          reviewerId,
-          action,
-          safeNote: safeNote.substring(0, 2000),
-          reason: safeNote.substring(0, 1000),
-          createdAt: new Date(),
-        },
-      });
-      return review || { id, caseId, tenantId, reviewerId, safeNote, createdAt: new Date().toISOString() };
-    } catch (e: any) {
-      this.logger.warn(`Add review note failed: ${e.message}`);
-      return { id, caseId, tenantId, reviewerId, safeNote, createdAt: new Date().toISOString() };
-    }
+  async addReviewNote(
+    caseId: string,
+    tenantId: string,
+    reviewerId: string,
+    safeNote: string,
+    action: ComplianceReviewAction = ComplianceReviewAction.ADD_NOTE,
+    options: {
+      idempotencyKey?: string;
+      transitionOpenToReview?: boolean;
+      auditAction?: string;
+      auditMetadata?: Record<string, unknown>;
+    } = {},
+  ): Promise<any> {
+    const note = safeNote.trim().substring(0, 2000);
+    return this.executeReviewAction({
+      tenantId,
+      caseId,
+      actorId: reviewerId,
+      action,
+      auditAction: options.auditAction ?? `COMPLIANCE_${action}`,
+      idempotencyKey: options.idempotencyKey,
+      reason: note.substring(0, 1000),
+      safeNote: note,
+      payload: { note, transitionOpenToReview: Boolean(options.transitionOpenToReview) },
+      responseKind: 'REVIEW',
+      auditMetadata: { reviewAction: action, ...(options.auditMetadata ?? {}) },
+      perform: async (tx, current, now) => {
+        const fromState = current.state as ComplianceCaseState;
+        let toState = fromState;
+        if (options.transitionOpenToReview && fromState === ComplianceCaseState.OPEN) {
+          const updated = await tx.complianceCase.updateMany({
+            where: { id: caseId, tenantId, state: ComplianceCaseState.OPEN },
+            data: { state: ComplianceCaseState.IN_REVIEW, updatedAt: now },
+          });
+          if (updated.count !== 1) throw new ConflictException('Compliance case changed while requesting enhanced due diligence');
+          toState = ComplianceCaseState.IN_REVIEW;
+        }
+        return { fromState, toState };
+      },
+    });
   }
 
   async findByUserId(userId: string, tenantId: string): Promise<any[]> {
@@ -343,20 +584,20 @@ export class ComplianceCaseRepository {
     return allowed[from]?.includes(to) || false;
   }
 
-  private actionForTransition(toState: ComplianceCaseState): any {
+  private actionForTransition(toState: ComplianceCaseState): ComplianceReviewAction {
     switch (toState) {
       case ComplianceCaseState.IN_REVIEW:
-        return 'ASSIGN';
+        return ComplianceReviewAction.ASSIGN;
       case ComplianceCaseState.ESCALATED:
-        return 'ESCALATE';
+        return ComplianceReviewAction.ESCALATE;
       case ComplianceCaseState.RESOLVED:
-        return 'RESOLVE';
+        return ComplianceReviewAction.RESOLVE;
       case ComplianceCaseState.REJECTED:
-        return 'REJECT';
+        return ComplianceReviewAction.REJECT;
       case ComplianceCaseState.CLOSED:
-        return 'CLOSE';
+        return ComplianceReviewAction.CLOSE;
       default:
-        return 'ADD_NOTE';
+        return ComplianceReviewAction.ADD_NOTE;
     }
   }
 }

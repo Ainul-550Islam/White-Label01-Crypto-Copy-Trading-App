@@ -89,7 +89,11 @@ const POLICY_DATA_PROVIDER: Provider = {
 
 const SECRET_HMAC_PROVIDER: Provider = {
   provide: DEVELOPER_SECRET_HMAC_KEY,
-  useFactory: () => requireEnv('DEVELOPER_SECRET_HMAC_KEY'),
+  useFactory: () => {
+    const secret = requireEnv('DEVELOPER_SECRET_HMAC_KEY');
+    if (secret.length < 16) throw new Error('DEVELOPER_SECRET_HMAC_KEY must be at least 16 characters');
+    return secret;
+  },
 };
 
 const SECRET_CIPHER_PROVIDER: Provider = {

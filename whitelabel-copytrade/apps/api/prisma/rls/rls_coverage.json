@@ -1,6 +1,6 @@
 {
   "schema": "part11-rls-coverage-v1",
-  "stamp": "20261228000000",
+  "stamp": "20270109000001",
   "policyName": "tenant_isolation",
   "functionName": "wlct_current_tenant_id",
   "covered": [
@@ -255,6 +255,10 @@
     {
       "table": "evidence_packages",
       "model": "EvidencePackage"
+    },
+    {
+      "table": "exchange_credential_rotations",
+      "model": "ExchangeCredentialRotation"
     },
     {
       "table": "exchange_stream_sessions",

@@ -1,4 +1,5 @@
 // # Responsibility: declare provider-neutral compliance evidence and sanitize unknown metadata without losing array structure or asserting arbitrary jurisdiction strings to enums.
+import { createHmac } from 'node:crypto';
 /**
  * Canonical compliance domain types: KYC state, AML state, sanctions result, risk score, case state, review state, jurisdiction, decision, and safe references.
  * No hardcoded sanctions lists, no fake verification, provider-neutral.
@@ -269,13 +270,36 @@ function isComplianceMetadataObject(value: unknown): value is Record<string, unk
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function hashPii(value: string): string {
-  // Simple deterministic hash for safe reference, not cryptographic security - use HMAC in production
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) {
-    const char = value.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash;
+const NON_PRODUCTION_PII_HMAC_SECRET = 'local-only-compliance-pseudonym-key-do-not-use-in-production';
+
+/**
+ * Deterministic, domain-separated pseudonym for compliance PII. Production
+ * derives a dedicated key from DEVELOPER_SECRET_HMAC_KEY; the DeveloperModule
+ * independently refuses to start without that secret. The local fallback is
+ * deliberately unavailable in production and exists only for isolated tests.
+ */
+export function hashPii(value: string, domain = 'compliance:generic'): string {
+  if (typeof value !== 'string') throw new TypeError('PII pseudonym input must be a string');
+  const normalizedDomain = domain.trim().toLowerCase();
+  if (!normalizedDomain) throw new TypeError('PII pseudonym domain must be non-empty');
+
+  const configuredSecret = process.env.DEVELOPER_SECRET_HMAC_KEY;
+  const secret = configuredSecret && configuredSecret.length >= 16
+    ? configuredSecret
+    : process.env.NODE_ENV === 'production'
+      ? null
+      : NON_PRODUCTION_PII_HMAC_SECRET;
+  if (!secret) {
+    throw new Error('DEVELOPER_SECRET_HMAC_KEY must be provided (>= 16 characters) for production compliance PII pseudonyms');
   }
-  return `hash_${Math.abs(hash).toString(36)}`;
+
+  const domainKey = createHmac('sha256', secret)
+    .update('wlct:compliance:pii-pseudonym-key:v1')
+    .digest();
+  return createHmac('sha256', domainKey)
+    .update('wlct:compliance:pii-pseudonym:v1\0')
+    .update(normalizedDomain)
+    .update('\0')
+    .update(value)
+    .digest('hex');
 }

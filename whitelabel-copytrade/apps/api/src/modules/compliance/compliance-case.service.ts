@@ -1,10 +1,11 @@
 // # Implements compliance case state transitions and account restriction hooks
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { ComplianceCaseRepository } from './compliance-case.repository';
 import { ComplianceAuditService } from './compliance-audit.service';
 import { CompliancePolicyService } from './compliance-policy.service';
 import { RiskScoringService } from './risk-scoring.service';
-import { ComplianceCaseState, ComplianceCaseType, RiskLevel, ComplianceDecision } from './compliance.types';
+import { ComplianceCaseState, ComplianceCaseType, ComplianceDecision, ComplianceReviewAction, RiskLevel } from './compliance.types';
 
 
 /**
@@ -70,7 +71,7 @@ export class ComplianceCaseService {
     // If tenant user requesting own data - allow if userId matches or is tenant admin
     if (requester.tenantId === tenantId) {
       // Tenant member can only see own cases unless has compliance role
-      const isComplianceReviewer = requester.roles?.some((r) => ['COMPLIANCE_REVIEWER', 'ADMIN', 'OWNER', 'PLATFORM_ADMIN'].includes(r));
+      const isComplianceReviewer = requester.roles?.some((r) => ['COMPLIANCE_REVIEWER', 'ADMIN', 'OWNER', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'PLATFORM_MANAGE'].includes(r));
       if (!isComplianceReviewer && caseData.userId !== requester.userId) {
         // Allow tenant admin to see all tenant cases
         const isTenantAdmin = requester.roles?.some((r) => ['ADMIN', 'OWNER'].includes(r));
@@ -89,7 +90,7 @@ export class ComplianceCaseService {
     }
 
     // If regular user, filter to own cases only
-    const isPrivileged = requester.roles?.some((r) => ['ADMIN', 'OWNER', 'COMPLIANCE_REVIEWER', 'PLATFORM_ADMIN'].includes(r));
+    const isPrivileged = requester.roles?.some((r) => ['ADMIN', 'OWNER', 'COMPLIANCE_REVIEWER', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'PLATFORM_MANAGE'].includes(r));
     const effectiveFilters = { ...filters };
     if (!isPrivileged) {
       effectiveFilters.userId = requester.userId;
@@ -110,90 +111,72 @@ export class ComplianceCaseService {
     return this.repository.listReviewerCases(reviewerId, filters);
   }
 
-  async assignCase(caseId: string, tenantId: string, reviewerId: string, actorId: string, idempotencyKey?: string): Promise<any> {
-    const caseData = await this.repository.findById(caseId, tenantId);
-    if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
-
-    if (![ComplianceCaseState.OPEN, ComplianceCaseState.ESCALATED].includes(caseData.state as ComplianceCaseState)) {
-      throw new BadRequestException(`Cannot assign case in state ${caseData.state}`);
-    }
-
-    const updated = await this.repository.assignReviewer(caseId, tenantId, reviewerId, actorId, idempotencyKey);
-
-    await this.auditService.recordCaseAssigned(tenantId, caseId, reviewerId, actorId);
-
-    return updated;
+  async assignCase(
+    caseId: string,
+    tenantId: string,
+    reviewerId: string,
+    actorId: string,
+    idempotencyKey?: string,
+    reason?: string,
+  ): Promise<any> {
+    return this.repository.assignReviewer(caseId, tenantId, reviewerId, actorId, idempotencyKey, reason);
   }
 
   async escalateCase(caseId: string, tenantId: string, actorId: string, reason: string, idempotencyKey?: string): Promise<any> {
-    const caseData = await this.repository.findById(caseId, tenantId);
-    if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
-
-    if (![ComplianceCaseState.OPEN, ComplianceCaseState.IN_REVIEW].includes(caseData.state as ComplianceCaseState)) {
-      throw new BadRequestException(`Cannot escalate case in state ${caseData.state}`);
-    }
-
-    const updated = await this.repository.transitionState(caseId, tenantId, ComplianceCaseState.ESCALATED, actorId, reason, undefined, idempotencyKey);
-
-    await this.auditService.recordCaseEscalated(tenantId, caseId, actorId, reason);
-
-    return updated;
-  }
-
-  async addEvidence(caseId: string, tenantId: string, input: { evidenceType: string; referenceId: string; referenceType: string; safeDescription?: string; addedBy: string }): Promise<any> {
-    const caseData = await this.repository.findById(caseId, tenantId);
-    if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
-
-    const evidence = await this.repository.addEvidence(caseId, tenantId, input);
-
-    await this.auditService.record({
-      tenantId,
+    return this.repository.transitionState(
       caseId,
-      action: 'COMPLIANCE_EVIDENCE_ADDED',
-      actorId: input.addedBy,
-      safeMetadata: { evidenceType: input.evidenceType, referenceType: input.referenceType },
-    });
-
-    return evidence;
-  }
-
-  async addNote(caseId: string, tenantId: string, reviewerId: string, safeNote: string): Promise<any> {
-    const caseData = await this.repository.findById(caseId, tenantId);
-    if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
-
-    const review = await this.repository.addReviewNote(caseId, tenantId, reviewerId, safeNote, 'ADD_NOTE');
-
-    await this.auditService.record({
       tenantId,
-      caseId,
-      action: 'COMPLIANCE_NOTE_ADDED',
-      actorId: reviewerId,
-      safeMetadata: { caseId },
-    });
-
-    return review;
+      ComplianceCaseState.ESCALATED,
+      actorId,
+      reason,
+      undefined,
+      idempotencyKey,
+      {
+        action: ComplianceReviewAction.ESCALATE,
+        auditAction: 'COMPLIANCE_CASE_ESCALATED',
+        allowedFromStates: [ComplianceCaseState.OPEN, ComplianceCaseState.IN_REVIEW],
+      },
+    );
   }
 
-  async makeDecision(caseId: string, tenantId: string, input: { decision: ComplianceDecision; reviewerId: string; reason: string; idempotencyKey?: string }): Promise<any> {
+  async addEvidence(caseId: string, tenantId: string, input: {
+    evidenceType: string;
+    referenceId: string;
+    referenceType: string;
+    safeDescription?: string;
+    addedBy: string;
+    idempotencyKey?: string;
+  }): Promise<any> {
+    return this.repository.addEvidence(caseId, tenantId, input);
+  }
+
+  async addNote(caseId: string, tenantId: string, reviewerId: string, safeNote: string, idempotencyKey?: string): Promise<any> {
+    return this.repository.addReviewNote(
+      caseId,
+      tenantId,
+      reviewerId,
+      safeNote,
+      ComplianceReviewAction.ADD_NOTE,
+      { idempotencyKey, auditAction: 'COMPLIANCE_NOTE_ADDED' },
+    );
+  }
+
+  async makeDecision(caseId: string, tenantId: string, input: {
+    decision: ComplianceDecision;
+    reviewerId: string;
+    reason: string;
+    idempotencyKey?: string;
+  }): Promise<any> {
     const caseData = await this.repository.findById(caseId, tenantId);
     if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
 
-    if (![ComplianceCaseState.IN_REVIEW, ComplianceCaseState.ESCALATED].includes(caseData.state as ComplianceCaseState)) {
-      throw new BadRequestException(`Cannot decide case in state ${caseData.state}`);
-    }
-
-    // Immutable decision history - reviewer must be assigned or platform admin
     if (caseData.assignedTo && caseData.assignedTo !== input.reviewerId) {
-      // Allow if actor is escalated reviewer or admin
       this.logger.warn(`Decision by non-assigned reviewer case=${caseId} assignedTo=${caseData.assignedTo} reviewer=${input.reviewerId}`);
     }
 
-    // Determine target state based on decision
     let targetState: ComplianceCaseState;
     switch (input.decision) {
       case ComplianceDecision.ALLOW:
-        targetState = ComplianceCaseState.RESOLVED;
-        break;
       case ComplianceDecision.BLOCK:
       case ComplianceDecision.RESTRICT:
         targetState = ComplianceCaseState.RESOLVED;
@@ -206,75 +189,94 @@ export class ComplianceCaseService {
         targetState = ComplianceCaseState.RESOLVED;
     }
 
-    // If decision is BLOCK/RESTRICT, keep case RESOLVED but decision recorded - no direct ledger mutation here, downstream effects via controlled boundary
-    const updated = await this.repository.transitionState(caseId, tenantId, targetState, input.reviewerId, input.reason, input.decision, input.idempotencyKey);
+    const action = input.decision === ComplianceDecision.ALLOW
+      ? ComplianceReviewAction.APPROVE
+      : input.decision === ComplianceDecision.BLOCK || input.decision === ComplianceDecision.RESTRICT
+        ? ComplianceReviewAction.REJECT
+        : ComplianceReviewAction.ADD_NOTE;
+    const updated = await this.repository.transitionState(
+      caseId,
+      tenantId,
+      targetState,
+      input.reviewerId,
+      input.reason,
+      input.decision,
+      input.idempotencyKey,
+      {
+        action,
+        auditAction: 'COMPLIANCE_DECISION_RECORDED',
+        allowedFromStates: [ComplianceCaseState.IN_REVIEW, ComplianceCaseState.ESCALATED],
+        allowSameState: targetState === ComplianceCaseState.IN_REVIEW,
+      },
+    );
 
-    await this.auditService.recordDecision(tenantId, caseId, input.decision, input.reviewerId, input.reason);
-
-    // Re-calculate risk score after decision
     try {
-      await this.riskScoringService.calculateRiskScore({ tenantId, userId: caseData.userId, idempotencyKey: `risk_after_decision_${caseId}_${Date.now()}` });
+      const riskKey = input.idempotencyKey?.trim()
+        ? `risk_after_decision_${caseId}_${createHash('sha256').update(input.idempotencyKey.trim()).digest('hex')}`
+        : `risk_after_decision_${caseId}_${Date.now()}`;
+      await this.riskScoringService.calculateRiskScore({
+        tenantId,
+        userId: caseData.userId,
+        idempotencyKey: riskKey,
+      });
     } catch {}
 
     return updated;
   }
 
-  async requestEDD(caseId: string, tenantId: string, reviewerId: string, reason: string): Promise<any> {
-    const caseData = await this.repository.findById(caseId, tenantId);
-    if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
-
-    const review = await this.repository.addReviewNote(caseId, tenantId, reviewerId, `EDD requested: ${reason}`, 'REQUEST_EDD');
-
-    await this.auditService.record({
-      tenantId,
+  async requestEDD(caseId: string, tenantId: string, reviewerId: string, reason: string, idempotencyKey?: string): Promise<any> {
+    return this.repository.addReviewNote(
       caseId,
-      action: 'COMPLIANCE_EDD_REQUESTED',
-      actorId: reviewerId,
-      safeMetadata: { caseId, reason: reason.substring(0, 500) },
-    });
-
-    // Transition to IN_REVIEW if not already
-    if (caseData.state === ComplianceCaseState.OPEN) {
-      await this.repository.transitionState(caseId, tenantId, ComplianceCaseState.IN_REVIEW, reviewerId, `EDD requested: ${reason}`);
-    }
-
-    return review;
+      tenantId,
+      reviewerId,
+      `EDD requested: ${reason}`,
+      ComplianceReviewAction.REQUEST_EDD,
+      {
+        idempotencyKey,
+        transitionOpenToReview: true,
+        auditAction: 'COMPLIANCE_EDD_REQUESTED',
+        auditMetadata: { reason: reason.substring(0, 500) },
+      },
+    );
   }
 
-  async requestReverification(caseId: string, tenantId: string, reviewerId: string, reason: string): Promise<any> {
-    const caseData = await this.repository.findById(caseId, tenantId);
-    if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
-
-    const review = await this.repository.addReviewNote(caseId, tenantId, reviewerId, `Re-verification requested: ${reason}`, 'REQUEST_REVERIFICATION');
-
-    await this.auditService.record({
-      tenantId,
+  async requestReverification(caseId: string, tenantId: string, reviewerId: string, reason: string, idempotencyKey?: string): Promise<any> {
+    return this.repository.addReviewNote(
       caseId,
-      action: 'COMPLIANCE_REVERIFICATION_REQUESTED',
-      actorId: reviewerId,
-      safeMetadata: { caseId, reason: reason.substring(0, 500) },
-    });
-
-    return review;
+      tenantId,
+      reviewerId,
+      `Re-verification requested: ${reason}`,
+      ComplianceReviewAction.REQUEST_REVERIFICATION,
+      {
+        idempotencyKey,
+        auditAction: 'COMPLIANCE_REVERIFICATION_REQUESTED',
+        auditMetadata: { reason: reason.substring(0, 500) },
+      },
+    );
   }
 
   async requestHold(caseId: string, tenantId: string, reviewerId: string, reason: string, idempotencyKey?: string): Promise<any> {
     const caseData = await this.repository.findById(caseId, tenantId);
     if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
 
-    // Explicit policy check - no auto freeze without explicit policy + auditable action
     const policy = await this.policyService.getEffectivePolicy({ tenantId, jurisdiction: caseData.jurisdiction });
     if (!policy.manualReviewRequired && caseData.riskLevel !== RiskLevel.CRITICAL) {
       this.logger.warn(`Hold requested but policy does not require manual review case=${caseId} risk=${caseData.riskLevel}`);
     }
 
-    const review = await this.repository.addReviewNote(caseId, tenantId, reviewerId, `Hold requested: ${reason}`, 'REQUEST_HOLD');
-
-    await this.auditService.recordHoldRequested(tenantId, caseId, reviewerId, reason);
-
-    // Note: hold effect must be via controlled boundary, not direct DB mutation of financial tables - audit only here
+    const review = await this.repository.addReviewNote(
+      caseId,
+      tenantId,
+      reviewerId,
+      `Hold requested: ${reason}`,
+      ComplianceReviewAction.REQUEST_HOLD,
+      {
+        idempotencyKey,
+        auditAction: 'COMPLIANCE_HOLD_REQUESTED',
+        auditMetadata: { reason: reason.substring(0, 500) },
+      },
+    );
     this.logger.log(`Compliance hold requested case=${caseId} tenant=${tenantId} reviewer=${reviewerId} - requires explicit downstream action via controlled boundary`);
-
     return review;
   }
 
@@ -282,55 +284,61 @@ export class ComplianceCaseService {
     const caseData = await this.repository.findById(caseId, tenantId);
     if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
 
-    const review = await this.repository.addReviewNote(caseId, tenantId, reviewerId, `Release requested: ${reason}`, 'REQUEST_RELEASE');
-
-    await this.auditService.recordReleaseRequested(tenantId, caseId, reviewerId, reason);
-
+    const review = await this.repository.addReviewNote(
+      caseId,
+      tenantId,
+      reviewerId,
+      `Release requested: ${reason}`,
+      ComplianceReviewAction.REQUEST_RELEASE,
+      {
+        idempotencyKey,
+        auditAction: 'COMPLIANCE_RELEASE_REQUESTED',
+        auditMetadata: { reason: reason.substring(0, 500) },
+      },
+    );
     this.logger.log(`Compliance release requested case=${caseId} tenant=${tenantId} reviewer=${reviewerId} - requires explicit downstream action via controlled boundary`);
-
     return review;
   }
 
-  async resolveCase(caseId: string, tenantId: string, reviewerId: string, reason: string, decision?: ComplianceDecision): Promise<any> {
-    const caseData = await this.repository.findById(caseId, tenantId);
-    if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
-
-    if (![ComplianceCaseState.IN_REVIEW, ComplianceCaseState.ESCALATED].includes(caseData.state as ComplianceCaseState)) {
-      throw new BadRequestException(`Cannot resolve case in state ${caseData.state}`);
-    }
-
-    const updated = await this.repository.transitionState(caseId, tenantId, ComplianceCaseState.RESOLVED, reviewerId, reason, decision);
-
-    await this.auditService.record({
-      tenantId,
+  async resolveCase(
+    caseId: string,
+    tenantId: string,
+    reviewerId: string,
+    reason: string,
+    decision?: ComplianceDecision,
+    idempotencyKey?: string,
+  ): Promise<any> {
+    return this.repository.transitionState(
       caseId,
-      action: 'COMPLIANCE_CASE_RESOLVED',
-      actorId: reviewerId,
-      safeMetadata: { caseId, decision: decision || caseData.decision, reason: reason.substring(0, 500) },
-    });
-
-    return updated;
+      tenantId,
+      ComplianceCaseState.RESOLVED,
+      reviewerId,
+      reason,
+      decision,
+      idempotencyKey,
+      {
+        action: ComplianceReviewAction.RESOLVE,
+        auditAction: 'COMPLIANCE_CASE_RESOLVED',
+        allowedFromStates: [ComplianceCaseState.IN_REVIEW, ComplianceCaseState.ESCALATED],
+      },
+    );
   }
 
-  async closeCase(caseId: string, tenantId: string, reviewerId: string, reason: string): Promise<any> {
-    const caseData = await this.repository.findById(caseId, tenantId);
-    if (!caseData) throw new NotFoundException(`Case ${caseId} not found`);
-
-    if (caseData.state !== ComplianceCaseState.RESOLVED && caseData.state !== ComplianceCaseState.REJECTED) {
-      throw new BadRequestException(`Can only close RESOLVED or REJECTED cases, current=${caseData.state}`);
-    }
-
-    const updated = await this.repository.transitionState(caseId, tenantId, ComplianceCaseState.CLOSED, reviewerId, reason);
-
-    await this.auditService.record({
-      tenantId,
+  async closeCase(caseId: string, tenantId: string, reviewerId: string, reason: string, idempotencyKey?: string): Promise<any> {
+    return this.repository.transitionState(
       caseId,
-      action: 'COMPLIANCE_CASE_CLOSED',
-      actorId: reviewerId,
-      safeMetadata: { caseId, reason: reason.substring(0, 500) },
-    });
-
-    return updated;
+      tenantId,
+      ComplianceCaseState.CLOSED,
+      reviewerId,
+      reason,
+      undefined,
+      idempotencyKey,
+      {
+        action: ComplianceReviewAction.CLOSE,
+        auditAction: 'COMPLIANCE_CASE_CLOSED',
+        allowedFromStates: [ComplianceCaseState.RESOLVED, ComplianceCaseState.REJECTED],
+      },
+    );
   }
 
   async getUserCases(userId: string, tenantId: string): Promise<any[]> {
@@ -338,6 +346,6 @@ export class ComplianceCaseService {
   }
 
   private isPlatformAdmin(roles?: string[]): boolean {
-    return !!roles?.includes('PLATFORM_ADMIN') || !!roles?.includes('SUPER_ADMIN');
+    return !!roles?.some((role) => ['PLATFORM_ADMIN', 'SUPER_ADMIN', 'PLATFORM_MANAGE'].includes(role));
   }
 }

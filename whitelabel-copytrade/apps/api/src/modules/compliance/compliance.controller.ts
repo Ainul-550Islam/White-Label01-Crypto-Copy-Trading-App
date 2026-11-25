@@ -33,6 +33,18 @@ import {
 } from './dto/compliance-review.dto';
 import { CreatePolicyDto, CalculateRiskScoreDto } from './dto/risk-policy.dto';
 
+function resolveComplianceTenantId(tenant: any, user: any, requestedTenantId?: string): string {
+  const roles: string[] = Array.isArray(user?.roles) ? user.roles : [];
+  const permissions: string[] = Array.isArray(user?.permissions) ? user.permissions : [];
+  const isPlatformOperator = roles.some((role) => ['PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(role))
+    || permissions.includes(Permission.PLATFORM_MANAGE);
+  const authenticatedTenantId = tenant?.id ?? tenant?.tenantId ?? user?.tenantId;
+
+  if (isPlatformOperator && requestedTenantId) return requestedTenantId;
+  if (authenticatedTenantId) return authenticatedTenantId;
+  throw new BadRequestException('tenantId required in the authenticated compliance scope');
+}
+
 
 /**
  * Compliance controller: RBAC tenant-only own data + compliance reviewers scoped + PLATFORM_MANAGE for platform admin/policy
@@ -335,7 +347,7 @@ export class ComplianceController {
   @Post('cases')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async createCase(@Body() dto: CreateComplianceCaseDto, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = dto.tenantId || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, dto.tenantId);
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.caseService.createCase({
       tenantId,
@@ -355,9 +367,9 @@ export class ComplianceController {
   @Get('cases')
   @RequirePermissions(Permission.COMPLIANCE_READ)
   async listCases(@Query() query: ComplianceQueryDto, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = query.tenantId || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, query.tenantId);
     if (!tenantId) throw new BadRequestException('tenantId required');
-    const requester = { userId: user.id || user.userId, tenantId: tenant?.id || tenant?.tenantId || user?.tenantId, roles: user?.roles || user?.permissions || [] };
+    const requester = { userId: user.id || user.userId, tenantId: tenant?.id || tenant?.tenantId || user?.tenantId, roles: [...(Array.isArray(user?.roles) ? user.roles : []), ...(Array.isArray(user?.permissions) ? user.permissions : [])] };
     return this.caseService.listTenantCases(tenantId, requester, {
       state: query.state as any,
       caseType: query.caseType as any,
@@ -380,24 +392,24 @@ export class ComplianceController {
   @Get('cases/:caseId')
   @RequirePermissions(Permission.COMPLIANCE_READ)
   async getCase(@Param('caseId') caseId: string, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
-    const requester = { userId: user.id || user.userId, tenantId: tenant?.id || tenant?.tenantId || user?.tenantId, roles: user?.roles || user?.permissions || [] };
+    const requester = { userId: user.id || user.userId, tenantId: tenant?.id || tenant?.tenantId || user?.tenantId, roles: [...(Array.isArray(user?.roles) ? user.roles : []), ...(Array.isArray(user?.permissions) ? user.permissions : [])] };
     return this.caseService.getCase(caseId, tenantId, requester);
   }
 
   @Post('cases/:caseId/assign')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async assignCase(@Param('caseId') caseId: string, @Body() dto: AssignCaseDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
-    return this.caseService.assignCase(caseId, tenantId, dto.reviewerId, user.id || user.userId, dto.idempotencyKey);
+    return this.caseService.assignCase(caseId, tenantId, dto.reviewerId, user.id || user.userId, dto.idempotencyKey, dto.reason);
   }
 
   @Post('cases/:caseId/escalate')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async escalateCase(@Param('caseId') caseId: string, @Body() dto: EscalateCaseDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.caseService.escalateCase(caseId, tenantId, user.id || user.userId, dto.reason, dto.idempotencyKey);
   }
@@ -405,7 +417,7 @@ export class ComplianceController {
   @Post('cases/:caseId/evidence')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async addEvidence(@Param('caseId') caseId: string, @Body() dto: AddEvidenceDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.caseService.addEvidence(caseId, tenantId, {
       evidenceType: dto.evidenceType,
@@ -413,21 +425,22 @@ export class ComplianceController {
       referenceType: dto.referenceType,
       safeDescription: dto.safeDescription,
       addedBy: user.id || user.userId,
+      idempotencyKey: dto.idempotencyKey,
     });
   }
 
   @Post('cases/:caseId/notes')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async addNote(@Param('caseId') caseId: string, @Body() dto: AddNoteDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
-    return this.caseService.addNote(caseId, tenantId, user.id || user.userId, dto.safeNote);
+    return this.caseService.addNote(caseId, tenantId, user.id || user.userId, dto.safeNote, dto.idempotencyKey);
   }
 
   @Post('cases/:caseId/decision')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.COMPLIANCE_REVIEWER, Permission.PLATFORM_MANAGE)
   async makeDecision(@Param('caseId') caseId: string, @Body() dto: MakeDecisionDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.caseService.makeDecision(caseId, tenantId, {
       decision: dto.decision,
@@ -440,23 +453,23 @@ export class ComplianceController {
   @Post('cases/:caseId/request-edd')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async requestEDD(@Param('caseId') caseId: string, @Body() dto: RequestEDDDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
-    return this.caseService.requestEDD(caseId, tenantId, user.id || user.userId, dto.reason);
+    return this.caseService.requestEDD(caseId, tenantId, user.id || user.userId, dto.reason, dto.idempotencyKey);
   }
 
   @Post('cases/:caseId/request-reverification')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async requestReverification(@Param('caseId') caseId: string, @Body() dto: RequestReverificationDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
-    return this.caseService.requestReverification(caseId, tenantId, user.id || user.userId, dto.reason);
+    return this.caseService.requestReverification(caseId, tenantId, user.id || user.userId, dto.reason, dto.idempotencyKey);
   }
 
   @Post('cases/:caseId/request-hold')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async requestHold(@Param('caseId') caseId: string, @Body() dto: RequestHoldDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.caseService.requestHold(caseId, tenantId, user.id || user.userId, dto.reason, dto.idempotencyKey);
   }
@@ -464,7 +477,7 @@ export class ComplianceController {
   @Post('cases/:caseId/request-release')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async requestRelease(@Param('caseId') caseId: string, @Body() dto: RequestReleaseDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
     return this.caseService.requestRelease(caseId, tenantId, user.id || user.userId, dto.reason, dto.idempotencyKey);
   }
@@ -472,17 +485,17 @@ export class ComplianceController {
   @Post('cases/:caseId/resolve')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async resolveCase(@Param('caseId') caseId: string, @Body() dto: ResolveCaseDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
-    return this.caseService.resolveCase(caseId, tenantId, user.id || user.userId, dto.reason, dto.decision);
+    return this.caseService.resolveCase(caseId, tenantId, user.id || user.userId, dto.reason, dto.decision, dto.idempotencyKey);
   }
 
   @Post('cases/:caseId/close')
   @RequirePermissions(Permission.COMPLIANCE_WRITE, Permission.PLATFORM_MANAGE)
   async closeCase(@Param('caseId') caseId: string, @Body() dto: CloseCaseDto, @Query('tenantId') tenantIdQuery: string, @CurrentTenant() tenant: any, @CurrentUser() user: any) {
-    const tenantId = tenantIdQuery || tenant?.id || tenant?.tenantId;
+    const tenantId = resolveComplianceTenantId(tenant, user, tenantIdQuery);
     if (!tenantId) throw new BadRequestException('tenantId required');
-    return this.caseService.closeCase(caseId, tenantId, user.id || user.userId, dto.reason);
+    return this.caseService.closeCase(caseId, tenantId, user.id || user.userId, dto.reason, dto.idempotencyKey);
   }
 
   // ===== Reconciliation =====

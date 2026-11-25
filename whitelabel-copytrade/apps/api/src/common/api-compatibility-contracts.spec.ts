@@ -1511,7 +1511,7 @@ describe('AML durable result and replay boundaries', () => {
     db.complianceScreeningRequest.create.mockResolvedValueOnce(screeningRecord({ type: 'TRANSACTION' }));
     await service().screenTransaction({ ...params, transactionId: 'tx-1', transactionType: 'withdrawal', amount: '20', currency: 'USD', counterparty: 'raw-private-counterparty' });
     const call = jest.mocked(provider.screenTransaction).mock.calls[0]?.[0];
-    expect(call).not.toHaveProperty('counterparty'); expect(call?.counterpartyHash).toMatch(/^hash_/);
+    expect(call).not.toHaveProperty('counterparty'); expect(call?.counterpartyHash).toMatch(/^[a-f0-9]{64}$/);
     expect(db.complianceScreeningRequest.create).toHaveBeenCalledWith({ data: expect.objectContaining({ safeMetadata: {
       screeningSubject: { transactionId: 'tx-1', transactionType: 'withdrawal', amount: '20', currency: 'USD' } } }) });
   });

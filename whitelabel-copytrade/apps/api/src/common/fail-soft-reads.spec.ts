@@ -247,7 +247,6 @@ const ALLOWED_TRY_CATCH_EMPTY: Record<string, { count: number; reason: string }>
   'oms/execution-latency.service.ts': { count: 1, reason: 'parsing a microsecond string' },
   'oms/execution-quality.service.ts': { count: 1, reason: 'parsing a scaled decimal' },
   'oms/order-submission-result.service.ts': { count: 1, reason: 'JSON.parse of a queue return value' },
-  'compliance/compliance-case.repository.ts': { count: 1, reason: 'reviewer assignment write flow that logs its failure (write side)' },
   'compliance/transaction-monitoring.service.ts': { count: 1, reason: 'signal acknowledgement updateMany that logs its failure (write side)' },
   'copy-trading/copy-budget.service.ts': { count: 1, reason: 'decimal syntax validation rejects invalid inputs; malformed stored ceilings block evaluation' },
   'copy-trading/copy-execution.service.ts': { count: 5, reason: 'fail-closed pre-trade guards: a failed lookup BLOCKS the leader event and logs it' },
